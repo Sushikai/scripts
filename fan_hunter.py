@@ -16,11 +16,17 @@ import os, sys, re, json, time, random, subprocess, requests
 from datetime import datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
+from typing import List, Optional
 
 # ── 配置 ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent
 OUTPUT_DIR = Path("/Users/kaikai/ai_video_project/fan_hunter")
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
+
+# MiniMax API 配置（从 settings.json 读取环境变量）
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.minimaxi.com/anthropic")
+ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 
 # 从 fengge_pipeline.py 加载 cookies（更稳定，避免硬编码）
 COOKIES_FILE = Path("/Users/kaikai/scripts/video/fengge_pipeline.py")
@@ -68,9 +74,74 @@ MAX_USERS_PER_RUN = 20      # 每次最多处理20个用户
 MAX_LIKES_PER_USER = 7     # 每个用户最多点赞7条评论
 DAYS_LOOKBACK = 7           # 只看最近7天的评论
 
+# 轻量模式（定时任务用）
+LIGHT_MODE_USERS = 5        # 轻量模式每次处理5个用户
+
 # 延时设置（避免风控）
 MIN_DELAY = 2.0
 MAX_DELAY = 5.0
+
+# ── AI 搜索词生成 ────────────────────────────────────────────────────────────
+
+def generate_keywords_with_ai(topic: str, num: int = 8) -> List[str]:
+    """调用 MiniMax AI 模型生成搜索关键词"""
+    if not ANTHROPIC_AUTH_TOKEN:
+        log("⚠️ 未配置 ANTHROPIC_AUTH_TOKEN，使用默认关键词")
+        return []
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(
+            base_url=ANTHROPIC_BASE_URL,
+            api_key=ANTHROPIC_AUTH_TOKEN,
+        )
+
+        prompt = f"""你是一个B站内容运营专家。请根据以下主题生成 {num} 个适合在B站搜索的关键词，用于发现目标受众。
+
+主题：{topic}
+
+要求：
+1. 关键词要多样化，覆盖不同角度（人群、地点、行为、话题）
+2. 每个关键词2-6个字，适合B站搜索
+3. 输出JSON数组格式，只输出关键词，不要其他内容
+4. 确保关键词有搜索价值，能找到活跃用户
+
+示例输出：["环球旅行", "海外工作", "移民生活", "留学日常"]"""
+
+        response = client.messages.create(
+            model=DEFAULT_MODEL,
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+            thinking={"type": "disabled"}
+        )
+
+        result_text = ""
+        for block in response.content:
+            if hasattr(block, 'text') and block.text:
+                result_text = block.text
+                break
+        # 尝试解析 JSON 数组
+        if result_text.startswith("["):
+            keywords = json.loads(result_text)
+            if isinstance(keywords, list) and keywords:
+                log(f"  🤖 AI 生成关键词: {keywords}")
+                return keywords
+
+        log(f"  ⚠️ AI 返回格式异常，使用默认关键词")
+    except Exception as e:
+        log(f"  ⚠️ AI 调用失败: {e}")
+
+    return []
+
+# 搜索关键词（默认列表，AI 生成失败时备用）
+DEFAULT_KEYWORDS = [
+    "环球旅行", "出境游", "国外生活", "海外华人",
+    "峰哥", "信息差", "跨境电商", "海外工作",
+    "签证攻略", "移民", "留学", "海外定居",
+]
+
+# AI 主题（用于生成更精准的关键词）
+AI_TOPIC = "海外华人在B站的热门内容方向"
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 
@@ -82,21 +153,6 @@ def rand_delay():
     """随机延时，避免风控"""
     t = random.uniform(MIN_DELAY, MAX_DELAY)
     time.sleep(t)
-
-def load_cookies():
-    """加载B站 cookies"""
-    cookies = {}
-    if os.path.exists(COOKIE_FILE):
-        with open(COOKIE_FILE) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '\t' in line:
-                    parts = line.split('\t')
-                    if len(parts) >= 7:
-                        name = parts[5].strip()
-                        value = parts[6].strip()
-                        cookies[name] = value
-    return cookies
 
 def get_session():
     """创建请求session"""
@@ -137,7 +193,7 @@ def search_videos(keyword: str, session: requests.Session, limit: int = 10) -> l
         log(f"  ⚠️ 搜索失败[{keyword[:10]}]: {e}")
         return []
 
-def get_video_comments(bvid: str, session: requests.Session, cookies: dict, limit: int = 50) -> list:
+def get_video_comments(bvid: str, session: requests.Session, cookies: dict, limit: int = 20) -> list:
     """获取视频评论，返回评论者信息"""
     try:
         r = session.get(
@@ -153,7 +209,8 @@ def get_video_comments(bvid: str, session: requests.Session, cookies: dict, limi
         if data.get("code") != 0:
             return []
         comments = []
-        for reply in data.get("data", {}).get("replies", []) or []:
+        replies = data.get("data", {}).get("replies", []) or []
+        for reply in replies:
             if not reply:
                 continue
             uname = reply.get("member", {}).get("uname", "")
@@ -162,6 +219,8 @@ def get_video_comments(bvid: str, session: requests.Session, cookies: dict, limi
             ctime = reply.get("ctime", 0)
             content = re.sub(r'<[^>]+>', '', reply.get("content", {}).get("message", ""))
             if uid and uname and rpid:
+                # oid 是评论所在视频的 aid
+                oid = reply.get("oid", 0)
                 comments.append({
                     "uid": str(uid),
                     "uname": uname,
@@ -169,6 +228,7 @@ def get_video_comments(bvid: str, session: requests.Session, cookies: dict, limi
                     "ctime": ctime,
                     "content": content[:50],
                     "bvid": bvid,
+                    "oid": oid,
                 })
         return comments
     except Exception as e:
@@ -210,6 +270,7 @@ def get_user_recent_comments(uid: str, session: requests.Session, cookies: dict,
 def like_comment(rpid: int, oid: int, session: requests.Session, cookies: dict) -> bool:
     """点赞评论"""
     try:
+        csrf = cookies.get("bili_jct", "")
         r = session.post(
             "https://api.bilibili.com/x/v2/reply/action",
             data={
@@ -217,6 +278,7 @@ def like_comment(rpid: int, oid: int, session: requests.Session, cookies: dict) 
                 "type": 1,
                 "rpid": rpid,
                 "action": 1,  # 1=点赞
+                "csrf": csrf,
             },
             headers={
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -266,9 +328,10 @@ def save_liked_comment(rpid: int):
 
 # ── 主流程 ──────────────────────────────────────────────────────────────────
 
-def main():
+def main(light_mode: bool = False):
+    limit = LIGHT_MODE_USERS if light_mode else MAX_USERS_PER_RUN
     log(f"\n{'='*60}")
-    log(f"🔥 粉丝发掘脚本启动")
+    log(f"🔥 粉丝发掘脚本启动{' [轻量模式]' if light_mode else ''}")
     log(f"{'='*60}")
 
     cookies = BILI_COOKIES
@@ -280,8 +343,15 @@ def main():
 
     # ── 阶段1: 搜索目标领域视频 ─────────────────────────────────────
     log(f"\n① 搜索目标领域视频...")
+
+    # 尝试用 AI 生成关键词，失败则用默认列表
+    search_keywords = generate_keywords_with_ai(AI_TOPIC, num=10)
+    if not search_keywords:
+        search_keywords = DEFAULT_KEYWORDS
+        log(f"  使用默认关键词: {search_keywords[:3]}...")
+
     all_videos = []
-    for kw in SEARCH_KEYWORDS:
+    for kw in search_keywords:
         videos = search_videos(kw, session, limit=5)
         all_videos.extend(videos)
         log(f"  关键词「{kw}」: 找到 {len(videos)} 个视频")
@@ -300,13 +370,13 @@ def main():
     log(f"\n② 抓取评论者...")
     user_comments = defaultdict(list)  # uid -> [comments]
     for v in unique_videos[:15]:  # 最多处理15个视频
-        comments = get_video_comments(v["bvid"], session, cookies, limit=30)
+        comments = get_video_comments(v["bvid"], session, cookies, limit=20)
         for c in comments:
             uid = c["uid"]
             user_comments[uid].append({
                 "uname": c["uname"],
                 "rpid": c["rpid"],
-                "oid": v["aid"],
+                "oid": c.get("oid", 0) or v.get("aid", 0),
                 "bvid": c["bvid"],
                 "content": c["content"],
                 "ctime": c["ctime"],
@@ -329,7 +399,7 @@ def main():
     user_list = list(user_comments.keys())
     random.shuffle(user_list)
 
-    for uid in user_list[:MAX_USERS_PER_RUN]:
+    for uid in user_list[:limit]:
         comments = user_comments[uid]
         uname = comments[0]["uname"] if comments else uid
 
@@ -338,11 +408,11 @@ def main():
 
         # 也加上从视频评论里抓到的
         all_recent = list(recent)
+        seen_rpids = set(c["rpid"] for c in recent)
         for c in comments:
-            if c["ctime"] >= cutoff_time and c["rpid"] not in liked_rpids:
+            if c["ctime"] >= cutoff_time and c["rpid"] not in liked_rpids and c["rpid"] not in seen_rpids:
                 all_recent.append(c)
-            if c["ctime"] >= cutoff_time and c["rpid"] not in liked_rpids:
-                all_recent.append(c)
+                seen_rpids.add(c["rpid"])
 
         # 去重且过滤
         seen_rpids = set()
@@ -383,4 +453,6 @@ def main():
     log(f"{'='*60}")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    light = "--light" in sys.argv or "-l" in sys.argv
+    main(light_mode=light)
