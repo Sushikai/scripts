@@ -18,6 +18,16 @@ LOCK_FILE = "/tmp/bili_dm_monitor.lock"
 _instance = os.environ.get('BILIBILI_INSTANCE', '')
 if _instance:
     LOCK_FILE = f"/tmp/bili_dm_monitor_{_instance}.lock"
+    _base = os.path.expanduser(f"~/.hermes/instances/{_instance}")
+    _work = os.path.join(_base, "work")
+    os.makedirs(_work, exist_ok=True)
+    _cookie_path = os.path.join(_work, "bilibili_cookies.json")
+    if os.path.exists(_cookie_path):
+        COOKIES_FILE = str(_cookie_path)
+        SENT_MESSAGES_FILE = str(os.path.join(_work, "bili_dm_sent_messages_v2.json"))
+else:
+    _base = None
+    _work = None
 
 # Load .env_minimax if API key not already set
 if not os.environ.get("MINIMAX_API_KEY"):
@@ -32,17 +42,18 @@ if not os.environ.get("MINIMAX_API_KEY"):
 
 SENT_MESSAGES_FILE = "/tmp/bili_dm_sent_messages_v2.json"
 
-# 多账号支持
-_instance = os.environ.get('BILIBILI_INSTANCE', '')
-COOKIES_FILE = "/tmp/bilibili_cookies.json"
-if _instance:
-    _base = os.path.expanduser(f"~/.hermes/instances/{_instance}")
-    _work = os.path.join(_base, "work")
-    os.makedirs(_work, exist_ok=True)
-    _cookie_path = os.path.join(_work, "bilibili_cookies.json")
-    if os.path.exists(_cookie_path):
-        COOKIES_FILE = str(_cookie_path)
-        SENT_MESSAGES_FILE = str(os.path.join(_work, "bili_dm_sent_messages_v2.json"))
+# 多账号支持（仅在 _instance 未设置时才用默认）
+if not _instance:
+    _instance = os.environ.get('BILIBILI_INSTANCE', '')
+    COOKIES_FILE = "/tmp/bilibili_cookies.json"
+    if _instance:
+        _base = os.path.expanduser(f"~/.hermes/instances/{_instance}")
+        _work = os.path.join(_base, "work")
+        os.makedirs(_work, exist_ok=True)
+        _cookie_path = os.path.join(_work, "bilibili_cookies.json")
+        if os.path.exists(_cookie_path):
+            COOKIES_FILE = str(_cookie_path)
+            SENT_MESSAGES_FILE = str(os.path.join(_work, "bili_dm_sent_messages_v2.json"))
 
 COOKIES_FILE = os.environ.get('BILIBILI_DM_COOKIE_FILE', COOKIES_FILE)
 if os.environ.get('BILIBILI_DM_SENT_FILE'):
@@ -420,8 +431,8 @@ async def browser_send_message(talker_id, content, session_name=None, max_retrie
         session_name: 会话名称（已弃用，直接通过URL导航）
         max_retries: 最大重试次数
     """
-    cookies_raw = json.load(open(COOKIES_FILE))
-    # 统一为 list of cookie dicts 格式
+    with open(COOKIES_FILE) as f:
+        cookies_raw = json.load(f)
     if isinstance(cookies_raw, dict):
         cookies_list = [{'name': k, 'value': v} for k, v in cookies_raw.items()]
     else:
