@@ -293,10 +293,16 @@ def call_ollama(prompt: str, system: str = "") -> str:
             content = (data.get('choices', [{}])[0].get('message', {}).get('content') or '').strip()
             if content:
                 import re
-                # 清理 thinking 残留
-                final_candidates = re.split(r'(?:^## |^结论[：:]\s*)', content, flags=re.MULTILINE)
-                result = final_candidates[-1].strip() if len(final_candidates) > 1 else content
-                result = re.sub(r'Thinking Process:.*', '', result, flags=re.DOTALL).strip()
+                # 清理思考过程残留（Ollama/MiniMax 常用 **...** 或 <think> 格式）
+                content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)  # **思考** → 思考
+                content = re.sub(r'<think>[\s\S]*?</think>', '', content, flags=re.DOTALL)  # 移除 <think>...</think>
+                content = re.sub(r'Thinking Process:.*', '', content, flags=re.DOTALL)
+                content = re.sub(r'思考过程[:：]?.*', '', content, flags=re.DOTALL)
+                content = re.sub(r'推理过程[:：]?.*', '', content, flags=re.DOTALL)
+                # 取最后非空段落（通常思考过程在前，实际回复在后）
+                paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
+                result = paragraphs[-1] if paragraphs else content
+                result = re.sub(r'^[\s]*(分析|思考|结论)[:：]\s*', '', result)
                 log(f"  Ollama OK: {result[:40]}")
                 return result
         else:
@@ -365,6 +371,10 @@ def call_minimax(prompt: str) -> str:
 
                 import re
                 content = re.sub(r'\s+', ' ', content).strip()
+                # 清理 MiniMax 思考过程残留
+                content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)
+                content = re.sub(r'<think>[\s\S]*?', '', content, flags=re.DOTALL)
+                content = re.sub(r'推理过程[:：]?.*', '', content, flags=re.DOTALL)
 
                 if len(content) < 4:
                     log(f"  ⚠️ 内容太短({len(content)}字)，跳过: {content[:30]}")
@@ -425,9 +435,9 @@ def generate_smart_reply(uname: str, user_comment: str, video_title: str = "", p
         reply = _smart_truncate(reply, 120)
 
     # 过滤掉分析过程类内容（AI 把思考过程输出了）
-    skip_patterns = ['让我分析', '根据上文', '首先', '其次', '总结', '综合来看', '【分析】', '【回复】']
+    skip_patterns = ['让我分析', '根据上文', '首先', '其次', '总结', '综合来看', '【分析】', '【回复】', '**']
     for p in skip_patterns:
-        if reply.startswith(p) or reply.startswith('好的，') or reply.startswith('好的，让我'):
+        if reply.startswith(p) or reply.startswith('好的，') or reply.startswith('好的，让我') or '**' in reply:
             log(f"  ⚠️ 过滤掉分析过程内容: {reply[:30]}...")
             return "哈哈，这个角度有意思 😂 继续聊~"
 

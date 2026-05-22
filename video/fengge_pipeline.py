@@ -18,6 +18,15 @@ COOKIES = {
     "SESSDATA": "577e3116%2C1794848457%2C1661e%2A52CjD5ybsVR6H9X4F9cCN74F9w2gNdoVnSxOWky3IWFkRL5NUuT3I5aQVNAp6MpijkaN4SVjA5d2E5UGtfaXdoLVN5YTF0VEZMbU1jd0hCajNWYkpxam5OdW9QZXVLaHh3aUdjakg4czFyRDBqbXFBMExhMllvTDdtU0ZZVFZ4eV9QUG5NcWlIOWp3IIEC",
     "bili_jct": "fcd844961a4de0c0e1ebbbe05b183fc6",
     "buvid3": "3169493F-D668-AC48-4C96-6FB6DEFFF40E15104infoc",
+    "buvid4": "9A4E1CC4-30BF-751C-0075-910E6C46849G47286-026051823-74Mos/+u6OM9VVAgAws/WQ%3D%3D",
+    "buvid_fp": "4927fafa58d41d1530891c14ea4ea757",
+    "CURRENT_FNVAL": "4048",
+    "CURRENT_QUALITY": "120",
+    "DedeUserID": "140289989",
+    "DedeUserID__ckMd5": "d62d826182d027e2",
+    "fingerprint": "4927fafa58d41d1530891c14ea4ea757",
+    "sid": "drfqj8r1",
+    "rpdid": "|(umuY~)Y~um0J'u~~YlYlRRk",
 }
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",

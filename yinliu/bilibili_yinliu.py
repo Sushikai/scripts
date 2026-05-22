@@ -6,11 +6,15 @@ sys.path.insert(0, f'{HOME}/.hermes/scripts')
 
 # ==================== Cookie 加载 ====================
 def load_cookies():
-    """从 /tmp/bilibili_cookies.json 加载"""
+    """从 /tmp/bilibili_cookies.json 加载（兼容 list 和 dict 格式）"""
     try:
         with open('/tmp/bilibili_cookies.json') as f:
-            cookies_list = json.load(f)
-        return {c['name']: c['value'] for c in cookies_list}
+            data = json.load(f)
+        if isinstance(data, list):
+            return {c['name']: c['value'] for c in data}
+        elif isinstance(data, dict):
+            return data
+        return {}
     except Exception as e:
         print(f'加载 cookies 失败: {e}')
         return {}
