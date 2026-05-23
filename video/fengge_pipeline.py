@@ -232,8 +232,8 @@ def crop_to_90(input_file: Path, output_file: Path) -> Path | None:
         return None
 
     log(f"原尺寸: {w}x{h}")
-    new_w = int(w * 0.9)
-    new_h = int(h * 0.9)
+    new_w = int(w * 0.8)
+    new_h = int(h * 0.8)
     x_offset = (w - new_w) // 2
     y_offset = (h - new_h) // 2
 
@@ -244,7 +244,7 @@ def crop_to_90(input_file: Path, output_file: Path) -> Path | None:
         "-c:a", "copy",
         str(output_file)
     ]
-    log(f"裁剪: {w}x{h} -> {new_w}x{new_h} (偏移 x={x_offset}, y={y_offset})")
+    log(f"裁剪: {w}x{h} -> {new_w}x{new_h} (四边各裁10%, 偏移 x={x_offset}, y={y_offset})")
 
     for attempt in range(3):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)

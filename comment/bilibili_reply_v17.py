@@ -441,12 +441,11 @@ conv_cache = ConversationCache(
     str(_INSTANCE_WORK / "bili_conversation_cache.json") if _INSTANCE_WORK else "/tmp/bili_conversation_cache.json"
 )
 
-def get_chat_history(aid: str, root_id: str) -> list:
-    return conv_cache.get(aid, root_id)
+def get_chat_history(root_id: str) -> list:
+    return conv_cache.get(root_id)
 
-def add_to_chat_history(aid: str, root_id: str, uname: str, user_comment: str, my_reply: str):
-    conv_cache.add(aid, root_id, {"role": "user", "content": user_comment})
-    conv_cache.add(aid, root_id, {"role": "assistant", "content": my_reply})
+def add_to_chat_history(root_id: str, uname: str, user_comment: str, my_reply: str):
+    conv_cache.add(root_id, user_comment, my_reply)
 
 def build_conversation_prompt(uname: str, user_comment: str, chat_history: list, video_title: str = "", parent_comment: str = "") -> str:
     lines = []
@@ -547,29 +546,6 @@ _stdout_buffer = StringIO()
 sys.stdout = _stdout_buffer
 
 log("=== v18 MiniMax 精确回复版启动 ===")
-
-try:
-    sent = process_reply_messages()
-    save_all()
-    if sent > 0:
-        log(f"✅ 本轮完成：智能回复 {sent} 条 | 历史累计 {len(_store)} 条")
-
-    if _current_task_id:
-        update_task(_current_task_id, status="done", output={
-            "replied_count": sent,
-            "total_replied": len(_store)
-        })
-    sys.stdout = _real_stdout
-    _stdout_buffer.seek(0)
-    output = _stdout_buffer.getvalue()
-    print(output, end='')
-finally:
-    try:
-        fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-
-
 def process_reply_messages():
     log("══ 开始处理「回复我的」消息（MiniMax v18 精确回复版） ══")
     sent_count = 0
@@ -591,7 +567,7 @@ def process_reply_messages():
 
         # 批量预取视频标题
         aids = [str(item.get('item', {}).get('subject_id', '')) for item in items if item.get('item', {}).get('subject_id')]
-        title_cache.prefetch(aids)
+        title_cache.prefetch(aids, session, COOKIES, HEADERS)
 
         for item in items:
             processed += 1
@@ -619,7 +595,7 @@ def process_reply_messages():
 
             video_title = get_video_title(subject_id)
             parent_comment = get_parent_comment(subject_id, parent) if parent != source_id else ""
-            chat_history = get_chat_history(subject_id, root)
+            chat_history = get_chat_history(root)
 
             reply_text = generate_smart_reply(uname, user_comment, video_title, parent_comment, chat_history)
             if reply_text is None:
@@ -640,10 +616,33 @@ def process_reply_messages():
 
             if send_reply(subject_id, root, parent, reply_with_mention):
                 _store[source_id] = time.strftime('%Y-%m-%d %H:%M:%S')
-                add_to_chat_history(subject_id, root, uname, user_comment, reply_text)
+                add_to_chat_history(root, uname, user_comment, reply_text)
                 save_all()
                 sent_count += 1
                 time.sleep(random.uniform(4.0, 6.8))
 
     log(f"  本次扫描 {processed} 条消息，智能回复 {sent_count} 条")
     return sent_count
+
+
+try:
+    sent = process_reply_messages()
+    save_all()
+    if sent > 0:
+        log(f"✅ 本轮完成：智能回复 {sent} 条 | 历史累计 {len(_store)} 条")
+
+    if _current_task_id:
+        update_task(_current_task_id, status="done", output={
+            "replied_count": sent,
+            "total_replied": len(_store)
+        })
+    sys.stdout = _real_stdout
+    _stdout_buffer.seek(0)
+    output = _stdout_buffer.getvalue()
+    print(output, end='')
+finally:
+    try:
+        fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+
