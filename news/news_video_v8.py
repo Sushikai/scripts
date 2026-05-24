@@ -1143,8 +1143,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             frame_idx += 1
 
         cap.release()
-        if frame_dir is not None and os.path.exists(frame_dir):
-            shutil.rmtree(frame_dir, ignore_errors=True)
 
         if frame_idx == 0:
             log(f"  ⚠️ 无帧可处理")
@@ -1175,14 +1173,14 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         ]
         r = subprocess.run(cmd, capture_output=True, timeout=int(clip_dur * 1.5 + 60))
 
-        # 清理帧目录
-        if frame_dir is not None and os.path.exists(frame_dir):
-            shutil.rmtree(frame_dir, ignore_errors=True)
-
         if r.returncode == 0:
+            # 成功后清理帧目录
+            if frame_dir is not None and os.path.exists(frame_dir):
+                shutil.rmtree(frame_dir, ignore_errors=True)
             return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
         else:
             log(f"  ⚠️ PIL烧录重编码失败: {r.stderr[-150:]}")
+            # 失败时不删帧，方便调试
             return False
 
     except Exception as e:
@@ -1704,11 +1702,10 @@ if __name__ == "__main__":
     )
 
     _TASK_ID = uuid.uuid4().hex[:8]
-    # 动态生成标题：从今天真实话题中取前3条
-    _title_topics = [t["topic"] for t in _TODAY_TOPICS[:3]]
-    _title_topics_str = "、".join(_title_topics)
+    # 动态生成标题：日期 + 最具争议性话题
+    _top_topic = _clip_durations[0][0] if _clip_durations else "今日热点速递"
     _time_mark = "早差" if _dt.now().hour < 12 else "晚差"
-    _title = f"【{_time_mark}信息差】{date_short}：{_title_topics_str}…今日热点速递"
+    _title = f"【{_time_mark}信息差】{date_short}：{_top_topic}…今日热点速递"
 
     # ── Step 10.5: 上传前去重检查 ─────────────────────────────────
     if check_title_duplicated(_title):

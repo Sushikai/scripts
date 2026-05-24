@@ -325,7 +325,8 @@ def call_minimax(prompt: str, system_content: str = "") -> str:
 
 def generate_smart_reply(uname: str, user_comment: str, video_title: str = "", parent_comment: str = "", chat_history: list = None) -> str:
     if not user_comment.strip():
-        return "兄弟/姐妹突然冒出一个空弹幕，我直接笑死 😂 说点啥呗？"
+        log("  ⚠️ 空评论内容，跳过")
+        return None
 
     if chat_history is None:
         chat_history = []
@@ -367,12 +368,12 @@ def generate_smart_reply(uname: str, user_comment: str, video_title: str = "", p
     if len(reply) > 120:
         reply = _smart_truncate(reply, 120)
 
-    # 过滤掉分析过程类内容（AI 把思考过程输出了）
+    # 过滤掉分析过程类内容（AI 把思考过程输出了），直接跳过不回复
     skip_patterns = ['让我分析', '根据上文', '首先', '其次', '总结', '综合来看', '【分析】', '【回复】']
     for p in skip_patterns:
         if reply.startswith(p) or '**' in reply or reply.startswith('好的，') or reply.startswith('好的，让我'):
-            log(f"  ⚠️ 过滤掉分析过程内容: {reply[:30]}...")
-            return "哈哈，这个角度有意思 😂 继续聊~"
+            log(f"  ⚠️ 过滤掉分析过程内容: {reply[:30]}...，跳过此条")
+            return None
 
     return reply
 
