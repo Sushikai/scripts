@@ -347,7 +347,7 @@ def is_rate_limit_error(code: int, message: str) -> bool:
 def log(msg: str, log_file: Optional[Path] = None):
     """统一日志格式"""
     import sys
-    ts = time.strftime('%m-%d %H:%M:%S')
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line)
     if log_file:

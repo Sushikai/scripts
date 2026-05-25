@@ -64,7 +64,7 @@ if os.path.exists(_cookies_file):
 TASK_ID = uuid.uuid4().hex[:8].replace("'", "").replace("`", "")
 
 def log(msg):
-    now = datetime.now().strftime("%H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now}] {msg}", flush=True)
 
 # ══════════════════════════════════════════════════════════════════════════════

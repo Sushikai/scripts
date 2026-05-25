@@ -69,7 +69,7 @@ _session.mount(
 # 工具函数
 # ═══════════════════════════════════════════════════════
 def log(msg: str) -> None:
-    ts = time.strftime("%m-%d %H:%M:%S")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line)
     try:

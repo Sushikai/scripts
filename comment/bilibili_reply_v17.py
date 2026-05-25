@@ -5,6 +5,7 @@ B站评论回复 - MiniMax 大模型智能版 v18
 支持 shared_state 任务派发模式
 """
 import fcntl, json, os, random, signal, sys, time
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 import requests
@@ -191,7 +192,7 @@ signal.signal(signal.SIGINT, sig_handler)
 signal.alarm(0)
 
 def log(msg):
-    ts = time.strftime('%m-%d %H:%M:%S')
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line)
     try:

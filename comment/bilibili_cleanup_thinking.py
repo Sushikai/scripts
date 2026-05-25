@@ -68,7 +68,7 @@ THINKING_PATTERNS = [
 ]
 
 def log(msg):
-    ts = time.strftime('%m-%d %H:%M:%S')
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}")
     sys.stdout.flush()
 

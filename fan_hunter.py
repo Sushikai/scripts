@@ -137,7 +137,7 @@ AI_TOPIC = "海外华人在B站的热门内容方向"
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 
 def log(msg):
-    now = datetime.now().strftime("%H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now}] {msg}", flush=True)
 
 def rand_delay():

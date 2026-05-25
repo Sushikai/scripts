@@ -58,7 +58,7 @@ OLLAMA_MODEL   = "gemma3:4b"
 MAX_CONTENT_LEN = 80
 
 def log(msg):
-    ts = time.strftime('%m-%d %H:%M:%S')
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line)
     try:

@@ -29,8 +29,12 @@ def load_cookies():
         return {}
     try:
         with open(COOKIES_FILE, 'r') as f:
-            cookies_list = json.load(f)
-        return {c['name']: c['value'] for c in cookies_list}
+            data = json.load(f)
+        if isinstance(data, list):
+            return {c['name']: c['value'] for c in data}
+        elif isinstance(data, dict):
+            return data
+        return {}
     except Exception as e:
         print(f"加载 cookies 失败: {e}")
         return {}
