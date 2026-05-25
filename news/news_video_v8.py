@@ -71,13 +71,27 @@ def log(msg):
 # 工具函数
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── B站上传凭证（主账号 UID 1650357577 "20岁还没开始环球旅行"）────────────────
-BILIBILI_COOKIES = {
-    "SESSDATA": "1b71344f%2C1794931778%2C7c347%2A52CjADKO-zY4oXSI-RHIglupU3i8erxjrJRzgwV7fKslNBXbNqTo5XY_LH6C7FssaeSM0SVjJnbWU3QVB4amNXOVZxVl9uWGlKZUlBNXZvYi1Fbkt5YmREendYNnZ2RWpNbGl2NTR0MVZ6a2FUTHpLd1ZFXzZfTWpQNkVRcWQwc1VfM2pYa0tVTm5RIIEC",
-    "bili_jct": "82ecef2eb4e924cd031ffd29ed65093d",
-    "buvid3": "1E52EDA5-3E2D-8D62-7CB1-610840052F2D68049infoc",
-    "DedeUserID": "1650357577",
-}
+# ── B站上传凭证（账号B: UID 1650357577 "20岁还没开始环球旅行"）────────────────
+def _load_upload_cookies():
+    """从账号B cookie文件加载上传凭证"""
+    paths = [
+        Path.home() / ".hermes/instances/fengge_b/secrets/bilibili_cookies_B.json",
+        Path.home() / ".hermes/instances/fengge_b/secrets/bilibili_cookies.txt",
+        Path("/tmp/bilibili_cookies_B.json"),
+    ]
+    for p in paths:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text())
+                if isinstance(data, dict) and 'SESSDATA' in data:
+                    return data
+            except Exception:
+                pass
+    return {}
+
+BILIBILI_COOKIES = _load_upload_cookies()
+if not BILIBILI_COOKIES:
+    print("警告: 无法加载账号B cookie，使用降级方案")
 
 def check_title_duplicated(new_title: str, channel_uid: str = "1650357577") -> bool:
     """
@@ -171,9 +185,20 @@ def get_today_date():
 
 # ── 争议话题优先排序 ────────────────────────────────────────────────────
 BORING_KEYWORDS = [
+    # 官方媒体（语气正、难引发共鸣）
     "外交部", "中方回应", "央视新闻", "人民日报", "新华社", "官方通报",
     "召开会议", "政策发布", "稳步推进", "安全播出", "依法", "切实",
     "高度重视", "认真贯彻落实", "有关部门", "答记者问", "发表评论",
+    # 中国领导人相关（容易导致退稿）
+    "国家主席", "国家领导人", "总书记", "主席讲话", "领导人讲话",
+    "中央领导", "政治局", "国务院", "国务院新闻",
+]
+# 完全禁止的话题（直接跳过）
+BANNED_KEYWORDS = [
+    "国家主席", "国家领导人", "总书记", "主席讲话", "政治局常委",
+    "国务院总理", "国家副主席", "军委主席", "党和国家",
+    "人民领袖", "伟大领袖", "习近", "彭丽媛", "李克强", "温家宝",
+    "胡锦涛", "江泽民", "毛泽东", "邓小平", "周恩来", "朱镕基",
 ]
 HOT_KEYWORDS = [
     "争议", "冲突", "爆发", "暴跌", "暴涨", "裁员", "倒闭", "揭秘",
@@ -181,21 +206,43 @@ HOT_KEYWORDS = [
     "对抗", "丑闻", "翻车", "打脸", "反转", "炸锅", "爆雷", "硬刚",
     "夺权", "逼宫", "内斗", "逃亡", "被捕", "通缉", "辟谣",
 ]
+# 章节分类关键词（优先选有争议性、能吸引粉丝的话题）
+CHAPTER_CATEGORIES = {
+    "投资信号": ["股市", "基金", "房价", "比特币", "黄金", "理财", "亏损", "赚钱", "暴富", "韭菜"],
+    "争议话题": ["出轨", "家暴", "离婚", "婆媳", "重男轻女", "性别对立", "彩礼", "剩女"],
+    "民生热点": ["看病", "就医", "医保", "教育", "学区房", "加班", "工资", "裁员", "就业", "失业"],
+    "科技前沿": ["AI", "人工智能", "芯片", "华为", "苹果", "特斯拉", "新能源", "电动汽车"],
+    "海外生活": ["移民", "留学", "签证", "出国", "回国", "海外", "跨境", "汇率"],
+}
 
 def _topic_score(t: dict) -> tuple:
     """返回(分数, 话题)，分数越高越优先"""
     topic = t.get("topic", "")
     score = 0
+
+    # 完全禁止的话题直接过滤
+    for kw in BANNED_KEYWORDS:
+        if kw in topic:
+            return (-9999, topic)
+
+    # 争议性加分
     for kw in HOT_KEYWORDS:
         if kw in topic:
             score += 5
+    # 官方语气扣分
     for kw in BORING_KEYWORDS:
         if kw in topic:
-            score -= 3
+            score -= 5
+    # 章节分类匹配加分（更容易吸引精准粉丝）
+    for category, keywords in CHAPTER_CATEGORIES.items():
+        for kw in keywords:
+            if kw in topic:
+                score += 3
+                break
     hot = t.get("hot", "") or ""
     try:
         score += min(int(float(hot)) // 10000, 3)
-    except:
+    except Exception:
         pass
     return (score, topic)
 
@@ -339,20 +386,82 @@ INTRO_TEMPLATES = [
     "{}，又上热搜了，一起了解一下。",
 ]
 
-# 解法2-3: 同事件归类（合并相似话题）
+# ══════════════════════════════════════════════════════════════════════════════
+# 解法2-3: 同事件归类（合并相似话题）+ 叙事逻辑排序
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 叙事优先级：重大事故 > 政策/领导人 > 经济数据 > 民生 > 国际 > 趣味
+CATEGORY_PRIORITY = {
+    "重大事故": 0,
+    "政策/领导人": 1,
+    "经济数据": 2,
+    "民生/社会": 3,
+    "国际关系": 4,
+    "科技/AI": 5,
+    "趣味/其他": 6,
+}
+
+# 分类关键词（用于判断话题属于哪个叙事类别）
+CATEGORY_KEYWORDS = {
+    "重大事故": ["矿难", "爆炸", "火灾", "车祸", "地震", "洪水", "坍塌", "死亡", "遇难", "伤亡", "事故"],
+    "政策/领导人": ["习近平", "国务院", "发改委", "外交部", "人大", "政协", "中央", "部委", "政策", "指示", "讲话", "会见"],
+    "经济数据": ["GDP", "CPI", "A股", "沪指", "深指", "股市", "房价", "关税", "贸易", "出口", "进口", "经济", "财政"],
+    "民生/社会": ["教育", "医疗", "养老", "就业", "工资", "社保", "消费", "旅游", "出行", "暴雨", "高温", "预警"],
+    "国际关系": ["美国", "俄罗斯", "欧盟", "日本", "韩国", "中东", "乌克兰", "中东", "联合国", "制裁", "谈判", "峰会"],
+    "科技/AI": ["AI", "人工智能", "大模型", "芯片", "华为", "苹果", "特斯拉", "比亚迪", "新能源", "航天", "卫星"],
+}
+
+def _get_category(topic: str) -> str:
+    """根据话题关键词判断所属叙事类别"""
+    for cat, keywords in CATEGORY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in topic:
+                return cat
+    return "趣味/其他"
+
+def _narrative_sort_key(item: tuple) -> tuple:
+    """叙事逻辑排序key：(类别优先级, -热度分数, 话题字数)"""
+    topic = item[1]["topic"] if isinstance(item[1], dict) else item[1]
+    cat = _get_category(topic)
+    cat_score = CATEGORY_PRIORITY.get(cat, 6)
+    hot_score = item[1].get("hot", 0) if isinstance(item[1], dict) else 0
+    try:
+        hot_score = int(float(hot_score))
+    except Exception:
+        hot_score = 0
+    return (cat_score, -hot_score, len(topic))
+
+# 解法2-3: 同事件归类（扩展版，覆盖更多相关话题）
 EVENT_GROUPS = {
-    "欧盟关税": ["欧盟加征关税", "欧盟对华关税", "欧盟汽车关税", "中欧贸易摩擦", "欧洲关税"],
-    "特斯拉裁员": ["特斯拉全球裁员", "特斯拉中国裁员", "特斯拉裁员", "马斯克裁员"],
-    "保时捷布加迪": ["保时捷出售布加迪", "保时捷布加迪", "保时捷股权", "布加迪出售"],
-    "辽宁车祸": ["辽宁重大交通事故", "辽宁车祸", "辽宁交通事故", "辽宁事故"],
-    "A股上涨": ["A股收涨", "A股三大指数", "沪指3400", "A股重回3400", "沪深两市"],
-    "比亚迪": ["比亚迪电动车", "比亚迪关税", "比亚迪欧洲", "国产电动车"],
-    "浏阳烟花": ["浏阳烟花厂爆炸", "浏阳爆炸", "烟花厂事故"],
-    "豆包AI": ["豆包付费", "豆包AI", "字节豆包", "豆包订阅"],
+    # 重大事故类
+    "山西矿难": ["山西煤矿", "山西矿难", "矿难", "煤矿事故", "煤矿爆炸", "矿工", "透水事故", "瓦斯爆炸"],
+    "浏阳烟花": ["浏阳烟花厂爆炸", "浏阳爆炸", "烟花厂事故", "浏阳烟花"],
+    "辽宁车祸": ["辽宁重大交通事故", "辽宁车祸", "辽宁交通事故", "辽宁事故", "面包车超载"],
+    # 政策/领导人相关
+    "中央政策": ["习近平", "国务院", "发改委", "外交部", "中央", "部委", "指示", "讲话", "会见", "会谈"],
+    # 经济/关税类
+    "欧盟关税": ["欧盟加征关税", "欧盟对华关税", "欧盟汽车关税", "中欧贸易摩擦", "欧洲关税", "对华关税"],
+    "特斯拉裁员": ["特斯拉全球裁员", "特斯拉中国裁员", "特斯拉裁员", "马斯克裁员", "特斯拉销售"],
+    "保时捷布加迪": ["保时捷出售布加迪", "保时捷布加迪", "保时捷股权", "布加迪出售", "保时捷利润"],
+    "A股行情": ["A股收涨", "A股三大指数", "沪指3400", "A股重回3400", "沪深两市", "A股", "沪指", "深指", "创业板"],
+    "比亚迪新能源": ["比亚迪电动车", "比亚迪关税", "比亚迪欧洲", "国产电动车", "比亚迪", "电动车"],
+    # 航天科技类
+    "航天员": ["航天员", "神舟", "天宫", "空间站", "太空人", "卫星发射", "嫦娥", "探月"],
+    "华为新品": ["华为", "华为手机", "华为芯片", "麒麟芯片"],
+    "苹果iPhone": ["苹果", "iPhone", "iOS", "Mac"],
+    # 社会民生类
+    "消费者维权": ["啄木鸟", "消费维权", "虚假宣传", "投诉", "退货", "欺诈", "消费者"],
+    "豆包AI": ["豆包付费", "豆包AI", "字节豆包", "豆包订阅", "豆包"],
 }
 
 def merge_similar_events(topics: list) -> list:
-    """解法2-3: 将相似话题归类，保留信息量最大的"""
+    """
+    解法2-3: 将相似话题归类，保留信息量最大的。
+    智能合并：
+    1. 同一事件的多角度话题（如矿难本身+习近平指示）→ 合并为1个
+    2. 同一话题的碎片（如特斯拉裁员中国区+特斯拉裁员全球）→ 合并为1个
+    3. 独立话题不合并（如航天员+矿难无关，不合并）
+    """
     merged = []
     used = set()
     for t in topics:
@@ -367,12 +476,37 @@ def merge_similar_events(topics: list) -> list:
                 break
         if found_group and found_group not in used:
             # 保留组名（信息量最丰富的话题标题）
-            merged.append({"topic": found_group, "source": t["source"], "group": found_group})
+            merged.append({"topic": found_group, "source": t["source"], "group": found_group, "hot": t.get("hot", "")})
             used.add(found_group)
         else:
             merged.append(t)
             used.add(topic)
     return merged
+
+
+def sort_topics_by_narrative(topics: list) -> list:
+    """
+    按叙事逻辑排序：
+    1. 同一事件的话题合并（merge_similar_events）
+    2. 按叙事优先级排序：重大事故 > 政策/领导人 > 经济数据 > 民生 > 国际 > 趣味
+    3. 同类别内按热度降序
+    4. 确保同一事件的不同角度连续排列
+    """
+    # Step 1: 合并相似事件
+    merged = merge_similar_events(topics)
+    
+    # Step 2: 标注每个话题的类别
+    categorized = []
+    for t in merged:
+        topic = t["topic"]
+        cat = _get_category(topic)
+        categorized.append((cat, t))
+    
+    # Step 3: 按叙事优先级排序
+    categorized.sort(key=lambda x: _narrative_sort_key(x))
+    
+    # Step 4: 提取排序后的结果
+    return [t for _, t in categorized]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -642,19 +776,29 @@ def generate_script_local(topic: str) -> str:
 def generate_script_v8(topic: str, index: int) -> str:
     """
     优化版文案生成：
-    优先从实时百度热搜缓存获取 → Bing新闻搜索 → 本地大模型 → 本地模板兜底
+    1. 优先从实时百度热搜缓存获取
+    2. 重大事件自动增强背景描述（50-60秒完整叙事）
+    3. Bing新闻搜索 → 本地大模型 → 模板兜底
     """
     global _TOPIC_SCRIPTS_CACHE
 
     # 实时缓存优先（本次运行只抓一次）
     if _TOPIC_SCRIPTS_CACHE is None:
-        # main() 已调用 fetch_topic_scripts()，这里只做兜底
         fetch_topic_scripts()
     
     # 精确匹配
     if topic in _TOPIC_SCRIPTS_CACHE:
+        base_script = _TOPIC_SCRIPTS_CACHE[topic]
         log(f"  📝 实时脚本[{index+1}]: {topic[:15]}...")
-        return _TOPIC_SCRIPTS_CACHE[topic]
+        
+        # 深度增强：重大事故/政策类话题，自动补充背景→事件→影响结构
+        cat = _get_category(topic)
+        if cat in ["重大事故", "政策/领导人", "经济数据"]:
+            enhanced = _enhance_script_depth(base_script, topic, cat)
+            if enhanced:
+                _TOPIC_SCRIPTS_CACHE[topic] = enhanced
+                return enhanced
+        return base_script
     
     # Bing 新闻搜索兜底
     log(f"  🔍 未缓存，尝试Bing搜索: {topic[:20]}...")
@@ -680,6 +824,55 @@ def generate_script_v8(topic: str, index: int) -> str:
     # 最终兜底：话题本身展开
     log(f"  ⚠️ 完全无脚本，使用话题本身: {topic[:20]}...")
     return _generate_natural_script(topic)
+
+
+def _enhance_script_depth(base_script: str, topic: str, category: str) -> str:
+    """
+    为重大事件脚本增强深度：
+    - 添加背景描述（如"近期"/"近日"引出）
+    - 补充事件原因/经过
+    - 添加影响/后续/问责等内容
+    确保生成50-60秒的完整叙事，而非30秒碎片
+    """
+    if len(base_script) < 30:
+        return base_script
+    
+    # 避免过长（超过150字会超过60秒语速）
+    if len(base_script) > 150:
+        return base_script
+    
+    # 背景前缀词
+    bg_phrases = {
+        "重大事故": ["最新消息，", "今日凌晨，", "昨天晚间，", "就在今天，"],
+        "政策/领导人": ["最新政策显示，", "刚刚，", "今日，", "最新消息，"],
+        "经济数据": ["最新经济数据出炉，", "今日，", "刚刚公布，", "最新数据显示，"],
+    }
+    
+    bg = bg_phrases.get(category, [""])
+    phrase = bg[0] if bg else ""
+    
+    # 增强后的结构：背景 + 原内容 + 后续影响
+    enhanced = base_script
+    if not any(base_script.startswith(p) for p in ["最新", "今日", "刚刚", "就在", "昨天", "最新消", "最新政"]):
+        enhanced = phrase + enhanced
+    
+    # 重大事故类：补充"持续关注后续"
+    if category == "重大事故" and "持续" not in enhanced and "后续" not in enhanced:
+        enhanced = enhanced.rstrip("。") + "。事故原因正在进一步调查中，我们将持续关注后续进展。"
+    
+    # 政策类：补充"影响分析"
+    if category == "政策/领导人" and "影响" not in enhanced and "将" not in enhanced:
+        enhanced = enhanced.rstrip("。") + "。这一政策预计将对相关领域产生重要影响。"
+    
+    # 经济类：补充"市场反应"
+    if category == "经济数据" and "市场" not in enhanced and "分析" not in enhanced:
+        enhanced = enhanced.rstrip("。") + "。市场分析指出，这一数据反映出经济发展的新趋势。"
+    
+    # 限制总长度（中文约200字≈60秒语速）
+    if len(enhanced) > 200:
+        enhanced = enhanced[:197] + "..."
+    
+    return enhanced
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -714,7 +907,7 @@ def search_bilibili_video(topic: str) -> str:
                             if 10 <= secs <= 300:
                                 log(f"  🎬 B站: [{bv}] {v.get('title','')[:30]} ({dur})")
                                 return bv
-                        except:
+                        except Exception:
                             pass
             log(f"  ⚠️ B站搜索[{attempt+1}]未找到合适视频，{2**(attempt+1)}秒后重试")
             time.sleep(2 ** (attempt + 1))
@@ -1008,7 +1201,7 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                     fnt = ImageFont.truetype(fp, 34)  # 字体增大20%
                     log(f"  使用字体: {os.path.basename(fp)}")
                     break
-                except:
+                except Exception:
                     continue
         if fnt is None:
             fnt = ImageFont.load_default()
@@ -1052,7 +1245,7 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                     fnt_path = fp
                     log(f"  字幕字体: {os.path.basename(fp)}")
                     break
-                except:
+                except Exception:
                     continue
         if fnt is None:
             fnt = ImageFont.load_default()
@@ -1061,7 +1254,7 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         # 找章节栏用的字体（可用同一字体但稍大）
         try:
             chapter_fnt = ImageFont.truetype(fnt_path, 22)
-        except:
+        except Exception:
             chapter_fnt = fnt
 
         # 创建临时目录存放帧
@@ -1323,7 +1516,7 @@ def verify_video_quality(video_path: str) -> dict:
     )
     try:
         data = json.loads(info.stdout)
-    except:
+    except Exception:
         reasons.append("ffprobe解析失败")
         return {"pass": False, "reasons": reasons}
 
@@ -1389,9 +1582,14 @@ def main(date_str: str = "today"):
     baidu_scripts = _fetch_baidu_hot_search()
     hot_topics = list(baidu_scripts.keys())[:6]
 
-    # 构建话题列表并争议排序优先
-    topics = [{"topic": t, "bvid": None} for t in hot_topics]
-    topics = _sort_topics_by_controversy(topics, num=20)
+    # 构建话题列表并叙事逻辑排序（不再是纯热度）
+    topics = [{"topic": t, "bvid": None, "hot": baidu_scripts.get(t, "")} for t in hot_topics]
+    topics = sort_topics_by_narrative(topics)
+    
+    # 限制为6个话题（6段×60秒 = 6分钟视频，符合参考结构）
+    # 每个话题生成50-60秒的完整叙事，而非30秒碎片
+    MAX_TOPICS = 6
+    topics = topics[:MAX_TOPICS]
 
     if len(topics) < 5:
         log("  ❌ 话题不足5条，退出")
@@ -1476,6 +1674,82 @@ def main(date_str: str = "today"):
         return
 
     log(f"\n  有效片段: {len(segments)}")
+
+    # ── 智能合并短片段 ────────────────────────────────────────────────────────
+    # 如果某个音频 < 30秒，自动和下一个相关话题合并
+    MIN_CLIP_DURATION = 30  # 最低30秒
+    MERGE_DURATION = 50      # 目标50-60秒
+
+    def _smart_merge_segments(seg_list: list) -> list:
+        """智能合并时长 < 30秒的短片段"""
+        merged = []
+        i = 0
+        while i < len(seg_list):
+            orig_idx, topic, audio, srt, ass, bg, bv, dur = seg_list[i]
+            if dur < MIN_CLIP_DURATION and i + 1 < len(seg_list):
+                # 和下一个片段合并：延长当前片段的音频 + 字幕
+                next_seg = seg_list[i + 1]
+                n_orig_idx, n_topic, n_audio, n_srt, n_ass, n_bg, n_bv, n_dur = next_seg
+                
+                log(f"  🔗 合并短片段: [{topic[:15]}] {dur:.0f}s + [{n_topic[:15]}] {n_dur:.0f}s")
+                
+                # 合并音频
+                combined_audio = str(OUTPUT_DIR / f"v8_audio_{TASK_ID}_merged_{i}.m4a")
+                merge_r = subprocess.run([
+                    "ffmpeg", "-y",
+                    "-i", audio, "-i", n_audio,
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[outa]",
+                    "-map", "[outa]",
+                    "-c:a", "aac", "-b:a", "128k",
+                    combined_audio
+                ], capture_output=True, timeout=30)
+                
+                if merge_r.returncode == 0 and os.path.exists(combined_audio):
+                    # 合并SRT字幕
+                    combined_srt = str(OUTPUT_DIR / f"v8_sub_{TASK_ID}_merged_{i}.srt")
+                    with open(srt) as f1, open(n_srt) as f2, open(combined_srt, "w") as fout:
+                        fout.write(f1.read().strip() + "\n\n")
+                        # 时间轴偏移
+                        srt2_content = f2.read().strip()
+                        lines = srt2_content.split("\n")
+                        new_lines = []
+                        for line in lines:
+                            if "-->" in line:
+                                # 偏移时间轴（加上dur秒）
+                                parts = line.split("-->")
+                                start = parts[0].strip()
+                                end = parts[1].strip()
+                                end_ts = _parse_srt_time(end) + dur
+                                start_ts = _parse_srt_time(start) + dur
+                                new_lines.append(f"{_format_srt_time(start_ts)} --> {_format_srt_time(end_ts)}")
+                            else:
+                                new_lines.append(line)
+                        fout.write("\n".join(new_lines))
+                    
+                    merged.append((orig_idx, f"{topic}+{n_topic}", combined_audio, combined_srt, ass, bg, bv, dur + n_dur))
+                    i += 2  # 跳过已合并的下一个
+                    continue
+            
+            merged.append(seg_list[i])
+            i += 1
+        return merged
+
+    def _parse_srt_time(t: str) -> float:
+        """解析 SRT 时间格式（00:00:00,000）到秒"""
+        t = t.strip().replace(",", ".")
+        parts = t.split(":")
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+
+    def _format_srt_time(s: float) -> str:
+        """将秒数格式化为 SRT 时间（00:00:00,000）"""
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        sec = int(s % 60)
+        ms = int((s % 1) * 1000)
+        return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+    segments = _smart_merge_segments(segments)
+    log(f"  合并后片段: {len(segments)}条")
 
     # ══════════════════════════════════════════════════════════════════════════════
     # 并行烧录 worker（crop + PIL字幕烧录 + 验证，全独立）

@@ -1,12 +1,21 @@
 import http.cookies, sys, os, json, time, random, requests
 from pathlib import Path
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 HOME = os.path.expanduser("~")
 sys.path.insert(0, f'{HOME}/.hermes/scripts')
 
+# ==================== Session（自动重试）====================
+_session = requests.Session()
+_session.mount('https://', HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504})))
+
 # ==================== Cookie 加载 ====================
 def load_cookies():
     """从 /tmp/bilibili_cookies.json 加载（兼容 list 和 dict 格式）"""
+    if not os.path.exists('/tmp/bilibili_cookies.json'):
+        print("Cookie 文件不存在: /tmp/bilibili_cookies.json")
+        return {}
     try:
         with open('/tmp/bilibili_cookies.json') as f:
             data = json.load(f)
@@ -16,7 +25,7 @@ def load_cookies():
             return data
         return {}
     except Exception as e:
-        print(f'加载 cookies 失败: {e}')
+        print(f"加载 cookies 失败: {e}")
         return {}
 
 COOKIES = load_cookies()
@@ -47,31 +56,43 @@ COMMENTS = [
 
 REPLIED_FILE = Path("/tmp/bili_yinliu_comments.json")
 if REPLIED_FILE.exists():
-    replied = set(json.loads(REPLIED_FILE.read_text()))
+    try:
+        replied = set(json.loads(REPLIED_FILE.read_text()))
+    except Exception:
+        replied = set()
 else:
     replied = set()
 
-upload_log = json.load(open(f"{HOME}/.hermes/bilibili_work/upload_log.json"))
-videos = upload_log.get("uploaded", [])
+upload_log_path = Path(f"{HOME}/.hermes/bilibili_work/upload_log.json")
+videos = []
+if upload_log_path.exists():
+    try:
+        with open(upload_log_path) as f:
+            upload_log = json.load(f)
+        videos = upload_log.get("uploaded", [])
+    except Exception as e:
+        print(f"加载上传记录失败: {e}")
+
 new_videos = [v for v in videos if v not in replied]
 
 def send_comment(oid, content):
     try:
-        r = requests.post("https://api.bilibili.com/x/v2/reply/add",
+        r = _session.post("https://api.bilibili.com/x/v2/reply/add",
             data={"oid": oid, "type": 1, "message": content, "plat": 1, "root": 0, "parent": 0, "csrf": BILI_JCT},
             headers=HEADERS, cookies=COOKIES, timeout=10)
         j = r.json()
         return j.get("code") == 0
-    except:
+    except Exception as e:
+        print(f"发送评论失败: {e}")
         return False
 
 def get_reply_count(bvid):
     try:
-        r = requests.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}", headers=HEADERS, cookies=COOKIES, timeout=10)
+        r = _session.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}", headers=HEADERS, cookies=COOKIES, timeout=10)
         j = r.json()
         if j.get("code") == 0:
             return j["data"]["stat"]["reply"]
-    except:
+    except Exception:
         pass
     return -1
 
@@ -86,4 +107,4 @@ for bvid in new_videos:
             success += 1
             time.sleep(random.uniform(5, 8))
 
-print(f"引流评论完成: {success}条")
+print(f"引流评论完成: {success}条 / {len(new_videos)}个视频")

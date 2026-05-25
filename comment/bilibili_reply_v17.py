@@ -229,11 +229,8 @@ def call_ollama(prompt: str, system: str = "") -> str:
             content = (data.get('choices', [{}])[0].get('message', {}).get('content') or '').strip()
             if content:
                 import re
-                content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)
-                content = re.sub(r'<think>[\s\S]*?', '', content, flags=re.DOTALL)
-                content = re.sub(r'Thinking Process:.*', '', content, flags=re.DOTALL)
-                content = re.sub(r'思考过程[:：]?.*', '', content, flags=re.DOTALL)
-                content = re.sub(r'推理过程[:：]?.*', '', content, flags=re.DOTALL)
+                # 统一用同一个后处理函数
+                content = _filter_thinking_content(content)
                 paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
                 result = paragraphs[-1] if paragraphs else content
                 result = re.sub(r'^[\s]*(分析|思考|结论)[:：]\s*', '', result)
@@ -296,9 +293,7 @@ def call_minimax(prompt: str, system_content: str = "") -> str:
 
                 import re
                 content = re.sub(r'\s+', ' ', content).strip()
-                content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)
-                content = re.sub(r'<think>[\s\S]*?', '', content, flags=re.DOTALL)
-                content = re.sub(r'推理过程[:：]?.*', '', content, flags=re.DOTALL)
+                content = _filter_thinking_content(content)
 
                 if len(content) < 4:
                     log(f"  ⚠️ 内容太短({len(content)}字)，跳过: {content[:30]}")
@@ -322,6 +317,56 @@ def call_minimax(prompt: str, system_content: str = "") -> str:
     log("  ⚠️ 使用兜底回复（大模型调用失败）")
     return "哈哈收到！这条评论太有灵性了，继续往下聊呗 😂 你最喜欢这期哪一段？"
 
+
+def _filter_thinking_content(content: str) -> str:
+    """统一过滤 Ollama/MiniMax 输出中的思考过程泄漏"""
+    import re
+    content = re.sub(r'<think>[\s\S]*?</think>', '', content)           # 标签内思考块
+    content = re.sub(r'<reasoning>[\s\S]*?</reasoning>', '', content) # xml标签思考块
+    content = re.sub(r'<refLECTION>[\s\S]*?</reflection>', '', content)
+    content = re.sub(r'Thinking Process:[\s\S]*', '', content)          # 行首Thinking Process
+    content = re.sub(r'思考过程[:：]?[\s\S]*', '', content)             # 中文思考过程
+    content = re.sub(r'推理过程[:：]?[\s\S]*', '', content)             # 推理过程
+    content = re.sub(r'\*[\s\S]*?\*', '', content)                    # 残留*内容
+    content = re.sub(r'\[\s\S]*?\]', '', content)                    # 残留[内容
+    content = re.sub(r'#{1,3}\s[^\n]*\n', '', content)                # 行首# 标题
+    content = re.sub(r'---[\s\S]*', '', content)                        # ---分隔线后内容
+    # 取最后一段非空内容（防止前面残留分析文本）
+    paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
+    content = paragraphs[-1] if paragraphs else content.strip()
+
+    # 最终安全扫描：检测提示词泄漏，命中则跳过发送
+    leak_patterns = [
+        r'用户让我以B站UP主的身份',
+        r'用户让我以B站UP主',
+        r'用户让我以.*身份',
+        r'以B站UP主的身份',
+        r'以B站UP主身份',
+        r'回复粉丝评论',
+        r'角色设定',
+        r'系统提示词',
+        r'你是B站UP主',
+        r'你是B站',
+        r'直接输出回复内容',
+        r'长度控制在\d+字以内',
+        r'就像朋友闲聊',
+        r'语气轻松自然',
+        r'结合上下文',
+        r'请以.*身份',
+        r'根据你.*的角色',
+        r'结合.*上下文',
+        r'结合粉丝.*聊天',
+        r'请直接生成',
+        r'请输出.*内容',
+        r'不要解释',
+        r'省略.*解释',
+    ]
+    for pat in leak_patterns:
+        if re.search(pat, content):
+            log(f"  🛡️ 内容安全拦截（提示词泄漏）：{content[:60]}")
+            return None  # 返回None表示跳过发送
+
+    return content.strip()
 
 def generate_smart_reply(uname: str, user_comment: str, video_title: str = "", parent_comment: str = "", chat_history: list = None) -> str:
     if not user_comment.strip():
@@ -369,9 +414,16 @@ def generate_smart_reply(uname: str, user_comment: str, video_title: str = "", p
         reply = _smart_truncate(reply, 120)
 
     # 过滤掉分析过程类内容（AI 把思考过程输出了），直接跳过不回复
-    skip_patterns = ['让我分析', '根据上文', '首先', '其次', '总结', '综合来看', '【分析】', '【回复】']
+    skip_patterns = [
+        '让我分析', '根据上文', '首先', '其次', '总结', '综合来看', '【分析】', '【回复】',
+        '这个问题', '评论上下文', '视频标题是关于', '之前有一个故事',
+        '为什么会回复这种东西', '请你扮演', '你是一个', '作为你的',
+        '好的，', '好的，让我', '好的我', '我来帮你', '我来分析',
+        'Step ', 'Step1', 'Step2', 'First,', 'First ', 'Firstly',
+        '```', '**', '## ', '---',
+    ]
     for p in skip_patterns:
-        if reply.startswith(p) or '**' in reply or reply.startswith('好的，') or reply.startswith('好的，让我'):
+        if reply.startswith(p) or '**' in reply or '```' in reply or '---' in reply:
             log(f"  ⚠️ 过滤掉分析过程内容: {reply[:30]}...，跳过此条")
             return None
 

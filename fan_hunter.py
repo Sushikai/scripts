@@ -12,11 +12,13 @@
 目标：发现并激活潜在粉丝，通过互动建立连接
 """
 
-import os, sys, re, json, time, random, subprocess, requests
+import os, sys, re, json, time, random, subprocess, requests, urllib.parse
 from datetime import datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ── 配置 ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent
@@ -28,37 +30,19 @@ ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.minimaxi.com/a
 ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
 DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 
-# 从 fengge_pipeline.py 加载 cookies（更稳定，避免硬编码）
-COOKIES_FILE = Path("/Users/kaikai/scripts/video/fengge_pipeline.py")
-
 def load_bili_cookies():
-    """从 fengge_pipeline.py 提取 cookies"""
-    if COOKIES_FILE.exists():
-        content = COOKIES_FILE.read_text()
-        # 简单解析 COOKIES = {...} 块
-        import ast
-        try:
-            # 提取 COOKIES 赋值语句
-            start = content.find("COOKIES = {")
-            if start >= 0:
-                # 找到配对的括号
-                brace_start = content.find("{", start)
-                depth = 0
-                end = brace_start
-                for i, c in enumerate(content[brace_start:]):
-                    if c == "{": depth += 1
-                    elif c == "}":
-                        depth -= 1
-                        if depth == 0:
-                            end = brace_start + i + 1
-                            break
-                cookie_str = content[start:end]
-                ns = {}
-                exec(cookie_str, ns)
-                return ns.get("COOKIES", {})
-        except Exception as e:
-            print(f"解析 cookies 失败: {e}")
-    return {}
+    """从 /tmp/bilibili_cookies.json 加载（兼容 list 和 dict 格式）"""
+    try:
+        with open('/tmp/bilibili_cookies.json') as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return {c['name']: c['value'] for c in data}
+        elif isinstance(data, dict):
+            return data
+        return {}
+    except Exception as e:
+        print(f"加载 cookies 失败: {e}")
+        return {}
 
 BILI_COOKIES = load_bili_cookies()
 
@@ -124,8 +108,15 @@ def generate_keywords_with_ai(topic: str, num: int = 8) -> List[str]:
         if result_text.startswith("["):
             keywords = json.loads(result_text)
             if isinstance(keywords, list) and keywords:
-                log(f"  🤖 AI 生成关键词: {keywords}")
-                return keywords
+                # 安全过滤：去掉疑似提示词泄漏的词
+                leak_patterns = [
+                    "用户让我", "以B站", "回复粉丝", "直接输出",
+                    "角色设定", "系统提示", "结合上下文", "请以",
+                ]
+                safe = [k for k in keywords if not any(p in k for p in leak_patterns)]
+                if safe:
+                    log(f"  🤖 AI 生成关键词: {safe}")
+                    return safe
 
         log(f"  ⚠️ AI 返回格式异常，使用默认关键词")
     except Exception as e:
@@ -155,8 +146,9 @@ def rand_delay():
     time.sleep(t)
 
 def get_session():
-    """创建请求session"""
+    """创建请求session（带自动重试）"""
     s = requests.Session()
+    s.mount('https://', HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504})))
     s.headers.update({
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://www.bilibili.com",
@@ -166,7 +158,6 @@ def get_session():
 def search_videos(keyword: str, session: requests.Session, limit: int = 10) -> list:
     """搜索视频，返回 [{bvid, title, aid}]"""
     try:
-        import urllib.parse
         q = urllib.parse.quote(keyword)
         r = session.get(
             f"https://api.bilibili.com/x/web-interface/search/all/v2?keyword={q}&page=1&page_size={limit}",
@@ -314,7 +305,7 @@ def load_liked_comments() -> set:
             with open(f) as fp:
                 data = json.load(fp)
                 return set(data.get("rpid_list", []))
-        except:
+        except Exception:
             pass
     return set()
 

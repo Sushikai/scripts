@@ -9,23 +9,39 @@ import json
 import os
 import re
 import httpx
+import requests
 from playwright.async_api import async_playwright
 from bilibili_api import comment, Credential
 from bilibili_api.comment import CommentResourceType
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 COOKIES_FILE = "/tmp/bilibili_cookies.json"
 DONE_FILE = "/tmp/bili_philosophy_commented.json"
 
+# 重试 session
+_session = requests.Session()
+_session.mount('https://', HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504})))
+
 def load_cookies():
-    with open(COOKIES_FILE, 'r') as f:
-        cookies_list = json.load(f)
-    return {c['name']: c['value'] for c in cookies_list}
+    if not os.path.exists(COOKIES_FILE):
+        print(f"Cookie 文件不存在: {COOKIES_FILE}")
+        return {}
+    try:
+        with open(COOKIES_FILE, 'r') as f:
+            cookies_list = json.load(f)
+        return {c['name']: c['value'] for c in cookies_list}
+    except Exception as e:
+        print(f"加载 cookies 失败: {e}")
+        return {}
 
 def load_done():
+    if not os.path.exists(DONE_FILE):
+        return {}
     try:
         with open(DONE_FILE, 'r') as f:
             return json.load(f)
-    except:
+    except Exception:
         return {}
 
 def save_done(done):
@@ -48,7 +64,7 @@ def generate_philosophy(text, prompt_type="comment"):
 - 不要emoji，不要太文艺腔
 - 可以联系视频标题，但不能太牵强"""
         user_prompt = f"视频标题：{text}\n请为这个视频写一条哲学风格的评论，直接输出内容，不超过50字，不要前缀。"
-    else:  # desc
+    else:
         system_prompt = """你是一个深邃的哲学家，正在为B站视频写简介。
 风格要求：
 - 哲学思辨，富有洞察，80字以内
@@ -84,8 +100,7 @@ def generate_philosophy(text, prompt_type="comment"):
     # Fallback to Ollama
     for _model in ["qwen2.5:32b-instruct-q4_K_M", "gemma3:4b", "deepseek-r1:1.5b"]:
         try:
-            import requests as _req
-            r = _req.post("http://localhost:11434/v1/chat/completions",
+            r = _session.post("http://localhost:11434/v1/chat/completions",
                 headers={"Authorization": "Bearer ollama", "Content-Type": "application/json"},
                 json={"model": _model, "messages": [
                     {"role": "system", "content": system_prompt},
@@ -99,12 +114,12 @@ def generate_philosophy(text, prompt_type="comment"):
                 return txt
             reasoning = msg.get("reasoning", "")
             if reasoning:
-                import re as _re
                 txt = reasoning.split("|")[-1].strip()
-                txt = _re.sub(r'\[.*?\]\s*', '', txt).strip()
+                txt = re.sub(r'\[.*?\]\s*', '', txt).strip()
                 if txt:
                     return txt
-        except: pass
+        except Exception as e:
+            print(f"    Ollama 模型 {_model} 调用失败: {e}")
     return None
 
 async def fetch_video_list(cookies, uid):
@@ -131,12 +146,10 @@ async def fetch_video_list(cookies, uid):
         await page.goto(f'https://space.bilibili.com/{uid}/video', wait_until='networkidle', timeout=30000)
         await page.wait_for_timeout(2000)
 
-        # 下滑加载更多
         for _ in range(3):
             await page.evaluate('window.scrollBy(0, 800)')
             await page.wait_for_timeout(800)
 
-        # 抓所有视频卡片
         cards = await page.query_selector_all('.bili-video-card')
         print(f'  找到 {len(cards)} 个视频卡片')
 
@@ -171,7 +184,6 @@ async def fetch_video_list(cookies, uid):
     return videos
 
 async def update_video_desc(bvid, new_desc, cookies):
-    """用Playwright发请求更新视频简介"""
     playwright_cookies = []
     for name in ['SESSDATA', 'bili_jct', 'Buvid3', 'DedeUserID']:
         val = cookies.get(name)
@@ -192,16 +204,11 @@ async def update_video_desc(bvid, new_desc, cookies):
         await page.goto(f'https://www.bilibili.com/video/{bvid}', wait_until='networkidle', timeout=20000)
         await page.wait_for_timeout(1500)
 
-        # 尝试通过视频管理接口更新简介
-        # 这个需要B站editor接口，可能需要不同的API
-        # 暂时用直接抓取视频详情来确认desc状态
         result = await page.evaluate(f"""
             async () => {{
-                // 尝试直接发包更新简介
                 const csrf = document.cookie.match(/bili_jct=([^;]+)/)?.[1] || '';
                 const aid = window.__INITIAL_STATE__?.videoData?.aid;
                 if (!aid || !csrf) return {{code: -1, msg: 'no aid or csrf'}};
-                
                 try {{
                     const resp = await fetch('https://api.bilibili.com/x/vas/edit/dynamic', {{
                         method: 'POST',
@@ -221,9 +228,7 @@ async def update_video_desc(bvid, new_desc, cookies):
         return result.get('code') == 0
 
 async def post_comment(aid, text, cred):
-    """发送评论"""
     try:
-        # aid可能是BVxxx格式，需要转换
         if not str(aid).isdigit():
             from bilibili_api import bvid2aid
             aid = await bvid2aid(aid)
@@ -245,8 +250,14 @@ async def post_comment(aid, text, cred):
 
 async def main():
     cookies = load_cookies()
+    if not cookies:
+        print("无法加载 cookies，退出")
+        return
     done = load_done()
-    uid = cookies['DedeUserID']
+    uid = cookies.get('DedeUserID')
+    if not uid:
+        print("无法获取 DedeUserID，退出")
+        return
 
     print("用Playwright抓取视频列表...")
     videos = await fetch_video_list(cookies, uid)
@@ -258,7 +269,6 @@ async def main():
         buvid3=cookies.get('buvid3')
     )
 
-    # 统计
     needs_comment = [v for v in videos if v.get('comment', 0) < 3]
     print(f"\n评论<3的视频: {len(needs_comment)} 个")
 
@@ -269,12 +279,10 @@ async def main():
 
         print(f"\n处理: {title[:40]} (bvid={bvid}, 评论={comment_count})")
 
-        # 跳过已处理的
         if bvid in done:
             print("  已处理过，跳过")
             continue
 
-        # 优先处理评论数少的
         if comment_count < 3:
             print("  正在生成哲学评论...")
             philosophy = generate_philosophy(title, "comment")
