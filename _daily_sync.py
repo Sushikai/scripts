@@ -18,11 +18,11 @@ CRON_TMP.write_text(result.stdout if result.returncode == 0 else "")
 # ==================== 收集 Cookie 状态 ====================
 print("检查 Cookie 状态...")
 
-def check_sessdata(sessdata: str, label: str) -> dict:
+def check_sessdata(sessdata: str, bili_jct: str, label: str) -> dict:
     try:
         import requests
         r = requests.get("https://api.bilibili.com/x/web-interface/nav",
-                        headers={"Cookie": f"SESSDATA={sessdata}; bili_jct=fcd844961a4de0c0e1ebbbe05b183fc6"},
+                        headers={"Cookie": f"SESSDATA={sessdata}; bili_jct={bili_jct}"},
                         timeout=10)
         d = r.json()
         if d.get('code') == 0:
@@ -32,16 +32,23 @@ def check_sessdata(sessdata: str, label: str) -> dict:
     except:
         return {"ok": False, "label": label, "uname": "检测失败", "mid": ""}
 
-# 账号A
-COOKIE_A = "577e3116%2C1794848457%2C1661e%2A52CjD5ybsVR6H9X4F9cCN74F9w2gNdoVnSxOWky3IWFkRL5NUuT3I5aQVNAp6MpijkaN4SVjA5d2E5UGtfaXdoLVN5YTF0VEZMbU1jd0hCajNWYkpxam5OdW9QZXVLaHh3aUdjakg4czFyRDBqbXFBMExhMllvTDdtU0ZZVFZ4eV9QUG5NcWlIOWp3IIEC"
-ACCOUNT_A = check_sessdata(COOKIE_A, "账号A")
+# 账号A（从文件读取，不要硬编码）
+_account_a_cookies = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
+if _account_a_cookies.exists():
+    try:
+        _data = json.loads(_account_a_cookies.read_text())
+        ACCOUNT_A = check_sessdata(_data.get('SESSDATA', ''), _data.get('bili_jct', ''), "账号A")
+    except Exception as e:
+        ACCOUNT_A = {"ok": False, "label": "账号A", "uname": f"读取失败: {e}", "mid": ""}
+else:
+    ACCOUNT_A = {"ok": False, "label": "账号A", "uname": "Cookie文件不存在", "mid": ""}
 
 # 账号B
 COOKIE_B_FILE = Path.home() / ".hermes/instances/fengge_b/secrets/bilibili_cookies.txt"
 if COOKIE_B_FILE.exists():
     try:
         cb = json.loads(COOKIE_B_FILE.read_text())
-        ACCOUNT_B = check_sessdata(cb.get('SESSDATA', ''), "账号B")
+        ACCOUNT_B = check_sessdata(cb.get('SESSDATA', ''), cb.get('bili_jct', ''), "账号B")
     except:
         ACCOUNT_B = {"ok": False, "label": "账号B", "uname": "读取失败", "mid": ""}
 else:

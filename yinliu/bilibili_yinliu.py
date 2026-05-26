@@ -12,12 +12,12 @@ _session.mount('https://', HTTPAdapter(max_retries=Retry(total=3, backoff_factor
 
 # ==================== Cookie 加载 ====================
 def load_cookies():
-    """从 /tmp/bilibili_cookies.json 加载（兼容 list 和 dict 格式）"""
-    if not os.path.exists('/tmp/bilibili_cookies.json'):
-        print("Cookie 文件不存在: /tmp/bilibili_cookies.json")
+    """从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 加载（兼容 list 和 dict 格式）"""
+    if not os.path.exists('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt'):
+        print("Cookie 文件不存在: /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
         return {}
     try:
-        with open('/tmp/bilibili_cookies.json') as f:
+        with open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt') as f:
             data = json.load(f)
         if isinstance(data, list):
             return {c['name']: c['value'] for c in data}

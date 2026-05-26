@@ -23,14 +23,13 @@ else:
     _INSTANCE_WORK = None
 
 if _INSTANCE_SECRETS:
-    _ns = _INSTANCE_SECRETS / "bilibili_cookies.netscape.txt"
-    _dict = _INSTANCE_SECRETS / "bilibili_cookies.txt"
-    COOKIES_FILE = _ns if _ns.exists() else (_dict if _dict.exists() else _ns)
+    _json = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
+    COOKIES_FILE = _json if _json.exists() else None
 else:
-    COOKIES_FILE = Path.home() / ".hermes/secrets/bilibili_cookies_A.netscape.txt"
+    COOKIES_FILE = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
 
 def load_cookies():
-    json_file = Path("/tmp/bilibili_cookies.json")
+    json_file = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
     if json_file.exists():
         try:
             data = json.loads(json_file.read_text(encoding='utf-8'))
@@ -38,16 +37,7 @@ def load_cookies():
                 return data
         except Exception:
             pass
-    cookies = {}
-    if COOKIES_FILE.exists():
-        for line in COOKIES_FILE.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            parts = line.split('\t')
-            if len(parts) >= 7:
-                cookies[parts[5]] = parts[6]
-    return cookies
+    return {}
 
 COOKIES = load_cookies()
 BILI_JCT = COOKIES.get("bili_jct", "")

@@ -12,10 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from bilibili_utils import make_session
 
-# ========== Cookie 加载（和 bilibili_reply_v17.py 完全一样）==========
+# ========== Cookie 加载（统一用 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt）==========
 def load_cookies():
     cookies = {}
-    json_file = Path("/tmp/bilibili_cookies.json")
+    json_file = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
     if json_file.exists():
         try:
             data = json.loads(json_file.read_text(encoding='utf-8'))
@@ -31,19 +31,6 @@ def load_cookies():
                 return {item['name']: item['value'] for item in data if 'name' in item and 'value' in item}
         except Exception:
             pass
-    netscape_file = Path.home() / ".hermes/secrets/bilibili_cookies_A.netscape.txt"
-    if not netscape_file.exists():
-        netscape_file = Path.home() / ".hermes/secrets/bilibili_cookies_netscape.txt"
-    try:
-        for line in netscape_file.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            parts = line.split('\t')
-            if len(parts) >= 7:
-                cookies[parts[5]] = parts[6]
-    except Exception:
-        pass
     return cookies
 
 COOKIES = load_cookies()

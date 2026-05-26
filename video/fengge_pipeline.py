@@ -28,24 +28,8 @@ from urllib3.util.retry import Retry
 # ═══════════════════════════════════════════════════════
 # 配置
 # ═══════════════════════════════════════════════════════
-COOKIES = {
-    "SESSDATA": "577e3116%2C1794848457%2C1661e%2A52CjD5ybsVR6H9X4F9cCN74F9w2gNdoVnSxOWky3IWFkRL5NUuT3I5aQVNAp6MpijkaN4SVjA5d2E5UGtfaXdoLVN5YTF0VEZMbU1jd0hCajNWYkpxam5OdW9QZXVLaHh3aUdjakg4czFyRDBqbXFBMExhMllvTDdtU0ZZVFZ4eV9QUG5NcWlIOWp3IIEC",
-    "bili_jct": "fcd844961a4de0c0e1ebbbe05b183fc6",
-    "buvid3": "3169493F-D668-AC48-4C96-6FB6DEFFF40E15104infoc",
-    "buvid4": "9A4E1CC4-30BF-751C-0075-910E6C46849G47286-026051823-74Mos/+u6OM9VVAgAws/WQ%3D%3D",
-    "buvid_fp": "4927fafa58d41d1530891c14ea4ea757",
-    "CURRENT_FNVAL": "4048",
-    "CURRENT_QUALITY": "120",
-    "DedeUserID": "140289989",
-    "DedeUserID__ckMd5": "d62d826182d027e2",
-    "fingerprint": "4927fafa58d41d1530891c14ea4ea757",
-    "sid": "drfqj8r1",
-    "rpdid": "|(umuY~)Y~um0J'u~~YlYlRRk",
-}
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Referer": "https://www.bilibili.com",
-}
+# Cookie 从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 动态加载
+COOKIE_FILE = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
 
 WORK_DIR = Path("/Users/kaikai/tiktok_automation/fengge_downloads")
 UPLOAD_DIR = Path("/Users/kaikai/Desktop/峰哥成品待上传B站")
@@ -53,13 +37,17 @@ HISTORY_FILE = Path("/Users/kaikai/tiktok_automation/fengge_history.json")
 LOCK_FILE = Path("/tmp/fengge_pipeline.lock")
 
 # 搜索配置
-SEARCH_KEYWORD = "峰哥"
-SEARCH_PAGES = 2
+SEARCH_KEYWORD = "峰哥直播切片"
+SEARCH_PAGES = 10
 # 只选最近 N 天内发布的视频（避免下载老视频）
 # 注：B站搜索结果视频时间可能较旧，使用365天确保有足够候选
-RECENT_DAYS = 365
-# 候选视频数量（按播放量排序后取前 N，随机选1个）
-TOP_CANDIDATES = 10
+RECENT_DAYS = 5
+# 候选视频数量（按上传时间最新取前 N，评分后随机选1个）
+TOP_CANDIDATES = 30
+# 评分权重
+WEIGHT_LIKE = 1
+WEIGHT_REPOST = 3
+WEIGHT_COIN = 2
 
 # ═══════════════════════════════════════════════════════
 # 网络 Session（自动重试）
@@ -222,6 +210,39 @@ def get_search_results(keyword: str, pages: int = 2) -> list[dict]:
     return all_results
 
 
+def get_video_stats(bvid: str) -> dict:
+    """获取视频的点赞、转发、投币、播放量"""
+    try:
+        url = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+        r = _session.get(url, timeout=10)
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        if data.get("code") != 0:
+            return {}
+        stat = data.get("data", {}).get("stat", {})
+        return {
+            "like": stat.get("like", 0),
+            "repost": stat.get("share", 0),
+            "coin": stat.get("coin", 0),
+            "view": stat.get("view", 0),
+        }
+    except Exception as e:
+        log(f"获取视频统计失败 {bvid}: {e}")
+        return {}
+
+
+def score_video(stat: dict) -> float:
+    """计算视频评分：(点赞*1 + 转发*3 + 投币*2) / 播放量"""
+    view = stat.get("view", 0)
+    if view <= 0:
+        return 0.0
+    score = (stat.get("like", 0) * WEIGHT_LIKE +
+             stat.get("repost", 0) * WEIGHT_REPOST +
+             stat.get("coin", 0) * WEIGHT_COIN) / view
+    return score
+
+
 # ═══════════════════════════════════════════════════════
 # 下载视频（最高画质 + 重试）
 # ═══════════════════════════════════════════════════════
@@ -321,15 +342,62 @@ def crop_to_90(input_file: Path, output_file: Path) -> Path | None:
 # B站上传（biliup）
 # ═══════════════════════════════════════════════════════
 
-def biliup_upload(video_path: str, title: str = None, desc: str = None, tid: int = 21) -> bool:
+def generate_desc_and_comment(title: str) -> tuple[str, str]:
+    """用LLM根据标题生成简介和引流评论"""
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=300,
+            messages=[{
+                "role": "user",
+                "content": f'''根据这个视频标题，生成一段B站视频简介和一条引流评论。
+
+标题: {title}
+
+要求：
+1. 简介：2-3句话，概括视频精彩内容，吸引观众点赞投币关注
+2. 评论：1条简短的引流评论，要自然，不能像广告
+
+直接输出，格式如下，不要其他内容：
+简介：[简介内容]
+引流评论：[评论内容]'''
+            }]
+        )
+        # 兼容 ThinkingBlock（claude-sonnet-4-6 可能返回）
+        text = ""
+        for block in response.content:
+            if block.type == "text":
+                text += block.text
+            elif block.type == "thinking":
+                text += block.thinking
+
+        desc = ""
+        comment = ""
+        for line in text.split("\n"):
+            if line.startswith("简介："):
+                desc = line[3:].strip()
+            elif line.startswith("引流评论："):
+                comment = line[5:].strip()
+
+        return desc, comment
+    except Exception as e:
+        log(f"LLM生成失败: {e}")
+        return "", ""
+
+
+def biliup_upload(video_path: str, title: str = None, desc: str = None, tid: int = 21):
     """
     用bilibili_api上传视频到B站
     tid: 21=生活, 1=动画, 3=音乐等
+    返回 bvid 或 None
     """
     video_path = Path(video_path)
     if not video_path.exists():
         log(f"上传文件不存在: {video_path}")
-        return False
+        return None
 
     if title is None:
         title = f"峰哥精彩片段 {datetime.now().strftime('%m月%d日')} #{random.choice(['搞笑','情感','社会','哲理'])}"
@@ -339,38 +407,83 @@ def biliup_upload(video_path: str, title: str = None, desc: str = None, tid: int
 
     try:
         import asyncio
-        from bilibili_api import Credential, video_uploader
+        from bilibili_api import Credential
+        from bilibili_api.video_uploader import VideoUploader, VideoUploaderPage, VideoMeta
+        from PIL import Image
 
-        data = json.loads(open('/Users/kaikai/.biliup/cookies.json').read())
-        cookies = data['cookie_info']['cookies']
-        sess = next((c['value'] for c in cookies if c['name'] == 'SESSDATA'), '')
-        jct = next((c['value'] for c in cookies if c['name'] == 'bili_jct'), '')
-        buvid3 = next((c['value'] for c in cookies if c['name'] == 'buvid3'), '')
-        uid = data['token_info']['mid']
+        # 创建1x1透明图作为cover占位
+        cover_path = Path("/tmp/fengge_upload_cover.png")
+        if not cover_path.exists():
+            img = Image.new('RGBA', (1, 1), color=(0, 0, 0, 0))
+            img.save(cover_path)
+
+        data = json.loads(open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt').read())
+        sess = data.get('SESSDATA', '')
+        jct = data.get('bili_jct', '')
+        buvid3 = data.get('buvid3', '')
 
         cred = Credential(sessdata=sess, bili_jct=jct, buvid3=buvid3)
 
         async def do_upload():
             import warnings
             warnings.filterwarnings('ignore')
-            uploader = video_uploader.VideoUploader(
-                threads=3,
+            meta = VideoMeta(
+                tid=tid,
                 title=title,
                 desc=desc,
-                tid=tid,
+                cover=str(cover_path),
                 tags=["峰哥", "剪辑", "自动上传"],
+            )
+            page = VideoUploaderPage(path=str(video_path), title=title, description=desc)
+            uploader = VideoUploader(
+                pages=[page],
+                meta=meta,
                 credential=cred,
             )
-            await uploader.add_file(str(video_path))
             ret = await uploader.start()
             return ret
 
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(do_upload())
+        result = loop.run_until_complete(do_upload())
         log(f"上传成功: {title}")
+        # result 是 dict，包含 bvid
+        if isinstance(result, dict) and result.get("bvid"):
+            return result["bvid"]
         return True
     except Exception as e:
         log(f"上传失败: {e}")
+        return None
+
+
+def post_video_comment(bvid: str, text: str) -> bool:
+    """发布评论到视频评论区"""
+    try:
+        import asyncio
+        from bilibili_api import Credential
+        from bilibili_api.comment import send_comment, CommentResourceType
+        from bilibili_api.video_uploader import bvid2aid
+
+        data = json.loads(open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt').read())
+        sess = data.get('SESSDATA', '')
+        jct = data.get('bili_jct', '')
+        buvid3 = data.get('buvid3', '')
+
+        if not sess or not jct:
+            log("缺少SESSDATA或bili_jct，无法发评论")
+            return False
+
+        cred = Credential(sessdata=sess, bili_jct=jct, buvid3=buvid3)
+
+        async def do_comment():
+            aid = bvid2aid(bvid)
+            await send_comment(cred, text, oid=aid, type_=CommentResourceType.VIDEO)
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(do_comment())
+        log(f"评论发布成功: {text[:50]}...")
+        return True
+    except Exception as e:
+        log(f"评论发布失败: {e}")
         return False
 
 
@@ -384,6 +497,14 @@ def run_pipeline():
     if not acquire_lock():
         log("另一个进程正在运行，退出")
         return
+
+    # 清理临时目录中的视频文件
+    for f in WORK_DIR.glob("*.mp4"):
+        try:
+            f.unlink()
+            log(f"清理临时文件: {f.name}")
+        except Exception:
+            pass
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -405,14 +526,28 @@ def run_pipeline():
         log("没有新视频，退出")
         return
 
-    # 3. 按播放量排序，从top候选中随机选1个
-    candidates.sort(key=lambda x: x.get("play", 0), reverse=True)
+    # 3. 按上传时间排序，取最新30个
+    candidates.sort(key=lambda x: x.get("pubdate", 0), reverse=True)
     top_candidates = candidates[:TOP_CANDIDATES]
-    chosen = random.choice(top_candidates)
+
+    # 4. 获取每个视频的统计数据并评分
+    log(f"获取 {len(top_candidates)} 个候选视频的统计数据...")
+    scored = []
+    for v in top_candidates:
+        stats = get_video_stats(v["bvid"])
+        v["stats"] = stats
+        v["score"] = score_video(stats)
+        scored.append(v)
+        time.sleep(0.3)  # 避免请求过快
+
+    # 按评分排序，选最高分
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    chosen = scored[0]
     bvid = chosen["bvid"]
 
     pub_date = datetime.fromtimestamp(chosen.get("pubdate", 0)).strftime("%Y-%m-%d") if chosen.get("pubdate") else "未知"
-    log(f"选中: {bvid} | {chosen['title']} | 播放:{chosen.get('play', 0)} | 发布:{pub_date}")
+    stat = chosen.get("stats", {})
+    log(f"选中: {bvid} | {chosen['title']} | 评分:{chosen['score']:.4f} | 播:{stat.get('view', 0)} 赞:{stat.get('like', 0)} 转:{stat.get('repost', 0)} 币:{stat.get('coin', 0)} | 发布:{pub_date}")
 
     # 4. 下载
     raw_file = download_video(bvid, WORK_DIR)
@@ -449,9 +584,18 @@ def run_pipeline():
     # 8. 上传到B站
     log("步骤2: 上传到B站...")
     title_text = chosen.get("title", "峰哥精彩片段").replace("<em class=", "").replace("</em>", "").replace("\"", "'")
-    upload_ok = biliup_upload(str(upload_file), title_text)
-    if upload_ok:
+
+    # LLM生成简介和引流评论
+    desc_text, comment_text = generate_desc_and_comment(title_text)
+    if not desc_text:
+        desc_text = f"自动剪辑上传 · {datetime.now().strftime('%Y-%m-%d')}"
+
+    upload_result = biliup_upload(str(upload_file), title_text, desc_text)
+    upload_bvid = upload_result if isinstance(upload_result, str) else None
+    if upload_bvid or upload_result is True:
         log("✅ B站上传成功!")
+        if comment_text and upload_bvid:
+            post_video_comment(upload_bvid, comment_text)
     else:
         log("⚠️ B站上传失败（文件已移到上传目录，可手动上传）")
 

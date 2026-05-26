@@ -46,7 +46,7 @@ if os.path.exists(_env_path):
                 _k, _v = _line.split("=", 1)
                 os.environ[_k] = _v
 
-COOKIES_FILE = "/tmp/bilibili_cookies.json"
+COOKIES_FILE = "/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt"
 REPLIED_FILE = Path("/tmp/bili_replied_real.json")
 LOG_FILE     = Path("/tmp/bili_reply_v18.log")
 LOCK_FILE    = Path("/tmp/bili_reply_v18.lock")

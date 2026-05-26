@@ -31,9 +31,9 @@ ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
 DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 
 def load_bili_cookies():
-    """从 /tmp/bilibili_cookies.json 加载（兼容 list 和 dict 格式）"""
+    """从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 加载（兼容 list 和 dict 格式）"""
     try:
-        with open('/tmp/bilibili_cookies.json') as f:
+        with open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt') as f:
             data = json.load(f)
         if isinstance(data, list):
             return {c['name']: c['value'] for c in data}

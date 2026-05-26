@@ -16,7 +16,7 @@ from bilibili_api.comment import CommentResourceType
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-COOKIES_FILE = "/tmp/bilibili_cookies.json"
+COOKIES_FILE = "/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt"
 DONE_FILE = "/tmp/bili_philosophy_commented.json"
 
 # 重试 session
@@ -24,11 +24,11 @@ _session = requests.Session()
 _session.mount('https://', HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504})))
 
 def load_cookies():
-    if not os.path.exists(COOKIES_FILE):
-        print(f"Cookie 文件不存在: {COOKIES_FILE}")
+    if not os.path.exists('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt'):
+        print(f"Cookie 文件不存在: /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
         return {}
     try:
-        with open(COOKIES_FILE, 'r') as f:
+        with open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt', 'r') as f:
             data = json.load(f)
         if isinstance(data, list):
             return {c['name']: c['value'] for c in data}

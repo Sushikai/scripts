@@ -45,7 +45,7 @@ SENT_MESSAGES_FILE = "/tmp/bili_dm_sent_messages_v2.json"
 # 多账号支持（仅在 _instance 未设置时才用默认）
 if not _instance:
     _instance = os.environ.get('BILIBILI_INSTANCE', '')
-    COOKIES_FILE = "/tmp/bilibili_cookies.json"
+    COOKIES_FILE = "/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt"
     if _instance:
         _base = os.path.expanduser(f"~/.hermes/instances/{_instance}")
         _work = os.path.join(_base, "work")
