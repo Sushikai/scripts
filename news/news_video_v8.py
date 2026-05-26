@@ -47,19 +47,18 @@ HEADERS = {
     "Referer": "https://www.bilibili.com",
 }
 
-# 加载下载用cookie（素材账号 UID:140289989，仅用于下载）
+# 加载下载用cookie（账号B: UID 1650357577）
 DOWNLOAD_COOKIES = {}
-_cookies_file = "/Users/kaikai/.hermes/secrets/bilibili_cookies_netscape.txt"
+_cookies_file = "/Users/kaikai/scripts/20岁还没开始环球旅行_cookies.txt"
 if os.path.exists(_cookies_file):
-    with open(_cookies_file) as _f:
-        for line in _f:
-            line = line.strip()
-            if line and not line.startswith('#') and '\t' in line:
-                parts = line.split('\t')
-                if len(parts) >= 6:
-                    _name = parts[5].strip()
-                    _value = parts[6].strip() if len(parts) > 6 else ''
-                    DOWNLOAD_COOKIES[_name] = _value
+    try:
+        import json
+        _data = json.loads(open(_cookies_file).read())
+        DOWNLOAD_COOKIES = {k: v for k, v in _data.items() if k in (
+            "SESSDATA", "bili_jct", "buvid3", "buvid4", "DedeUserID", "bili_ticket", "sid"
+        )}
+    except Exception:
+        pass
 
 TASK_ID = uuid.uuid4().hex[:8].replace("'", "").replace("`", "")
 
@@ -75,15 +74,13 @@ def log(msg):
 def _load_upload_cookies():
     """从账号B cookie文件加载上传凭证"""
     paths = [
-        Path.home() / ".hermes/instances/fengge_b/secrets/bilibili_cookies_B.json",
-        Path.home() / ".hermes/instances/fengge_b/secrets/bilibili_cookies.txt",
-        Path("/tmp/bilibili_cookies_B.json"),
+        Path("/Users/kaikai/scripts/20岁还没开始环球旅行_cookies.txt"),
     ]
     for p in paths:
         if p.exists():
             try:
                 data = json.loads(p.read_text())
-                if isinstance(data, dict) and 'SESSDATA' in data:
+                if isinstance(data, dict) and 'SESSDATA' in data and 'bili_jct' in data:
                     return data
             except Exception:
                 pass
@@ -393,12 +390,12 @@ INTRO_TEMPLATES = [
 # 叙事优先级：重大事故 > 政策/领导人 > 经济数据 > 民生 > 国际 > 趣味
 CATEGORY_PRIORITY = {
     "重大事故": 0,
-    "政策/领导人": 1,
+    "科技/AI": 1,
     "经济数据": 2,
     "民生/社会": 3,
     "国际关系": 4,
-    "科技/AI": 5,
-    "趣味/其他": 6,
+    "趣味/其他": 5,
+    "政策/领导人": 6,
 }
 
 # 分类关键词（用于判断话题属于哪个叙事类别）
@@ -476,7 +473,7 @@ def merge_similar_events(topics: list) -> list:
                 break
         if found_group and found_group not in used:
             # 保留组名（信息量最丰富的话题标题）
-            merged.append({"topic": found_group, "source": t["source"], "group": found_group, "hot": t.get("hot", "")})
+            merged.append({"topic": found_group, "source": t.get("source", ""), "group": found_group, "hot": t.get("hot", "")})
             used.add(found_group)
         else:
             merged.append(t)
@@ -712,7 +709,7 @@ def _generate_natural_script(topic: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 本地大模型支持（Ollama / LocalAI）— 让脚本更像真人说话
+
 # ══════════════════════════════════════════════════════════════════════════════
 LOCAL_LLM_URL = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/api/generate")
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "qwen2.5:7b")
@@ -1606,7 +1603,7 @@ def main(date_str: str = "today"):
 
     # ── Step 2: 并行处理所有话题 ─────────────────────────────────────────
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    log(f"\n② 并行处理 {len(topics)} 条话题（8线程）...")
+    log(f"\n② 并行处理 {len(topics)} 条话题（4线程）...")
 
     def process_topic(args):
         import traceback as _tb
@@ -1638,12 +1635,28 @@ def main(date_str: str = "today"):
             return None
 
         bg_video_path = str(OUTPUT_DIR / f"v8_bgvideo_{sid}.mp4")
+        bg_download_ok = False
         if bv_id:
-            download_bilibili_video(bv_id, bg_video_path, clip_dur=audio_dur)
+            bg_download_ok = download_bilibili_video(bv_id, bg_video_path, clip_dur=audio_dur)
         else:
             searched_bv = search_bilibili_video(topic)
             if searched_bv:
-                download_bilibili_video(searched_bv, bg_video_path, clip_dur=audio_dur)
+                bg_download_ok = download_bilibili_video(searched_bv, bg_video_path, clip_dur=audio_dur)
+
+        # 下载失败时生成纯黑背景（静默fallback，不浪费好的音频/TTS）
+        if not bg_download_ok or not os.path.exists(bg_video_path) or os.path.getsize(bg_video_path) <= 5000:
+            log(f"  ⚠️ 第{i+1}条 bg下载失败，使用纯黑背景")
+            try:
+                subprocess.run([
+                    "ffmpeg", "-y",
+                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_dur}",
+                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "128k", "-shortest",
+                    bg_video_path
+                ], capture_output=True, timeout=30)
+            except Exception:
+                pass
 
         srt_path = str(OUTPUT_DIR / f"v8_sub_{sid}.srt")
         ass_path = str(OUTPUT_DIR / f"v8_sub_{sid}.ass")
@@ -1654,7 +1667,7 @@ def main(date_str: str = "today"):
         return (i, topic, audio_path, srt_path, ass_path, bg_video_path, bv_id, audio_dur)
 
     segments = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(process_topic, (i, item)): i for i, item in enumerate(topics)}
         for future in as_completed(futures):
             idx = futures[future]
@@ -1940,6 +1953,10 @@ if __name__ == "__main__":
     _actual_count = len(_clip_durations)
     log(f"  视频实际包含 {_actual_count} 条新闻")
 
+    # 解析章节 JSON（main() 里生成并存为全局变量）
+    global _CHAPTER_JSON
+    _chapters_for_upload = json.loads(_CHAPTER_JSON) if _CHAPTER_JSON else []
+
     # ── Step 9: 质量检查（门神）───
     log("\n🔍 质量检查中...")
     qc = verify_video_quality(_final_mp4)
@@ -1953,6 +1970,19 @@ if __name__ == "__main__":
     log(f"   视频路径: {_final_mp4}")
     log(f"   包含 {len(_clip_durations)} 条新闻")
     print(f"\n[V8_GENERATED] {_final_mp4}")
+
+    # ── Step 9.5: 清理本次运行的临时中间文件 ────────────────────────
+    log("\n🧹 清理临时文件...")
+    _task_id_pattern = TASK_ID  # capture current task id
+    _cleaned = 0
+    for _f in OUTPUT_DIR.glob("v8_*"):
+        if _f.is_file():
+            try:
+                _f.unlink()
+                _cleaned += 1
+            except Exception:
+                pass
+    log(f"   清理了 {_cleaned} 个临时文件")
 
     # ── Step 10: 上传B站 ─────────────────────────────────────
     # （已启用，由主流程单独处理上传）
@@ -2004,10 +2034,12 @@ if __name__ == "__main__":
     # ── 评论内容：移到 _upload() 内部，等 process_all_topics() 完成后缓存有了再生成
 
     async def _upload():
+        # 注意：bilibili_api 上传时 desc 来自 VideoUploaderPage.description（不是 VideoMeta.desc）
+        # title 也只来自 VideoUploaderPage.title（VideoMeta 的会被忽略）
         _page = video_uploader.VideoUploaderPage(
             path=_final_mp4,
             title=_title,
-            description=""
+            description=_desc,
         )
         _cover_path = "/tmp/cover.jpg"
         subprocess.run(
@@ -2019,8 +2051,8 @@ if __name__ == "__main__":
 
         _meta = video_uploader.VideoMeta(
             tid=201,
-            title=_title,
-            desc=_desc,
+            title=_title,      # bilibili_api ignores this; set via VideoUploaderPage
+            desc=_desc,        # bilibili_api ignores this; set via VideoUploaderPage
             cover=_cover,
             tags=_tags,
             original=True,
@@ -2037,6 +2069,61 @@ if __name__ == "__main__":
         print(f"\n开始上传 {_final_mp4}...", flush=True)
         _ret = await _uploader.start()
         print(f"上传结果: {_ret}", flush=True)
+
+        # ── 设置B站章节 ─────────────────────────────────────────────
+        _bv = _ret.get('bvid', _ret) if isinstance(_ret, dict) else _ret
+        if _bv and _bv.startswith('BV'):
+            print(f"设置章节: bvid={_bv}", flush=True)
+            try:
+                from bilibili_api import bvid2aid
+                _aid = bvid2aid(_bv)
+                _sess = _get_session()
+                _view_resp = _sess.get(
+                    f"https://api.bilibili.com/x/web-interface/view?bvid={_bv}",
+                    headers=HEADERS, cookies=_cred, timeout=10
+                )
+                _view_data = _view_resp.json()
+                _cid = _view_data.get("data", {}).get("cid", _aid)
+
+                # 构建章节 param（需要 end 时间）
+                _contents = []
+                for _ch in (_chapters_for_upload or []):
+                    _contents.append({
+                        "title": _ch["title"],
+                        "start": _ch["start"],
+                        "end": 0   # 占位，下一步计算
+                    })
+                # 填 end：下一个的 start - 1，最后一个用视频总时长
+                for _i in range(len(_contents)):
+                    if _i < len(_contents) - 1:
+                        _contents[_i]["end"] = _contents[_i + 1]["start"]
+                    else:
+                        _contents[_i]["end"] = int(sum(d for _, d in _clip_durations))
+
+                _chapter_param = json.dumps({
+                    "type": 1,
+                    "contents": _contents
+                }, ensure_ascii=False)
+
+                _chapter_payload = {
+                    "bvid": _bv,
+                    "aid": _aid,
+                    "cid": _cid,
+                    "csrf": _cookies.get('bili_jct', ''),
+                    "param": _chapter_param,
+                }
+                _ch_resp = _sess.post(
+                    "https://api.bilibili.com/x/vas/dlc_act/act/portal/EditContent",
+                    data=_chapter_payload,
+                    headers=HEADERS, timeout=10
+                )
+                _ch_result = _ch_resp.json()
+                if _ch_result.get("code") == 0:
+                    print(f"✅ 章节设置成功 ({len(_contents)} 个)", flush=True)
+                else:
+                    print(f"⚠️ 章节设置失败: {_ch_result.get('message', _ch_result)}", flush=True)
+            except Exception as _e:
+                print(f"⚠️ 章节设置异常: {_e}", flush=True)
 
         # ── 生成评论内容（用实际进视频的片段话题）────────
         _c_lines = [f"📰 今日信息差 | {date_str} | 共 {_actual_count} 条热点", ""]

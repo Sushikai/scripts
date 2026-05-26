@@ -7,6 +7,10 @@
 """
 from __future__ import annotations
 
+import os
+# 确保 yt-dlp 在 PATH 中（cron 环境）
+os.environ["PATH"] = "/Users/kaikai/bin:" + os.environ.get("PATH", "")
+
 import json
 import random
 import shutil
@@ -50,9 +54,10 @@ LOCK_FILE = Path("/tmp/fengge_pipeline.lock")
 
 # 搜索配置
 SEARCH_KEYWORD = "峰哥"
-SEARCH_PAGES = 3
+SEARCH_PAGES = 2
 # 只选最近 N 天内发布的视频（避免下载老视频）
-RECENT_DAYS = 60
+# 注：B站搜索结果视频时间可能较旧，使用365天确保有足够候选
+RECENT_DAYS = 365
 # 候选视频数量（按播放量排序后取前 N，随机选1个）
 TOP_CANDIDATES = 10
 
@@ -114,51 +119,105 @@ def save_history(h: dict) -> None:
     atomic_write(HISTORY_FILE, json.dumps(h, ensure_ascii=False, indent=2))
 
 
-# ═══════════════════════════════════════════════════════
-# 搜索视频
-# ═══════════════════════════════════════════════════════
-def get_search_results(keyword: str, pages: int = 3) -> list[dict]:
+# ═══════════════════════════════════════════════════════════════
+# 搜索视频（HTML解析，无需API认证）
+# ═══════════════════════════════════════════════════════════════
+def _clean_title(title: str) -> str:
+    """清理标题中的HTML实体和高亮标记"""
+    return (
+        title.replace('\\u003C', '<')
+             .replace('\\u003E', '>')
+             .replace('<em class="keyword">', '')
+             .replace('</em>', '')
+             .replace('&lt;', '<')
+             .replace('&gt;', '>')
+             .replace('&amp;', '&')
+             .strip()
+    )
+
+
+def get_search_results(keyword: str, pages: int = 2) -> list[dict]:
     """
-    搜索B站视频，返回列表（按播放量+时间综合排序）
-    API返回字段: bvid, title, author, play_number, pubdate
+    从Bilibili搜索页面HTML解析视频数据（无需API认证）
+    返回字段: bvid, title, author, play, pubdate, duration
     """
+    import re
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
     all_results = []
-    keyword_enc = urllib.parse.quote(keyword)
     cutoff_ts = (datetime.now() - timedelta(days=RECENT_DAYS)).timestamp()
 
+    # HTTP session with retry
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(
+        max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504})
+    ))
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+    }
+
+    keyword_enc = requests.utils.quote(keyword)
+
     for page in range(1, pages + 1):
-        url = (
-            f"https://api.bilibili.com/x/web-interface/search/type"
-            f"?search_type=video&keyword={keyword_enc}&order=click&page={page}&pagesize=20"
-        )
+        url = f"https://search.bilibili.com/video?keyword={keyword_enc}&order=click&page={page}"
         try:
-            r = _session.get(url, headers=HEADERS, cookies=COOKIES, timeout=15)
-            d = r.json()
+            r = session.get(url, headers=headers, timeout=15)
+            if r.status_code != 200:
+                log(f"第{page}页: HTTP {r.status_code}")
+                break
+
+            content = r.text
+
+            # 从HTML中提取所有BVID及其上下文
+            bvid_matches = list(re.finditer(r'bvid:"(BV[\w]+)"', content))
+            page_recent = 0
+
+            for m in bvid_matches:
+                bv = m.group(1)
+                context = content[m.end():m.end() + 1000]
+
+                # 提取各项数据
+                title_m = re.search(r',title:"([^"]+)"', context)
+                author_m = re.search(r',author:"([^"]+)"', context)
+                play_m = re.search(r'[,\s]play:(\d+)', context)
+                pubdate_m = re.search(r'[,}]pubdate:(\d+)', context)
+                duration_m = re.search(r',duration:"([^"]+)"', context)
+
+                if not (title_m and play_m and pubdate_m):
+                    continue
+
+                pubdate = int(pubdate_m.group(1))
+                # 只保留近期视频
+                if pubdate < cutoff_ts:
+                    continue
+
+                title = _clean_title(title_m.group(1))
+                author = author_m.group(1) if author_m else "未知"
+                play = int(play_m.group(1))
+                duration = duration_m.group(1) if duration_m else ""
+
+                all_results.append({
+                    "bvid": bv,
+                    "title": title,
+                    "author": author,
+                    "play": play,
+                    "pubdate": pubdate,
+                    "duration": duration,
+                })
+                page_recent += 1
+
+            log(f"第{page}页: 找到{page_recent}个近期视频（共{len(bvid_matches)}个BVID）")
+            time.sleep(1.0)  # 避免过快请求
+
         except Exception as e:
             log(f"第{page}页请求失败: {e}")
             break
-
-        if d.get("code") != 0:
-            log(f"搜索失败: {d.get('message', '未知错误')}")
-            break
-
-        results = d.get("data", {}).get("result", [])
-        for v in results:
-            pubdate = v.get("pubdate", 0)
-            # 只保留近期视频
-            if pubdate < cutoff_ts:
-                continue
-            title = v["title"].replace('<em class="keyword">', "").replace("</em>", "")
-            all_results.append({
-                "bvid": v["bvid"],
-                "title": title,
-                "author": v.get("author", "未知"),
-                "play": v.get("play_number", v.get("play", 0)),
-                "pubdate": pubdate,
-                "duration": v.get("duration", ""),
-            })
-        log(f"第{page}页: 找到{len(results)}个（近期{len([r for r in results if r.get('pubdate',0) >= cutoff_ts])}个）")
-        time.sleep(0.8)  # 避免过快请求
 
     return all_results
 
@@ -259,6 +318,63 @@ def crop_to_90(input_file: Path, output_file: Path) -> Path | None:
 
 
 # ═══════════════════════════════════════════════════════
+# B站上传（biliup）
+# ═══════════════════════════════════════════════════════
+
+def biliup_upload(video_path: str, title: str = None, desc: str = None, tid: int = 21) -> bool:
+    """
+    用bilibili_api上传视频到B站
+    tid: 21=生活, 1=动画, 3=音乐等
+    """
+    video_path = Path(video_path)
+    if not video_path.exists():
+        log(f"上传文件不存在: {video_path}")
+        return False
+
+    if title is None:
+        title = f"峰哥精彩片段 {datetime.now().strftime('%m月%d日')} #{random.choice(['搞笑','情感','社会','哲理'])}"
+
+    if desc is None:
+        desc = f"自动剪辑上传 · {datetime.now().strftime('%Y-%m-%d')}"
+
+    try:
+        import asyncio
+        from bilibili_api import Credential, video_uploader
+
+        data = json.loads(open('/Users/kaikai/.biliup/cookies.json').read())
+        cookies = data['cookie_info']['cookies']
+        sess = next((c['value'] for c in cookies if c['name'] == 'SESSDATA'), '')
+        jct = next((c['value'] for c in cookies if c['name'] == 'bili_jct'), '')
+        buvid3 = next((c['value'] for c in cookies if c['name'] == 'buvid3'), '')
+        uid = data['token_info']['mid']
+
+        cred = Credential(sessdata=sess, bili_jct=jct, buvid3=buvid3)
+
+        async def do_upload():
+            import warnings
+            warnings.filterwarnings('ignore')
+            uploader = video_uploader.VideoUploader(
+                threads=3,
+                title=title,
+                desc=desc,
+                tid=tid,
+                tags=["峰哥", "剪辑", "自动上传"],
+                credential=cred,
+            )
+            await uploader.add_file(str(video_path))
+            ret = await uploader.start()
+            return ret
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(do_upload())
+        log(f"上传成功: {title}")
+        return True
+    except Exception as e:
+        log(f"上传失败: {e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════
 # 流水线主逻辑
 # ═══════════════════════════════════════════════════════
 def run_pipeline():
@@ -330,13 +446,21 @@ def run_pipeline():
     }
     save_history(history)
 
-    # 8. 完成
+    # 8. 上传到B站
+    log("步骤2: 上传到B站...")
+    title_text = chosen.get("title", "峰哥精彩片段").replace("<em class=", "").replace("</em>", "").replace("\"", "'")
+    upload_ok = biliup_upload(str(upload_file), title_text)
+    if upload_ok:
+        log("✅ B站上传成功!")
+    else:
+        log("⚠️ B站上传失败（文件已移到上传目录，可手动上传）")
+
+    # 9. 完成
     log("=" * 50)
     log(f"✅ 流水线完成!")
-    log(f"视频: {chosen['title']}")
+    log(f"视频: {title_text}")
     log(f"播放: {chosen.get('play', 0)} | 发布: {pub_date}")
     log(f"文件: {upload_file}")
-    log(f"下一步: 用biliup上传到B站")
 
 
 if __name__ == "__main__":

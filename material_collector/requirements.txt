@@ -1,0 +1,48 @@
+# 短视频素材采集系统 - Python 依赖
+
+# 核心依赖
+# ==========
+
+# OCR
+paddlepaddle>=3.0.0          # 百度 PaddleOCR（GPU版）
+paddleocr>=2.7.0             # PaddleOCR 主程序
+
+# 数据库 & 向量
+chromadb>=0.4.0              # 向量数据库
+chromadb-client>=0.4.0       # Chroma Python 客户端
+
+# 数据处理
+pandas>=2.0.0                # 数据分析
+numpy>=1.24.0                # 数值计算
+
+# HTTP & 网络
+requests>=2.31.0             # HTTP 客户端
+
+# 图片处理
+Pillow>=10.0.0               # PIL 图片处理
+
+# 配置解析
+tomli>=2.0.0                 # TOML 解析（读 config.toml）
+tomli_w>=1.0.0               # TOML 写入
+
+# ============
+# 可选依赖
+# ============
+
+# 百度 OCR（如不使用百度云，可不装）
+# baidu-aip>=4.16.0
+
+# 视频处理
+# opencv-python>=4.8.0        # 视频帧处理
+# moviepy>=1.0.3              # 视频编辑
+
+# 日志
+colorlog>=6.7.0              # 彩色日志
+
+# ============
+# Mac M系列芯片安装注意
+# ============
+# pip install paddlepaddle paddleocr --index-url https://mirror.baidu.com/pypi/simple
+#
+# 如遇到编译问题，使用 conda:
+# conda install paddlepaddle-gpu -c paddle
