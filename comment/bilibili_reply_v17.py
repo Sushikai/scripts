@@ -104,11 +104,10 @@ def check_and_dispatch():
 # ==================== Cookie 加载 ====================
 import http.cookies
 if _INSTANCE_SECRETS:
-    _ns = _INSTANCE_SECRETS / "bilibili_cookies.netscape.txt"
-    _dict = _INSTANCE_SECRETS / "bilibili_cookies.txt"
-    COOKIES_FILE = _ns if _ns.exists() else (_dict if _dict.exists() else _ns)
+    _json = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
+    COOKIES_FILE = _json if _json.exists() else None
 else:
-    COOKIES_FILE = Path.home() / ".hermes/secrets/bilibili_cookies_A.netscape.txt"
+    COOKIES_FILE = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
 
 def load_cookies():
     json_file = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")

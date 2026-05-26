@@ -213,8 +213,17 @@ def get_search_results(keyword: str, pages: int = 2) -> list[dict]:
 def get_video_stats(bvid: str) -> dict:
     """获取视频的点赞、转发、投币、播放量"""
     try:
+        data = json.loads(open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt').read())
+        cookies = {
+            'SESSDATA': data.get('SESSDATA', ''),
+            'bili_jct': data.get('bili_jct', ''),
+            'buvid3': data.get('buvid3', ''),
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        }
         url = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
-        r = _session.get(url, timeout=10)
+        r = _session.get(url, cookies=cookies, headers=headers, timeout=10)
         if r.status_code != 200:
             return {}
         data = r.json()
@@ -476,7 +485,7 @@ def post_video_comment(bvid: str, text: str) -> bool:
 
         async def do_comment():
             aid = bvid2aid(bvid)
-            await send_comment(cred, text, oid=aid, type_=CommentResourceType.VIDEO)
+            await send_comment(text, oid=aid, type_=CommentResourceType.VIDEO, credential=cred)
 
         loop = asyncio.get_event_loop()
         loop.run_until_complete(do_comment())
@@ -592,10 +601,12 @@ def run_pipeline():
 
     upload_result = biliup_upload(str(upload_file), title_text, desc_text)
     upload_bvid = upload_result if isinstance(upload_result, str) else None
-    if upload_bvid or upload_result is True:
+    if upload_result:
         log("✅ B站上传成功!")
         if comment_text and upload_bvid:
             post_video_comment(upload_bvid, comment_text)
+        elif comment_text:
+            log(f"引流评论(无bvid跳过): {comment_text}")
     else:
         log("⚠️ B站上传失败（文件已移到上传目录，可手动上传）")
 
