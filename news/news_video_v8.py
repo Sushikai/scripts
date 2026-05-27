@@ -768,22 +768,22 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         width, height = 1920, 1080
 
-        # 字幕区：y=810-950，半透明黑条
-        subtitle_bg_top = 810
+        # 字幕区：y=815-950，半透明黑条
+        subtitle_bg_top = 815
         subtitle_bg_bottom = 950
 
-        # 话题标题区：y=810-860（大字，白色，左对齐）
-        topic_text_y = 830
-        topic_font_size = 40
+        # 话题标题区：y=815-860（大字，白色，左对齐）
+        topic_text_y = 822
+        topic_font_size = 35
 
-        # 字幕正文区：y=870-950（白色，居中）
-        subtitle_text_y = 880
-        subtitle_font_size = 36
+        # 字幕正文区：y=865-945（白色，居中）
+        subtitle_text_y = 868
+        subtitle_font_size = 34
 
         # 章节栏：y=950-1080，深灰底，灰色小字
         chapter_bar_top = 950
         chapter_text_y = 965
-        chapter_font_size = 20
+        chapter_font_size = 19
 
         # 颜色
         topic_color = (255, 255, 255)
