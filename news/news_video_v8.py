@@ -783,10 +783,17 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         subtitle_text_y = 880  # 字幕区居中偏上（topic消失后占整个字幕区）
         subtitle_font_size = 34
 
-        # 章节栏：y=950-1080，深灰底，灰色小字
+        # 章节栏：y=950-1080，展示所有章节节点+动态进度推进
         chapter_bar_top = 950
-        chapter_text_y = 965
-        chapter_font_size = 19
+        chapter_bar_height = height - chapter_bar_top  # 130px
+
+        # timeline参数
+        timeline_left = 60    # 时间轴左边界
+        timeline_right = width - 60  # 时间轴右边界
+        timeline_width = timeline_right - timeline_left
+
+        # 找章节栏用的字体（18px）
+        chapter_fnt_size = 18
 
         # 颜色
         topic_color = (255, 255, 255)
@@ -880,14 +887,43 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                 stroke_text(draw, (text_x, sub_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
                 rendered.add(frame_idx)
 
-            # 章节栏深灰底 + 灰色小字 —— 动态跟随播放位置
-            draw.rectangle([0, chapter_bar_top, width, height], fill=chapter_bar_color)
-            # 随播放进度动态显示当前为第几条
-            elapsed = timestamp / clip_dur if clip_dur > 0 else 0
-            progress = min(1.0, max(0.0, elapsed))
-            current_seg = max(1, min(total_segments, int(progress * total_segments) + 1))
-            chapter_text = f"第{current_seg}条/共{total_segments}条"
-            stroke_text(draw, (30, chapter_text_y), chapter_text, fnt_chapter, chapter_text_color, stroke_color, width=1)
+            # 章节栏：浅色进度背景条 + 时间轴节点动态推进
+            draw.rectangle([0, chapter_bar_top, width, height], fill=(32, 32, 32))
+
+            if total_segments >= 1:
+                axis_y = chapter_bar_top + chapter_bar_height // 2
+                elapsed = timestamp / clip_dur if clip_dur > 0 else 0
+                progress_x = timeline_left + int(timeline_width * elapsed)
+                # 当前章节（1到total_segments）
+                current_seg = 1 if total_segments == 1 else max(1, min(total_segments, int(elapsed * (total_segments - 1)) + 1))
+
+                # 时间轴背景线（浅灰色）
+                draw.rectangle([timeline_left, axis_y - 1, timeline_right, axis_y + 1], fill=(80, 80, 80))
+                # 已播放部分（亮灰）
+                if progress_x > timeline_left:
+                    draw.rectangle([timeline_left, axis_y - 2, progress_x, axis_y + 2], fill=(180, 180, 180))
+
+                # 章节节点：等距分布，已过亮色，未到暗色
+                for seg_j in range(1, total_segments + 1):
+                    frac = (seg_j - 1) / (total_segments - 1) if total_segments > 1 else 0
+                    node_x = timeline_left + int(timeline_width * frac)
+                    node_color = (220, 220, 220) if seg_j <= current_seg else (100, 100, 100)
+                    draw.ellipse([node_x - 5, axis_y - 5, node_x + 5, axis_y + 5], fill=node_color)
+
+                # 进度三角形指示器
+                draw.polygon([
+                    (progress_x - 5, axis_y + 6),
+                    (progress_x + 5, axis_y + 6),
+                    (progress_x, axis_y + 13),
+                ], fill=(255, 255, 255))
+
+                # "第X条/共Y条" 标签跟随进度横向移动
+                label_text = f"第{current_seg}条/共{total_segments}条"
+                bbox = draw.textbbox((0, 0), label_text, font=fnt_chapter)
+                label_w = bbox[2] - bbox[0]
+                label_x = max(5, min(width - label_w - 5, progress_x - label_w // 2))
+                label_y = chapter_bar_top + 8
+                draw.text((label_x, label_y), label_text, font=fnt_chapter, fill=(180, 180, 180))
 
             pil_img.save(f"{frame_dir}/frame_{frame_idx:06d}.jpg", quality=90)
             frame_idx += 1
