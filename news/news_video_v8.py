@@ -829,7 +829,7 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         fnt_topic = make_font(topic_font_size)
         fnt_sub = make_font(subtitle_font_size)
-        fnt_chapter = make_font(chapter_font_size)
+        fnt_chapter = make_font(18)
 
         frame_dir = f"/tmp/frames_{uuid.uuid4().hex[:6]}"
         os.makedirs(frame_dir, exist_ok=True)
