@@ -506,8 +506,10 @@ def get_recent_likers_of_my_videos(session: requests.Session, cookies: dict, my_
 
 # ── 主流程 ──────────────────────────────────────────────────────────────────
 
-def score_user(uid: str, comments: list, keyword_match_count: int, replied_me: bool = False) -> float:
-    """计算用户成为粉丝的可能性分数"""
+def score_user(uid: str, comments: list, keyword_match_count: int, interaction_level: int = 0) -> float:
+    """计算用户成为粉丝的可能性分数
+    interaction_level: 0=无互动, 1=点赞过我, 2=回复过我, 3=私信过我, 4=已互关
+    """
     if not comments:
         return 0.0
 
@@ -517,9 +519,14 @@ def score_user(uid: str, comments: list, keyword_match_count: int, replied_me: b
 
     score = 0.0
 
-    # 最高优先级：点赞过我或回复过我的人
-    if replied_me:
-        score += 1000.0
+    # 最高优先级：互动过的用户
+    priority_boost = {
+        4: 5000.0,   # 已互关
+        3: 3000.0,   # 发过私信
+        2: 2000.0,   # 回复过我
+        1: 1000.0,   # 点赞过我
+    }
+    score += priority_boost.get(interaction_level, 0.0)
 
     # 信号1: 评论数量（越活跃越可能成为粉丝）
     comment_count = len(comments)
@@ -574,10 +581,29 @@ def main(light_mode: bool = False):
             unique_videos.append(v)
     log(f"  共 {len(unique_videos)} 个去重视频")
 
-    # ── 阶段1.5: 获取回复过我/点赞过我的用户（最高优先级）─────────
-    log(f"\n①.5 获取回复过我的用户（最高优先级）...")
+    # ── 阶段1.5: 获取与我互动过的用户（最高优先级）─────────
+    log(f"\n①.5 获取与我互动过的用户（最高优先级）...")
     replied_me_uids = get_replied_me_uids(session, cookies)
-    log(f"  回复过我/点赞过我的用户: {len(replied_me_uids)} 个")
+    liked_me_uids = get_liked_me_uids(session, cookies)
+    dm_uids = get_dm_uids(session, cookies)
+    follower_uids = get_my_followers(session, cookies)
+
+    # 计算每个用户的互动等级
+    all_interactive_uids = replied_me_uids | liked_me_uids | dm_uids | follower_uids
+    uid_interaction_level = {}
+    for uid in all_interactive_uids:
+        level = 0
+        if uid in follower_uids:
+            level = max(level, 4)
+        if uid in dm_uids:
+            level = max(level, 3)
+        if uid in replied_me_uids:
+            level = max(level, 2)
+        if uid in liked_me_uids:
+            level = max(level, 1)
+        uid_interaction_level[uid] = level
+
+    log(f"  回复过我: {len(replied_me_uids)} | 点赞过我: {len(liked_me_uids)} | 私信过我: {len(dm_uids)} | 互关: {len(follower_uids)}")
 
     # ── 阶段2: 抓取评论者并打分 ─────────────────────────────────
     log(f"\n② 抓取评论者并计算粉丝潜力分数...")
@@ -602,8 +628,8 @@ def main(light_mode: bool = False):
     for uid, comments in user_comments.items():
         if len(comments) < MIN_COMMENTS_THRESHOLD:
             continue
-        replied_me = uid in replied_me_uids
-        score = score_user(uid, comments, keyword_match_count=0, replied_me=replied_me)
+        interaction_level = uid_interaction_level.get(uid, 0)
+        score = score_user(uid, comments, keyword_match_count=0, interaction_level=interaction_level)
         uname = comments[0].get("uname", uid) if comments else uid
         user_scores.append((score, uid, uname, comments))
 
@@ -611,7 +637,12 @@ def main(light_mode: bool = False):
     user_scores.sort(key=lambda x: x[0], reverse=True)
     all_users = user_scores  # 不限制用户数，全部参与
 
-    log(f"  候选用户 {len(all_users)} 个，全部参与点赞")
+    # 将互动过的用户排到前面
+    interactive_users = [(s, u, n, c) for s, u, n, c in all_users if uid_interaction_level.get(u, 0) > 0]
+    non_interactive_users = [(s, u, n, c) for s, u, n, c in all_users if uid_interaction_level.get(u, 0) == 0]
+    all_users = interactive_users + non_interactive_users
+
+    log(f"  候选用户 {len(all_users)} 个（互动优先: {len(interactive_users)} 个）")
 
     # ── 阶段4: 点赞直到成功70个 ───────────────────────────────
     TARGET_LIKES = 70
@@ -677,11 +708,6 @@ def main(light_mode: bool = False):
 
     # ── 完成 ─────────────────────────────────────────────────────
     log(f"\n{'='*60}")
-    log(f"✅ 粉丝发掘完成")
-    log(f"   处理用户: {total_users}")
-    log(f"   总点赞: {total_liked}")
-    log(f"   已记录: {len(liked_rpids)} 条")
-    log(f"{'='*60}")
     log(f"✅ 粉丝发掘完成")
     log(f"   处理用户: {total_users}")
     log(f"   总点赞: {total_liked}")
