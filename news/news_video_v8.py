@@ -60,6 +60,10 @@ if os.path.exists(_cookies_file):
     except Exception:
         pass
 
+# 本地语音克隆配置（XTTS v2 via Docker）
+# 设置参考音频路径启用本地克隆，否则使用 Edge TTS 云端
+VOICE_CLONE_REF_AUDIO = "/Users/kaikai/scripts/config/ref_60s_16k.wav"
+
 TASK_ID = uuid.uuid4().hex[:8].replace("'", "").replace("`", "")
 
 def log(msg):
@@ -581,9 +585,107 @@ def download_bilibili_video(bvid: str, output_path: str, clip_dur: float = None)
         log(f"  ⚠️ BV={bvid} 下载异常: {e}")
     return False
 
+def _check_docker() -> bool:
+    """检查Docker是否可用"""
+    r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
+    return r.returncode == 0
+
+def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
+    """XTTS v2 本地语音克隆（需要参考音频 + Docker）"""
+    ref_audio = VOICE_CLONE_REF_AUDIO
+    if not ref_audio or not os.path.exists(ref_audio):
+        return False
+    if not _check_docker():
+        log(f"  ⚠️ Docker不可用，跳过XTTS克隆")
+        return False
+
+    work_dir = f"/tmp/xtts_clone_{TASK_ID}"
+    os.makedirs(work_dir, exist_ok=True)
+
+    # 复制参考音频到工作目录
+    ref_copy = f"{work_dir}/reference.wav"
+    subprocess.run([
+        "ffmpeg", "-i", ref_audio, "-ar", "22050", "-ac", "1",
+        "-ss", "0", "-t", "30", "-y", ref_copy
+    ], capture_output=True, timeout=30)
+
+    if not os.path.exists(ref_copy):
+        return False
+
+    # 写TTS推理脚本
+    tts_script = f"{work_dir}/tts_infer.py"
+    with open(tts_script, "w") as f:
+        f.write("""
+import sys
+sys.path.insert(0, "/opt/venv/lib/python3.11/site-packages")
+
+from TTS.api import TTS
+import warnings
+warnings.filterwarnings('ignore')
+import os
+
+tts = TTS("xtts_v2").to("cpu")
+tts.tts(
+    text=open("/input/text.txt").read().strip(),
+    speaker_wav="/input/ref.wav",
+    file_path="/output/output.wav"
+)
+print("XTTS done:", os.path.exists("/output/output.wav"))
+""")
+
+    with open(f"{work_dir}/text.txt", "w") as f:
+        f.write(script)
+
+    docker_cmd = [
+        "docker", "run", "--rm",
+        "-v", f"{work_dir}:/input",
+        "-v", f"{work_dir}:/output",
+        "ghcr.io/coqui-ai/tts-cpu",
+        "python3", tts_script
+    ]
+
+    log(f"  🎙️ 第{index+1}条使用XTTS克隆音色...")
+    try:
+        r = subprocess.run(docker_cmd, capture_output=True, timeout=600)
+        if r.returncode == 0 and os.path.exists(f"{work_dir}/output.wav"):
+            subprocess.run([
+                "ffmpeg", "-i", f"{work_dir}/output.wav",
+                "-ar", "44100", "-ab", "192k", output_path, "-y"
+            ], capture_output=True, timeout=30)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 2000:
+                dur = float(subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", output_path],
+                    capture_output=True, text=True, timeout=5
+                ).stdout.strip() or 0)
+                log(f"  ✅ 第{index+1}条音频(XTTS克隆): {dur:.0f}秒")
+                shutil.rmtree(work_dir, ignore_errors=True)
+                return True
+    except Exception as e:
+        log(f"  ⚠️ XTTS克隆失败: {e}")
+    shutil.rmtree(work_dir, ignore_errors=True)
+    return False
+
 def generate_tts(script: str, output_path: str, index: int) -> bool:
-    """Edge TTS zh-CN-YunxiNeural（云希Neural，浑厚有力）+ 语速+30%，音调+5Hz，3次重试"""
-    import time, asyncio, tempfile, os
+    """优先本地克隆(XTTS)，失败则Edge TTS zh-CN-YunxiNeural（云希Neural，浑厚有力）+ 语速+30%，音调+5Hz，3次重试"""
+    # 音频缓存：同样的文案直接复用已有文件（XTTS一次克隆，之后重用）
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 2000:
+        dur = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", output_path],
+            capture_output=True, text=True, timeout=5
+        ).stdout.strip() or 0)
+        if dur > 5:
+            log(f"  ✅ 第{index+1}条音频(缓存): {dur:.0f}秒")
+            return True
+
+    # 优先尝试本地克隆
+    if os.path.exists(VOICE_CLONE_REF_AUDIO) and _check_docker():
+        if generate_tts_clone(script, output_path, index):
+            return True
+        log(f"  ⚠️ XTTS克隆失败，尝试Edge TTS...")
+
+    import time, asyncio
     for attempt in range(3):
         try:
             async def _run():
@@ -766,7 +868,7 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             return False
         subs = pysrt.open(srt_path)
 
-        width, height = 1920, 1080
+        target_w, target_h = 1920, 1080
 
         # 动态topic标题：只在clip的前30%时间段内显示，之后消失
         topic_show_until = clip_dur * 0.30
@@ -785,11 +887,11 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         # 章节栏：y=950-1080，展示所有章节节点+动态进度推进
         chapter_bar_top = 950
-        chapter_bar_height = height - chapter_bar_top  # 130px
+        chapter_bar_height = target_h - chapter_bar_top  # 130px
 
         # timeline参数
         timeline_left = 60    # 时间轴左边界
-        timeline_right = width - 60  # 时间轴右边界
+        timeline_right = target_w - 60  # 时间轴右边界
         timeline_width = timeline_right - timeline_left
 
         # 找章节栏用的字体（18px）
@@ -837,9 +939,15 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         import cv2
         cap = cv2.VideoCapture(video_path)
         fps_in = cap.get(cv2.CAP_PROP_FPS) or 30
+        src_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280
+        src_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720
         max_frames = int(clip_dur * fps_in) + 30
         rendered = set()
         frame_idx = 0
+
+        # 缩放系数：将原始帧缩放到目标分辨率
+        scale_x = target_w / src_w
+        scale_y = target_h / src_h
 
         def stroke_text(draw, pos, text, font, fill, stroke_fill, width=2):
             x, y = pos
@@ -868,10 +976,12 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(frame_rgb)
+            # 将原始帧缩放到目标分辨率，确保画面不变形
+            pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
             draw = ImageDraw.Draw(pil_img)
 
             # 字幕区黑条背景
-            draw.rectangle([0, subtitle_bg_top, width, subtitle_bg_bottom], fill=(0, 0, 0, 180))
+            draw.rectangle([0, subtitle_bg_top, target_w, subtitle_bg_bottom], fill=(0, 0, 0, 180))
 
             # 话题标题（白色大字，左对齐，2px黑描边）—— 只在前30%时间段显示
             if topic_title and timestamp < topic_show_until:
@@ -881,14 +991,14 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             if current_sub:
                 bbox = draw.textbbox((0, 0), current_sub, font=fnt_sub)
                 text_w = bbox[2] - bbox[0]
-                text_x = (width - text_w) // 2
+                text_x = (target_w - text_w) // 2
                 # topic存在时字幕偏下，topic消失后字幕居中
                 sub_y = subtitle_text_y if timestamp < topic_show_until else (subtitle_bg_top + (subtitle_bg_bottom - subtitle_bg_top - subtitle_font_size) // 2)
                 stroke_text(draw, (text_x, sub_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
                 rendered.add(frame_idx)
 
             # 章节栏：浅色进度背景条 + 时间轴节点动态推进
-            draw.rectangle([0, chapter_bar_top, width, height], fill=(32, 32, 32))
+            draw.rectangle([0, chapter_bar_top, target_w, target_h], fill=(32, 32, 32))
 
             if total_segments >= 1:
                 axis_y = chapter_bar_top + chapter_bar_height // 2
@@ -1217,12 +1327,16 @@ def main(date_str: str = "today"):
             return None
 
         audio_path = str(OUTPUT_DIR / f"v8_audio_{sid}.m4a")
-        if not generate_tts(script, audio_path, i):
+
+        # 音频缓存 key：基于文案内容的 hash，同一话题复用同一文件
+        script_hash = hashlib.md5(script.encode()).hexdigest()[:12]
+        cached_audio = str(OUTPUT_DIR / f"v8_audio_{script_hash}.m4a")
+        if not generate_tts(script, cached_audio, i):
             return None
 
         audio_dur = float(subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+             "-of", "default=noprint_wrappers=1:nokey=1", cached_audio],
             capture_output=True, text=True, timeout=5
         ).stdout.strip() or 20)
         if audio_dur < 2:
@@ -1255,11 +1369,11 @@ def main(date_str: str = "today"):
 
         srt_path = str(OUTPUT_DIR / f"v8_sub_{sid}.srt")
         ass_path = str(OUTPUT_DIR / f"v8_sub_{sid}.ass")
-        generate_srt_from_audio(audio_path, srt_path, i, script)
+        generate_srt_from_audio(cached_audio, srt_path, i, script)
         if os.path.exists(srt_path):
             srt_to_ass(srt_path, ass_path)
 
-        return (i, topic, audio_path, srt_path, ass_path, bg_video_path, bv_id, audio_dur)
+        return (i, topic, cached_audio, srt_path, ass_path, bg_video_path, bv_id, audio_dur)
 
     segments = []
     with ThreadPoolExecutor(max_workers=4) as pool:

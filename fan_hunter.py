@@ -56,16 +56,17 @@ SEARCH_KEYWORDS = [
 # 每日限制
 MAX_USERS_PER_RUN = 7       # 每次处理7个目标用户
 MAX_LIKES_PER_USER = 10    # 每个用户最多点赞10条评论 → 7×10=70
-MAX_VIDEOS_TO_SCRAPE = 30  # 最多抓取30个视频（扩大候选池）
-DAYS_LOOKBACK = 30            # 放宽到30天内，增加可点赞内容
+MAX_VIDEOS_TO_SCRAPE = 30  # 最多抓取30个视频
+MAX_COMMENT_USERS = 300    # 最多从视频评论中收集300个用户
+DAYS_LOOKBACK = 60            # 60天内，增加可点赞内容
 MIN_COMMENTS_THRESHOLD = 1   # 用户至少要有1条评论才纳入候选
 
 # 轻量模式（定时任务用）
 LIGHT_MODE_USERS = 10        # 轻量模式每次处理10个目标用户
 
 # 延时设置（避免风控）
-MIN_DELAY = 2.0
-MAX_DELAY = 5.0
+MIN_DELAY = 1.0
+MAX_DELAY = 3.0
 
 # ── AI 搜索词生成 ────────────────────────────────────────────────────────────
 
@@ -186,12 +187,16 @@ def search_videos(keyword: str, session: requests.Session, limit: int = 50) -> l
         return []
 
 
-def get_popular_videos(session: requests.Session, limit: int = 100) -> list:
+def get_popular_videos(session: requests.Session, limit: int = 100, cookies: dict = None) -> list:
     """获取全站热门视频（不限制关键词）"""
     try:
         r = session.get(
             "https://api.bilibili.com/x/web-interface/ranking/v2?type=all&pn=1&ps=50",
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.bilibili.com",
+            },
+            cookies=cookies,
             timeout=10
         )
         data = r.json()
@@ -202,7 +207,6 @@ def get_popular_videos(session: requests.Session, limit: int = 100) -> list:
             return videos
         return []
     except Exception:
-        return []
         return []
 
 def get_video_comments(bvid: str, session: requests.Session, cookies: dict, limit: int = 20) -> list:
@@ -250,8 +254,9 @@ def get_user_recent_comments(uid: str, session: requests.Session, cookies: dict,
     """获取用户最近N天的评论"""
     cutoff = int((datetime.now() - timedelta(days=days)).timestamp())
     try:
+        # 使用 /x/v2/reply/main?mode=3 获取用户评论历史，oid=uid, type=1
         r = session.get(
-            f"https://api.bilibili.com/x/space/comment?uid={uid}&pn=1&ps=20&type=1",
+            f"https://api.bilibili.com/x/v2/reply/main?mode=3&oid={uid}&type=1&ps=20&jsonp=jsonp",
             headers={
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
                 "Referer": f"https://space.bilibili.com/{uid}",
@@ -262,12 +267,12 @@ def get_user_recent_comments(uid: str, session: requests.Session, cookies: dict,
         d = r.json()
         comments = []
         if d.get("code") == 0:
-            for c in d.get("data", {}).get("comments", []) or []:
+            for c in d.get("data", {}).get("replies", []) or []:
                 ctime = c.get("ctime", 0)
                 rpid = c.get("rpid", 0)
                 oid = c.get("oid", 0)
                 content = re.sub(r'<[^>]+>', '', c.get("content", ""))
-                uname = c.get("user", {}).get("uname", "")
+                uname = c.get("member", {}).get("uname", "")
                 if ctime >= cutoff and rpid and oid:
                     comments.append({
                         "rpid": rpid,
@@ -484,26 +489,6 @@ def get_my_followers(session: requests.Session, cookies: dict) -> set:
     return uids
 
 
-def get_recent_likers_of_my_videos(session: requests.Session, cookies: dict, my_aids: list) -> set:
-    """获取最近点赞过我视频的用户UID"""
-    uids = set()
-    for aid in my_aids[:10]:  # 限制只查前10个视频
-        try:
-            r = session.get(
-                f"https://api.bilibili.com/x/v2/reply?type=1&oid={aid}&pn=1&ps=20&sort=2",
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                    "Referer": "https://www.bilibili.com",
-                },
-                cookies=cookies,
-                timeout=10
-            )
-            # 点赞信息在 each 接口里
-            time.sleep(0.3)
-        except Exception:
-            pass
-    return uids
-
 # ── 主流程 ──────────────────────────────────────────────────────────────────
 
 def score_user(uid: str, comments: list, keyword_match_count: int, interaction_level: int = 0) -> float:
@@ -567,19 +552,43 @@ def main(light_mode: bool = False):
 
     session = get_session()
 
-    # ── 阶段1: 获取热门视频（不限制关键词）────────────────────
-    log(f"\n① 获取全站热门视频（不限制关键词）...")
+    # ── 阶段1: 获取热门视频 + 关键词搜索目标领域视频 ─────────────────
+    log(f"\n① 获取热门视频 + 搜索目标领域...")
 
-    all_videos = get_popular_videos(session, limit=100)
+    all_videos = get_popular_videos(session, limit=100, cookies=cookies)
     log(f"  获取到 {len(all_videos)} 个热门视频")
 
-    seen = set()
-    unique_videos = []
+    # 额外：用关键词搜索目标领域视频
+    TARGET_KEYWORDS = [
+        "环球旅行", "出境游", "国外生活", "海外华人",
+        "峰哥", "信息差", "跨境电商", "海外工作",
+        "签证攻略", "移民", "留学", "海外定居",
+    ]
+    seen = set(v["bvid"] for v in all_videos)
+    keyword_videos = []
+    for kw in TARGET_KEYWORDS:
+        results = search_videos(kw, session, limit=20)
+        for v in results:
+            if v["bvid"] not in seen:
+                seen.add(v["bvid"])
+                keyword_videos.append(v)
+                if len(keyword_videos) >= 50:
+                    break
+        if len(keyword_videos) >= 50:
+            break
+
+    log(f"  关键词找到 {len(keyword_videos)} 个视频")
+
+    # 合并后去重，优先保留关键词视频（目标领域），最多 MAX_VIDEOS_TO_SCRAPE 个
+    merged = keyword_videos.copy()
+    seen2 = set(v["bvid"] for v in merged)
     for v in all_videos:
-        if v["bvid"] not in seen:
-            seen.add(v["bvid"])
-            unique_videos.append(v)
-    log(f"  共 {len(unique_videos)} 个去重视频")
+        if v["bvid"] not in seen2:
+            merged.append(v)
+            if len(merged) >= MAX_VIDEOS_TO_SCRAPE:
+                break
+    unique_videos = merged
+    log(f"  去重后共 {len(unique_videos)} 个视频（目标领域优先）")
 
     # ── 阶段1.5: 获取与我互动过的用户（最高优先级）─────────
     log(f"\n①.5 获取与我互动过的用户（最高优先级）...")
@@ -610,6 +619,9 @@ def main(light_mode: bool = False):
     user_comments = defaultdict(list)  # uid -> [comments]
 
     for v in unique_videos:
+        if len(user_comments) >= MAX_COMMENT_USERS:
+            log(f"  已收集 {MAX_COMMENT_USERS} 个用户，停止抓取更多视频评论")
+            break
         comments = get_video_comments(v["bvid"], session, cookies, limit=20)
         for c in comments:
             uid = c["uid"]
@@ -617,10 +629,10 @@ def main(light_mode: bool = False):
             c["bvid"] = v["bvid"]
             c["title"] = v["title"]
             user_comments[uid].append(c)
-        log(f"  [{v['bvid']}] {v['title'][:20]}: {len(comments)} 条评论")
+        log(f"  [{v['bvid']}] {v['title'][:20]}: {len(comments)} 条评论 (累计用户: {len(user_comments)})")
         rand_delay()
 
-    log(f"  共发现 {len(user_comments)} 个评论用户")
+    log(f"  共发现 {len(user_comments)} 个评论用户（限制 {MAX_COMMENT_USERS} 个）")
 
     # ── 阶段3: 打分排序，筛选Top用户 ──────────────────────────
     log(f"\n③ 计算粉丝潜力分数并排序...")
@@ -633,16 +645,30 @@ def main(light_mode: bool = False):
         uname = comments[0].get("uname", uid) if comments else uid
         user_scores.append((score, uid, uname, comments))
 
-    # 按分数降序，取所有用户（不限制数量）
+    # 互动过但不在视频评论里的用户，直接从他们个人空间拉取评论
+    MAX_INTERACTIVE_FETCH = 50  # 最多从个人空间拉取50个互动用户的评论
+    for uid in list(all_interactive_uids)[:MAX_INTERACTIVE_FETCH]:
+        if uid not in user_comments:
+            interaction_level = uid_interaction_level.get(uid, 0)
+            if interaction_level > 0:
+                recent = get_user_recent_comments(uid, session, cookies, days=DAYS_LOOKBACK)
+                if recent:
+                    uname = recent[0].get("uname", uid)
+                    user_scores.append((score_user(uid, recent, keyword_match_count=0, interaction_level=interaction_level), uid, uname, recent))
+    log(f"  额外从个人空间拉取了 {min(len(all_interactive_uids), MAX_INTERACTIVE_FETCH)} 个互动用户")
+
+    # 按分数降序
     user_scores.sort(key=lambda x: x[0], reverse=True)
-    all_users = user_scores  # 不限制用户数，全部参与
 
     # 将互动过的用户排到前面
-    interactive_users = [(s, u, n, c) for s, u, n, c in all_users if uid_interaction_level.get(u, 0) > 0]
-    non_interactive_users = [(s, u, n, c) for s, u, n, c in all_users if uid_interaction_level.get(u, 0) == 0]
-    all_users = interactive_users + non_interactive_users
+    interactive_users = [(s, u, n, c) for s, u, n, c in user_scores if uid_interaction_level.get(u, 0) > 0]
+    non_interactive_users = [(s, u, n, c) for s, u, n, c in user_scores if uid_interaction_level.get(u, 0) == 0]
 
-    log(f"  候选用户 {len(all_users)} 个（互动优先: {len(interactive_users)} 个）")
+    # 互动优先，最多考察 target_users_limit*10 个用户（确保有足够候选找到未点赞评论）
+    all_users = interactive_users + non_interactive_users
+    all_users = all_users[:target_users_limit * 10]
+
+    log(f"  候选用户 {len(all_users)} 个（互动: {len(interactive_users)}，非互动: {len(non_interactive_users)}）")
 
     # ── 阶段4: 点赞直到成功70个 ───────────────────────────────
     TARGET_LIKES = 70
@@ -659,32 +685,31 @@ def main(light_mode: bool = False):
         if total_liked >= TARGET_LIKES:
             log(f"  ✅ 已达到目标 {TARGET_LIKES} 个赞，停止点赞")
             break
-        recent = get_user_recent_comments(uid, session, cookies, days=DAYS_LOOKBACK)
 
-        all_recent = list(recent)
-        seen_rpids = set(c["rpid"] for c in recent)
-        for c in comments:
-            if c["ctime"] >= cutoff_time and c["rpid"] not in liked_rpids and c["rpid"] not in seen_rpids:
-                all_recent.append(c)
-                seen_rpids.add(c["rpid"])
+        # 互动用户优先，直接拉取个人空间评论（他们的回复可能不在热门视频里）
+        if uid_interaction_level.get(uid, 0) > 0:
+            # 互动用户：直接拉取个人空间评论
+            recent = get_user_recent_comments(uid, session, cookies, days=DAYS_LOOKBACK)
+            user_to_like = [c for c in recent if c["rpid"] not in liked_rpids]
+            if not user_to_like:
+                # 尝试视频评论里已有的
+                user_to_like = [c for c in comments if c.get("ctime", 0) >= cutoff_time and c["rpid"] not in liked_rpids]
+        else:
+            # 普通用户：先用视频评论，再用个人空间补充
+            user_to_like = [c for c in comments if c.get("ctime", 0) >= cutoff_time and c["rpid"] not in liked_rpids]
+            if len(user_to_like) < MAX_LIKES_PER_USER:
+                recent = get_user_recent_comments(uid, session, cookies, days=DAYS_LOOKBACK)
+                for c in recent:
+                    if c["rpid"] not in liked_rpids and c not in user_to_like:
+                        user_to_like.append(c)
+            user_to_like = user_to_like[:MAX_LIKES_PER_USER]
 
-        # 去重（同一rpid只保留一次）
-        seen_rpids = set()
-        to_like = []
-        for c in all_recent:
-            if c["rpid"] in seen_rpids or c["rpid"] in liked_rpids:
-                continue
-            seen_rpids.add(c["rpid"])
-            to_like.append(c)
-
-        to_like = to_like[:MAX_LIKES_PER_USER]
-
-        if not to_like:
-            log(f"  ⏭ @{uname}: 无新评论可点赞（已尝试 {len(comments)} 条，全部在记录中或时间过期）")
+        if not user_to_like:
+            log(f"  ⏭ @{uname} ({uid}): 无可点赞评论（视频评论{len(comments)}条，近期{len([c for c in comments if c.get('ctime',0)>=cutoff_time])}条，已赞{len([c for c in comments if c['rpid'] in liked_rpids])}条）")
             continue
 
-        log(f"\n  @{uname} ({uid}): 点赞 {len(to_like)} 条 [分数:{score:.1f}]")
-        for c in to_like:
+        log(f"\n  @{uname} ({uid}): 点赞 {len(user_to_like)} 条 [分数:{score:.1f}]")
+        for c in user_to_like:
             ok = like_comment(c["rpid"], c["oid"], session, cookies)
             if ok:
                 save_liked_comment(c["rpid"])
@@ -699,7 +724,6 @@ def main(light_mode: bool = False):
                 log(f"    ✅ {c['content'][:25]}...")
                 total_liked += 1
             else:
-                # 点赞失败也加入记录，避免对同一评论反复尝试
                 log(f"    ⚠️ 点赞失败 rpid={c['rpid']}，加入跳过列表")
                 liked_rpids.add(c["rpid"])
             rand_delay()
