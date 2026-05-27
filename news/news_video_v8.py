@@ -910,12 +910,16 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                     node_color = (220, 220, 220) if seg_j <= current_seg else (100, 100, 100)
                     draw.ellipse([node_x - 5, axis_y - 5, node_x + 5, axis_y + 5], fill=node_color)
 
-                # 进度三角形指示器
-                draw.polygon([
-                    (progress_x - 5, axis_y + 6),
-                    (progress_x + 5, axis_y + 6),
-                    (progress_x, axis_y + 13),
-                ], fill=(255, 255, 255))
+                # 时间轴：已播放部分亮色推进
+                if progress_x > timeline_left:
+                    draw.rectangle([timeline_left, axis_y - 2, progress_x, axis_y + 2], fill=(180, 180, 180))
+
+                # 章节节点：等距分布，已过亮色，未到暗色
+                for seg_j in range(1, total_segments + 1):
+                    frac = (seg_j - 1) / (total_segments - 1) if total_segments > 1 else 0
+                    node_x = timeline_left + int(timeline_width * frac)
+                    node_color = (220, 220, 220) if seg_j <= current_seg else (100, 100, 100)
+                    draw.ellipse([node_x - 5, axis_y - 5, node_x + 5, axis_y + 5], fill=node_color)
 
             pil_img.save(f"{frame_dir}/frame_{frame_idx:06d}.jpg", quality=90)
             frame_idx += 1
