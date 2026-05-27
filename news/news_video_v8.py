@@ -932,21 +932,18 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         log(f"  PIL烧录: {frame_idx}帧, {len(rendered)}帧有字幕")
 
-        fps_out = min(fps_in, 30)
-        frame_list_path = f"{frame_dir}/frames.txt"
+        # 用glob获取帧列表（按文件名排序）
         frame_files = sorted(glob.glob(f"{frame_dir}/*.jpg"))
         if not frame_files:
             log(f"  ⚠️ 无帧文件可处理")
             return False
-        with open(frame_list_path, "w") as f:
-            for ff in frame_files:
-                f.write(f"file '{ff}'\n")
-                f.write(f"duration {1.0/fps_out}\n")
-        with open(frame_list_path, "a") as f:
-            f.write(f"file '{frame_files[-1]}'\n")
 
-        has_audio = tts_audio_path and os.path.exists(tts_audio_path)
-        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", frame_list_path]
+        # 用 -framerate 30 -i 逐帧输入（比concat demuxer更稳定）
+        cmd = [
+            "ffmpeg", "-y",
+            "-framerate", "30",
+            "-i", f"{frame_dir}/frame_%06d.jpg",
+        ]
         if has_audio:
             cmd += ["-i", tts_audio_path, "-map", "0:v", "-map", "1:a"]
         else:
@@ -956,7 +953,9 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             "-profile:v", "high", "-level", "3.1",
             "-vf", "scale=1920:1080,setsar=1",
             "-c:a", "aac", "-b:a", "128k" if has_audio else "192k",
-            "-t", str(clip_dur), "-pix_fmt", "yuv420p",
+            "-t", str(clip_dur),
+            "-pix_fmt", "yuv420p",
+            "-r", "30",
             output_path
         ]
         r = subprocess.run(cmd, capture_output=True, timeout=int(clip_dur * 1.5 + 60))
