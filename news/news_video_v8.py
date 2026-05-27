@@ -917,14 +917,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                     (progress_x, axis_y + 13),
                 ], fill=(255, 255, 255))
 
-                # "第X条/共Y条" 标签跟随进度横向移动
-                label_text = f"第{current_seg}条/共{total_segments}条"
-                bbox = draw.textbbox((0, 0), label_text, font=fnt_chapter)
-                label_w = bbox[2] - bbox[0]
-                label_x = max(5, min(width - label_w - 5, progress_x - label_w // 2))
-                label_y = chapter_bar_top + 8
-                draw.text((label_x, label_y), label_text, font=fnt_chapter, fill=(180, 180, 180))
-
             pil_img.save(f"{frame_dir}/frame_{frame_idx:06d}.jpg", quality=90)
             frame_idx += 1
 
