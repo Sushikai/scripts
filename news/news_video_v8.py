@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-news_video_v8.py — 信息差视频生产流水线 v8.1
+news_video_v8.py — 信息差视频生产流水线 v8.2
 
 本版本改动：
-  1. TTS女声：zh-CN-XiaoxiaoNeural（晓晓，活泼有节奏感）
-  2. 字幕布局：MarginV=70px（参考原视频距底87-116px位置）
-  3. ASS字幕：MarginV=70px（srt_to_ass + subtitles滤镜两处）
-  4. 去重检查：上传前调用 check_title_duplicated()
-  5. 章节元数据：按新闻片段生成B站章节（title=新闻标题, start=时间戳）
-  6. 实时抓取：百度热搜20条，每条独立背景视频+BV素材
-
-功能：选题→写稿→TTS→下载→剪辑→字幕烧录→拼接→章节→上传去重→发评论
+  1. TTS：Edge TTS zh-CN-YunxiNeural（云希Neural，浑厚有力）+ 语速+30%，音调+5Hz
+  2. 视频下载：yt-dlp 最高质量 bv*+ba/best → mp4
+  3. 章节逻辑：MAX_TOPICS=10，每话题1视频1章节，不合并
+  4. 章节栏底部：字体调小(18px)确保10个话题完整显示
 """
 
-import os, sys, re, uuid, shutil, subprocess, asyncio, requests, json, hashlib, threading
+import os, sys, re, uuid, shutil, subprocess, asyncio, requests, json, hashlib, threading, glob
 from pathlib import Path
 from datetime import datetime
 from datetime import datetime as _dt
@@ -42,6 +38,10 @@ def _get_session() -> requests.Session:
 OUTPUT_DIR = Path("/Users/kaikai/ai_video_project/news_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 CHANNEL_NAME = "20岁还没开始环球旅行"
+_TOPIC_SCRIPTS_CACHE = None
+_WHISPER_MODEL = None
+import threading
+_WHISPER_MODEL_LOCK = threading.Lock()
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
     "Referer": "https://www.bilibili.com",
@@ -203,51 +203,7 @@ HOT_KEYWORDS = [
     "对抗", "丑闻", "翻车", "打脸", "反转", "炸锅", "爆雷", "硬刚",
     "夺权", "逼宫", "内斗", "逃亡", "被捕", "通缉", "辟谣",
 ]
-# 章节分类关键词（优先选有争议性、能吸引粉丝的话题）
-CHAPTER_CATEGORIES = {
-    "投资信号": ["股市", "基金", "房价", "比特币", "黄金", "理财", "亏损", "赚钱", "暴富", "韭菜"],
-    "争议话题": ["出轨", "家暴", "离婚", "婆媳", "重男轻女", "性别对立", "彩礼", "剩女"],
-    "民生热点": ["看病", "就医", "医保", "教育", "学区房", "加班", "工资", "裁员", "就业", "失业"],
-    "科技前沿": ["AI", "人工智能", "芯片", "华为", "苹果", "特斯拉", "新能源", "电动汽车"],
-    "海外生活": ["移民", "留学", "签证", "出国", "回国", "海外", "跨境", "汇率"],
-}
 
-def _topic_score(t: dict) -> tuple:
-    """返回(分数, 话题)，分数越高越优先"""
-    topic = t.get("topic", "")
-    score = 0
-
-    # 完全禁止的话题直接过滤
-    for kw in BANNED_KEYWORDS:
-        if kw in topic:
-            return (-9999, topic)
-
-    # 争议性加分
-    for kw in HOT_KEYWORDS:
-        if kw in topic:
-            score += 5
-    # 官方语气扣分
-    for kw in BORING_KEYWORDS:
-        if kw in topic:
-            score -= 5
-    # 章节分类匹配加分（更容易吸引精准粉丝）
-    for category, keywords in CHAPTER_CATEGORIES.items():
-        for kw in keywords:
-            if kw in topic:
-                score += 3
-                break
-    hot = t.get("hot", "") or ""
-    try:
-        score += min(int(float(hot)) // 10000, 3)
-    except Exception:
-        pass
-    return (score, topic)
-
-def _sort_topics_by_controversy(topics: list, num: int = 20) -> list:
-    """争议话题优先：分数降序，取前num条"""
-    scored = [(_topic_score(t), t) for t in topics]
-    scored.sort(key=lambda x: -x[0][0])
-    return [t for _, t in scored[:num]]
 
 def get_hot_topics_v8(num: int = 20) -> list:
     """
@@ -330,37 +286,42 @@ def get_hot_topics_v8(num: int = 20) -> list:
     except Exception as e:
         log(f"  ⚠️ 百度实时: {e}")
 
-    # ── 解法3-10: 争议话题优先 ────────────────────────────────────────
-    # 打分逻辑：争议/冲突/突发/曝光类话题加分，央视官媒语气扣分
-    # 注：直接使用全局 BORING_KEYWORDS / HOT_KEYWORDS / _topic_score
+    # ── 抖音优先 + MiniMax 动态打分排序 ─────────────────────────────────
+    # 数据源权重：抖音12条，百度8条，微博5条，知乎5条
+    # 每个话题用 MiniMax API 打分，并行处理，按分数降序
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # 按source多样性打散，避免单一源垄断，同时按争议分数排序
-    # 先过滤掉分数<-5的极无聊话题
-    scored = [(_topic_score(t), t) for t in topics]
-    # 分数降序，同分数内按源轮换
+    # 调整各源抓取数量（抖音优先）
+    douyin_topics = [t for t in topics if t.get("source") == "抖音热搜"]
+    baidu_topics = [t for t in topics if t.get("source") == "百度实时"]
+    other_topics = [t for t in topics if t.get("source") not in ("抖音热搜", "百度实时")]
+
+    # 优先抖音12条，百度8条，不足时用微博/知乎补充
+    weighted = (douyin_topics[:12] + baidu_topics[:8] + other_topics[:5])
+    if len(weighted) < 15:
+        log(f"  ⚠️ 话题不足15条，仅 {len(weighted)} 条，将影响视频丰富度")
+
+    def _score_one(t):
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from config.minimax_client import MiniMaxClient
+            score = MiniMaxClient().score_topic(t["topic"])
+            return (score, t)
+        except Exception:
+            return (50.0, t)
+
+    scored = []
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(_score_one, t): t for t in weighted}
+        for future in as_completed(futures):
+            try:
+                result = future.result(timeout=30)
+                scored.append(result)
+            except Exception:
+                scored.append((50.0, weighted[futures[future]]))
+
     scored.sort(key=lambda x: -x[0])
-    # 取分数最高的话题重新建池
-    topics_sorted = [t for _, t in scored]
-
-    # 按source打散
-    diversified = []
-    by_source = {}
-    for t in topics_sorted:
-        src = t["source"]
-        if src not in by_source:
-            by_source[src] = []
-        by_source[src].append(t)
-    pool_idx = 0
-    source_keys = list(by_source.keys())
-    while len(diversified) < num and len(diversified) < len(topics):
-        src = source_keys[pool_idx % len(source_keys)]
-        pool_idx += 1
-        if by_source[src]:
-            diversified.append(by_source[src].pop(0))
-
-    # ── 解法3-10 fallback: 保底15条 ───────────────────────────────────
-    if len(diversified) < 15:
-        log(f"  ⚠️ 话题不足15条，仅 {len(diversified)} 条，将影响视频丰富度")
+    diversified = [t for _, t in scored]
 
     log(f"  选题去重后: {len(diversified)}条")
     return diversified[:num]
@@ -387,177 +348,7 @@ INTRO_TEMPLATES = [
 # 解法2-3: 同事件归类（合并相似话题）+ 叙事逻辑排序
 # ══════════════════════════════════════════════════════════════════════════════
 
-# 叙事优先级：重大事故 > 政策/领导人 > 经济数据 > 民生 > 国际 > 趣味
-CATEGORY_PRIORITY = {
-    "重大事故": 0,
-    "科技/AI": 1,
-    "经济数据": 2,
-    "民生/社会": 3,
-    "国际关系": 4,
-    "趣味/其他": 5,
-    "政策/领导人": 6,
-}
 
-# 分类关键词（用于判断话题属于哪个叙事类别）
-CATEGORY_KEYWORDS = {
-    "重大事故": ["矿难", "爆炸", "火灾", "车祸", "地震", "洪水", "坍塌", "死亡", "遇难", "伤亡", "事故"],
-    "政策/领导人": ["习近平", "国务院", "发改委", "外交部", "人大", "政协", "中央", "部委", "政策", "指示", "讲话", "会见"],
-    "经济数据": ["GDP", "CPI", "A股", "沪指", "深指", "股市", "房价", "关税", "贸易", "出口", "进口", "经济", "财政"],
-    "民生/社会": ["教育", "医疗", "养老", "就业", "工资", "社保", "消费", "旅游", "出行", "暴雨", "高温", "预警"],
-    "国际关系": ["美国", "俄罗斯", "欧盟", "日本", "韩国", "中东", "乌克兰", "中东", "联合国", "制裁", "谈判", "峰会"],
-    "科技/AI": ["AI", "人工智能", "大模型", "芯片", "华为", "苹果", "特斯拉", "比亚迪", "新能源", "航天", "卫星"],
-}
-
-def _get_category(topic: str) -> str:
-    """根据话题关键词判断所属叙事类别"""
-    for cat, keywords in CATEGORY_KEYWORDS.items():
-        for kw in keywords:
-            if kw in topic:
-                return cat
-    return "趣味/其他"
-
-def _narrative_sort_key(item: tuple) -> tuple:
-    """叙事逻辑排序key：(类别优先级, -热度分数, 话题字数)"""
-    topic = item[1]["topic"] if isinstance(item[1], dict) else item[1]
-    cat = _get_category(topic)
-    cat_score = CATEGORY_PRIORITY.get(cat, 6)
-    hot_score = item[1].get("hot", 0) if isinstance(item[1], dict) else 0
-    try:
-        hot_score = int(float(hot_score))
-    except Exception:
-        hot_score = 0
-    return (cat_score, -hot_score, len(topic))
-
-# 解法2-3: 同事件归类（扩展版，覆盖更多相关话题）
-EVENT_GROUPS = {
-    # 重大事故类
-    "山西矿难": ["山西煤矿", "山西矿难", "矿难", "煤矿事故", "煤矿爆炸", "矿工", "透水事故", "瓦斯爆炸"],
-    "浏阳烟花": ["浏阳烟花厂爆炸", "浏阳爆炸", "烟花厂事故", "浏阳烟花"],
-    "辽宁车祸": ["辽宁重大交通事故", "辽宁车祸", "辽宁交通事故", "辽宁事故", "面包车超载"],
-    # 政策/领导人相关
-    "中央政策": ["习近平", "国务院", "发改委", "外交部", "中央", "部委", "指示", "讲话", "会见", "会谈"],
-    # 经济/关税类
-    "欧盟关税": ["欧盟加征关税", "欧盟对华关税", "欧盟汽车关税", "中欧贸易摩擦", "欧洲关税", "对华关税"],
-    "特斯拉裁员": ["特斯拉全球裁员", "特斯拉中国裁员", "特斯拉裁员", "马斯克裁员", "特斯拉销售"],
-    "保时捷布加迪": ["保时捷出售布加迪", "保时捷布加迪", "保时捷股权", "布加迪出售", "保时捷利润"],
-    "A股行情": ["A股收涨", "A股三大指数", "沪指3400", "A股重回3400", "沪深两市", "A股", "沪指", "深指", "创业板"],
-    "比亚迪新能源": ["比亚迪电动车", "比亚迪关税", "比亚迪欧洲", "国产电动车", "比亚迪", "电动车"],
-    # 航天科技类
-    "航天员": ["航天员", "神舟", "天宫", "空间站", "太空人", "卫星发射", "嫦娥", "探月"],
-    "华为新品": ["华为", "华为手机", "华为芯片", "麒麟芯片"],
-    "苹果iPhone": ["苹果", "iPhone", "iOS", "Mac"],
-    # 社会民生类
-    "消费者维权": ["啄木鸟", "消费维权", "虚假宣传", "投诉", "退货", "欺诈", "消费者"],
-    "豆包AI": ["豆包付费", "豆包AI", "字节豆包", "豆包订阅", "豆包"],
-}
-
-def merge_similar_events(topics: list) -> list:
-    """
-    解法2-3: 将相似话题归类，保留信息量最大的。
-    智能合并：
-    1. 同一事件的多角度话题（如矿难本身+习近平指示）→ 合并为1个
-    2. 同一话题的碎片（如特斯拉裁员中国区+特斯拉裁员全球）→ 合并为1个
-    3. 独立话题不合并（如航天员+矿难无关，不合并）
-    """
-    merged = []
-    used = set()
-    for t in topics:
-        topic = t["topic"]
-        if topic in used:
-            continue
-        # 检查是否属于已归类事件组
-        found_group = None
-        for group_name, group_topics in EVENT_GROUPS.items():
-            if any(gt in topic or topic in gt for gt in group_topics):
-                found_group = group_name
-                break
-        if found_group and found_group not in used:
-            # 保留组名（信息量最丰富的话题标题）
-            merged.append({"topic": found_group, "source": t.get("source", ""), "group": found_group, "hot": t.get("hot", "")})
-            used.add(found_group)
-        else:
-            merged.append(t)
-            used.add(topic)
-    return merged
-
-
-def sort_topics_by_narrative(topics: list) -> list:
-    """
-    按叙事逻辑排序：
-    1. 同一事件的话题合并（merge_similar_events）
-    2. 按叙事优先级排序：重大事故 > 政策/领导人 > 经济数据 > 民生 > 国际 > 趣味
-    3. 同类别内按热度降序
-    4. 确保同一事件的不同角度连续排列
-    """
-    # Step 1: 合并相似事件
-    merged = merge_similar_events(topics)
-    
-    # Step 2: 标注每个话题的类别
-    categorized = []
-    for t in merged:
-        topic = t["topic"]
-        cat = _get_category(topic)
-        categorized.append((cat, t))
-    
-    # Step 3: 按叙事优先级排序
-    categorized.sort(key=lambda x: _narrative_sort_key(x))
-    
-    # Step 4: 提取排序后的结果
-    return [t for _, t in categorized]
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 简化版兜底模板（SCRIPT_TEMPLATES_V8）— 60-100字准确播报风格
-# 不再使用冗长的 intro/content/footer 结构，直接一段式播报
-# ══════════════════════════════════════════════════════════════════════════════
-
-# 每条模板 = 一段60-100字的自然播报文字
-# 风格：像真实新闻主播一样，简洁、有节奏、不废话
-SCRIPT_TEMPLATES_V8 = {
-    "浏阳烟花厂爆炸": "昨晚浏阳一烟花厂发生爆炸，已确认造成26人死亡、61人受伤。事故发生在晚间作业时段，现场火光冲天，威力巨大。被困群众已全部救出，伤者送医救治。事故原因初步判断为生产车间违规作业，调查仍在进行。",
-    "长沙市委市政府致歉": "五一假期长沙多个景区人流量远超承载极限引发混乱，市政府今天公开道歉，承诺完善预警机制、加强客流管控。旅游部门紧急出台新規，要求全市景区严格执行限流，强制启动预约参观制度。",
-    "广交会": "第135届广交会在广州闭幕，出口成交额同比增长近14%，参展企业数量创历史新高。多个企业反馈，来自一带一路沿线国家的订单增长尤为明显，新兴市场正在成为新的增长引擎。",
-    "苹果/iPhone": "多方消息证实，苹果公司正在与多家半导体供应商洽谈建立新合作关系，降低对单一供应商的依赖。如果协议最终达成，可能重塑当前半导体产业格局，预计在未来数月内完成谈判。",
-    "奔跑吧/跑鞋": "最新一期《奔跑吧》节目揭露运动鞋市场虚假宣传问题，超九成受测产品存在参数虚标。消协发布消费预警，提醒消费者以实际试穿体验为准，多家被点名品牌表示将自查整改。",
-    "军犬": "某部队救援演练中，一只军犬与曾经的训导员久别重逢却扭头走开，引发网友热议。训导员发视频解释，这是狗在应激状态下的正常反应，并不代表情感疏离，许多养狗网友表示感同身受。",
-    "彩电": "最新统计数据显示，去年国内彩电全渠道销量仅2700多万台，创近十年新低。智能手机和平板电脑的普及抢占了大屏娱乐市场，主流厂商正加速向智能化转型，但价格战仍在持续，利润空间被进一步压缩。",
-    "谢娜": "某大型颁奖典礼后台，多位明星集体为谢娜送上花篮祝贺，粉丝们纷纷拍照打卡。作为国内知名主持人，谢娜长期活跃于综艺舞台，当晚发表获奖感言感谢观众多年支持，称会继续努力带来更好节目。",
-    "世乒赛": "世界乒乓球团体锦标赛激战正酣，澳大利亚队出人意料地变阵派出年轻小将。主教练表示大赛是年轻选手成长的最好舞台。中国队尽管整体实力占优，也不敢轻敌派出全主力，其他协会队伍同样表现出色。",
-    "印度/巴基斯坦": "印度与巴基斯坦边境局势出现新的紧张态势，双方在争议地区发生多次小规模对峙。印度军方加强了边境巡逻，多国呼吁双方保持克制，通过对话协商解决分歧。",
-    "特朗普": "特朗普再掀政治波澜，其支持者在多个州组织大规模集会表达不满。特朗普本人在社交媒体上连续发声重申政治主张。最新民调显示特朗普在共和党内的支持率依然领先，2026年中期选举可能再次成为美国政治分水岭。",
-    "中东": "中东地区紧张局势持续升级，多方角力引发国际社会高度关注。主要产油国已就可能出现的供应中断制定预案，能源分析师警告如果冲突扩大国际油价可能面临显著上行压力，联合国等多方正在积极斡旋。",
-    "欧盟/关税": "欧盟正式通过对华电动车加征关税决议，税率最高超35%。中国商务部回应称将采取一切必要措施维护企业合法权益。多家中国车企表示将积极开拓其他市场，业内人士指出这将加速中国车企在欧洲的本地化建厂进程。",
-    "特斯拉": "特斯拉全球裁员计划持续推进，中国区也受波及，裁员比例约为15%，主要涉及销售和售后部门。比亚迪等本土品牌竞争激烈，特斯拉市场份额遭到蚕食，特斯拉官方表示裁员是为提高运营效率应对行业价格战。",
-    "华为": "华为新品发布会引发行业广泛关注，多项技术指标达到行业领先水平。知情人士透露华为在芯片设计领域取得新突破，性能超出市场预期。分析师认为这标志着华为正在全面回归全球高端手机市场。",
-    "地震": "中国地震台网正式测定今日某地发生5.8级地震，震源深度较浅，多地震感明显。地震造成部分地区房屋受损，暂无人员死亡报告。消防和医疗救援队伍已赶赴现场，地质专家提醒未来72小时需警惕较强余震。",
-    "暴雨/洪水": "受强对流天气影响，南方多省出现大暴雨过程，部分河流超警戒水位。防汛部门启动一级预警要求沿线居民紧急转移，多地出现城市内涝，农田受淹超十万公顷。气象部门预计未来三天南方仍有持续性强降雨。",
-    "俄罗斯": "俄罗斯与西方国家在多个议题上分歧加剧，双方互相施加新一轮制裁。能源管道过境问题成为近期博弈焦点，国际油价和天然气价格因此出现明显波动，欧洲能源安全压力再度上升，各方呼吁通过外交途径化解分歧。",
-    "乌克兰": "乌克兰局势最新进展牵动全球目光，各方在关键问题上仍存在根本分歧，和平前景尚不明朗。联合国秘书长再次呼吁停火推动政治解决方案，西方国家继续提供军事援助，人道主义危机持续恶化，平民伤亡报告不断增加。",
-    "AI/人工智能": "多家科技巨头近期发布新一代AI模型，在推理能力和多模态处理上有显著提升。国家相关部门出台AI产业发展指导意见，明确数据安全和算法合规要求，业内认为这将引导行业健康有序发展。",
-    "保时捷": "保时捷宣布出售布加迪部分股权，财报数据显示2025年保时捷利润暴跌超九成，主要受中国市场销量下滑和价格战影响。保时捷中国区负责人多次强调品牌坚持不降价、不国产的策略不变，业内人士分析品牌溢价正在受到挑战。",
-    "豆包AI": "字节跳动旗下豆包正式推出付费订阅服务，标准版每月68元，高级版定价更高。官方声明称免费基础服务维持不变，付费方案主要为有深度使用需求的用户设计。豆包同时宣布与多家教育机构合作推出AI辅助学习功能。",
-    "红果短剧": "红果短剧会员可免费观看平台全部内容，但受版权限制部分仍需单独付费。平台方表示会员定价综合考虑了用户付费习惯和内容成本。红果短剧还宣布与多家影视制作公司的独家合作计划，未来三个月内将上线数百部独播内容。",
-    "广州楼市": "广州二手房市场连续两个月网签突破一万套，成交回暖趋势明显。业内人士分析购房信心正在恢复，改善型需求成为市场主力，银行下调贷款利率进一步降低了购房成本，多个热门区域出现排队看房现象。",
-    "电影票房": "2026年全国电影票房已突破135亿元，五一档期单日票房破6亿元，观影场次达233万场，均创历年同期新高。国产影片表现强劲，多部作品口碑与票房双丰收，优质内容和观影意愿回归是市场复苏的主要驱动力。",
-    "汤姆斯杯": "中国羽毛球队在汤姆斯杯决赛中以3比1击败法国队，历史上第12次捧起冠军奖杯。本届赛事多名年轻选手获得出场机会通过高水平比赛历练明显成长，主教练表示队伍整体状态良好，将继续为即将到来的国际大赛做好准备。",
-    "辽宁车祸": "辽宁省某路段发生一起重大交通事故，核载6人的面包车实载21人，碰撞路边树木后侧翻。事故已造成8人死亡、13人不同程度受伤，伤者被紧急送医救治。交警部门正在调查事故原因，涉事车辆涉嫌严重超载。",
-    "返程": "五一假期最后一天，全国多地迎来返程高峰，绕城高速和主要进城通道出现阶段性拥堵，部分高速路网长时间高位运行。铁路部门加开多趟临客满足出行需求，各地交管部门全员上岗疏导交通。",
-    "新能源汽车": "财政部等多部门联合发布新能源汽车补贴新政，大幅提高续航里程和能量密度补贴门槛。业内人士指出新政将加速淘汰低端产能，推动行业向高质量发展转型，比亚迪、特斯拉等头部企业表示欢迎。",
-    "养老金": "多省陆续公布2026年养老金调整方案，继续采取定额调整、挂钩调整和倾斜调整相结合的办法。企业退休人员月人均养老金将继续提高，调整幅度略高于去年，参保人员可通过当地社保App查询个人到账情况。",
-    "A股": "A股三大指数今日集体收涨，沪指重新站上3400点整数关口，沪深两市成交额突破1.2万亿元，外资延续净流入态势。科技股和新能源板块领涨，分析师认为政策暖风和业绩预期改善是本轮上涨的主要驱动力。",
-}
-
-
-# ── 实时热搜新闻抓取（优化点1）────────────────────────────────────────────
-# 优先从百度热搜实时获取，若无结果再用 Bing 新闻搜索
-# 缓存结果避免重复请求，每次运行只抓一次
-import threading
-
-_TOPIC_SCRIPTS_CACHE = None  # 全局缓存
-_TOPIC_SCRIPTS_LOCK = threading.Lock()  # 缓存读写锁
-
-_WHISPER_MODEL = None  # WhisperModel 全局缓存，避免重复加载
-_WHISPER_MODEL_LOCK = threading.Lock()
 
 def _get_whisper_model():
     """全局单例 WhisperModel，避免每次字幕都重新加载（启动慢约10秒）"""
@@ -648,228 +439,81 @@ def _fetch_bing_news(topic: str) -> str:
     return ""
 
 
-def fetch_topic_scripts(topics_list: list = None) -> dict:
-    """
-    获取今日实时新闻脚本：
-    1. 优先从百度热搜榜单获取话题 → 自动生成60-80字播报脚本
-    2. 对于传入的 topics_list 中无法匹配的话题，再用 Bing 新闻搜索补充
-    返回 {topic: script} 字典
-    """
-    global _TOPIC_SCRIPTS_CACHE
-    # 快速路径：无锁读取（已初始化时）
-    if _TOPIC_SCRIPTS_CACHE is not None:
-        return _TOPIC_SCRIPTS_CACHE
 
-    # 慢路径：加锁初始化（只有一个线程执行）
-    with _TOPIC_SCRIPTS_LOCK:
-        # 双重检查（其他线程可能已初始化）
-        if _TOPIC_SCRIPTS_CACHE is not None:
-            return _TOPIC_SCRIPTS_CACHE
-    
-    scripts = {}
-    
-    # Step 1: 抓取百度热搜
-    baidu_topics = _fetch_baidu_hot_search()
-    
-    # Step 2: 对热搜话题生成脚本（用话题名本身作为种子，结合常见新闻结构生成）
-    for topic in baidu_topics:
-        if len(topic) >= 4:  # 过滤短标题
-            # 保留百度热搜返回的真实脚本（word + desc 组合）
-            # _generate_natural_script 仅作为完全没有 desc 时的兜底
-            scripts[topic] = baidu_topics[topic]
-    
-    # Step 3: 补充传入 topics_list 中未匹配的条目（用 Bing 新闻搜索）
-    if topics_list:
-        for item in topics_list:
-            topic = item if isinstance(item, str) else item.get("topic", "")
-            if topic and topic not in scripts:
-                script = _fetch_bing_news(topic)
-                if script:
-                    scripts[topic] = script
-                else:
-                    scripts[topic] = _generate_natural_script(topic)
-    
-    _TOPIC_SCRIPTS_CACHE = scripts
-    log(f"  📊 fetch_topic_scripts 完成，共 {len(scripts)} 条脚本")
-    return scripts
-
-
-def _generate_natural_script(topic: str) -> str:
-    """
-    兜底脚本生成：当百度/Bing 都拿不到 desc 时使用。
-    生成60-90字新闻播报风格文案，不含"你怎么看"等营销废话。
-    """
-    clean = re.sub(r'^(【.*?】|🔥|#\w+)', '', topic).strip()
-    if not clean:
-        return "近日此事引发关注，相关情况持续更新中。"
-    if len(clean) <= 8:
-        return f"{clean}。此事引发关注，相关情况正在持续更新。"
-    # 话题本身超过8字时，围绕话题生成一句有信息量的播报
-    return f"{clean}。此事引发广泛热议，相关详情正在持续更新。"
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ══════════════════════════════════════════════════════════════════════════════
-LOCAL_LLM_URL = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/api/generate")
-LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "qwen2.5:7b")
-
-def call_local_llm(prompt: str, timeout: int = 60) -> str:
-    """
-    调用本地Ollama大模型生成更自然的脚本
-    环境变量:
-      LOCAL_LLM_URL  - Ollama API地址 (默认 http://localhost:11434/api/generate)
-      LOCAL_LLM_MODEL - 模型名称 (默认 qwen2.5:7b)
-    """
+def _call_minimax_script(topic: str) -> str:
+    """用 MiniMax API 生成 60-80 字新闻播报文案，口语化像真人"""
     try:
-        payload = {
-            "model": LOCAL_LLM_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.8,
-                "num_predict": 200,
-            }
-        }
-        r = _get_session().post(
-            LOCAL_LLM_URL,
-            json=payload,
-            timeout=timeout
-        )
-        if r.status_code == 200:
-            data = r.json()
-            return data.get("response", "").strip()
-    except Exception as e:
-        log(f"  ⚠️ 本地LLM调用失败: {e}")
-    return ""
-
-
-def generate_script_local(topic: str) -> str:
-    """
-    用本地大模型生成更像真人说话风格的新闻脚本
-    60-100字，口语化，有节奏感
-    """
-    prompt = f"""你是一个B站信息差视频的文案写作助手。
-请围绕话题「{topic}」写一段60-100字的新闻播报文案。
-
-要求：
-1. 像朋友聊天一样自然，不要像官方通稿
-2. 有信息量，能让人快速了解发生了什么
-3. 可以有点小情绪（惊讶、有趣、震惊等）
-4. 不要加"你怎么看"、"欢迎评论区留言"等引导话
-5. 直接输出文案，不要前缀
-
-文案："""
-    
-    result = call_local_llm(prompt)
-    if result and len(result) >= 10:
-        # 清理可能的大模型输出格式
-        result = re.sub(r'^(文案|回答|结果)：\s*', '', result)
-        result = result.strip()
-        return result
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from config.minimax_client import MiniMaxClient
+        script = MiniMaxClient().generate_script(topic)
+        if script and len(script) >= 10:
+            return script
+    except Exception:
+        pass
     return ""
 
 
 def generate_script_v8(topic: str, index: int) -> str:
     """
     优化版文案生成：
-    1. 优先从实时百度热搜缓存获取
-    2. 重大事件自动增强背景描述（50-60秒完整叙事）
-    3. Bing新闻搜索 → 本地大模型 → 模板兜底
+    强制调用 MiniMax API 生成 200-250 字长脚本，
+    不使用百度热搜的短 desc 作为脚本内容。
+    生成后写入缓存供评论使用。
     """
     global _TOPIC_SCRIPTS_CACHE
 
-    # 实时缓存优先（本次运行只抓一次）
-    if _TOPIC_SCRIPTS_CACHE is None:
-        fetch_topic_scripts()
-    
-    # 精确匹配
-    if topic in _TOPIC_SCRIPTS_CACHE:
-        base_script = _TOPIC_SCRIPTS_CACHE[topic]
-        log(f"  📝 实时脚本[{index+1}]: {topic[:15]}...")
-        
-        # 深度增强：重大事故/政策类话题，自动补充背景→事件→影响结构
-        cat = _get_category(topic)
-        if cat in ["重大事故", "政策/领导人", "经济数据"]:
-            enhanced = _enhance_script_depth(base_script, topic, cat)
-            if enhanced:
-                _TOPIC_SCRIPTS_CACHE[topic] = enhanced
-                return enhanced
-        return base_script
-    
-    # Bing 新闻搜索兜底
-    log(f"  🔍 未缓存，尝试Bing搜索: {topic[:20]}...")
+    # 强制调用 MiniMax 生成（每次都调用，不走缓存）
+    log(f"  🤖 MiniMax脚本[{index+1}]: {topic[:20]}...")
+    script = _call_minimax_script(topic)
+    if script and len(script) >= 10:
+        _TOPIC_SCRIPTS_CACHE[topic] = script
+        return script
+
+    # MiniMax 失败时 Bing 新闻搜索兜底
+    log(f"  🔍 Bing搜索兜底: {topic[:20]}...")
     script = _fetch_bing_news(topic)
     if script:
         _TOPIC_SCRIPTS_CACHE[topic] = script
         return script
-    
-    # 本地大模型生成（更真人化）
-    log(f"  🤖 尝试本地大模型生成: {topic[:20]}...")
-    script = generate_script_local(topic)
-    if script and len(script) >= 15:
-        _TOPIC_SCRIPTS_CACHE[topic] = script
-        return script
-    
-    # 兜底模板（已简化）
-    topic_clean = re.sub(r'[^\w\u4e00-\u9fff]+', '', topic)
-    for key, template in SCRIPT_TEMPLATES_V8.items():
-        if key in topic or topic in key:
-            log(f"  📝 模板兜底[{index+1}]: {topic[:15]}...")
-            return template
 
     # 最终兜底：话题本身展开
-    log(f"  ⚠️ 完全无脚本，使用话题本身: {topic[:20]}...")
-    return _generate_natural_script(topic)
+    log(f"  ⚠️ 兜底使用话题本身: {topic[:20]}...")
+    fallback = f"{topic}。"
+    _TOPIC_SCRIPTS_CACHE[topic] = fallback
+    return fallback
 
 
-def _enhance_script_depth(base_script: str, topic: str, category: str) -> str:
+def fetch_topic_scripts(topics_list: list = None) -> dict:
     """
-    为重大事件脚本增强深度：
-    - 添加背景描述（如"近期"/"近日"引出）
-    - 补充事件原因/经过
-    - 添加影响/后续/问责等内容
-    确保生成50-60秒的完整叙事，而非30秒碎片
+    获取今日实时新闻话题列表（不生成脚本）：
+    仅用于预热 _TOPIC_SCRIPTS_CACHE，脚本内容由 generate_script_v8 强制走 MiniMax。
     """
-    if len(base_script) < 30:
-        return base_script
+    global _TOPIC_SCRIPTS_CACHE
+    if _TOPIC_SCRIPTS_CACHE is not None:
+        return _TOPIC_SCRIPTS_CACHE
     
-    # 避免过长（超过150字会超过60秒语速）
-    if len(base_script) > 150:
-        return base_script
+    scripts = {}
     
-    # 背景前缀词
-    bg_phrases = {
-        "重大事故": ["最新消息，", "今日凌晨，", "昨天晚间，", "就在今天，"],
-        "政策/领导人": ["最新政策显示，", "刚刚，", "今日，", "最新消息，"],
-        "经济数据": ["最新经济数据出炉，", "今日，", "刚刚公布，", "最新数据显示，"],
-    }
+    # Step 1: 抓取百度热搜话题列表（仅作为 topic list，不作为 script）
+    baidu_topics = _fetch_baidu_hot_search()
     
-    bg = bg_phrases.get(category, [""])
-    phrase = bg[0] if bg else ""
+    # Step 2: 话题列表存入缓存（script 内容由 generate_script_v8 强制调用 MiniMax 生成）
+    for topic in baidu_topics:
+        if len(topic) >= 4:
+            scripts[topic] = topic  # 仅存话题名，script 由 MiniMax 生成
     
-    # 增强后的结构：背景 + 原内容 + 后续影响
-    enhanced = base_script
-    if not any(base_script.startswith(p) for p in ["最新", "今日", "刚刚", "就在", "昨天", "最新消", "最新政"]):
-        enhanced = phrase + enhanced
+    # Step 3: 补充传入 topics_list 中未匹配的条目
+    if topics_list:
+        for item in topics_list:
+            topic = item if isinstance(item, str) else item.get("topic", "")
+            if topic and topic not in scripts:
+                scripts[topic] = topic  # 仅存话题名
     
-    # 重大事故类：补充"持续关注后续"
-    if category == "重大事故" and "持续" not in enhanced and "后续" not in enhanced:
-        enhanced = enhanced.rstrip("。") + "。事故原因正在进一步调查中，我们将持续关注后续进展。"
-    
-    # 政策类：补充"影响分析"
-    if category == "政策/领导人" and "影响" not in enhanced and "将" not in enhanced:
-        enhanced = enhanced.rstrip("。") + "。这一政策预计将对相关领域产生重要影响。"
-    
-    # 经济类：补充"市场反应"
-    if category == "经济数据" and "市场" not in enhanced and "分析" not in enhanced:
-        enhanced = enhanced.rstrip("。") + "。市场分析指出，这一数据反映出经济发展的新趋势。"
-    
-    # 限制总长度（中文约200字≈60秒语速）
-    if len(enhanced) > 200:
-        enhanced = enhanced[:197] + "..."
-    
-    return enhanced
+    _TOPIC_SCRIPTS_CACHE = scripts
+    log(f"  📊 fetch_topic_scripts 完成，共 {len(scripts)} 条话题")
+    return scripts
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -915,58 +559,21 @@ def search_bilibili_video(topic: str) -> str:
     return None
 
 def download_bilibili_video(bvid: str, output_path: str, clip_dur: float = None) -> bool:
-    """下载B站视频（带cookie提高质量）"""
+    """下载B站视频（yt-dlp最高质量：bv*+ba/best → mp4）"""
     try:
-        r_view = _get_session().get(
-            f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
-            headers=HEADERS, cookies=DOWNLOAD_COOKIES, timeout=10
-        )
-        d_view = r_view.json()
-        if d_view.get("code") != 0:
-            return False
-        cid = d_view.get("data", {}).get("cid")
-        if not cid:
-            pages = d_view.get("data", {}).get("pages", [])
-            if pages:
-                cid = pages[0].get("cid")
-        if not cid:
-            return False
-
-        r_play = _get_session().get(
-            f"https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn=64&fnval=0",
-            headers=HEADERS, cookies=DOWNLOAD_COOKIES, timeout=10
-        )
-        d_play = r_play.json()
-        if d_play.get("code") != 0:
-            return False
-        urls = d_play.get("data", {}).get("durl", [])
-        if not urls or not urls[0].get("url"):
-            return False
-
-        video_url = urls[0]["url"]
-        # 解法1-3/4/5: 固定H.264 high profile编码参数
         cmd = [
-            "ffmpeg", "-y",
-            "-headers", "User-Agent: Mozilla/5.0\r\nReferer: https://www.bilibili.com/\r\n",
-            "-i", video_url,
-            "-t", str(clip_dur) if clip_dur else "999",
-            # 解法1-3: H.264 high profile，兼容性最好
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-profile:v", "high", "-level", "3.1",
-            # 解法1-5: 帧率锁定30fps
-            "-r", "30",
-            # 解法1-6: 强制SAR=1:1
-            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1",
-            # 解法1-7: 固定音频参数
-            "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
-            # 解法1-8: movflags确保快速启动
-            "-movflags", "+faststart",
-            "-fps_mode", "cfr",
-            output_path
+            "yt-dlp",
+            "--no-playlist",
+            "-f", "bv*+ba/best",
+            "--merge-output-format", "mp4",
+            "--cookies-from-browser", "chrome",
+            "--no-warnings",
+            "-o", output_path,
+            f"https://www.bilibili.com/video/{bvid}"
         ]
-        r3 = subprocess.run(cmd, capture_output=True, timeout=int((clip_dur or 60) * 2 + 60))
+        r = subprocess.run(cmd, capture_output=True, timeout=120)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
-            log(f"  ✅ BV={bvid} {os.path.getsize(output_path)//1024}KB")
+            log(f"  ✅ BV={bvid} {os.path.getsize(output_path)//1024}KB (yt-dlp)")
             return True
     except subprocess.TimeoutExpired:
         log(f"  ⚠️ BV={bvid} 下载超时")
@@ -974,62 +581,34 @@ def download_bilibili_video(bvid: str, output_path: str, clip_dur: float = None)
         log(f"  ⚠️ BV={bvid} 下载异常: {e}")
     return False
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 维度⑤：TTS配音
-# ══════════════════════════════════════════════════════════════════════════════
-
 def generate_tts(script: str, output_path: str, index: int) -> bool:
-    """edge-tts配音（稍慢语速，新闻讲解节奏）+ 3次重试"""
-    import time
+    """Edge TTS zh-CN-YunxiNeural（云希Neural，浑厚有力）+ 语速+30%，音调+5Hz，3次重试"""
+    import time, asyncio, tempfile, os
     for attempt in range(3):
         try:
-            import edge_tts
-            async def do_tts():
-                # 晓晓女声：新闻播报节奏，语速加快(+10%)
-                communicate = edge_tts.Communicate(script, "zh-CN-XiaoxiaoNeural", rate="+10%")
+            async def _run():
+                import edge_tts
+                communicate = edge_tts.Communicate(
+                    script,
+                    voice="zh-CN-YunxiNeural",
+                    rate="+30%",
+                    pitch="+5Hz",
+                )
                 await communicate.save(output_path)
-            asyncio.run(do_tts())
+
+            asyncio.run(_run())
             if os.path.exists(output_path) and os.path.getsize(output_path) > 2000:
                 dur = float(subprocess.run(
                     ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                      "-of", "default=noprint_wrappers=1:nokey=1", output_path],
                     capture_output=True, text=True, timeout=5
                 ).stdout.strip() or 0)
-                log(f"  ✅ 第{index+1}条音频: {dur:.0f}秒")
+                log(f"  ✅ 第{index+1}条音频(YunxiNeural): {dur:.0f}秒")
                 return True
         except Exception as e:
             wait = 2 ** attempt
             log(f"  ⚠️ TTS第{attempt+1}次失败: {e}，{wait}秒后重试")
             time.sleep(wait)
-    # Fallback: macOS say command (offline, works without network)
-    try:
-        import tempfile
-        script_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', encoding='utf-8', delete=False)
-        script_file.write(script)
-        script_file.flush()
-        script_file.close()
-        aiff_path = output_path.replace('.m4a', '.aiff')
-        result = subprocess.run(
-            ['say', '-v', 'Flo', '-f', script_file.name, '-o', aiff_path],
-            capture_output=True, timeout=60
-        )
-        os.unlink(script_file.name)
-        if result.returncode == 0 and os.path.exists(aiff_path):
-            # Convert AIFF to M4A
-            subprocess.run(
-                ['afconvert', aiff_path, '-f', 'm4af', '-d', 'aac', output_path],
-                capture_output=True, timeout=30
-            )
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 2000:
-                dur = float(subprocess.run(
-                    ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                     '-of', 'default=noprint_wrappers=1:nokey=1', output_path],
-                    capture_output=True, text=True, timeout=5
-                ).stdout.strip() or 0)
-                log(f"  ✅ 第{index+1}条音频(Flo): {dur:.0f}秒 [say fallback]")
-                return True
-    except Exception as e2:
-        log(f"  ⚠️ say fallback也失败: {e2}")
     log(f"  ⚠️ TTS失败")
     return False
 
@@ -1172,10 +751,10 @@ def format_ass_time(t: float) -> str:
 
 def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur: float, tts_audio_path: str, topic_title: str = "", segment_index: int = 1, total_segments: int = 1) -> bool:
     """
-    v9版本字幕烧录，布局参考2026.05.08信息差视频：
-    - 字幕区：内容区底部上方约70px，白色字体(RGB≈200,201,165)
-    - 章节栏：底部1/3高度，暗橄榄绿底(RGB≈69,76,55)，白色文字
-    - 分辨率：1280×720（16:9）
+    字幕烧录布局（参考信息差视频截图）：
+    1920x1080 分三层：
+    - 字幕区 y=810-950：半透明黑条底，白色话题标题(大字左对齐) + 白色字幕正文(居中)
+    - 章节栏 y=950-1080：深灰底，灰色小字"第X条/共Y条"左对齐
     """
     frame_dir = None
     cap = None
@@ -1183,102 +762,92 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         import pysrt
         from PIL import Image, ImageDraw, ImageFont
 
-        # 找中文字体（macOS兼容路径）
-        font_paths = [
-            "/System/Library/Fonts/PingFang.ttc",
-            "/System/Library/Fonts/STHeiti Light.ttc",
-            "/System/Library/Fonts/Hiragino Sans GB.ttc",
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-            "/Library/Fonts/Arial Unicode.ttf",
-        ]
-        fnt = None
-        for fp in font_paths:
-            if os.path.exists(fp):
-                try:
-                    fnt = ImageFont.truetype(fp, 34)  # 字体增大20%
-                    log(f"  使用字体: {os.path.basename(fp)}")
-                    break
-                except Exception:
-                    continue
-        if fnt is None:
-            fnt = ImageFont.load_default()
-
-        # 解析SRT
         if not os.path.exists(srt_path):
             return False
         subs = pysrt.open(srt_path)
 
-        # 分辨率 1280×720（16:9）
-        width, height = 1280, 720
-        # 底部1/10高度 = 章节栏区域（y=648到720），避免遮挡内容
-        chapter_bar_height = int(height / 10)  # 72px（原来1/3太大）
-        chapter_bar_top = height - chapter_bar_height  # 648
-        # 字幕区：白底黑字，蒙版占底部1/10，字幕文字占蒙版内7/10
-        subtitle_bg_top = int(height * 0.9)   # 底部1/10起始（648px，蒙版高72px）
-        subtitle_bg_bottom = height             # 720
-        # 章节栏颜色（白色背景配黑字或暗橄榄绿均可，这里跟随白底黑字风格）
-        chapter_bar_color = (255, 255, 255)
-        # 章节文字颜色（黑色）
-        chapter_text_color = (0, 0, 0)
-        # 字幕文字颜色（黑色）
-        subtitle_color = (0, 0, 0)
-        # 字幕背景（白色）
-        subtitle_bg_color = (255, 255, 255)
+        width, height = 1920, 1080
+
+        # 字幕区：y=810-950，半透明黑条
+        subtitle_bg_top = 810
+        subtitle_bg_bottom = 950
+
+        # 话题标题区：y=810-860（大字，白色，左对齐）
+        topic_text_y = 830
+        topic_font_size = 40
+
+        # 字幕正文区：y=870-950（白色，居中）
+        subtitle_text_y = 880
+        subtitle_font_size = 36
+
+        # 章节栏：y=950-1080，深灰底，灰色小字
+        chapter_bar_top = 950
+        chapter_text_y = 965
+        chapter_font_size = 20
+
+        # 颜色
+        topic_color = (255, 255, 255)
+        subtitle_color = (255, 255, 255)
+        chapter_text_color = (160, 160, 160)
+        stroke_color = (0, 0, 0)
+        chapter_bar_color = (30, 30, 30)
 
         # 找中文字体
-        font_paths = [
+        font_candidates = [
             "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/STHeiti Light.ttc",
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
             "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
             "/Library/Fonts/Arial Unicode.ttf",
         ]
-        fnt = None
         fnt_path = None
-        for fp in font_paths:
+        for fp in font_candidates:
             if os.path.exists(fp):
                 try:
-                    fnt = ImageFont.truetype(fp, 31)  # 字体增大20%
                     fnt_path = fp
-                    log(f"  字幕字体: {os.path.basename(fp)}")
                     break
                 except Exception:
                     continue
-        if fnt is None:
-            fnt = ImageFont.load_default()
-            fnt_path = "default"
 
-        # 找章节栏用的字体（可用同一字体但稍大）
-        try:
-            chapter_fnt = ImageFont.truetype(fnt_path, 22)
-        except Exception:
-            chapter_fnt = fnt
+        def make_font(size):
+            if fnt_path:
+                try:
+                    return ImageFont.truetype(fnt_path, size)
+                except Exception:
+                    pass
+            return ImageFont.load_default()
 
-        # 创建临时目录存放帧
+        fnt_topic = make_font(topic_font_size)
+        fnt_sub = make_font(subtitle_font_size)
+        fnt_chapter = make_font(chapter_font_size)
+
         frame_dir = f"/tmp/frames_{uuid.uuid4().hex[:6]}"
         os.makedirs(frame_dir, exist_ok=True)
 
-        # 用OpenCV提取帧 + 逐帧烧录
         import cv2
         cap = cv2.VideoCapture(video_path)
         fps_in = cap.get(cv2.CAP_PROP_FPS) or 30
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
+        max_frames = int(clip_dur * fps_in) + 30
+        rendered = set()
         frame_idx = 0
-        rendered = set()  # 记录已烧录的字幕序号
-        max_frames = int(clip_dur * fps_in) + 30  # 防止损坏视频导致帧数爆炸
+
+        def stroke_text(draw, pos, text, font, fill, stroke_fill, width=2):
+            x, y = pos
+            for dx in range(-width, width + 1):
+                for dy in range(-width, width + 1):
+                    if dx != 0 or dy != 0:
+                        draw.text((x + dx, y + dy), text, font=font, fill=stroke_fill)
+            draw.text(pos, text, font=font, fill=fill)
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            # 安全上限，防止OOM
             if frame_idx >= max_frames:
                 log(f"  ⚠️ 帧数已达上限 {max_frames}，截断")
                 break
             timestamp = frame_idx / fps_in
 
-            # 检查需要渲染的字幕
             current_sub = None
             for sub in subs:
                 start_s = sub.start.ordinal / 1000.0
@@ -1287,48 +856,30 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                     current_sub = sub.text
                     break
 
-            # PIL绘制
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(frame_rgb)
             draw = ImageDraw.Draw(pil_img)
 
-            # v9新布局：底部1/10绘制章节栏（暗橄榄绿底+白色文字+章节编号+话题标题）
-            if topic_title:
-                draw.rectangle([0, chapter_bar_top, width, height], fill=chapter_bar_color)
-                # 章节文字：第X条/共Y条 | 话题标题
-                chapter_text = f"第{segment_index}条/共{total_segments}条 | {topic_title}"
-                bbox = draw.textbbox((0, 0), chapter_text, font=chapter_fnt)
-                title_w = bbox[2] - bbox[0]
-                title_h_val = bbox[3] - bbox[1]
-                title_x = (width - title_w) // 2
-                title_y = chapter_bar_top + (chapter_bar_height - title_h_val) // 2
-                # 黑色描边
-                for dx in [-1, 0, 1]:
-                    for dy in [-1, 0, 1]:
-                        if dx != 0 or dy != 0:
-                            draw.text((title_x + dx, title_y + dy), chapter_text, font=chapter_fnt, fill=(0, 0, 0))
-                # 白色主文字
-                draw.text((title_x, title_y), chapter_text, font=chapter_fnt, fill=chapter_text_color)
+            # 字幕区黑条背景
+            draw.rectangle([0, subtitle_bg_top, width, subtitle_bg_bottom], fill=(0, 0, 0, 180))
 
-            # 字幕区：无蒙版，黄色粗体字幕，居中显示
+            # 话题标题（白色大字，左对齐，2px黑描边）
+            if topic_title:
+                stroke_text(draw, (30, topic_text_y), topic_title, fnt_topic, topic_color, stroke_color, width=2)
+
+            # 字幕正文（白色居中，2px黑描边）
             if current_sub:
-                draw = ImageDraw.Draw(pil_img)
-                # 计算字幕位置（画面居中）
-                bbox = draw.textbbox((0, 0), current_sub, font=fnt)
+                bbox = draw.textbbox((0, 0), current_sub, font=fnt_sub)
                 text_w = bbox[2] - bbox[0]
-                text_h_actual = bbox[3] - bbox[1]
                 text_x = (width - text_w) // 2
-                text_y = (height - text_h_actual) // 2
-                # 深色描边
-                for dx in [-2, -1, 0, 1, 2]:
-                    for dy in [-2, -1, 0, 1, 2]:
-                        if dx != 0 or dy != 0:
-                            draw.text((text_x + dx, text_y + dy), current_sub, font=fnt, fill=(80, 60, 0))
-                # 黄色主文字
-                draw.text((text_x, text_y), current_sub, font=fnt, fill=(255, 220, 0))
+                stroke_text(draw, (text_x, subtitle_text_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
                 rendered.add(frame_idx)
 
-            # 保存帧
+            # 章节栏深灰底 + 灰色小字
+            draw.rectangle([0, chapter_bar_top, width, height], fill=chapter_bar_color)
+            chapter_text = f"第{segment_index}条/共{total_segments}条"
+            stroke_text(draw, (30, chapter_text_y), chapter_text, fnt_chapter, chapter_text_color, stroke_color, width=1)
+
             pil_img.save(f"{frame_dir}/frame_{frame_idx:06d}.jpg", quality=90)
             frame_idx += 1
 
@@ -1340,37 +891,41 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         log(f"  PIL烧录: {frame_idx}帧, {len(rendered)}帧有字幕")
 
-        # 解法4-6: 用FFmpeg将帧序列重新编码（不用字幕滤镜）
-        # 注意: 使用glob模式
-        # 输入0: PIL生成的帧序列(已裁切10%+字幕)
-        # 输入1: TTS音频
         fps_out = min(fps_in, 30)
-        cmd = [
-            "ffmpeg", "-y",
-            "-framerate", str(fps_out),
-            "-pattern_type", "glob",
-            "-i", f"{frame_dir}/*.jpg",
-            "-i", tts_audio_path,
-            "-map", "0:v",
-            "-map", "1:a",
+        frame_list_path = f"{frame_dir}/frames.txt"
+        frame_files = sorted(glob.glob(f"{frame_dir}/*.jpg"))
+        if not frame_files:
+            log(f"  ⚠️ 无帧文件可处理")
+            return False
+        with open(frame_list_path, "w") as f:
+            for ff in frame_files:
+                f.write(f"file '{ff}'\n")
+                f.write(f"duration {1.0/fps_out}\n")
+        with open(frame_list_path, "a") as f:
+            f.write(f"file '{frame_files[-1]}'\n")
+
+        has_audio = tts_audio_path and os.path.exists(tts_audio_path)
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", frame_list_path]
+        if has_audio:
+            cmd += ["-i", tts_audio_path, "-map", "0:v", "-map", "1:a"]
+        else:
+            cmd += ["-map", "0:v"]
+        cmd += [
             "-c:v", "libx264", "-preset", "fast", "-crf", "22",
             "-profile:v", "high", "-level", "3.1",
-            "-vf", "scale=1280:720,setsar=1",
-            "-c:a", "aac", "-b:a", "128k",
-            "-t", str(clip_dur),
-            "-pix_fmt", "yuv420p",
+            "-vf", "scale=1920:1080,setsar=1",
+            "-c:a", "aac", "-b:a", "128k" if has_audio else "192k",
+            "-t", str(clip_dur), "-pix_fmt", "yuv420p",
             output_path
         ]
         r = subprocess.run(cmd, capture_output=True, timeout=int(clip_dur * 1.5 + 60))
 
         if r.returncode == 0:
-            # 成功后清理帧目录
             if frame_dir is not None and os.path.exists(frame_dir):
                 shutil.rmtree(frame_dir, ignore_errors=True)
             return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
         else:
-            log(f"  ⚠️ PIL烧录重编码失败: {r.stderr[-150:]}")
-            # 失败时不删帧，方便调试
+            log(f"  ⚠️ PIL烧录重编码失败: {r.stderr[-200:]}")
             return False
 
     except Exception as e:
@@ -1577,15 +1132,13 @@ def main(date_str: str = "today"):
 
     # 今日百度热搜实时话题（从 top.baidu.com 自动抓取，每条含 word+desc 播报内容）
     baidu_scripts = _fetch_baidu_hot_search()
-    hot_topics = list(baidu_scripts.keys())[:6]
+    hot_topics = list(baidu_scripts.keys())[:10]
 
-    # 构建话题列表并叙事逻辑排序（不再是纯热度）
+    # 构建话题列表（已通过 MiniMax 打分排序）
     topics = [{"topic": t, "bvid": None, "hot": baidu_scripts.get(t, "")} for t in hot_topics]
-    topics = sort_topics_by_narrative(topics)
-    
-    # 限制为6个话题（6段×60秒 = 6分钟视频，符合参考结构）
-    # 每个话题生成50-60秒的完整叙事，而非30秒碎片
-    MAX_TOPICS = 6
+
+    # 限制为10个话题（10段×约60秒 = 约10分钟视频）
+    MAX_TOPICS = 10
     topics = topics[:MAX_TOPICS]
 
     if len(topics) < 5:
@@ -1694,58 +1247,8 @@ def main(date_str: str = "today"):
     MERGE_DURATION = 50      # 目标50-60秒
 
     def _smart_merge_segments(seg_list: list) -> list:
-        """智能合并时长 < 30秒的短片段"""
-        merged = []
-        i = 0
-        while i < len(seg_list):
-            orig_idx, topic, audio, srt, ass, bg, bv, dur = seg_list[i]
-            if dur < MIN_CLIP_DURATION and i + 1 < len(seg_list):
-                # 和下一个片段合并：延长当前片段的音频 + 字幕
-                next_seg = seg_list[i + 1]
-                n_orig_idx, n_topic, n_audio, n_srt, n_ass, n_bg, n_bv, n_dur = next_seg
-                
-                log(f"  🔗 合并短片段: [{topic[:15]}] {dur:.0f}s + [{n_topic[:15]}] {n_dur:.0f}s")
-                
-                # 合并音频
-                combined_audio = str(OUTPUT_DIR / f"v8_audio_{TASK_ID}_merged_{i}.m4a")
-                merge_r = subprocess.run([
-                    "ffmpeg", "-y",
-                    "-i", audio, "-i", n_audio,
-                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[outa]",
-                    "-map", "[outa]",
-                    "-c:a", "aac", "-b:a", "128k",
-                    combined_audio
-                ], capture_output=True, timeout=30)
-                
-                if merge_r.returncode == 0 and os.path.exists(combined_audio):
-                    # 合并SRT字幕
-                    combined_srt = str(OUTPUT_DIR / f"v8_sub_{TASK_ID}_merged_{i}.srt")
-                    with open(srt) as f1, open(n_srt) as f2, open(combined_srt, "w") as fout:
-                        fout.write(f1.read().strip() + "\n\n")
-                        # 时间轴偏移
-                        srt2_content = f2.read().strip()
-                        lines = srt2_content.split("\n")
-                        new_lines = []
-                        for line in lines:
-                            if "-->" in line:
-                                # 偏移时间轴（加上dur秒）
-                                parts = line.split("-->")
-                                start = parts[0].strip()
-                                end = parts[1].strip()
-                                end_ts = _parse_srt_time(end) + dur
-                                start_ts = _parse_srt_time(start) + dur
-                                new_lines.append(f"{_format_srt_time(start_ts)} --> {_format_srt_time(end_ts)}")
-                            else:
-                                new_lines.append(line)
-                        fout.write("\n".join(new_lines))
-                    
-                    merged.append((orig_idx, f"{topic}+{n_topic}", combined_audio, combined_srt, ass, bg, bv, dur + n_dur))
-                    i += 2  # 跳过已合并的下一个
-                    continue
-            
-            merged.append(seg_list[i])
-            i += 1
-        return merged
+        """不做任何合并：每个话题独占一个片段，一一对应"""
+        return seg_list
 
     def _parse_srt_time(t: str) -> float:
         """解析 SRT 时间格式（00:00:00,000）到秒"""
