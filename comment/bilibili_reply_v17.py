@@ -188,7 +188,7 @@ def log(msg):
 OLLAMA_BASE = "http://localhost:11434/v1"
 OLLAMA_MODEL = "gemma3:4b"
 OLLAMA_API_KEY = "ollama"
-OLLAMA_SYSTEM = "你在B站评论区跟网友聊天，就像朋友闲聊。语气轻松自然，可以自黑或开玩笑，结合上下文自然聊天。长度控制在60字以内，直接输出回复内容，不要解释。"
+OLLAMA_SYSTEM = "你在B站评论区跟网友聊天，就像朋友闲聊。语气轻松自然，可以自黑或开玩笑，结合上下文自然聊天。长度控制在60字以内，直接输出回复内容，不要解释。注意：不要涉及地域歧视、仇恨言论或过度冒犯性内容。"
 
 def call_ollama(prompt: str, system: str = "") -> str:
     try:
@@ -235,7 +235,7 @@ def call_minimax(prompt: str, system_content: str = "") -> str:
 
     log("  ⚠️ Ollama 失败，切换 MiniMax")
     if not system_content:
-        system_content = "你在B站评论区跟网友聊天，就像朋友闲聊一样。注意：1）语气轻松自然，可以自黑或开玩笑 2）结合上下文和聊天历史往下聊，不要重复说过的话 3）长度控制在60字以内"
+        system_content = "你在B站评论区跟网友聊天，就像朋友闲聊一样。注意：1）语气轻松自然，可以自黑或开玩笑 2）结合上下文和聊天历史往下聊，不要重复说过的话 3）长度控制在60字以内 4）不要涉及地域歧视、仇恨言论或过度冒犯性内容"
 
     try:
         payload = {
