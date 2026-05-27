@@ -768,6 +768,9 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         width, height = 1920, 1080
 
+        # 动态topic标题：只在clip的前30%时间段内显示，之后消失
+        topic_show_until = clip_dur * 0.30
+
         # 字幕区：y=815-950，半透明黑条
         subtitle_bg_top = 815
         subtitle_bg_bottom = 950
@@ -776,8 +779,8 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         topic_text_y = 822
         topic_font_size = 35
 
-        # 字幕正文区：y=865-945（白色，居中）
-        subtitle_text_y = 868
+        # 字幕正文区：y=868-945（白色，居中）
+        subtitle_text_y = 880  # 字幕区居中偏上（topic消失后占整个字幕区）
         subtitle_font_size = 34
 
         # 章节栏：y=950-1080，深灰底，灰色小字
@@ -863,21 +866,27 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             # 字幕区黑条背景
             draw.rectangle([0, subtitle_bg_top, width, subtitle_bg_bottom], fill=(0, 0, 0, 180))
 
-            # 话题标题（白色大字，左对齐，2px黑描边）
-            if topic_title:
+            # 话题标题（白色大字，左对齐，2px黑描边）—— 只在前30%时间段显示
+            if topic_title and timestamp < topic_show_until:
                 stroke_text(draw, (30, topic_text_y), topic_title, fnt_topic, topic_color, stroke_color, width=2)
 
-            # 字幕正文（白色居中，2px黑描边）
+            # 字幕正文（白色居中，2px黑描边）—— 始终显示，随时间轴滚动
             if current_sub:
                 bbox = draw.textbbox((0, 0), current_sub, font=fnt_sub)
                 text_w = bbox[2] - bbox[0]
                 text_x = (width - text_w) // 2
-                stroke_text(draw, (text_x, subtitle_text_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
+                # topic存在时字幕偏下，topic消失后字幕居中
+                sub_y = subtitle_text_y if timestamp < topic_show_until else (subtitle_bg_top + (subtitle_bg_bottom - subtitle_bg_top - subtitle_font_size) // 2)
+                stroke_text(draw, (text_x, sub_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
                 rendered.add(frame_idx)
 
-            # 章节栏深灰底 + 灰色小字
+            # 章节栏深灰底 + 灰色小字 —— 动态跟随播放位置
             draw.rectangle([0, chapter_bar_top, width, height], fill=chapter_bar_color)
-            chapter_text = f"第{segment_index}条/共{total_segments}条"
+            # 随播放进度动态显示当前为第几条
+            elapsed = timestamp / clip_dur if clip_dur > 0 else 0
+            progress = min(1.0, max(0.0, elapsed))
+            current_seg = max(1, min(total_segments, int(progress * total_segments) + 1))
+            chapter_text = f"第{current_seg}条/共{total_segments}条"
             stroke_text(draw, (30, chapter_text_y), chapter_text, fnt_chapter, chapter_text_color, stroke_color, width=1)
 
             pil_img.save(f"{frame_dir}/frame_{frame_idx:06d}.jpg", quality=90)
