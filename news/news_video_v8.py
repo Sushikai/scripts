@@ -938,6 +938,8 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             log(f"  ⚠️ 无帧文件可处理")
             return False
 
+        has_audio = tts_audio_path and os.path.exists(tts_audio_path)
+
         # 用 -framerate 30 -i 逐帧输入（比concat demuxer更稳定）
         cmd = [
             "ffmpeg", "-y",
