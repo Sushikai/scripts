@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-news_video_v8.py — 信息差视频生产流水线 v8.2
+news_video_v8.py — 信息差视频生产流水线 v8.3
 
 本版本改动：
-  1. TTS：Edge TTS zh-CN-YunxiNeural（云希Neural，浑厚有力）+ 语速+30%，音调+5Hz
+  1. TTS：XTTS v2 本地语音克隆（MPS加速），失败则 Edge TTS zh-CN-YunxiNeural
   2. 视频下载：yt-dlp 最高质量 bv*+ba/best → mp4
   3. 章节逻辑：MAX_TOPICS=10，每话题1视频1章节，不合并
   4. 章节栏底部：字体调小(18px)确保10个话题完整显示
@@ -585,69 +585,57 @@ def download_bilibili_video(bvid: str, output_path: str, clip_dur: float = None)
         log(f"  ⚠️ BV={bvid} 下载异常: {e}")
     return False
 
-def _check_docker() -> bool:
-    """检查Docker是否可用"""
-    r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
-    return r.returncode == 0
+# ── XTTS v2 模型缓存（避免重复加载） ────────────────────────────
+_XTTS_MODEL = None
+_XTTS_DEVICE = None
+
+def _get_xtts_model():
+    """懒加载 XTTS v2 模型（Apple Silicon Mac 用 MPS）"""
+    global _XTTS_MODEL, _XTTS_DEVICE
+    if _XTTS_MODEL is not None:
+        return _XTTS_MODEL
+    import torch
+    _XTTS_DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+    os.environ["COQUI_TOS_AGREED"] = "1"
+    from TTS.api import TTS
+    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+    tts.to(_XTTS_DEVICE)
+    _XTTS_MODEL = tts
+    log(f"  🤖 XTTS模型已加载，设备: {_XTTS_DEVICE}")
+    return tts
 
 def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
-    """XTTS v2 本地语音克隆（需要参考音频 + Docker）"""
+    """XTTS v2 语音克隆（Python库直接调用，无Docker依赖）"""
     ref_audio = VOICE_CLONE_REF_AUDIO
     if not ref_audio or not os.path.exists(ref_audio):
-        return False
-    if not _check_docker():
-        log(f"  ⚠️ Docker不可用，跳过XTTS克隆")
+        log(f"  ⚠️ 参考音频不存在: {ref_audio}")
         return False
 
     work_dir = f"/tmp/xtts_clone_{TASK_ID}"
     os.makedirs(work_dir, exist_ok=True)
 
-    # 复制参考音频到工作目录
-    ref_copy = f"{work_dir}/reference.wav"
+    ref_wav = f"{work_dir}/ref.wav"
     subprocess.run([
         "ffmpeg", "-i", ref_audio, "-ar", "22050", "-ac", "1",
-        "-ss", "0", "-t", "30", "-y", ref_copy
+        "-ss", "0", "-t", "30", "-y", ref_wav
     ], capture_output=True, timeout=30)
 
-    if not os.path.exists(ref_copy):
+    if not os.path.exists(ref_wav):
+        log(f"  ⚠️ 参考音频预处理失败")
         return False
 
-    # 写TTS推理脚本
-    tts_script = f"{work_dir}/tts_infer.py"
-    with open(tts_script, "w") as f:
-        f.write("""
-import sys
-sys.path.insert(0, "/opt/venv/lib/python3.11/site-packages")
-
-from TTS.api import TTS
-import warnings
-warnings.filterwarnings('ignore')
-import os
-
-tts = TTS("xtts_v2").to("cpu")
-tts.tts(
-    text=open("/input/text.txt").read().strip(),
-    speaker_wav="/input/ref.wav",
-    file_path="/output/output.wav"
-)
-print("XTTS done:", os.path.exists("/output/output.wav"))
-""")
-
-    with open(f"{work_dir}/text.txt", "w") as f:
-        f.write(script)
-
-    docker_cmd = [
-        "docker", "run", "--rm",
-        "-v", f"{work_dir}:/input",
-        "-v", f"{work_dir}:/output",
-        "ghcr.io/coqui-ai/tts-cpu",
-        "python3", tts_script
-    ]
-
-    log(f"  🎙️ 第{index+1}条使用XTTS克隆音色...")
+    log(f"  🎙️ 第{index+1}条XTTS克隆音色...")
     try:
-        r = subprocess.run(docker_cmd, capture_output=True, timeout=600)
-        if r.returncode == 0 and os.path.exists(f"{work_dir}/output.wav"):
+        tts = _get_xtts_model()
+        wav = tts.tts(text=script, speaker_wav=ref_wav, language='zh-cn')
+        # Handle list return type (XTTS returns list of audio chunks)
+        if isinstance(wav, list):
+            import numpy as np
+            wav = np.array(wav, dtype=np.float32)
+        # Save as WAV (XTTS outputs at 24000Hz)
+        import scipy.io.wavfile as wavfile
+        wavfile.write(f"{work_dir}/output.wav", 24000, (wav * 32767).astype(np.int16))
+        if os.path.exists(f"{work_dir}/output.wav") and os.path.getsize(f"{work_dir}/output.wav") > 2000:
             subprocess.run([
                 "ffmpeg", "-i", f"{work_dir}/output.wav",
                 "-ar", "44100", "-ab", "192k", output_path, "-y"
@@ -661,8 +649,9 @@ print("XTTS done:", os.path.exists("/output/output.wav"))
                 log(f"  ✅ 第{index+1}条音频(XTTS克隆): {dur:.0f}秒")
                 shutil.rmtree(work_dir, ignore_errors=True)
                 return True
+        log(f"  ⚠️ XTTS第{index+1}条生成失败")
     except Exception as e:
-        log(f"  ⚠️ XTTS克隆失败: {e}")
+        log(f"  ⚠️ XTTS第{index+1}条异常: {e}")
     shutil.rmtree(work_dir, ignore_errors=True)
     return False
 
@@ -680,7 +669,7 @@ def generate_tts(script: str, output_path: str, index: int) -> bool:
             return True
 
     # 优先尝试本地克隆
-    if os.path.exists(VOICE_CLONE_REF_AUDIO) and _check_docker():
+    if os.path.exists(VOICE_CLONE_REF_AUDIO):
         if generate_tts_clone(script, output_path, index):
             return True
         log(f"  ⚠️ XTTS克隆失败，尝试Edge TTS...")
@@ -976,8 +965,28 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(frame_rgb)
-            # 将原始帧缩放到目标分辨率，确保画面不变形
-            pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
+
+            # 保持原始比例缩放到目标分辨率，不变形，不裁切，多余部分加黑边
+            src_w, src_h = pil_img.size
+            src_aspect = src_w / src_h
+            target_aspect = target_w / target_h
+            if src_aspect > target_aspect:
+                # 视频更宽：根据高度缩放，左右加黑边
+                new_h = target_h
+                new_w = int(new_h * src_aspect)
+                scaled = pil_img.resize((new_w, new_h), Image.LANCZOS)
+                canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+                paste_x = (target_w - new_w) // 2
+                canvas.paste(scaled, (paste_x, 0))
+            else:
+                # 视频更高：根据宽度缩放，上下加黑边
+                new_w = target_w
+                new_h = int(new_w / src_aspect)
+                scaled = pil_img.resize((new_w, new_h), Image.LANCZOS)
+                canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+                paste_y = (target_h - new_h) // 2
+                canvas.paste(scaled, (0, paste_y))
+            pil_img = canvas
             draw = ImageDraw.Draw(pil_img)
 
             # 字幕区黑条背景
@@ -1739,7 +1748,7 @@ if __name__ == "__main__":
                 _sess = _get_session()
                 _view_resp = _sess.get(
                     f"https://api.bilibili.com/x/web-interface/view?bvid={_bv}",
-                    headers=HEADERS, cookies=_cred, timeout=10
+                    headers=HEADERS, cookies=_cred.get_cookies(), timeout=10
                 )
                 _view_data = _view_resp.json()
                 _cid = _view_data.get("data", {}).get("cid", _aid)
@@ -1774,7 +1783,7 @@ if __name__ == "__main__":
                 _ch_resp = _sess.post(
                     "https://api.bilibili.com/x/vas/dlc_act/act/portal/EditContent",
                     data=_chapter_payload,
-                    headers=HEADERS, timeout=10
+                    headers=HEADERS, cookies=_cred.get_cookies(), timeout=10
                 )
                 _ch_result = _ch_resp.json()
                 if _ch_result.get("code") == 0:

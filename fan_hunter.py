@@ -30,6 +30,16 @@ ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.minimaxi.com/a
 ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
 DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 
+# 动作日志（用于转化分析）
+FAN_HUNTER_ACTIONS = SCRIPT_DIR / "fan_hunter_actions.jsonl"
+
+def _log_action(action: dict):
+    try:
+        with open(FAN_HUNTER_ACTIONS, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(action, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+
 def load_bili_cookies():
     """从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 加载（兼容 list 和 dict 格式）"""
     try:
@@ -723,6 +733,16 @@ def main(light_mode: bool = False):
                 )
                 log(f"    ✅ {c['content'][:25]}...")
                 total_liked += 1
+                # 记录动作日志（用于转化分析）
+                _log_action({
+                    "uid": uid,
+                    "uname": uname,
+                    "action": "like",
+                    "rpid": c["rpid"],
+                    "bvid": c.get("bvid", ""),
+                    "video_title": c.get("title", ""),
+                    "timestamp": datetime.now().isoformat()
+                })
             else:
                 log(f"    ⚠️ 点赞失败 rpid={c['rpid']}，加入跳过列表")
                 liked_rpids.add(c["rpid"])

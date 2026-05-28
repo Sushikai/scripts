@@ -148,6 +148,22 @@ REPLIED_FILE = _INSTANCE_WORK / "bili_replied_real.json" if _INSTANCE_WORK else 
 LOG_FILE = _INSTANCE_WORK / "bili_reply_v17.log" if _INSTANCE_WORK else Path("/tmp/bili_reply_v17.log")
 LOCK_FILE = _INSTANCE_WORK / "bili_reply_v17.lock" if _INSTANCE_WORK else Path("/tmp/bili_reply_v17.lock")
 
+REPLY_ACTIONS = Path("/Users/kaikai/scripts/reply_actions.jsonl")
+
+def _log_reply_action(uname: str, uid: str, source_id: str, reply_text: str):
+    try:
+        with open(REPLY_ACTIONS, 'a', encoding='utf-8') as f:
+            f.write(json.dumps({
+                "uid": str(uid),
+                "uname": uname,
+                "action": "reply",
+                "source_id": source_id,
+                "reply_preview": reply_text[:50],
+                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S')
+            }, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+
 session = make_session()
 
 # ==================== 工具函数 ====================
@@ -654,6 +670,7 @@ def process_reply_messages():
             if send_reply(subject_id, root, parent, reply_with_mention):
                 _store[source_id] = time.strftime('%Y-%m-%d %H:%M:%S')
                 add_to_chat_history(root, uname, user_comment, reply_text)
+                _log_reply_action(uname, item.get('user', {}).get('mid', ''), source_id, reply_text)
                 save_all()
                 sent_count += 1
                 time.sleep(random.uniform(4.0, 6.8))

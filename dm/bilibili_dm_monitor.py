@@ -11,6 +11,7 @@ import os
 import time
 import httpx
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlencode, quote
 from playwright.async_api import async_playwright
 
@@ -58,6 +59,9 @@ if not _instance:
 COOKIES_FILE = os.environ.get('BILIBILI_DM_COOKIE_FILE', COOKIES_FILE)
 if os.environ.get('BILIBILI_DM_SENT_FILE'):
     SENT_MESSAGES_FILE = os.environ.get('BILIBILI_DM_SENT_FILE')
+
+# 动作日志（用于转化分析）
+DM_ACTIONS = Path("/Users/kaikai/scripts/dm_actions.jsonl")
 
 # Bilibili DM API endpoints
 SESSION_LIST_URL = "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions"
@@ -521,6 +525,21 @@ async def api_send_message(cookies, talker_id, content, session_name=None):
     """发送私信（已弃用，改用browser_send_message）"""
     return await browser_send_message(talker_id, content, session_name=session_name)
 
+def _log_dm_action(talker_id: str, talker_name: str, reply: str):
+    """记录DM发送动作（用于转化分析）"""
+    try:
+        import json as _json
+        with open(DM_ACTIONS, 'a', encoding='utf-8') as f:
+            f.write(_json.dumps({
+                "uid": str(talker_id),
+                "uname": talker_name,
+                "action": "dm",
+                "reply_preview": reply[:50],
+                "timestamp": datetime.now().isoformat()
+            }, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+
 async def process_conversations():
     # Acquire lock to prevent concurrent runs
     lock_fd = open(LOCK_FILE, 'w')
@@ -665,6 +684,7 @@ async def process_conversations():
             try:
                 if await api_send_message(cookies, talker_id, reply, session_name=sender_name):
                     record_user_msg_replied(session_key, latest_msg)
+                    _log_dm_action(talker_id, sender_name, reply)
                     print(f"  回复已发送")
                     processed += 1
                 else:
