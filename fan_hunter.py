@@ -41,14 +41,30 @@ def _log_action(action: dict):
         pass
 
 def load_bili_cookies():
-    """从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 加载（兼容 list 和 dict 格式）"""
+    """从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 加载（兼容 list 和 dict 和 netscape 格式）"""
+    path = '/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt'
     try:
-        with open('/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt') as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return {c['name']: c['value'] for c in data}
-        elif isinstance(data, dict):
-            return data
+        with open(path) as f:
+            first_char = f.read(1)
+        with open(path) as f:
+            if first_char == '{' or first_char == '[':
+                data = json.load(f)
+                if isinstance(data, list):
+                    return {c['name']: c['value'] for c in data}
+                elif isinstance(data, dict):
+                    return data
+            else:
+                # netscape format
+                cookies = {}
+                with open(path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        parts = line.split('\t')
+                        if len(parts) >= 7:
+                            cookies[parts[5]] = parts[6]
+                return cookies
         return {}
     except Exception as e:
         print(f"加载 cookies 失败: {e}")

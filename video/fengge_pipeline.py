@@ -97,9 +97,24 @@ def save_upload_history(h: dict) -> None:
 
 
 def load_cookies() -> dict:
-    """加载Cookie"""
+    """加载Cookie（支持JSON和Netscape格式）"""
     try:
-        return json.loads(COOKIE_FILE.read_text(encoding="utf-8"))
+        text = COOKIE_FILE.read_text(encoding="utf-8").strip()
+        # 尝试JSON格式
+        if text.startswith('{') or text.startswith('['):
+            return json.loads(text)
+        # 解析Netscape格式
+        cookies = {}
+        for line in text.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split('\t')
+            if len(parts) >= 7:
+                name = parts[5]
+                value = parts[6]
+                cookies[name] = value
+        return cookies
     except Exception as e:
         log(f"加载Cookie失败: {e}")
         return {}
@@ -274,7 +289,7 @@ def download_video(bvid: str, output_dir: Path) -> Path | None:
 
     cmd = [
         "/opt/homebrew/bin/yt-dlp",
-        "--cookies-from-browser", "chrome",
+        "--cookies", str(COOKIE_FILE),
         "-f", "bestvideo*+bestaudio/best",
         "-o", str(output_file),
         f"https://www.bilibili.com/video/{bvid}"
