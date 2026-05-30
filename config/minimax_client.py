@@ -1,5 +1,5 @@
 """MiniMax API Client — 使用 Anthropic SDK"""
-import os
+import os, re
 from .llm_config import MINIMAX_CONFIG
 
 class MiniMaxClient:
@@ -53,35 +53,36 @@ class MiniMaxClient:
             return 50.0
 
     def generate_script(self, topic: str) -> str:
-        """生成200-250字新闻播报文案，口语化像真人，匹配约30-40秒口播"""
-        prompt = f"""你是一个B站信息差视频的文案写作助手。
+        """生成120-150字新闻播报文案，诙谐幽默像真人，匹配约15秒口播"""
+        prompt = f"""你是一个有10年经验的B站口播博主，专做热点新闻信息差，风格诙谐幽默。
 
-请围绕话题「{topic}」写一段150-180字的口播文案。
+请围绕话题「{topic}」写一段120-150字的口播文案。
 
 要求（极其重要）：
-1. 像真人在镜头前说话，不要像记者播报，更不要像AI写稿
-2. 用口语词汇，避免书面语（不要用"据悉"、"数据显示"、"根据"这种开头）
-3. 可以用"哎"、"诶"、"你知道吗"这种口语词增加真实感，但不要太刻意
-4. 句子要短，每句不超过15个字，节奏快
-5. 观点明确、语气轻松，像跟朋友聊天一样讲新闻
-6. 结尾自然收束，不要"以上就是今天的全部内容"
-7. 不要加任何引导评论、点赞、关注的话
-8. 直接输出文案，不要前缀不要注释
+1. 开头必须有强钩子！用意外、震惊、反差的方式切入，让人想点进来听
+2. 像单口喜剧演员讲新闻，用幽默方式包装信息，不是念稿不是播报
+3. 用口语短句，每句不超过12个字，节奏快，停顿自然
+4. 可以用"诶"、"卧槽"、"真的假的"、"笑死"这种词增加幽默感
+5. 避免：据悉、数据显示、根据XX、首先其次最后、郑重声明、官话套话
+6. 内容要有信息增量，要么你知道的他不知道，要么你知道但理解错的
+7. 结尾干脆利落，直接说完就停，不要"今天就到这里"、"喜欢就点个赞"
+8. 直接输出文案，一气呵成，不要前缀不要注释不要空行
 
-文案："""
+口播文案："""
         for attempt in range(self.retry):
             try:
                 client = self._client()
                 msg = client.messages.create(
                     model=self.model,
                     max_tokens=400,
-                    temperature=0.8,
+                    temperature=1.0,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 text = self._extract_text(msg).strip()
-                # 如果返回文本太短（说明只有ThinkingBlock没有TextBlock），重试
-                # 要求至少100字以上（约15秒音频@+30%语速），否则重试
-                if len(text) >= 100:
+                # 清理可能残留的thinking痕迹和空行
+                text = re.sub(r'\n+', '', text)
+                text = re.sub(r'^[\s\W]+', '', text)
+                if len(text) >= 80:
                     return text
             except Exception:
                 pass

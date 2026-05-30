@@ -1,3 +1,14 @@
 {
-  "tasks": []
+  "tasks": [
+    {
+      "id": "2d93cdd0",
+      "cron": "0 10,20 * * *",
+      "prompt": "cd /Users/kaikai/scripts/tiktok_story_bili && /usr/bin/python3 upload_bili.py",
+      "createdAt": 1780156220432,
+      "recurring": true,
+      "createdBySessionId": "6087669a-f6f6-4c0e-823f-790149f15464",
+      "createdByPid": 88077,
+      "createdByProcStart": "Sat May 30 15:37:46 2026"
+    }
+  ]
 }

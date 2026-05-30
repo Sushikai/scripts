@@ -330,30 +330,6 @@ def get_hot_topics_v8(num: int = 20) -> list:
     log(f"  选题去重后: {len(diversified)}条")
     return diversified[:num]
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 解法2: 稿子去重 → simhash + 多样句式模板
-# ══════════════════════════════════════════════════════════════════════════════
-
-# 解法2-2: 多样句式开场白模板池（每个话题可换不同说法）
-INTRO_TEMPLATES = [
-    "带你来快速了解一下{}。",
-    "今天的热点，{}你听说了吗？",
-    "先说一个你可能还不知道的事：{}。",
-    "最近，{}在持续发酵。",
-    "{}，这个消息值得关注。",
-    "来聊聊{}这件事。",
-    "先从{}说起。",
-    "{}的消息出来了，一起看看。",
-    "咱们先看一下{}的来龙去脉。",
-    "{}，又上热搜了，一起了解一下。",
-]
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 解法2-3: 同事件归类（合并相似话题）+ 叙事逻辑排序
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-
 def _get_whisper_model():
     """全局单例 WhisperModel，避免每次字幕都重新加载（启动慢约10秒）"""
     global _WHISPER_MODEL
@@ -563,12 +539,12 @@ def search_bilibili_video(topic: str) -> str:
     return None
 
 def download_bilibili_video(bvid: str, output_path: str, clip_dur: float = None) -> bool:
-    """下载B站视频（yt-dlp最高质量：bv*+ba/best → mp4）"""
+    """下载B站视频（yt-dlp最高质量：720p+视频+音频 → mp4）"""
     try:
         cmd = [
             "yt-dlp",
             "--no-playlist",
-            "-f", "bv*+ba/best",
+            "-f", "bestvideo[height>=1080]+bestaudio/best[height>=1080]/best[height>=720]/best",
             "--merge-output-format", "mp4",
             "--cookies-from-browser", "chrome",
             "--no-warnings",
@@ -626,11 +602,33 @@ def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
 
     log(f"  🎙️ 第{index+1}条XTTS克隆音色...")
     try:
-        tts = _get_xtts_model()
-        wav = tts.tts(text=script, speaker_wav=ref_wav, language='zh-cn')
+        import numpy as np
+        import threading
+
+        result = [None]
+        error = [None]
+
+        def _tts_worker():
+            try:
+                tts = _get_xtts_model()
+                result[0] = tts.tts(text=script, speaker_wav=ref_wav, language='zh-cn')
+            except Exception as e:
+                error[0] = e
+
+        t = threading.Thread(target=_tts_worker)
+        t.daemon = True
+        t.start()
+        t.join(timeout=10)
+        if t.is_alive():
+            # XTTS挂死，杀掉进程
+            log(f"  ⚠️ XTTS第{index+1}条超时(10s)，跳过")
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return False
+        if error[0]:
+            raise error[0]
+        wav = result[0]
         # Handle list return type (XTTS returns list of audio chunks)
         if isinstance(wav, list):
-            import numpy as np
             wav = np.array(wav, dtype=np.float32)
         # Save as WAV (XTTS outputs at 24000Hz)
         import scipy.io.wavfile as wavfile
@@ -650,13 +648,15 @@ def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
                 shutil.rmtree(work_dir, ignore_errors=True)
                 return True
         log(f"  ⚠️ XTTS第{index+1}条生成失败")
+    except TimeoutError as e:
+        log(f"  ⚠️ XTTS第{index+1}条超时(10s)，跳过")
     except Exception as e:
         log(f"  ⚠️ XTTS第{index+1}条异常: {e}")
     shutil.rmtree(work_dir, ignore_errors=True)
     return False
 
 def generate_tts(script: str, output_path: str, index: int) -> bool:
-    """优先本地克隆(XTTS)，失败则Edge TTS zh-CN-YunxiNeural（云希Neural，浑厚有力）+ 语速+30%，音调+5Hz，3次重试"""
+    """优先本地克隆(XTTS)，失败则Edge TTS zh-CN-YunxiNeural + 语速+10%，音调-2Hz，3次重试"""
     # 音频缓存：同样的文案直接复用已有文件（XTTS一次克隆，之后重用）
     if os.path.exists(output_path) and os.path.getsize(output_path) > 2000:
         dur = float(subprocess.run(
@@ -682,8 +682,8 @@ def generate_tts(script: str, output_path: str, index: int) -> bool:
                 communicate = edge_tts.Communicate(
                     script,
                     voice="zh-CN-YunxiNeural",
-                    rate="+30%",
-                    pitch="+5Hz",
+                    rate="+10%",
+                    pitch="-2Hz",
                 )
                 await communicate.save(output_path)
 
@@ -840,12 +840,16 @@ def format_ass_time(t: float) -> str:
     cs = int((t % 1) * 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
-def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur: float, tts_audio_path: str, topic_title: str = "", segment_index: int = 1, total_segments: int = 1) -> bool:
+def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur: float, tts_audio_path: str, topic_title: str = "", segment_index: int = 1, total_segments: int = 1, all_topics: list = None, video_offset: float = 0.0, video_total_dur: float = 0.0) -> bool:
     """
     字幕烧录布局（参考信息差视频截图）：
     1920x1080 分三层：
     - 字幕区 y=810-950：半透明黑条底，白色话题标题(大字左对齐) + 白色字幕正文(居中)
-    - 章节栏 y=950-1080：深灰底，灰色小字"第X条/共Y条"左对齐
+    - 章节栏 y=950-1080：深灰底，话题标题沿时间轴从左到右按比例分布
+
+    all_topics: [(topic_name, start_time, end_time), ...]  全视频话题时间轴
+    video_offset: 本clip在总视频中的起始时间
+    video_total_dur: 总视频时长
     """
     frame_dir = None
     cap = None
@@ -877,14 +881,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         # 章节栏：y=950-1080，展示所有章节节点+动态进度推进
         chapter_bar_top = 950
         chapter_bar_height = target_h - chapter_bar_top  # 130px
-
-        # timeline参数
-        timeline_left = 60    # 时间轴左边界
-        timeline_right = target_w - 60  # 时间轴右边界
-        timeline_width = timeline_right - timeline_left
-
-        # 找章节栏用的字体（18px）
-        chapter_fnt_size = 18
 
         # 颜色
         topic_color = (255, 255, 255)
@@ -920,7 +916,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         fnt_topic = make_font(topic_font_size)
         fnt_sub = make_font(subtitle_font_size)
-        fnt_chapter = make_font(18)
 
         frame_dir = f"/tmp/frames_{uuid.uuid4().hex[:6]}"
         os.makedirs(frame_dir, exist_ok=True)
@@ -1006,39 +1001,66 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                 stroke_text(draw, (text_x, sub_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
                 rendered.add(frame_idx)
 
-            # 章节栏：浅色进度背景条 + 时间轴节点动态推进
+            # 章节栏：深灰底，1/3宽度居中，话题标题按时间比例分布
+            bar_width = target_w // 3
+            bar_left = (target_w - bar_width) // 2
+            bar_right = bar_left + bar_width
             draw.rectangle([0, chapter_bar_top, target_w, target_h], fill=(32, 32, 32))
 
-            if total_segments >= 1:
+            if all_topics and video_total_dur > 0:
                 axis_y = chapter_bar_top + chapter_bar_height // 2
-                elapsed = timestamp / clip_dur if clip_dur > 0 else 0
-                progress_x = timeline_left + int(timeline_width * elapsed)
-                # 当前章节（1到total_segments）
-                current_seg = 1 if total_segments == 1 else max(1, min(total_segments, int(elapsed * (total_segments - 1)) + 1))
+                line_top = axis_y - 2
+                line_bottom = axis_y + 2
 
-                # 时间轴背景线（浅灰色）
-                draw.rectangle([timeline_left, axis_y - 1, timeline_right, axis_y + 1], fill=(80, 80, 80))
-                # 已播放部分（亮灰）
-                if progress_x > timeline_left:
-                    draw.rectangle([timeline_left, axis_y - 2, progress_x, axis_y + 2], fill=(180, 180, 180))
+                axis_left = bar_left + 50
+                axis_right = bar_right - 50
+                axis_width = axis_right - axis_left
 
-                # 章节节点：等距分布，已过亮色，未到暗色
-                for seg_j in range(1, total_segments + 1):
-                    frac = (seg_j - 1) / (total_segments - 1) if total_segments > 1 else 0
-                    node_x = timeline_left + int(timeline_width * frac)
-                    node_color = (220, 220, 220) if seg_j <= current_seg else (100, 100, 100)
-                    draw.ellipse([node_x - 5, axis_y - 5, node_x + 5, axis_y + 5], fill=node_color)
+                draw.rectangle([axis_left, line_top, axis_right, line_bottom], fill=(80, 80, 80))
 
-                # 时间轴：已播放部分亮色推进
-                if progress_x > timeline_left:
-                    draw.rectangle([timeline_left, axis_y - 2, progress_x, axis_y + 2], fill=(180, 180, 180))
+                topic_positions = []
+                for (t_name, t_start, t_end) in all_topics:
+                    frac_start = t_start / video_total_dur if video_total_dur > 0 else 0
+                    frac_end = t_end / video_total_dur if video_total_dur > 0 else 0
+                    x_start = axis_left + int(frac_start * axis_width)
+                    x_end = axis_left + int(frac_end * axis_width)
+                    topic_positions.append((t_name, x_start, x_end))
 
-                # 章节节点：等距分布，已过亮色，未到暗色
-                for seg_j in range(1, total_segments + 1):
-                    frac = (seg_j - 1) / (total_segments - 1) if total_segments > 1 else 0
-                    node_x = timeline_left + int(timeline_width * frac)
-                    node_color = (220, 220, 220) if seg_j <= current_seg else (100, 100, 100)
-                    draw.ellipse([node_x - 5, axis_y - 5, node_x + 5, axis_y + 5], fill=node_color)
+                elapsed_global = (video_offset + timestamp) / video_total_dur if video_total_dur > 0 else 0
+
+                for idx, (t_name, x_start, x_end) in enumerate(topic_positions):
+                    seg_frac = (idx + 1) / len(topic_positions)
+                    is_past = elapsed_global >= seg_frac - (1 / len(topic_positions) / 2)
+                    seg_color = (180, 180, 180) if is_past else (60, 60, 60)
+                    draw.rectangle([x_start, line_top, x_end, line_bottom], fill=seg_color)
+
+                    node_color = (220, 220, 220) if is_past else (100, 100, 100)
+                    mid_x = (x_start + x_end) // 2
+                    draw.ellipse([mid_x - 4, axis_y - 4, mid_x + 4, axis_y + 4], fill=node_color)
+
+                    seg_width = x_end - x_start
+                    best_font_size = 8
+                    for fs in range(16, 5, -1):
+                        fnt_test = make_font(fs)
+                        bbox = draw.textbbox((0, 0), t_name, font=fnt_test)
+                        text_w = bbox[2] - bbox[0]
+                        if text_w <= seg_width - 6:
+                            best_font_size = fs
+                            break
+
+                    fnt_seg = make_font(best_font_size)
+                    bbox = draw.textbbox((0, 0), t_name, font=fnt_seg)
+                    text_w = bbox[2] - bbox[0]
+                    text_h = bbox[3] - bbox[1]
+                    text_x = x_start + (seg_width - text_w) // 2
+                    text_y = axis_y - text_h - 6
+
+                    draw.rectangle([text_x - 2, text_y - 2, text_x + text_w + 2, text_y + text_h + 2], fill=(40, 40, 40))
+                    draw.text((text_x, text_y), t_name, font=fnt_seg, fill=(160, 160, 160))
+
+                progress_frac = elapsed_global
+                progress_x = axis_left + int(progress_frac * axis_width)
+                draw.rectangle([progress_x - 1, line_top - 3, progress_x + 1, line_bottom + 3], fill=(255, 200, 80))
 
             pil_img.save(f"{frame_dir}/frame_{frame_idx:06d}.jpg", quality=90)
             frame_idx += 1
@@ -1288,18 +1310,24 @@ def main(date_str: str = "today"):
     log(f"   修复：20条精炼版+字幕验证+concat filter")
     log(f"{'='*60}")
 
-    # ── Step 1: 选题（今日百度热搜实时20条）──────────────
-    log(f"\n① 选题（今日百度热搜 {date_str}）...")
+    # ── Step 1: 选题（多源热点，抓大流量话题）──────────────
+    log(f"\n① 选题（多源热点 {date_str}）...")
 
-    # 今日百度热搜实时话题（从 top.baidu.com 自动抓取，每条含 word+desc 播报内容）
-    baidu_scripts = _fetch_baidu_hot_search()
-    hot_topics = list(baidu_scripts.keys())[:10]
+    # 优先从抖音热搜抓（流量最大），配合微博/知乎/百度
+    all_hot_topics = get_hot_topics_v8(num=20)
+    hot_topics = [t["topic"] for t in all_hot_topics[:20]]
 
-    # 构建话题列表（已通过 MiniMax 打分排序）
-    topics = [{"topic": t, "bvid": None, "hot": baidu_scripts.get(t, "")} for t in hot_topics]
+    if not hot_topics:
+        # fallback到百度热搜
+        baidu_scripts = _fetch_baidu_hot_search()
+        hot_topics = list(baidu_scripts.keys())[:20]
+        log(f"  ⚠️ 多源热点为空，使用百度热搜 fallback: {len(hot_topics)}条")
 
-    # 限制为10个话题（10段×约60秒 = 约10分钟视频）
-    MAX_TOPICS = 10
+    # 构建话题列表
+    topics = [{"topic": t, "bvid": None, "hot": ""} for t in hot_topics]
+
+    # 限制为12个话题（12段×约15秒 ≈ 3分钟视频）
+    MAX_TOPICS = 12
     topics = topics[:MAX_TOPICS]
 
     if len(topics) < 5:
@@ -1348,7 +1376,7 @@ def main(date_str: str = "today"):
              "-of", "default=noprint_wrappers=1:nokey=1", cached_audio],
             capture_output=True, text=True, timeout=5
         ).stdout.strip() or 20)
-        if audio_dur < 2:
+        if audio_dur < 5:
             log(f"  ⚠️ 第{i+1}条音频{audio_dur:.1f}秒太短，跳过")
             return None
 
@@ -1406,46 +1434,20 @@ def main(date_str: str = "today"):
 
     log(f"\n  有效片段: {len(segments)}")
 
-    # ── 智能合并短片段 ────────────────────────────────────────────────────────
-    # 如果某个音频 < 30秒，自动和下一个相关话题合并
-    MIN_CLIP_DURATION = 30  # 最低30秒
-    MERGE_DURATION = 50      # 目标50-60秒
-
-    def _smart_merge_segments(seg_list: list) -> list:
-        """不做任何合并：每个话题独占一个片段，一一对应"""
-        return seg_list
-
-    def _parse_srt_time(t: str) -> float:
-        """解析 SRT 时间格式（00:00:00,000）到秒"""
-        t = t.strip().replace(",", ".")
-        parts = t.split(":")
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-
-    def _format_srt_time(s: float) -> str:
-        """将秒数格式化为 SRT 时间（00:00:00,000）"""
-        h = int(s // 3600)
-        m = int((s % 3600) // 60)
-        sec = int(s % 60)
-        ms = int((s % 1) * 1000)
-        return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
-
-    segments = _smart_merge_segments(segments)
-    log(f"  合并后片段: {len(segments)}条")
-
     # ══════════════════════════════════════════════════════════════════════════════
-    # 并行烧录 worker（crop + PIL字幕烧录 + 验证，全独立）
+    # 并行烧录 worker（scale + PIL字幕烧录 + 验证，全独立）
     # ══════════════════════════════════════════════════════════════════════════════
     def _process_single_clip(args):
         """在独立进程中处理单个片段：crop → burn → 验证"""
-        i, topic, audio, srt, bg, dur, seg_idx = args
+        i, topic, audio, srt, bg, dur, seg_idx, video_offset = args
         sid = f"{TASK_ID}_{i}"
         clip_path = str(OUTPUT_DIR / f"v8_clip_{sid}.mp4")
         cropped_bg = str(OUTPUT_DIR / f"v8_crop_{sid}.mp4")
 
-        # Step 1: ffmpeg 裁切
+        # Step 1: ffmpeg 缩放到1280x720（保持比例，加黑边）
         crop_r = subprocess.run([
             "ffmpeg", "-y", "-i", bg, "-an",
-            "-vf", "crop=iw*0.8:ih*0.8:iw*0.1:ih*0.1,scale=1280:720,setsar=1",
+            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1",
             "-t", str(dur), "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "22",
             cropped_bg
         ], capture_output=True, timeout=int(dur * 2 + 30))
@@ -1454,7 +1456,7 @@ def main(date_str: str = "today"):
             return None
 
         try:
-            # Step 2: PIL烧录字幕（segment_index = 显示编号, total = 总片段数）
+            # Step 2: PIL烧录字幕（传入全局话题时间轴）
             success = burn_subtitle_pil(
                 cropped_bg,
                 srt if os.path.exists(srt) else "",
@@ -1463,7 +1465,10 @@ def main(date_str: str = "today"):
                 tts_audio_path=audio,
                 topic_title=topic[:30],
                 segment_index=seg_idx,
-                total_segments=total_segs
+                total_segments=total_segs,
+                all_topics=all_topics,
+                video_offset=video_offset,
+                video_total_dur=video_total_dur
             )
         except Exception as e:
             success = False
@@ -1495,14 +1500,28 @@ def main(date_str: str = "today"):
     clips = []
     clip_durations = []
 
-    # 构造任务参数：只处理有背景视频的片段
-    # total_segments 用原始话题总数，显示「第X条/共Y条」
+    # 构建全局时间轴（用于章节栏显示）
+    total_segs = len(segments)
+    video_total_dur = sum(dur for _, _, _, _, _, _, _, dur in segments)
+
+    # all_topics: [(topic_name, start_time, end_time), ...]
+    all_topics = []
+    cur_ts = 0.0
+    for (_, topic, _, _, _, _, _, dur) in segments:
+        all_topics.append((topic, cur_ts, cur_ts + dur))
+        cur_ts += dur
+
     tasks = []
     for seg_i, (orig_idx, topic, audio, srt, ass, bg, bv, dur) in enumerate(segments):
         if bg and os.path.exists(bg) and os.path.getsize(bg) > 5000:
-            display_num = len(tasks) + 1  # 显示编号从1开始
-            tasks.append((orig_idx, topic, audio, srt, bg, dur, display_num))
-    total_segs = len(segments)  # 用原始话题总数，不是有效片段数
+            # 计算本片段在总视频中的起始时间
+            offset = 0.0
+            for (t_topic, t_start, t_end) in all_topics:
+                if t_topic == topic:
+                    offset = t_start
+                    break
+            display_num = len(tasks) + 1
+            tasks.append((orig_idx, topic, audio, srt, bg, dur, display_num, offset))
 
     if tasks:
         # 烧录是CPU密集型，且PIL逐帧处理很慢，线程太多会互相拖累
@@ -1719,8 +1738,8 @@ if __name__ == "__main__":
 
         _meta = video_uploader.VideoMeta(
             tid=201,
-            title=_title,      # bilibili_api ignores this; set via VideoUploaderPage
-            desc=_desc,        # bilibili_api ignores this; set via VideoUploaderPage
+            title=_title,
+            desc=_desc,
             cover=_cover,
             tags=_tags,
             original=True,
@@ -1751,7 +1770,11 @@ if __name__ == "__main__":
                     headers=HEADERS, cookies=_cred.get_cookies(), timeout=10
                 )
                 _view_data = _view_resp.json()
-                _cid = _view_data.get("data", {}).get("cid", _aid)
+                if _view_resp.status_code == 200 and _view_data.get("code") == 0:
+                    _cid = _view_data.get("data", {}).get("cid")
+                if not _cid:
+                    print(f"⚠️ 获取cid失败，使用aid={_aid}作为替代", flush=True)
+                    _cid = _aid
 
                 # 构建章节 param（需要 end 时间）
                 _contents = []
