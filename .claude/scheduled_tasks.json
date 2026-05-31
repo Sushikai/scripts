@@ -5,10 +5,66 @@
       "cron": "0 10,20 * * *",
       "prompt": "cd /Users/kaikai/scripts/tiktok_story_bili && /usr/bin/python3 upload_bili.py",
       "createdAt": 1780156220432,
+      "lastFiredAt": 1780230600360,
       "recurring": true,
       "createdBySessionId": "6087669a-f6f6-4c0e-823f-790149f15464",
       "createdByPid": 88077,
       "createdByProcStart": "Sat May 30 15:37:46 2026"
+    },
+    {
+      "id": "923a6b94",
+      "cron": "0 8 * * *",
+      "prompt": "cd /Users/kaikai/scripts/tiktok_story_bili && python3 tiktok_story_reupload.py",
+      "createdAt": 1780160009201,
+      "lastFiredAt": 1780187400322,
+      "recurring": true,
+      "createdBySessionId": "432f53c9-663a-417a-9fa5-ff119dbfdced",
+      "createdByPid": 89982,
+      "createdByProcStart": "Sat May 30 15:58:28 2026"
+    },
+    {
+      "id": "7e3ea72f",
+      "cron": "0 12 * * *",
+      "prompt": "cd /Users/kaikai/scripts/tiktok_story_bili && python3 tiktok_story_reupload.py",
+      "createdAt": 1780160009275,
+      "lastFiredAt": 1780201800213,
+      "recurring": true,
+      "createdBySessionId": "432f53c9-663a-417a-9fa5-ff119dbfdced",
+      "createdByPid": 89982,
+      "createdByProcStart": "Sat May 30 15:58:28 2026"
+    },
+    {
+      "id": "3f15651b",
+      "cron": "0 18 * * *",
+      "prompt": "cd /Users/kaikai/scripts/tiktok_story_bili && python3 tiktok_story_reupload.py",
+      "createdAt": 1780160009298,
+      "lastFiredAt": 1780223400194,
+      "recurring": true,
+      "createdBySessionId": "432f53c9-663a-417a-9fa5-ff119dbfdced",
+      "createdByPid": 89982,
+      "createdByProcStart": "Sat May 30 15:58:28 2026"
+    },
+    {
+      "id": "48f380fb",
+      "cron": "*/10 * * * *",
+      "prompt": "cd /Users/kaikai/scripts && python3 fan_hunter.py 2>&1",
+      "createdAt": 1780202274461,
+      "lastFiredAt": 1780236085952,
+      "recurring": true,
+      "createdBySessionId": "29314239-62e7-4543-97e1-982a9a775b88",
+      "createdByPid": 78097,
+      "createdByProcStart": "Sat May 30 13:32:19 2026"
+    },
+    {
+      "id": "afad091b",
+      "cron": "*/10 * * * *",
+      "prompt": "cd /Users/kaikai/scripts/bilibili_utils/reply && python3 browser_reply.py 2>&1",
+      "createdAt": 1780202496703,
+      "lastFiredAt": 1780236206591,
+      "recurring": true,
+      "createdBySessionId": "498b0205-1829-4e58-8710-9bdc485f8cb2",
+      "createdByPid": 6981,
+      "createdByProcStart": "Sun May 31 04:40:43 2026"
     }
   ]
 }

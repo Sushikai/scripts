@@ -1,29 +1,27 @@
-{
-  "b_lsid": "8096815F_19E790AC9FA",
-  "b_nut": "1776488815",
-  "bili_jct": "80b5f7b3839f6dc6ea499ec0647d4f52",
-  "bili_ticket": "eyJhbGciOiJIUzI1NiIsImtpZCI6InMwMyIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODAyMzk1OTksImlhdCI6MTc3OTk4MDMzOSwicGx0IjotMX0.fOsrHhPzrpGhr7OIl2I4_v1tsU3OEc1zMqRpgCpDuJQ",
-  "bili_ticket_expires": "1780239539",
-  "bmg_af_switch": "1",
-  "bmg_src_def_domain": "i0.hdslb.com",
-  "bp_t_offset_140289989": "1207495734186737664",
-  "browser_resolution": "1871-979",
-  "buvid_fp": "4927fafa58d41d1530891c14ea4ea757",
-  "buvid_fp_plain": "undefined",
-  "buvid3": "3169493F-D668-AC48-4C96-6FB6DEFFF40E15104infoc",
-  "buvid4": "9A4E1CC4-30BF-751C-0075-910E6C46849G47286-026051823-74Mos/+u6OM9VVAgAws/WQ%3D%3D",
-  "CURRENT_BLACKGAP": "0",
-  "CURRENT_FNVAL": "2000",
-  "CURRENT_QUALITY": "120",
-  "DedeUserID": "140289989",
-  "DedeUserID__ckMd5": "d62d826182d027e2",
-  "fingerprint": "4927fafa58d41d1530891c14ea4ea757",
-  "hit-dyn-v2": "1",
-  "home_feed_column": "5",
-  "rpdid": "|(umuY~)Y~um0J'u~~YlYlRRk",
-  "SESSDATA": "4c72023c%2C1795532401%2Ce3dfb%2A52CjC3NE8sNIGatL95p3ccnwtyRYjcOUFIgpA1JZ7dRqKKrKtHlNjRLtE6GbdRCZBj3V4SVm9TRnVFcWY1S2lybDRhLXZFM2RvVXlpMVF2YXVFLWptRGZaRVNEQXc4WklQYXhPNktDeEdSSXk1bUFFcTkyaXlCS3dtRUNYNUItVUxmNjVhczdLRDJRIIEC",
-  "sid": "5fhqqxi3",
-  "theme-avatar-tip-show": "SHOWED",
-  "theme-switch-show": "SHOWED",
-  "theme-tip-show": "SHOWED"
-}
+# Netscape HTTP Cookie File
+.bilibili.com	TRUE	/	FALSE	9999999999	b_lsid	3554A0DC_19E7BC55616
+.bilibili.com	TRUE	/	FALSE	9999999999	b_nut	1776488815
+.bilibili.com	TRUE	/	FALSE	9999999999	bili_jct	80b5f7b3839f6dc6ea499ec0647d4f52
+.bilibili.com	TRUE	/	FALSE	1780239599	bili_ticket	eyJhbGciOiJIUzI1NiIsImtpZCI6InMwMyIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODAyMzk1OTksImlhdCI6MTc3OTk4MDMzOSwicGx0IjotMX0.fOsrHhPzrpGhr7OIl2I4_v1tsU3OEc1zMqRpgCpDuJQ
+.bilibili.com	TRUE	/	FALSE	9999999999	bmg_af_sc	{"none":{"on":1,"def":"i0.hdslb.com"},"sgp":{"on":1,"def":"i0-sgp.hdslb.com"}}
+.bilibili.com	TRUE	/	FALSE	9999999999	bmg_af_switch	1
+.bilibili.com	TRUE	/	FALSE	9999999999	bmg_src_def_domain	i0.hdslb.com
+.bilibili.com	TRUE	/	FALSE	9999999999	bp_t_offset_140289989	1208223460560470016
+.bilibili.com	TRUE	/	FALSE	9999999999	buvid3	3169493F-D668-AC48-4C96-6FB6DEFFF40E15104infoc
+.bilibili.com	TRUE	/	FALSE	9999999999	buvid4	9A4E1CC4-30BF-751C-0075-910E6C46849G47286-026051823-74Mos/+u6OM9VVAgAws/WQ%3D%3D
+.bilibili.com	TRUE	/	FALSE	9999999999	buvid_fp	4927fafa58d41d1530891c14ea4ea757
+.bilibili.com	TRUE	/	FALSE	9999999999	buvid_fp_plain	undefined
+.bilibili.com	TRUE	/	FALSE	9999999999	CURRENT_BLACKGAP	0
+.bilibili.com	TRUE	/	FALSE	9999999999	CURRENT_FNVAL	2000
+.bilibili.com	TRUE	/	FALSE	9999999999	CURRENT_QUALITY	120
+.bilibili.com	TRUE	/	FALSE	9999999999	DedeUserID	140289989
+.bilibili.com	TRUE	/	FALSE	9999999999	DedeUserID__ckMd5	d62d826182d027e2
+.bilibili.com	TRUE	/	FALSE	9999999999	fingerprint	4927fafa58d41d1530891c14ea4ea757
+.bilibili.com	TRUE	/	FALSE	9999999999	hit-dyn-v2	1
+.bilibili.com	TRUE	/	FALSE	9999999999	home_feed_column	5
+.bilibili.com	TRUE	/	FALSE	9999999999	rpdid	|(umuY~)Y~um0J'u~~YlYlRRk
+.bilibili.com	TRUE	/	FALSE	9999999999	SESSDATA	4c72023c%2C1795532401%2Ce3dfb%2A52CjC3NE8sNIGatL95p3ccnwtyRYjcOUFIgpA1JZ7dRqKKrKtHlNjRLtE6GbdRCZBj3V4SVm9TRnVFcWY1S2lybDRhLXZFM2RvVXlpMVF2YXVFLWptRGZaRVNEQXc4WklQYXhPNktDeEdSSXk1bUFFcTkyaXlCS3dtRUNYNUItVUxmNjVhczdLRDJRIIEC
+.bilibili.com	TRUE	/	FALSE	9999999999	sid	5fhqqxi3
+.bilibili.com	TRUE	/	FALSE	9999999999	theme-avatar-tip-show	SHOWED
+.bilibili.com	TRUE	/	FALSE	9999999999	theme-switch-show	SHOWED
+.bilibili.com	TRUE	/	FALSE	9999999999	theme-tip-show	SHOWED

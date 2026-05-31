@@ -1,0 +1,479 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - list [ref=e5]:
+      - listitem [ref=e6]:
+        - link "首页" [ref=e7] [cursor=pointer]:
+          - /url: //www.bilibili.com
+          - img [ref=e8]
+          - generic [ref=e10]:
+            - text: 首页
+            - img [ref=e11]
+      - listitem [ref=e14]:
+        - link "番剧" [ref=e15] [cursor=pointer]:
+          - /url: //www.bilibili.com/anime/
+      - listitem [ref=e16]:
+        - link "直播" [ref=e17] [cursor=pointer]:
+          - /url: //live.bilibili.com/
+      - listitem [ref=e18]:
+        - link "游戏中心" [ref=e19] [cursor=pointer]:
+          - /url: //game.bilibili.com/
+      - listitem [ref=e20]:
+        - link "会员购" [ref=e21] [cursor=pointer]:
+          - /url: //show.bilibili.com/platform/home.html?msource=pc_web
+      - listitem [ref=e22]:
+        - link "漫画" [ref=e23] [cursor=pointer]:
+          - /url: //manga.bilibili.com?from=bill_top_mnav
+      - listitem [ref=e24]:
+        - link "赛事" [ref=e25] [cursor=pointer]:
+          - /url: //www.bilibili.com/v/game/match/
+    - list [ref=e26]:
+      - listitem [ref=e27] [cursor=pointer]:
+        - img [ref=e29]
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "【官方 MV】Never Gonna Give You Up - Rick Astley" [level=1] [ref=e37]
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - img [ref=e41]
+            - generic [ref=e42]: 9949.5万
+          - generic [ref=e43]:
+            - img [ref=e44]
+            - generic [ref=e45]: 13.8万
+          - generic [ref=e47]: 2020-01-01 07:43:23
+      - generic "哔哩哔哩播放器" [ref=e57]
+      - generic [ref=e67]:
+        - generic [ref=e69]:
+          - generic "点赞（Q）" [ref=e71] [cursor=pointer]:
+            - img [ref=e72]
+            - generic [ref=e74]: 272.2万
+          - generic "投币（W）" [ref=e76] [cursor=pointer]:
+            - img [ref=e77]
+            - generic [ref=e79]: 118.5万
+          - generic "收藏（E）" [ref=e81] [cursor=pointer]:
+            - img [ref=e82]
+            - generic [ref=e84]: 143.1万
+          - generic [ref=e87] [cursor=pointer]:
+            - img [ref=e88]
+            - generic [ref=e90]: 44.7万
+        - img [ref=e93] [cursor=pointer]
+      - generic [ref=e95]:
+        - generic [ref=e96]: "-"
+        - list [ref=e97]:
+          - listitem [ref=e98]:
+            - text: 字幕制作者（中文（中国））：
+            - link "账号已注销" [ref=e99] [cursor=pointer]:
+              - /url: //space.bilibili.com/371800306
+          - listitem [ref=e100]:
+            - text: 字幕制作者（中文（繁體））：
+            - link "路人N-" [ref=e101] [cursor=pointer]:
+              - /url: //space.bilibili.com/237814922
+          - listitem [ref=e102]:
+            - text: 字幕制作者（中文（中國香港））：
+            - link "FF小黄人" [ref=e103] [cursor=pointer]:
+              - /url: //space.bilibili.com/592667008
+          - listitem [ref=e104]:
+            - text: 字幕制作者（日本語）：
+            - link "゚゚初音ミク" [ref=e105] [cursor=pointer]:
+              - /url: //space.bilibili.com/437457729
+          - listitem [ref=e106]:
+            - text: 字幕制作者（한국어）：
+            - link "至放大來演吧" [ref=e107] [cursor=pointer]:
+              - /url: //space.bilibili.com/16089720
+          - listitem [ref=e108]:
+            - text: 字幕制作者（Deutsch(DE)）：
+            - link "Microsoft_Win11" [ref=e109] [cursor=pointer]:
+              - /url: //space.bilibili.com/388428805
+          - listitem [ref=e110]:
+            - text: 字幕制作者（Русский）：
+            - link "夜航信号灯" [ref=e111] [cursor=pointer]:
+              - /url: //space.bilibili.com/369596063
+          - listitem [ref=e112]:
+            - text: 字幕制作者（Català）：
+            - link "D-SHABBY" [ref=e113] [cursor=pointer]:
+              - /url: //space.bilibili.com/3546965484767441
+          - listitem [ref=e114]:
+            - text: 字幕制作者（美国手语）：
+            - link "宫十五" [ref=e115] [cursor=pointer]:
+              - /url: //space.bilibili.com/1486777491
+      - generic [ref=e117]:
+        - generic "发现《Never gonna give you up》" [ref=e120] [cursor=pointer]:
+          - img [ref=e121]
+          - generic [ref=e123]: 发现《Never gonna give you up》
+          - img [ref=e124]
+        - link "Never Gonna Give You Up" [ref=e128] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=Never%20Gonna%20Give%20You%20Up&from_source=video_tag
+        - link "Rick Astley" [ref=e131] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=Rick%20Astley&from_source=video_tag
+        - link "欧美音乐" [ref=e134] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8E%E9%9F%B3%E4%B9%90&from_source=video_tag
+        - link "MV" [ref=e137] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=MV&from_source=video_tag
+        - link "欧美MV" [ref=e140] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8EMV&from_source=video_tag
+        - link "流行音乐" [ref=e143] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%B5%81%E8%A1%8C%E9%9F%B3%E4%B9%90&from_source=video_tag
+      - generic [ref=e144]:
+        - link:
+          - /url: javascript:void(0);
+    - generic:
+      - generic:
+        - generic [ref=e147]:
+          - link [ref=e150] [cursor=pointer]:
+            - /url: //space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.head.click
+          - generic [ref=e153]:
+            - generic [ref=e154]:
+              - link "索尼音乐中国" [ref=e155] [cursor=pointer]:
+                - /url: //space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.detail.click
+              - link " 发消息" [ref=e156] [cursor=pointer]:
+                - /url: //message.bilibili.com/?spm_id_from=333.788.upinfo.detail.click#whisper/mid486906719
+                - generic [ref=e157]: 
+                - text: 发消息
+            - generic "官方营业，欢迎一键三连~~~" [ref=e158]
+        - generic [ref=e166]:
+          - link "【地平线6】这就是我心中的漂！移！神！曲！ 捡猫怪 20.6万 131" [ref=e168] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e169]:
+              - img [ref=e172]
+              - generic [ref=e175]:
+                - generic "【地平线6】这就是我心中的漂！移！神！曲！" [ref=e176]
+                - generic [ref=e178]:
+                  - img [ref=e179]
+                  - generic [ref=e180]: 捡猫怪
+                - generic [ref=e181]:
+                  - img [ref=e182]
+                  - text: 20.6万
+                  - img [ref=e183]
+                  - text: "131"
+          - img [ref=e185]
+        - generic [ref=e186]:
+          - generic [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]:
+                - generic [ref=e190]: 接下来播放
+                - generic [ref=e192] [cursor=pointer]: 自动连播
+              - generic [ref=e196]:
+                - link [ref=e200] [cursor=pointer]:
+                  - /url: /video/BV1dN411i72n/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e201]:
+                  - link "《Nobody》还记得这首当年风靡全球的歌曲吗" [ref=e202] [cursor=pointer]:
+                    - /url: /video/BV1dN411i72n/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e203]: 《Nobody》还记得这首当年风靡全球的歌曲吗
+                  - link "斌斌音乐" [ref=e205] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1338932226/
+                    - img [ref=e206]
+                    - generic [ref=e207]: 斌斌音乐
+                  - generic [ref=e208]:
+                    - img [ref=e209]
+                    - text: 13.7万
+                    - img [ref=e210]
+                    - text: "14"
+            - generic [ref=e212]:
+              - generic [ref=e214]:
+                - link [ref=e218] [cursor=pointer]:
+                  - /url: /video/BV1xb41127T8/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e219]:
+                  - link "真的是1：1复刻！无敌破坏王2彩蛋与原版大对比《Never Gonna Give You Up》" [ref=e220] [cursor=pointer]:
+                    - /url: /video/BV1xb41127T8/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e221]: 真的是1：1复刻！无敌破坏王2彩蛋与原版大对比《Never Gonna Give You Up》
+                  - link "荣了个格" [ref=e223] [cursor=pointer]:
+                    - /url: //space.bilibili.com/38788906/
+                    - img [ref=e224]
+                    - generic [ref=e225]: 荣了个格
+                  - generic [ref=e226]:
+                    - img [ref=e227]
+                    - text: 408.0万
+                    - img [ref=e228]
+                    - text: "1070"
+              - generic [ref=e230]:
+                - link [ref=e234] [cursor=pointer]:
+                  - /url: /video/BV1bo4y1A7S9/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e235]:
+                  - link "【私藏馆】朴树《平凡之路》经典神作！我曾经跨过山和大海" [ref=e236] [cursor=pointer]:
+                    - /url: /video/BV1bo4y1A7S9/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e237]: 【私藏馆】朴树《平凡之路》经典神作！我曾经跨过山和大海
+                  - link "音乐私藏馆" [ref=e239] [cursor=pointer]:
+                    - /url: //space.bilibili.com/229733301/
+                    - img [ref=e240]
+                    - generic [ref=e241]: 音乐私藏馆
+                  - generic [ref=e242]:
+                    - img [ref=e243]
+                    - text: 2423.2万
+                    - img [ref=e244]
+                    - text: 2.0万
+              - generic [ref=e246]:
+                - link [ref=e250] [cursor=pointer]:
+                  - /url: /video/BV1hp411o78f/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e251]:
+                  - link "来自未来的战士-银河奥特曼主题曲op《 ウルトラマンギンガの歌》" [ref=e252] [cursor=pointer]:
+                    - /url: /video/BV1hp411o78f/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e253]: 来自未来的战士-银河奥特曼主题曲op《 ウルトラマンギンガの歌》
+                  - link "神帝之光" [ref=e255] [cursor=pointer]:
+                    - /url: //space.bilibili.com/18432612/
+                    - img [ref=e256]
+                    - generic [ref=e257]: 神帝之光
+                  - generic [ref=e258]:
+                    - img [ref=e259]
+                    - text: 895.3万
+                    - img [ref=e260]
+                    - text: 5.6万
+              - generic [ref=e262]:
+                - link [ref=e266] [cursor=pointer]:
+                  - /url: /video/BV15F411t7br/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e267]:
+                  - link "前奏秒杀的英文歌《The Way I Still Love You》" [ref=e268] [cursor=pointer]:
+                    - /url: /video/BV15F411t7br/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e269]: 前奏秒杀的英文歌《The Way I Still Love You》
+                  - link "英乐分享君" [ref=e271] [cursor=pointer]:
+                    - /url: //space.bilibili.com/702453625/
+                    - img [ref=e272]
+                    - generic [ref=e273]: 英乐分享君
+                  - generic [ref=e274]:
+                    - img [ref=e275]
+                    - text: 1706.1万
+                    - img [ref=e276]
+                    - text: "6847"
+              - generic [ref=e278]:
+                - link [ref=e282] [cursor=pointer]:
+                  - /url: /video/BV11M411C7Bc/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e283]:
+                  - link "【4K珍藏】世界杯名曲《Waka Waka》！梦回那个夏天！" [ref=e284] [cursor=pointer]:
+                    - /url: /video/BV11M411C7Bc/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e285]: 【4K珍藏】世界杯名曲《Waka Waka》！梦回那个夏天！
+                  - link "4K音乐馆" [ref=e287] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2043250564/
+                    - img [ref=e288]
+                    - generic [ref=e289]: 4K音乐馆
+                  - generic [ref=e290]:
+                    - img [ref=e291]
+                    - text: 765.0万
+                    - img [ref=e292]
+                    - text: "4839"
+              - generic [ref=e294]:
+                - link [ref=e298] [cursor=pointer]:
+                  - /url: /video/BV1cY411L7ws/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e299]:
+                  - link "【𝟖𝐊/𝟔𝟎𝐅𝐏𝐒】HDR 《疯狂动物城》主题曲 夏奇拉《Try Everything》4320P！" [ref=e300] [cursor=pointer]:
+                    - /url: /video/BV1cY411L7ws/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e301]: 【𝟖𝐊/𝟔𝟎𝐅𝐏𝐒】HDR 《疯狂动物城》主题曲 夏奇拉《Try Everything》4320P！
+                  - link "同学们的音乐君" [ref=e303] [cursor=pointer]:
+                    - /url: //space.bilibili.com/696160102/
+                    - img [ref=e304]
+                    - generic [ref=e305]: 同学们的音乐君
+                  - generic [ref=e306]:
+                    - img [ref=e307]
+                    - text: 1162.0万
+                    - img [ref=e308]
+                    - text: "4939"
+              - generic [ref=e310]:
+                - link [ref=e314] [cursor=pointer]:
+                  - /url: /video/BV1UT42167xb/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e315]:
+                  - link "【4K珍藏】诈骗神曲《Never Gonna Give You Up》！愿者上钩！" [ref=e316] [cursor=pointer]:
+                    - /url: /video/BV1UT42167xb/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e317]: 【4K珍藏】诈骗神曲《Never Gonna Give You Up》！愿者上钩！
+                  - link "4K音乐馆" [ref=e319] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2043250564/
+                    - img [ref=e320]
+                    - generic [ref=e321]: 4K音乐馆
+                  - generic [ref=e322]:
+                    - img [ref=e323]
+                    - text: 231.0万
+                    - img [ref=e324]
+                    - text: "2810"
+              - generic [ref=e326]:
+                - link [ref=e330] [cursor=pointer]:
+                  - /url: /video/BV1Gv4y1x7dA/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e331]:
+                  - link "【4K60FPS】魔力红Maroon 5《Sugar》甜蜜神曲！祝大家情人节快乐" [ref=e332] [cursor=pointer]:
+                    - /url: /video/BV1Gv4y1x7dA/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e333]: 【4K60FPS】魔力红Maroon 5《Sugar》甜蜜神曲！祝大家情人节快乐
+                  - link "音乐私藏馆" [ref=e335] [cursor=pointer]:
+                    - /url: //space.bilibili.com/229733301/
+                    - img [ref=e336]
+                    - generic [ref=e337]: 音乐私藏馆
+                  - generic [ref=e338]:
+                    - img [ref=e339]
+                    - text: 501.0万
+                    - img [ref=e340]
+                    - text: "3353"
+              - generic [ref=e342]:
+                - link [ref=e346] [cursor=pointer]:
+                  - /url: /video/BV1Pg411r7V5/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e347]:
+                  - link "【4K60帧】三十五年后Rickroll经典重现！瑞克·埃斯利《Never Gonna Give You Up》2022广告宣传片 AI修复补帧画质增强版" [ref=e348] [cursor=pointer]:
+                    - /url: /video/BV1Pg411r7V5/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e349]: 【4K60帧】三十五年后Rickroll经典重现！瑞克·埃斯利《Never Gonna Give You Up》2022广告宣传片 AI修复补帧画质增强版
+                  - link "KG-Area21" [ref=e351] [cursor=pointer]:
+                    - /url: //space.bilibili.com/33114953/
+                    - img [ref=e352]
+                    - generic [ref=e353]: KG-Area21
+                  - generic [ref=e354]:
+                    - img [ref=e355]
+                    - text: 231.2万
+                    - img [ref=e356]
+                    - text: "1854"
+              - generic [ref=e358]:
+                - link [ref=e362] [cursor=pointer]:
+                  - /url: /video/BV1ih41147Z6/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e363]:
+                  - link "【4K60FPS】【3D环绕】鸟叔《江南Style》动次打次神曲！请务必戴上耳机！" [ref=e364] [cursor=pointer]:
+                    - /url: /video/BV1ih41147Z6/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e365]: 【4K60FPS】【3D环绕】鸟叔《江南Style》动次打次神曲！请务必戴上耳机！
+                  - link "同学们的音乐君" [ref=e367] [cursor=pointer]:
+                    - /url: //space.bilibili.com/696160102/
+                    - img [ref=e368]
+                    - generic [ref=e369]: 同学们的音乐君
+                  - generic [ref=e370]:
+                    - img [ref=e371]
+                    - text: 1205.4万
+                    - img [ref=e372]
+                    - text: 13.2万
+              - generic [ref=e374]:
+                - link [ref=e378] [cursor=pointer]:
+                  - /url: /video/BV1qrcdejEk8/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e379]:
+                  - link "《日不落》英文原曲《Sunshine in the Rain》，旋律太迷人了！" [ref=e380] [cursor=pointer]:
+                    - /url: /video/BV1qrcdejEk8/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e381]: 《日不落》英文原曲《Sunshine in the Rain》，旋律太迷人了！
+                  - link "悠悠-南珊" [ref=e383] [cursor=pointer]:
+                    - /url: //space.bilibili.com/470899061/
+                    - img [ref=e384]
+                    - generic [ref=e385]: 悠悠-南珊
+                  - generic [ref=e386]:
+                    - img [ref=e387]
+                    - text: 201.9万
+                    - img [ref=e388]
+                    - text: "729"
+              - generic [ref=e390]:
+                - link [ref=e394] [cursor=pointer]:
+                  - /url: /video/BV1v541187q5/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e395]:
+                  - link "无法原谅——《回家的诱惑》·片头主题曲MV" [ref=e396] [cursor=pointer]:
+                    - /url: /video/BV1v541187q5/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e397]: 无法原谅——《回家的诱惑》·片头主题曲MV
+                  - link "搜看MV" [ref=e399] [cursor=pointer]:
+                    - /url: //space.bilibili.com/526608831/
+                    - img [ref=e400]
+                    - generic [ref=e401]: 搜看MV
+                  - generic [ref=e402]:
+                    - img [ref=e403]
+                    - text: 368.7万
+                    - img [ref=e404]
+                    - text: "2052"
+              - generic [ref=e406]:
+                - link [ref=e410] [cursor=pointer]:
+                  - /url: /video/BV1nh41167Wh/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e411]:
+                  - link "贾斯汀比伯联手The Kid LAROI新单《Stay》官方MV超清大首播" [ref=e412] [cursor=pointer]:
+                    - /url: /video/BV1nh41167Wh/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e413]: 贾斯汀比伯联手The Kid LAROI新单《Stay》官方MV超清大首播
+                  - link "JustinBieber_CN" [ref=e415] [cursor=pointer]:
+                    - /url: //space.bilibili.com/30322433/
+                    - img [ref=e416]
+                    - generic [ref=e417]: JustinBieber_CN
+                  - generic [ref=e418]:
+                    - img [ref=e419]
+                    - text: 1998.5万
+                    - img [ref=e420]
+                    - text: 4.7万
+              - generic [ref=e422]:
+                - link [ref=e426] [cursor=pointer]:
+                  - /url: /video/BV1BW411Z7J3/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e427]:
+                  - link "PPAP原版完整视频" [ref=e428] [cursor=pointer]:
+                    - /url: /video/BV1BW411Z7J3/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e429]: PPAP原版完整视频
+                  - link "不懂事的记忆" [ref=e431] [cursor=pointer]:
+                    - /url: //space.bilibili.com/180305935/
+                    - img [ref=e432]
+                    - generic [ref=e433]: 不懂事的记忆
+                  - generic [ref=e434]:
+                    - img [ref=e435]
+                    - text: 432.7万
+                    - img [ref=e436]
+                    - text: "5636"
+              - generic [ref=e438]:
+                - link [ref=e442] [cursor=pointer]:
+                  - /url: /video/BV1AR4y1a7L8/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e443]:
+                  - link "【早安越南】越战美军超燃bgm【Fortunate Son】" [ref=e444] [cursor=pointer]:
+                    - /url: /video/BV1AR4y1a7L8/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e445]: 【早安越南】越战美军超燃bgm【Fortunate Son】
+                  - link "仔仔呗雷帽" [ref=e447] [cursor=pointer]:
+                    - /url: //space.bilibili.com/696016132/
+                    - img [ref=e448]
+                    - generic [ref=e449]: 仔仔呗雷帽
+                  - generic [ref=e450]:
+                    - img [ref=e451]
+                    - text: 563.6万
+                    - img [ref=e452]
+                    - text: 2.5万
+              - generic [ref=e454]:
+                - link [ref=e458] [cursor=pointer]:
+                  - /url: /video/BV1qJ411t7ef/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e459]:
+                  - link "我们的歌 - 王力宏" [ref=e460] [cursor=pointer]:
+                    - /url: /video/BV1qJ411t7ef/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e461]: 我们的歌 - 王力宏
+                  - link "索尼音乐中国" [ref=e463] [cursor=pointer]:
+                    - /url: //space.bilibili.com/486906719/
+                    - img [ref=e464]
+                    - generic [ref=e465]: 索尼音乐中国
+                  - generic [ref=e466]:
+                    - img [ref=e467]
+                    - text: 229.2万
+                    - img [ref=e468]
+                    - text: "1723"
+              - generic [ref=e470]:
+                - link [ref=e474] [cursor=pointer]:
+                  - /url: /video/BV1uJ411879Y/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e475]:
+                  - link "原版《神的随波逐流》中文字幕【初音ミク、鏡音リン、GUMI】 神のまにまに 随神之侧" [ref=e476] [cursor=pointer]:
+                    - /url: /video/BV1uJ411879Y/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e477]: 原版《神的随波逐流》中文字幕【初音ミク、鏡音リン、GUMI】 神のまにまに 随神之侧
+                  - link "adamsmiles" [ref=e479] [cursor=pointer]:
+                    - /url: //space.bilibili.com/130556618/
+                    - img [ref=e480]
+                    - generic [ref=e481]: adamsmiles
+                  - generic [ref=e482]:
+                    - img [ref=e483]
+                    - text: 1333.6万
+                    - img [ref=e484]
+                    - text: 1.3万
+              - generic [ref=e486]:
+                - link [ref=e490] [cursor=pointer]:
+                  - /url: /video/BV1bp4y1a7Kj/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e491]:
+                  - link "【官方MV】OneRepublic - Counting Stars" [ref=e492] [cursor=pointer]:
+                    - /url: /video/BV1bp4y1a7Kj/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e493]: 【官方MV】OneRepublic - Counting Stars
+                  - link "环球音乐中国" [ref=e495] [cursor=pointer]:
+                    - /url: //space.bilibili.com/669334488/
+                    - img [ref=e496]
+                    - generic [ref=e497]: 环球音乐中国
+                  - generic [ref=e498]:
+                    - img [ref=e499]
+                    - text: 137.6万
+                    - img [ref=e500]
+                    - text: "2003"
+              - generic [ref=e502]:
+                - link [ref=e506] [cursor=pointer]:
+                  - /url: /video/BV1u741117Ps/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                - generic [ref=e507]:
+                  - link "永恒不朽的经典《We are the world》，每次听都是震撼心灵的盛宴" [ref=e508] [cursor=pointer]:
+                    - /url: /video/BV1u741117Ps/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2589621-tj4lz.1780204039581.126
+                    - paragraph [ref=e509]: 永恒不朽的经典《We are the world》，每次听都是震撼心灵的盛宴
+                  - link "英文经典歌" [ref=e511] [cursor=pointer]:
+                    - /url: //space.bilibili.com/519861690/
+                    - img [ref=e512]
+                    - generic [ref=e513]: 英文经典歌
+                  - generic [ref=e514]:
+                    - img [ref=e515]
+                    - text: 2448.6万
+                    - img [ref=e516]
+                    - text: 8.4万
+            - generic [ref=e517] [cursor=pointer]: 展开
+          - link "安魂曲的满分之选!" [ref=e519] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e520]: 安魂曲的满分之选!

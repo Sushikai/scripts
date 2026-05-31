@@ -47,19 +47,6 @@ HEADERS = {
     "Referer": "https://www.bilibili.com",
 }
 
-# 加载下载用cookie（账号B: UID 1650357577）
-DOWNLOAD_COOKIES = {}
-_cookies_file = "/Users/kaikai/scripts/20岁还没开始环球旅行_cookies.txt"
-if os.path.exists(_cookies_file):
-    try:
-        import json
-        _data = json.loads(open(_cookies_file).read())
-        DOWNLOAD_COOKIES = {k: v for k, v in _data.items() if k in (
-            "SESSDATA", "bili_jct", "buvid3", "buvid4", "DedeUserID", "bili_ticket", "sid"
-        )}
-    except Exception:
-        pass
-
 # 本地语音克隆配置（XTTS v2 via Docker）
 # 设置参考音频路径启用本地克隆，否则使用 Edge TTS 云端
 VOICE_CLONE_REF_AUDIO = "/Users/kaikai/scripts/config/ref_60s_16k.wav"
@@ -153,61 +140,9 @@ def verify_video_has_frames(path: str) -> bool:
             return True
     return False
 
-def simhash(text: str) -> str:
-    """解法2-4: 计算文本simhash用于相似度检测"""
-    import hashlib, struct
-    text = re.sub(r'\s+', '', text.lower())
-    vec = [0] * 128
-    words = [text[i:i+2] for i in range(0, min(len(text), 50), 2)]
-    for word in words:
-        h = hashlib.md5(word.encode()).digest()
-        for i in range(16):
-            byte_val = h[i]
-            for j in range(8):
-                bit = (byte_val >> j) & 1
-                idx = i * 8 + j
-                vec[idx] += 1 if bit else -1
-    fingerprint = sum(1 << i if v > 0 else 0 for i, v in enumerate(vec))
-    return struct.pack('>QQ', fingerprint >> 64, fingerprint & 0xFFFFFFFFFFFFFFFF).hex()
-
-def hamming_distance(h1: str, h2: str) -> int:
-    """解法2-4: 计算两个simhash的海明距离"""
-    b1 = bytes.fromhex(h1)
-    b2 = bytes.fromhex(h2)
-    xor = int.from_bytes(b1, 'big') ^ int.from_bytes(b2, 'big')
-    return bin(xor).count('1')
-
 # ══════════════════════════════════════════════════════════════════════════════
-# 解法3: 扩展选题 → 5数据源 × 多关键词 = 15+条
+# 解法3: 扩展选题 → 4数据源 = 目标15+条不重复话题
 # ══════════════════════════════════════════════════════════════════════════════
-
-def get_today_date():
-    return datetime.now().strftime("%Y年%m月%d日")
-
-# ── 争议话题优先排序 ────────────────────────────────────────────────────
-BORING_KEYWORDS = [
-    # 官方媒体（语气正、难引发共鸣）
-    "外交部", "中方回应", "央视新闻", "人民日报", "新华社", "官方通报",
-    "召开会议", "政策发布", "稳步推进", "安全播出", "依法", "切实",
-    "高度重视", "认真贯彻落实", "有关部门", "答记者问", "发表评论",
-    # 中国领导人相关（容易导致退稿）
-    "国家主席", "国家领导人", "总书记", "主席讲话", "领导人讲话",
-    "中央领导", "政治局", "国务院", "国务院新闻",
-]
-# 完全禁止的话题（直接跳过）
-BANNED_KEYWORDS = [
-    "国家主席", "国家领导人", "总书记", "主席讲话", "政治局常委",
-    "国务院总理", "国家副主席", "军委主席", "党和国家",
-    "人民领袖", "伟大领袖", "习近", "彭丽媛", "李克强", "温家宝",
-    "胡锦涛", "江泽民", "毛泽东", "邓小平", "周恩来", "朱镕基",
-]
-HOT_KEYWORDS = [
-    "争议", "冲突", "爆发", "暴跌", "暴涨", "裁员", "倒闭", "揭秘",
-    "曝光", "突发", "首次", "历史性", "惊人", "破局", "崩溃", "制裁",
-    "对抗", "丑闻", "翻车", "打脸", "反转", "炸锅", "爆雷", "硬刚",
-    "夺权", "逼宫", "内斗", "逃亡", "被捕", "通缉", "辟谣",
-]
-
 
 def get_hot_topics_v8(num: int = 20) -> list:
     """
@@ -290,42 +225,15 @@ def get_hot_topics_v8(num: int = 20) -> list:
     except Exception as e:
         log(f"  ⚠️ 百度实时: {e}")
 
-    # ── 抖音优先 + MiniMax 动态打分排序 ─────────────────────────────────
-    # 数据源权重：抖音12条，百度8条，微博5条，知乎5条
-    # 每个话题用 MiniMax API 打分，并行处理，按分数降序
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # ── 抖音优先排序 ─────────────────────────────────
+    # 抖音12条，百度8条，微博/知乎各5条，按来源 + 顺序保留
+    douyin = [t for t in topics if t.get("source") == "抖音热搜"][:12]
+    baidu = [t for t in topics if t.get("source") == "百度实时"][:8]
+    others = [t for t in topics if t.get("source") not in ("抖音热搜", "百度实时")][:5]
+    diversified = douyin + baidu + others
 
-    # 调整各源抓取数量（抖音优先）
-    douyin_topics = [t for t in topics if t.get("source") == "抖音热搜"]
-    baidu_topics = [t for t in topics if t.get("source") == "百度实时"]
-    other_topics = [t for t in topics if t.get("source") not in ("抖音热搜", "百度实时")]
-
-    # 优先抖音12条，百度8条，不足时用微博/知乎补充
-    weighted = (douyin_topics[:12] + baidu_topics[:8] + other_topics[:5])
-    if len(weighted) < 15:
-        log(f"  ⚠️ 话题不足15条，仅 {len(weighted)} 条，将影响视频丰富度")
-
-    def _score_one(t):
-        try:
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from config.minimax_client import MiniMaxClient
-            score = MiniMaxClient().score_topic(t["topic"])
-            return (score, t)
-        except Exception:
-            return (50.0, t)
-
-    scored = []
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = {pool.submit(_score_one, t): t for t in weighted}
-        for future in as_completed(futures):
-            try:
-                result = future.result(timeout=30)
-                scored.append(result)
-            except Exception:
-                scored.append((50.0, weighted[futures[future]]))
-
-    scored.sort(key=lambda x: -x[0])
-    diversified = [t for _, t in scored]
+    if len(diversified) < 10:
+        log(f"  ⚠️ 话题不足10条，仅 {len(diversified)} 条")
 
     log(f"  选题去重后: {len(diversified)}条")
     return diversified[:num]
@@ -618,7 +526,7 @@ def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
         t = threading.Thread(target=_tts_worker)
         t.daemon = True
         t.start()
-        t.join(timeout=10)
+        t.join(timeout=120)
         if t.is_alive():
             # XTTS挂死，杀掉进程
             log(f"  ⚠️ XTTS第{index+1}条超时(10s)，跳过")
@@ -792,54 +700,6 @@ def generate_srt_from_audio(audio_path: str, srt_path: str, index: int, script: 
 # 维度⑦：字幕烧录（修复没画面+字幕问题）
 # ══════════════════════════════════════════════════════════════════════════════
 
-def srt_to_ass(srt_path: str, ass_path: str) -> bool:
-    """解法4-1: SRT转ASS，提升字幕渲染兼容性"""
-    try:
-        import pysrt
-        subs = pysrt.open(srt_path)
-        
-        # 查找可用的中文字体
-        font_name = "Source Han Sans SC"
-        font_paths_check = [
-            "/tmp/SourceHanSansSC-Regular.otf",
-            "/System/Library/Fonts/Supplemental/SourceHanSansSC-Regular.otf",
-            "/System/Library/Fonts/STHeiti Light.ttc",
-            "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        ]
-        actual_font = "Arial"
-        for fp in font_paths_check:
-            if os.path.exists(fp):
-                actual_font = fp
-                break
-        
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write(
-                "[Script Info]\nTitle: Generated\n"
-                "[V4+ Styles]\n"
-                # 改进版样式：白色字体+黑色描边+字幕距底部70px（参考原视频）
-                # Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-                f"Style: Default,{actual_font},24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,70,1\n"
-                "[Events]\nFormat: Layer,Start,End,Style,Text\n"
-            )
-            for sub in subs:
-                start = format_ass_time(sub.start.ordinal / 1000.0)
-                end = format_ass_time(sub.end.ordinal / 1000.0)
-                text = sub.text.replace('\n', '\\N')
-                # 白色描边黑色底 - 保留特殊字符转义
-                text = text.replace('>', '&gt;').replace('<', '&lt;')
-                f.write(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n")
-        return True
-    except Exception as e:
-        log(f"  ⚠️ SRT→ASS失败: {e}")
-        return False
-
-def format_ass_time(t: float) -> str:
-    h = int(t // 3600)
-    m = int((t % 3600) // 60)
-    s = int(t % 60)
-    cs = int((t % 1) * 100)
-    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
-
 def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur: float, tts_audio_path: str, topic_title: str = "", segment_index: int = 1, total_segments: int = 1, all_topics: list = None, video_offset: float = 0.0, video_total_dur: float = 0.0) -> bool:
     """
     字幕烧录布局（参考信息差视频截图）：
@@ -929,10 +789,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         rendered = set()
         frame_idx = 0
 
-        # 缩放系数：将原始帧缩放到目标分辨率
-        scale_x = target_w / src_w
-        scale_y = target_h / src_h
-
         def stroke_text(draw, pos, text, font, fill, stroke_fill, width=2):
             x, y = pos
             for dx in range(-width, width + 1):
@@ -966,7 +822,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             src_aspect = src_w / src_h
             target_aspect = target_w / target_h
             if src_aspect > target_aspect:
-                # 视频更宽：根据高度缩放，左右加黑边
                 new_h = target_h
                 new_w = int(new_h * src_aspect)
                 scaled = pil_img.resize((new_w, new_h), Image.LANCZOS)
@@ -974,7 +829,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
                 paste_x = (target_w - new_w) // 2
                 canvas.paste(scaled, (paste_x, 0))
             else:
-                # 视频更高：根据宽度缩放，上下加黑边
                 new_w = target_w
                 new_h = int(new_w / src_aspect)
                 scaled = pil_img.resize((new_w, new_h), Image.LANCZOS)
@@ -991,12 +845,11 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
             if topic_title and timestamp < topic_show_until:
                 stroke_text(draw, (30, topic_text_y), topic_title, fnt_topic, topic_color, stroke_color, width=2)
 
-            # 字幕正文（白色居中，2px黑描边）—— 始终显示，随时间轴滚动
+            # 字幕正文（白色居中，2px黑描边）—— 始终显示
             if current_sub:
                 bbox = draw.textbbox((0, 0), current_sub, font=fnt_sub)
                 text_w = bbox[2] - bbox[0]
                 text_x = (target_w - text_w) // 2
-                # topic存在时字幕偏下，topic消失后字幕居中
                 sub_y = subtitle_text_y if timestamp < topic_show_until else (subtitle_bg_top + (subtitle_bg_bottom - subtitle_bg_top - subtitle_font_size) // 2)
                 stroke_text(draw, (text_x, sub_y), current_sub, fnt_sub, subtitle_color, stroke_color, width=2)
                 rendered.add(frame_idx)
@@ -1073,7 +926,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         log(f"  PIL烧录: {frame_idx}帧, {len(rendered)}帧有字幕")
 
-        # 用glob获取帧列表（按文件名排序）
         frame_files = sorted(glob.glob(f"{frame_dir}/*.jpg"))
         if not frame_files:
             log(f"  ⚠️ 无帧文件可处理")
@@ -1081,7 +933,6 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 
         has_audio = tts_audio_path and os.path.exists(tts_audio_path)
 
-        # 用 -framerate 30 -i 逐帧输入（比concat demuxer更稳定）
         cmd = [
             "ffmpeg", "-y",
             "-framerate", "30",
@@ -1120,86 +971,10 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
         return False
 
 
-def burn_subtitle_ass(video_path: str, ass_path: str, output_path: str, clip_dur: float) -> bool:
-    """
-    解法4-3/4/5: FFmpeg ASS字幕滤镜（如果libass可用则用这个）
-    解法4-6 fallback: 纯Python PIL方案
-    """
-    # 先检查libass是否可用
-    check = subprocess.run(
-        ["ffmpeg", "-filters"], capture_output=True, text=True
-    )
-    has_libass = "subtitles" in check.stdout or " ass " in check.stdout or " libass" in check.stdout
-
-    if has_libass:
-        return burn_subtitle_ass_ffmpeg(video_path, ass_path, output_path, clip_dur)
-    else:
-        # fallback: 从SRT烧录（需要先生成SRT）
-        srt_path = ass_path.replace(".ass", ".srt")
-        return burn_subtitle_pil(video_path, srt_path, output_path, clip_dur, "")
-
-
-def burn_subtitle_ass_ffmpeg(video_path: str, ass_path: str, output_path: str, clip_dur: float) -> bool:
-    """解法4-3/4: FFmpeg ASS字幕滤镜（libass可用时）"""
-    try:
-        # 检查字体
-        font_path = "/tmp/SourceHanSansSC-Regular.otf"
-        if not os.path.exists(font_path) or os.path.getsize(font_path) < 1000000:
-            log("  下载 SourceHanSansSC 字体...")
-            r = _get_session().get(
-                "https://github.com/adobe-fonts/source-han-sans/raw/release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf",
-                timeout=60, stream=True
-            )
-            if r.status_code == 200:
-                with open(font_path, 'wb') as f:
-                    for chunk in r.iter_content(8192):
-                        f.write(chunk)
-                if os.path.exists(font_path) and os.path.getsize(font_path) > 1000000:
-                    log(f"  ✅ 字体下载成功: {os.path.getsize(font_path)//1024}KB")
-                else:
-                    log("  ⚠️ 字体下载可能失败，继续使用系统字体")
-
-        # 解法4-4: 路径用shell转义
-        ass_escaped = ass_path.replace("'", "'\\''")
-        filter_str = f"ass={ass_escaped}:fontsdir=/tmp:original_size=1280x720"
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-filter_complex", f"[0:v]{filter_str}[out]",
-            "-map", "[out]", "-map", "0:a",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-profile:v", "high", "-level", "3.1",
-            "-c:a", "aac", "-b:a", "128k",
-            "-t", str(clip_dur),
-            output_path
-        ]
-        r = subprocess.run(cmd, capture_output=True, timeout=int(clip_dur * 2 + 60))
-        if r.returncode != 0:
-            log(f"  ⚠️ ASS滤镜失败，尝试subtitles滤镜")
-            ass_escaped2 = ass_path.replace("'", "'\\''")
-            # 改进版字幕样式：白色24号字体，黑色描边，字幕距底部70px，章节栏距底部144px
-            # 参考原视频：字幕在内容区底部上方70px，章节栏在底部1/3暗橄榄绿底
-            cmd2 = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"subtitles='{ass_escaped2}':force_style='FontName=Source Han Sans SC,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Outline=2,Shadow=2,Bold=0,MarginV=70'",
-                "-map", "0:v", "-map", "0:a",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                "-c:a", "aac", "-b:a", "128k",
-                "-t", str(clip_dur),
-                output_path
-            ]
-            r = subprocess.run(cmd2, capture_output=True, timeout=int(clip_dur * 2 + 60))
-            if r.returncode != 0:
-                log(f"  ⚠️ subtitles滤镜也失败: {r.stderr[-150:]}")
-                return False
-        return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
-    except Exception as e:
-        log(f"  ⚠️ 烧录异常: {e}")
-        return False
-
 def verify_subtitles_burned(video_path: str) -> bool:
-    """解法4-9: 提取帧检测字幕亮度"""
+    """
+    提取帧检测字幕亮度（底部区域）
+    """
     import numpy as np
     from PIL import Image
     # 检查底部25%区域
@@ -1405,12 +1180,9 @@ def main(date_str: str = "today"):
                 pass
 
         srt_path = str(OUTPUT_DIR / f"v8_sub_{sid}.srt")
-        ass_path = str(OUTPUT_DIR / f"v8_sub_{sid}.ass")
         generate_srt_from_audio(cached_audio, srt_path, i, script)
-        if os.path.exists(srt_path):
-            srt_to_ass(srt_path, ass_path)
 
-        return (i, topic, cached_audio, srt_path, ass_path, bg_video_path, bv_id, audio_dur)
+        return (i, topic, cached_audio, srt_path, bg_video_path, bv_id, audio_dur)
 
     segments = []
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -1502,17 +1274,17 @@ def main(date_str: str = "today"):
 
     # 构建全局时间轴（用于章节栏显示）
     total_segs = len(segments)
-    video_total_dur = sum(dur for _, _, _, _, _, _, _, dur in segments)
+    video_total_dur = sum(dur for _, _, _, _, _, _, dur in segments)
 
     # all_topics: [(topic_name, start_time, end_time), ...]
     all_topics = []
     cur_ts = 0.0
-    for (_, topic, _, _, _, _, _, dur) in segments:
+    for (_, topic, _, _, _, _, dur) in segments:
         all_topics.append((topic, cur_ts, cur_ts + dur))
         cur_ts += dur
 
     tasks = []
-    for seg_i, (orig_idx, topic, audio, srt, ass, bg, bv, dur) in enumerate(segments):
+    for seg_i, (orig_idx, topic, audio, srt, bg, bv, dur) in enumerate(segments):
         if bg and os.path.exists(bg) and os.path.getsize(bg) > 5000:
             # 计算本片段在总视频中的起始时间
             offset = 0.0
@@ -1770,9 +1542,9 @@ if __name__ == "__main__":
                     headers=HEADERS, cookies=_cred.get_cookies(), timeout=10
                 )
                 _view_data = _view_resp.json()
+                _cid = _aid  # 默认用aid
                 if _view_resp.status_code == 200 and _view_data.get("code") == 0:
-                    _cid = _view_data.get("data", {}).get("cid")
-                if not _cid:
+                    _cid = _view_data.get("data", {}).get("cid") or _aid
                     print(f"⚠️ 获取cid失败，使用aid={_aid}作为替代", flush=True)
                     _cid = _aid
 

@@ -1,0 +1,473 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - list [ref=e5]:
+      - listitem [ref=e6]:
+        - link "首页" [ref=e7] [cursor=pointer]:
+          - /url: //www.bilibili.com
+          - img [ref=e8]
+          - generic [ref=e10]:
+            - text: 首页
+            - img [ref=e11]
+      - listitem [ref=e14]:
+        - link "番剧" [ref=e15] [cursor=pointer]:
+          - /url: //www.bilibili.com/anime/
+      - listitem [ref=e16]:
+        - link "直播" [ref=e17] [cursor=pointer]:
+          - /url: //live.bilibili.com/
+      - listitem [ref=e18]:
+        - link "游戏中心" [ref=e19] [cursor=pointer]:
+          - /url: //game.bilibili.com/
+      - listitem [ref=e20]:
+        - link "会员购" [ref=e21] [cursor=pointer]:
+          - /url: //show.bilibili.com/platform/home.html?msource=pc_web
+      - listitem [ref=e22]:
+        - link "漫画" [ref=e23] [cursor=pointer]:
+          - /url: //manga.bilibili.com?from=bill_top_mnav
+      - listitem [ref=e24]:
+        - link "赛事" [ref=e25] [cursor=pointer]:
+          - /url: //www.bilibili.com/v/game/match/
+    - list [ref=e26]:
+      - listitem [ref=e27] [cursor=pointer]:
+        - img [ref=e29]
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "【官方 MV】Never Gonna Give You Up - Rick Astley" [level=1] [ref=e37]
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - img [ref=e41]
+            - generic [ref=e42]: 9949.5万
+          - generic [ref=e43]:
+            - img [ref=e44]
+            - generic [ref=e45]: 13.8万
+          - generic [ref=e47]: 2020-01-01 07:43:23
+      - generic "哔哩哔哩播放器" [ref=e57]
+      - generic [ref=e69]:
+        - generic [ref=e71]:
+          - generic "点赞（Q）" [ref=e73] [cursor=pointer]:
+            - img [ref=e74]
+            - generic [ref=e76]: 272.2万
+          - generic "投币（W）" [ref=e78] [cursor=pointer]:
+            - img [ref=e79]
+            - generic [ref=e81]: 118.5万
+          - generic "收藏（E）" [ref=e83] [cursor=pointer]:
+            - img [ref=e84]
+            - generic [ref=e86]: 143.1万
+          - generic [ref=e89] [cursor=pointer]:
+            - img [ref=e90]
+            - generic [ref=e92]: 44.7万
+        - img [ref=e95] [cursor=pointer]
+      - generic [ref=e97]:
+        - generic [ref=e98]: "-"
+        - list [ref=e99]:
+          - listitem [ref=e100]:
+            - text: 字幕制作者（中文（中国））：
+            - link "账号已注销" [ref=e101] [cursor=pointer]:
+              - /url: //space.bilibili.com/371800306
+          - listitem [ref=e102]:
+            - text: 字幕制作者（中文（繁體））：
+            - link "路人N-" [ref=e103] [cursor=pointer]:
+              - /url: //space.bilibili.com/237814922
+          - listitem [ref=e104]:
+            - text: 字幕制作者（中文（中國香港））：
+            - link "FF小黄人" [ref=e105] [cursor=pointer]:
+              - /url: //space.bilibili.com/592667008
+          - listitem [ref=e106]:
+            - text: 字幕制作者（日本語）：
+            - link "゚゚初音ミク" [ref=e107] [cursor=pointer]:
+              - /url: //space.bilibili.com/437457729
+          - listitem [ref=e108]:
+            - text: 字幕制作者（한국어）：
+            - link "至放大來演吧" [ref=e109] [cursor=pointer]:
+              - /url: //space.bilibili.com/16089720
+          - listitem [ref=e110]:
+            - text: 字幕制作者（Deutsch(DE)）：
+            - link "Microsoft_Win11" [ref=e111] [cursor=pointer]:
+              - /url: //space.bilibili.com/388428805
+          - listitem [ref=e112]:
+            - text: 字幕制作者（Русский）：
+            - link "夜航信号灯" [ref=e113] [cursor=pointer]:
+              - /url: //space.bilibili.com/369596063
+          - listitem [ref=e114]:
+            - text: 字幕制作者（Català）：
+            - link "D-SHABBY" [ref=e115] [cursor=pointer]:
+              - /url: //space.bilibili.com/3546965484767441
+          - listitem [ref=e116]:
+            - text: 字幕制作者（美国手语）：
+            - link "宫十五" [ref=e117] [cursor=pointer]:
+              - /url: //space.bilibili.com/1486777491
+      - generic [ref=e119]:
+        - generic "发现《Never gonna give you up》" [ref=e122] [cursor=pointer]:
+          - img [ref=e123]
+          - generic [ref=e125]: 发现《Never gonna give you up》
+          - img [ref=e126]
+        - link "Never Gonna Give You Up" [ref=e130] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=Never%20Gonna%20Give%20You%20Up&from_source=video_tag
+        - link "Rick Astley" [ref=e133] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=Rick%20Astley&from_source=video_tag
+        - link "欧美MV" [ref=e136] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8EMV&from_source=video_tag
+        - link "流行音乐" [ref=e139] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%B5%81%E8%A1%8C%E9%9F%B3%E4%B9%90&from_source=video_tag
+        - link "欧美音乐" [ref=e142] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8E%E9%9F%B3%E4%B9%90&from_source=video_tag
+        - link "MV" [ref=e145] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=MV&from_source=video_tag
+      - generic [ref=e146]:
+        - link:
+          - /url: javascript:void(0);
+    - generic:
+      - generic:
+        - generic [ref=e149]:
+          - link [ref=e152] [cursor=pointer]:
+            - /url: //space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.head.click
+          - generic [ref=e155]:
+            - generic [ref=e156]:
+              - link "索尼音乐中国" [ref=e157] [cursor=pointer]:
+                - /url: //space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.detail.click
+              - link " 发消息" [ref=e158] [cursor=pointer]:
+                - /url: //message.bilibili.com/?spm_id_from=333.788.upinfo.detail.click#whisper/mid486906719
+                - generic [ref=e159]: 
+                - text: 发消息
+            - generic "官方营业，欢迎一键三连~~~" [ref=e160]
+        - generic [ref=e168]:
+          - link "广告 《欺杀旅社》免费体验版开放下载 完整版现正二五折 2万人感兴趣" [ref=e170] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e171]:
+              - generic [ref=e174]: 广告
+              - generic [ref=e175]:
+                - generic "《欺杀旅社》免费体验版开放下载" [ref=e176]
+                - generic [ref=e178]: 完整版现正二五折
+                - generic [ref=e181]: 2万人感兴趣
+          - img [ref=e183]
+        - generic [ref=e184]:
+          - generic [ref=e185]:
+            - generic [ref=e186]:
+              - generic [ref=e187]:
+                - generic [ref=e188]: 接下来播放
+                - generic [ref=e190] [cursor=pointer]: 自动连播
+              - generic [ref=e194]:
+                - link [ref=e198] [cursor=pointer]:
+                  - /url: /video/BV1254y187SE/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e199]:
+                  - link "【EVA】感谢你曾来过我的世界:│▌ One Last Kiss" [ref=e200] [cursor=pointer]:
+                    - /url: /video/BV1254y187SE/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e201]: 【EVA】感谢你曾来过我的世界:│▌ One Last Kiss
+                  - link "阿虚子KYONKO" [ref=e203] [cursor=pointer]:
+                    - /url: //space.bilibili.com/6957562/
+                    - img [ref=e204]
+                    - generic [ref=e205]: 阿虚子KYONKO
+                  - generic [ref=e206]:
+                    - img [ref=e207]
+                    - text: 3336.5万
+                    - img [ref=e208]
+                    - text: 26.1万
+            - generic [ref=e210]:
+              - generic [ref=e212]:
+                - link [ref=e216] [cursor=pointer]:
+                  - /url: /video/BV11M411C7Bc/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e217]:
+                  - link "【4K珍藏】世界杯名曲《Waka Waka》！梦回那个夏天！" [ref=e218] [cursor=pointer]:
+                    - /url: /video/BV11M411C7Bc/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e219]: 【4K珍藏】世界杯名曲《Waka Waka》！梦回那个夏天！
+                  - link "4K音乐馆" [ref=e221] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2043250564/
+                    - img [ref=e222]
+                    - generic [ref=e223]: 4K音乐馆
+                  - generic [ref=e224]:
+                    - img [ref=e225]
+                    - text: 765.0万
+                    - img [ref=e226]
+                    - text: "4839"
+              - generic [ref=e228]:
+                - link [ref=e232] [cursor=pointer]:
+                  - /url: /video/BV1RN4y1n75t/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e233]:
+                  - 'link "奥斯卡金曲《That Girl/那个女孩》#车载音乐 #欧美音乐 #thatgirl" [ref=e234] [cursor=pointer]':
+                    - /url: /video/BV1RN4y1n75t/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e235]: "奥斯卡金曲《That Girl/那个女孩》#车载音乐 #欧美音乐 #thatgirl"
+                  - link "夜店经典DJ" [ref=e237] [cursor=pointer]:
+                    - /url: //space.bilibili.com/243715263/
+                    - img [ref=e238]
+                    - generic [ref=e239]: 夜店经典DJ
+                  - generic [ref=e240]:
+                    - img [ref=e241]
+                    - text: 1458.7万
+                    - img [ref=e242]
+                    - text: 10.9万
+              - generic [ref=e244]:
+                - link [ref=e248] [cursor=pointer]:
+                  - /url: /video/BV14g4y1Z7eZ/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e249]:
+                  - link "【4K120帧 HiRes】神作《Something Just Like This》我想要的仅此而已 The Chainsmokers&Coldplay酷玩乐队" [ref=e250] [cursor=pointer]:
+                    - /url: /video/BV14g4y1Z7eZ/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e251]: 【4K120帧 HiRes】神作《Something Just Like This》我想要的仅此而已 The Chainsmokers&Coldplay酷玩乐队
+                  - link "音乐视听室" [ref=e253] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1733936906/
+                    - img [ref=e254]
+                    - generic [ref=e255]: 音乐视听室
+                  - generic [ref=e256]:
+                    - img [ref=e257]
+                    - text: 371.7万
+                    - img [ref=e258]
+                    - text: "1477"
+              - generic [ref=e260]:
+                - link [ref=e264] [cursor=pointer]:
+                  - /url: /video/BV1aq4y1g7eo/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e265]:
+                  - link "被称全球最好听歌曲之一《Far Away From Home》，前奏一响就沦陷" [ref=e266] [cursor=pointer]:
+                    - /url: /video/BV1aq4y1g7eo/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e267]: 被称全球最好听歌曲之一《Far Away From Home》，前奏一响就沦陷
+                  - link "童童音乐" [ref=e269] [cursor=pointer]:
+                    - /url: //space.bilibili.com/513487743/
+                    - img [ref=e270]
+                    - generic [ref=e271]: 童童音乐
+                  - generic [ref=e272]:
+                    - img [ref=e273]
+                    - text: 3973.7万
+                    - img [ref=e274]
+                    - text: 1.1万
+              - generic [ref=e276]:
+                - link [ref=e280] [cursor=pointer]:
+                  - /url: /video/BV1nh41167Wh/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e281]:
+                  - link "贾斯汀比伯联手The Kid LAROI新单《Stay》官方MV超清大首播" [ref=e282] [cursor=pointer]:
+                    - /url: /video/BV1nh41167Wh/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e283]: 贾斯汀比伯联手The Kid LAROI新单《Stay》官方MV超清大首播
+                  - link "JustinBieber_CN" [ref=e285] [cursor=pointer]:
+                    - /url: //space.bilibili.com/30322433/
+                    - img [ref=e286]
+                    - generic [ref=e287]: JustinBieber_CN
+                  - generic [ref=e288]:
+                    - img [ref=e289]
+                    - text: 1998.5万
+                    - img [ref=e290]
+                    - text: 4.6万
+              - generic [ref=e292]:
+                - link [ref=e296] [cursor=pointer]:
+                  - /url: /video/BV1EGKMebEyJ/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e297]:
+                  - link "【4K中日歌词/TFT】「春日影」CRYCHIC【THE FIRST TAKE】" [ref=e298] [cursor=pointer]:
+                    - /url: /video/BV1EGKMebEyJ/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e299]: 【4K中日歌词/TFT】「春日影」CRYCHIC【THE FIRST TAKE】
+                  - link "Aki惊蛰" [ref=e301] [cursor=pointer]:
+                    - /url: //space.bilibili.com/15319615/
+                    - img [ref=e302]
+                    - generic [ref=e303]: Aki惊蛰
+                  - generic [ref=e304]:
+                    - img [ref=e305]
+                    - text: 254.5万
+                    - img [ref=e306]
+                    - text: "5479"
+              - generic [ref=e308]:
+                - link [ref=e312] [cursor=pointer]:
+                  - /url: /video/BV15F411t7br/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e313]:
+                  - link "前奏秒杀的英文歌《The Way I Still Love You》" [ref=e314] [cursor=pointer]:
+                    - /url: /video/BV15F411t7br/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e315]: 前奏秒杀的英文歌《The Way I Still Love You》
+                  - link "英乐分享君" [ref=e317] [cursor=pointer]:
+                    - /url: //space.bilibili.com/702453625/
+                    - img [ref=e318]
+                    - generic [ref=e319]: 英乐分享君
+                  - generic [ref=e320]:
+                    - img [ref=e321]
+                    - text: 1706.1万
+                    - img [ref=e322]
+                    - text: "6847"
+              - generic [ref=e324]:
+                - link [ref=e328] [cursor=pointer]:
+                  - /url: /video/BV1B64y1q7Cw/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e329]:
+                  - link "《反方向的钟》你 为什么不爱我" [ref=e330] [cursor=pointer]:
+                    - /url: /video/BV1B64y1q7Cw/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e331]: 《反方向的钟》你 为什么不爱我
+                  - link "九三的耳朵不是特别好" [ref=e333] [cursor=pointer]:
+                    - /url: //space.bilibili.com/313580179/
+                    - img [ref=e334]
+                    - generic [ref=e335]: 九三的耳朵不是特别好
+                  - generic [ref=e336]:
+                    - img [ref=e337]
+                    - text: 4657.7万
+                    - img [ref=e338]
+                    - text: 3.6万
+              - generic [ref=e340]:
+                - link [ref=e344] [cursor=pointer]:
+                  - /url: /video/BV15f4y1A7Hi/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e345]:
+                  - link "【中英字幕】《baby》- Justin Bieber 贾斯汀比伯 1080P超高清MV" [ref=e346] [cursor=pointer]:
+                    - /url: /video/BV15f4y1A7Hi/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e347]: 【中英字幕】《baby》- Justin Bieber 贾斯汀比伯 1080P超高清MV
+                  - link "蛋蛋字幕侠" [ref=e349] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1179236221/
+                    - img [ref=e350]
+                    - generic [ref=e351]: 蛋蛋字幕侠
+                  - generic [ref=e352]:
+                    - img [ref=e353]
+                    - text: 731.2万
+                    - img [ref=e354]
+                    - text: "3544"
+              - generic [ref=e356]:
+                - link [ref=e360] [cursor=pointer]:
+                  - /url: /video/BV1qrcdejEk8/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e361]:
+                  - link "《日不落》英文原曲《Sunshine in the Rain》，旋律太迷人了！" [ref=e362] [cursor=pointer]:
+                    - /url: /video/BV1qrcdejEk8/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e363]: 《日不落》英文原曲《Sunshine in the Rain》，旋律太迷人了！
+                  - link "悠悠-南珊" [ref=e365] [cursor=pointer]:
+                    - /url: //space.bilibili.com/470899061/
+                    - img [ref=e366]
+                    - generic [ref=e367]: 悠悠-南珊
+                  - generic [ref=e368]:
+                    - img [ref=e369]
+                    - text: 201.9万
+                    - img [ref=e370]
+                    - text: "729"
+              - generic [ref=e372]:
+                - link [ref=e376] [cursor=pointer]:
+                  - /url: /video/BV1hp411o78f/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e377]:
+                  - link "来自未来的战士-银河奥特曼主题曲op《 ウルトラマンギンガの歌》" [ref=e378] [cursor=pointer]:
+                    - /url: /video/BV1hp411o78f/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e379]: 来自未来的战士-银河奥特曼主题曲op《 ウルトラマンギンガの歌》
+                  - link "神帝之光" [ref=e381] [cursor=pointer]:
+                    - /url: //space.bilibili.com/18432612/
+                    - img [ref=e382]
+                    - generic [ref=e383]: 神帝之光
+                  - generic [ref=e384]:
+                    - img [ref=e385]
+                    - text: 895.3万
+                    - img [ref=e386]
+                    - text: 5.6万
+              - generic [ref=e388]:
+                - link [ref=e392] [cursor=pointer]:
+                  - /url: /video/BV1cY41117NG/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e393]:
+                  - link "【4K顶级画质】米津玄师《Lemon》2019神级现场，八爷永远滴神！！！" [ref=e394] [cursor=pointer]:
+                    - /url: /video/BV1cY41117NG/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e395]: 【4K顶级画质】米津玄师《Lemon》2019神级现场，八爷永远滴神！！！
+                  - link "蚕豆音乐侠" [ref=e397] [cursor=pointer]:
+                    - /url: //space.bilibili.com/8843146/
+                    - img [ref=e398]
+                    - generic [ref=e399]: 蚕豆音乐侠
+                  - generic [ref=e400]:
+                    - img [ref=e401]
+                    - text: 1243.4万
+                    - img [ref=e402]
+                    - text: 20.9万
+              - generic [ref=e404]:
+                - link [ref=e408] [cursor=pointer]:
+                  - /url: /video/BV16o4y1k7gh/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e409]:
+                  - link "【官方】sakanaction（サカナクション) - 多分、風。" [ref=e410] [cursor=pointer]:
+                    - /url: /video/BV16o4y1k7gh/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e411]: 【官方】sakanaction（サカナクション) - 多分、風。
+                  - link "sakanaction鱼韵乐队" [ref=e413] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1693810421/
+                    - img [ref=e414]
+                    - generic [ref=e415]: sakanaction鱼韵乐队
+                  - generic [ref=e416]:
+                    - img [ref=e417]
+                    - text: 610.6万
+                    - img [ref=e418]
+                    - text: 1.8万
+              - generic [ref=e420]:
+                - link [ref=e424] [cursor=pointer]:
+                  - /url: /video/BV1ih41147Z6/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e425]:
+                  - link "【4K60FPS】【3D环绕】鸟叔《江南Style》动次打次神曲！请务必戴上耳机！" [ref=e426] [cursor=pointer]:
+                    - /url: /video/BV1ih41147Z6/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e427]: 【4K60FPS】【3D环绕】鸟叔《江南Style》动次打次神曲！请务必戴上耳机！
+                  - link "同学们的音乐君" [ref=e429] [cursor=pointer]:
+                    - /url: //space.bilibili.com/696160102/
+                    - img [ref=e430]
+                    - generic [ref=e431]: 同学们的音乐君
+                  - generic [ref=e432]:
+                    - img [ref=e433]
+                    - text: 1205.4万
+                    - img [ref=e434]
+                    - text: 13.2万
+              - generic [ref=e436]:
+                - link [ref=e440] [cursor=pointer]:
+                  - /url: /video/BV11P4y1K7Qp/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e441]:
+                  - link "【超燃励志】 《Wake》Hillsong Young&Free 喂，醒醒，该出发了" [ref=e442] [cursor=pointer]:
+                    - /url: /video/BV11P4y1K7Qp/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e443]: 【超燃励志】 《Wake》Hillsong Young&Free 喂，醒醒，该出发了
+                  - link "小白音乐MV" [ref=e445] [cursor=pointer]:
+                    - /url: //space.bilibili.com/626757277/
+                    - img [ref=e446]
+                    - generic [ref=e447]: 小白音乐MV
+                  - generic [ref=e448]:
+                    - img [ref=e449]
+                    - text: 1806.8万
+                    - img [ref=e450]
+                    - text: 4.0万
+              - generic [ref=e452]:
+                - link [ref=e456] [cursor=pointer]:
+                  - /url: /video/BV1cY411L7ws/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e457]:
+                  - link "【𝟖𝐊/𝟔𝟎𝐅𝐏𝐒】HDR 《疯狂动物城》主题曲 夏奇拉《Try Everything》4320P！" [ref=e458] [cursor=pointer]:
+                    - /url: /video/BV1cY411L7ws/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e459]: 【𝟖𝐊/𝟔𝟎𝐅𝐏𝐒】HDR 《疯狂动物城》主题曲 夏奇拉《Try Everything》4320P！
+                  - link "同学们的音乐君" [ref=e461] [cursor=pointer]:
+                    - /url: //space.bilibili.com/696160102/
+                    - img [ref=e462]
+                    - generic [ref=e463]: 同学们的音乐君
+                  - generic [ref=e464]:
+                    - img [ref=e465]
+                    - text: 1162.0万
+                    - img [ref=e466]
+                    - text: "4939"
+              - generic [ref=e468]:
+                - link [ref=e472] [cursor=pointer]:
+                  - /url: /video/BV1a7411z7m7/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e473]:
+                  - link "【4K60FPS】阿黛尔《Someone Like You》万人大合唱现场！" [ref=e474] [cursor=pointer]:
+                    - /url: /video/BV1a7411z7m7/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e475]: 【4K60FPS】阿黛尔《Someone Like You》万人大合唱现场！
+                  - link "音乐私藏馆" [ref=e477] [cursor=pointer]:
+                    - /url: //space.bilibili.com/229733301/
+                    - img [ref=e478]
+                    - generic [ref=e479]: 音乐私藏馆
+                  - generic [ref=e480]:
+                    - img [ref=e481]
+                    - text: 1923.8万
+                    - img [ref=e482]
+                    - text: 2.3万
+              - generic [ref=e484]:
+                - link [ref=e488] [cursor=pointer]:
+                  - /url: /video/BV1VJ411b7ah/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e489]:
+                  - link "【新版MV】牛姐圣诞要你命《All I Want for Christmas Is You》首播" [ref=e490] [cursor=pointer]:
+                    - /url: /video/BV1VJ411b7ah/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e491]: 【新版MV】牛姐圣诞要你命《All I Want for Christmas Is You》首播
+                  - link "-Mozzie" [ref=e493] [cursor=pointer]:
+                    - /url: //space.bilibili.com/20620442/
+                    - img [ref=e494]
+                    - generic [ref=e495]: "-Mozzie"
+                  - generic [ref=e496]:
+                    - img [ref=e497]
+                    - text: 450.4万
+                    - img [ref=e498]
+                    - text: "2371"
+              - generic [ref=e500]:
+                - link [ref=e504] [cursor=pointer]:
+                  - /url: /video/BV1UT42167xb/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                - generic [ref=e505]:
+                  - link "【4K珍藏】诈骗神曲《Never Gonna Give You Up》！愿者上钩！" [ref=e506] [cursor=pointer]:
+                    - /url: /video/BV1UT42167xb/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2589621-bzdpg.1780203215027.675
+                    - paragraph [ref=e507]: 【4K珍藏】诈骗神曲《Never Gonna Give You Up》！愿者上钩！
+                  - link "4K音乐馆" [ref=e509] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2043250564/
+                    - img [ref=e510]
+                    - generic [ref=e511]: 4K音乐馆
+                  - generic [ref=e512]:
+                    - img [ref=e513]
+                    - text: 231.0万
+                    - img [ref=e514]
+                    - text: "2810"
+            - generic [ref=e515] [cursor=pointer]: 展开
+          - link "备升学、学技能、稳就业，职教成长一站搞定！" [ref=e517] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e518]: 备升学、学技能、稳就业，职教成长一站搞定！

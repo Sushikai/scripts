@@ -1,0 +1,522 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - list [ref=e5]:
+      - listitem [ref=e6]:
+        - link "首页" [ref=e7] [cursor=pointer]:
+          - /url: //www.bilibili.com
+          - img [ref=e8]
+          - generic [ref=e10]:
+            - text: 首页
+            - img [ref=e11]
+      - listitem [ref=e14]:
+        - link "番剧" [ref=e15] [cursor=pointer]:
+          - /url: //www.bilibili.com/anime/
+      - listitem [ref=e16]:
+        - link "直播" [ref=e17] [cursor=pointer]:
+          - /url: //live.bilibili.com/
+      - listitem [ref=e18]:
+        - link "游戏中心" [ref=e19] [cursor=pointer]:
+          - /url: //game.bilibili.com/
+      - listitem [ref=e20]:
+        - link "会员购" [ref=e21] [cursor=pointer]:
+          - /url: //show.bilibili.com/platform/home.html?msource=pc_web
+      - listitem [ref=e22]:
+        - link "漫画" [ref=e23] [cursor=pointer]:
+          - /url: //manga.bilibili.com?from=bill_top_mnav
+      - listitem [ref=e24]:
+        - link "赛事" [ref=e25] [cursor=pointer]:
+          - /url: //www.bilibili.com/v/game/match/
+    - list [ref=e26]:
+      - listitem [ref=e27] [cursor=pointer]:
+        - img [ref=e29]
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "2026年5月28日信息差" [level=1] [ref=e37]
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - img [ref=e41]
+            - generic [ref=e42]: 39.4万
+          - generic [ref=e43]:
+            - img [ref=e44]
+            - generic [ref=e45]: "521"
+          - generic [ref=e47]: 2026-05-28 19:05:36
+          - generic [ref=e49]:
+            - img [ref=e50]
+            - generic [ref=e51]: 内容含营销信息
+      - generic "哔哩哔哩播放器" [ref=e61]
+      - generic [ref=e71]:
+        - generic [ref=e73]:
+          - generic "点赞（Q）" [ref=e75] [cursor=pointer]:
+            - img [ref=e76]
+            - generic [ref=e78]: "5010"
+          - generic "投币（W）" [ref=e80] [cursor=pointer]:
+            - img [ref=e81]
+            - generic [ref=e83]: "140"
+          - generic "收藏（E）" [ref=e85] [cursor=pointer]:
+            - img [ref=e86]
+            - generic [ref=e88]: "835"
+          - generic [ref=e91] [cursor=pointer]:
+            - img [ref=e92]
+            - generic [ref=e94]: "216"
+        - img [ref=e97] [cursor=pointer]
+      - generic [ref=e100]:
+        - generic "发现《Miyazaki Mountain》" [ref=e103] [cursor=pointer]:
+          - img [ref=e104]
+          - generic [ref=e106]: 发现《Miyazaki Mountain》
+          - img [ref=e107]
+        - link "闲鱼集市更便宜" [ref=e111] [cursor=pointer]:
+          - /url: https://m.bilibili.com/topic-detail?topic_id=1338453&topic_name=%E9%97%B2%E9%B1%BC%E9%9B%86%E5%B8%82%E6%9B%B4%E4%BE%BF%E5%AE%9C&spm_id_from=0.0.top.function_card.click
+          - img [ref=e112]
+          - generic [ref=e115]: 闲鱼集市更便宜
+          - img [ref=e116]
+        - link "金融" [ref=e120] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E9%87%91%E8%9E%8D&from_source=video_tag
+        - link "财经" [ref=e123] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E8%B4%A2%E7%BB%8F&from_source=video_tag
+        - link "闲鱼集市" [ref=e126] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E9%97%B2%E9%B1%BC%E9%9B%86%E5%B8%82&from_source=video_tag
+        - link "闲鱼集市破价盛典" [ref=e129] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E9%97%B2%E9%B1%BC%E9%9B%86%E5%B8%82%E7%A0%B4%E4%BB%B7%E7%9B%9B%E5%85%B8&from_source=video_tag
+        - link "经济" [ref=e132] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E7%BB%8F%E6%B5%8E&from_source=video_tag
+        - link "投资" [ref=e135] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%8A%95%E8%B5%84&from_source=video_tag
+        - link "信息" [ref=e138] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E4%BF%A1%E6%81%AF&from_source=video_tag
+      - generic [ref=e139]:
+        - link:
+          - /url: javascript:void(0);
+    - generic:
+      - generic:
+        - generic [ref=e142]:
+          - link [ref=e145] [cursor=pointer]:
+            - /url: //space.bilibili.com/3537104715909319/?spm_id_from=333.788.upinfo.head.click
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - link "信息Gap" [ref=e150] [cursor=pointer]:
+                - /url: //space.bilibili.com/3537104715909319/?spm_id_from=333.788.upinfo.detail.click
+              - link " 发消息" [ref=e151] [cursor=pointer]:
+                - /url: //message.bilibili.com/?spm_id_from=333.788.upinfo.detail.click#whisper/mid3537104715909319
+                - generic [ref=e152]: 
+                - text: 发消息
+            - generic "大家如果有感兴趣的内容，欢迎投稿！ 早晚信息差 国际国内形势早知道 商务:X18190102 公众号:信息且Gap" [ref=e153]
+        - generic [ref=e161]:
+          - link "假如你从现在开始学AI变现（保姆级） GenJi是真想教会你AI 233.3万 173" [ref=e163] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e164]:
+              - img [ref=e167]
+              - generic [ref=e170]:
+                - generic "假如你从现在开始学AI变现（保姆级）" [ref=e171]
+                - generic [ref=e173]:
+                  - img [ref=e174]
+                  - generic [ref=e175]: GenJi是真想教会你AI
+                - generic [ref=e176]:
+                  - img [ref=e177]
+                  - text: 233.3万
+                  - img [ref=e178]
+                  - text: "173"
+          - img [ref=e180]
+        - generic [ref=e181]:
+          - generic [ref=e182]:
+            - generic [ref=e183]:
+              - generic [ref=e184]:
+                - generic [ref=e185]:
+                  - link "2026年5月" [ref=e186] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3537104715909319/channel/collectiondetail?sid=8040423&spm_id_from=333.788.0.0
+                  - generic [ref=e187]: （13/15）
+                - generic [ref=e191] [cursor=pointer]: 自动连播
+              - generic [ref=e194]:
+                - generic [ref=e195]:
+                  - generic [ref=e196]: 166.5万播放
+                  - generic [ref=e197] [cursor=pointer]:
+                    - img [ref=e198]
+                    - text: 简介
+                - generic [ref=e200] [cursor=pointer]: 订阅合集
+            - generic [ref=e202]:
+              - generic [ref=e205] [cursor=pointer]:
+                - generic "2026年5月3日信息差" [ref=e206]:
+                  - generic [ref=e207]: 2026年5月3日信息差
+                - generic [ref=e209]: 05:00
+              - generic [ref=e212] [cursor=pointer]:
+                - generic "2026年5月8日信息差" [ref=e213]:
+                  - generic [ref=e214]: 2026年5月8日信息差
+                - generic [ref=e216]: 04:20
+              - generic [ref=e219] [cursor=pointer]:
+                - generic "2026年5月11日信息差" [ref=e220]:
+                  - generic [ref=e221]: 2026年5月11日信息差
+                - generic [ref=e223]: 05:07
+              - generic [ref=e226] [cursor=pointer]:
+                - generic "2026年5月12日信息差" [ref=e227]:
+                  - generic [ref=e228]: 2026年5月12日信息差
+                - generic [ref=e230]: 03:53
+              - generic [ref=e233] [cursor=pointer]:
+                - generic "2026年5月13日信息差" [ref=e234]:
+                  - generic [ref=e235]: 2026年5月13日信息差
+                - generic [ref=e237]: 04:35
+              - generic [ref=e240] [cursor=pointer]:
+                - generic "2026年5月15日信息差" [ref=e241]:
+                  - generic [ref=e242]: 2026年5月15日信息差
+                - generic [ref=e244]: 04:36
+              - generic [ref=e247] [cursor=pointer]:
+                - generic "2026年5月17日信息差" [ref=e248]:
+                  - generic [ref=e249]: 2026年5月17日信息差
+                - generic [ref=e251]: 05:27
+              - generic [ref=e254] [cursor=pointer]:
+                - generic "2026年5月18日信息差" [ref=e255]:
+                  - generic [ref=e256]: 2026年5月18日信息差
+                - generic [ref=e258]: 04:29
+              - generic [ref=e261] [cursor=pointer]:
+                - generic "2026年5月22日信息差" [ref=e262]:
+                  - generic [ref=e263]: 2026年5月22日信息差
+                - generic [ref=e265]: 03:54
+              - generic [ref=e268] [cursor=pointer]:
+                - generic "2026年5月23日信息差" [ref=e269]:
+                  - generic [ref=e270]: 2026年5月23日信息差
+                - generic [ref=e272]: 03:17
+              - generic [ref=e275] [cursor=pointer]:
+                - generic "2026年5月24日信息差" [ref=e276]:
+                  - generic [ref=e277]: 2026年5月24日信息差
+                - generic [ref=e279]: 05:56
+              - generic [ref=e282] [cursor=pointer]:
+                - generic "2026年5月26日信息差" [ref=e283]:
+                  - generic [ref=e284]: 2026年5月26日信息差
+                - generic [ref=e286]: 05:37
+              - generic [ref=e289] [cursor=pointer]:
+                - generic "2026年5月28日信息差" [ref=e290]:
+                  - generic [ref=e292]: 2026年5月28日信息差
+                - generic [ref=e294]: 04:51
+              - generic [ref=e297] [cursor=pointer]:
+                - generic "2026年5月29日信息差" [ref=e298]:
+                  - generic [ref=e299]: 2026年5月29日信息差
+                - generic [ref=e301]: 04:52
+              - generic [ref=e304] [cursor=pointer]:
+                - generic "2026年5月30日信息差" [ref=e305]:
+                  - generic [ref=e306]: 2026年5月30日信息差
+                - generic [ref=e308]: 04:48
+          - generic [ref=e309]:
+            - generic [ref=e310]:
+              - generic [ref=e312]:
+                - link [ref=e316] [cursor=pointer]:
+                  - /url: /video/BV1oiGX6rEAq/?spm_id_from=333.788.recommend_more_video.0
+                - generic [ref=e317]:
+                  - link "越南为了遏制出生率暴跌也开始大撒币补贴，人口虽仍在增长但大城市已出现人口微下滑（亚洲都是一家人，相亲相爱的一家人～）" [ref=e318] [cursor=pointer]:
+                    - /url: /video/BV1oiGX6rEAq/?spm_id_from=333.788.recommend_more_video.0
+                    - paragraph [ref=e319]: 越南为了遏制出生率暴跌也开始大撒币补贴，人口虽仍在增长但大城市已出现人口微下滑（亚洲都是一家人，相亲相爱的一家人～）
+                  - link "日立流水线质检员" [ref=e321] [cursor=pointer]:
+                    - /url: //space.bilibili.com/9481388/
+                    - img [ref=e322]
+                    - generic [ref=e323]: 日立流水线质检员
+                  - generic [ref=e324]:
+                    - img [ref=e325]
+                    - text: 2.8万
+                    - img [ref=e326]
+                    - text: "4"
+              - generic [ref=e328]:
+                - link [ref=e332] [cursor=pointer]:
+                  - /url: /video/BV1PG5K68EAy/?spm_id_from=333.788.recommend_more_video.1
+                - generic [ref=e333]:
+                  - link "“能让美国人强制加班吗？不能的话那我就关厂回中国了”" [ref=e334] [cursor=pointer]:
+                    - /url: /video/BV1PG5K68EAy/?spm_id_from=333.788.recommend_more_video.1
+                    - paragraph [ref=e335]: “能让美国人强制加班吗？不能的话那我就关厂回中国了”
+                  - link "莫实说" [ref=e337] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1523831/
+                    - img [ref=e338]
+                    - generic [ref=e339]: 莫实说
+                  - generic [ref=e340]:
+                    - img [ref=e341]
+                    - text: 32.4万
+                    - img [ref=e342]
+                    - text: "920"
+              - generic [ref=e344]:
+                - link [ref=e348] [cursor=pointer]:
+                  - /url: /video/BV1urGU6XEtU/?spm_id_from=333.788.recommend_more_video.2
+                - generic [ref=e349]:
+                  - link "搞笑！黄仁勋为了请大家吃烤玉米，找了个插队的理由，“全场我买单，能不能先让我拿一根？”网友辣评：“我找茬也说不出这一句话”哈哈哈哈哈哈" [ref=e350] [cursor=pointer]:
+                    - /url: /video/BV1urGU6XEtU/?spm_id_from=333.788.recommend_more_video.2
+                    - paragraph [ref=e351]: 搞笑！黄仁勋为了请大家吃烤玉米，找了个插队的理由，“全场我买单，能不能先让我拿一根？”网友辣评：“我找茬也说不出这一句话”哈哈哈哈哈哈
+                  - link "又一次嗑到了" [ref=e353] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3546939108886611/
+                    - img [ref=e354]
+                    - generic [ref=e355]: 又一次嗑到了
+                  - generic [ref=e356]:
+                    - img [ref=e357]
+                    - text: 30.3万
+                    - img [ref=e358]
+                    - text: "304"
+              - generic [ref=e360]:
+                - link [ref=e364] [cursor=pointer]:
+                  - /url: /video/BV1SEVH62EZP/?spm_id_from=333.788.recommend_more_video.3
+                - generic [ref=e365]:
+                  - link "为什么街边的茶叶店、五金店没人光顾，却不倒闭？" [ref=e366] [cursor=pointer]:
+                    - /url: /video/BV1SEVH62EZP/?spm_id_from=333.788.recommend_more_video.3
+                    - paragraph [ref=e367]: 为什么街边的茶叶店、五金店没人光顾，却不倒闭？
+                  - link "这知识好冷" [ref=e369] [cursor=pointer]:
+                    - /url: //space.bilibili.com/403943112/
+                    - img [ref=e370]
+                    - generic [ref=e371]: 这知识好冷
+                  - generic [ref=e372]:
+                    - img [ref=e373]
+                    - text: 89.4万
+                    - img [ref=e374]
+                    - text: "624"
+              - generic [ref=e376]:
+                - link [ref=e380] [cursor=pointer]:
+                  - /url: /video/BV1dwVK6VEQS/?spm_id_from=333.788.recommend_more_video.4
+                - generic [ref=e381]:
+                  - link "长期不上班的人都是什么状态啊？" [ref=e382] [cursor=pointer]:
+                    - /url: /video/BV1dwVK6VEQS/?spm_id_from=333.788.recommend_more_video.4
+                    - paragraph [ref=e383]: 长期不上班的人都是什么状态啊？
+                  - link "阳洋日记" [ref=e385] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3546857129118588/
+                    - img [ref=e386]
+                    - generic [ref=e387]: 阳洋日记
+                  - generic [ref=e388]:
+                    - img [ref=e389]
+                    - text: 41.7万
+                    - img [ref=e390]
+                    - text: "47"
+              - generic [ref=e392]:
+                - link [ref=e396] [cursor=pointer]:
+                  - /url: /video/BV1xSGq6mE9Y/?spm_id_from=333.788.recommend_more_video.5
+                - generic [ref=e397]:
+                  - link "梁圣最精了，发布V4之前，直接给美股ai开100倍杠杆空单，抛完又等股价回升一个月，宣布永久25折前夜，再开100倍空单[懵]" [ref=e398] [cursor=pointer]:
+                    - /url: /video/BV1xSGq6mE9Y/?spm_id_from=333.788.recommend_more_video.5
+                    - paragraph [ref=e399]: 梁圣最精了，发布V4之前，直接给美股ai开100倍杠杆空单，抛完又等股价回升一个月，宣布永久25折前夜，再开100倍空单[懵]
+                  - link "西南偏西北" [ref=e401] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2622967/
+                    - img [ref=e402]
+                    - generic [ref=e403]: 西南偏西北
+                  - generic [ref=e404]:
+                    - img [ref=e405]
+                    - text: 24.8万
+                    - img [ref=e406]
+                    - text: "23"
+              - generic [ref=e408]:
+                - link [ref=e412] [cursor=pointer]:
+                  - /url: /video/BV1pc5R6wEYP/?spm_id_from=333.788.recommend_more_video.6
+                - generic [ref=e413]:
+                  - link "笑死 听说这部剧播完后被高奢全部封杀 借都借不来了哈哈哈哈" [ref=e414] [cursor=pointer]:
+                    - /url: /video/BV1pc5R6wEYP/?spm_id_from=333.788.recommend_more_video.6
+                    - paragraph [ref=e415]: 笑死 听说这部剧播完后被高奢全部封杀 借都借不来了哈哈哈哈
+                  - link "爱丽丝菲菲菲" [ref=e417] [cursor=pointer]:
+                    - /url: //space.bilibili.com/65833639/
+                    - img [ref=e418]
+                    - generic [ref=e419]: 爱丽丝菲菲菲
+                  - generic [ref=e420]:
+                    - img [ref=e421]
+                    - text: 62.3万
+                    - img [ref=e422]
+                    - text: "1139"
+              - generic [ref=e424]:
+                - link [ref=e428] [cursor=pointer]:
+                  - /url: /video/BV1VyV46NEQ8/?spm_id_from=333.788.recommend_more_video.7
+                - generic [ref=e429]:
+                  - link "贞操带，也能成为时尚？" [ref=e430] [cursor=pointer]:
+                    - /url: /video/BV1VyV46NEQ8/?spm_id_from=333.788.recommend_more_video.7
+                    - paragraph [ref=e431]: 贞操带，也能成为时尚？
+                  - link "平原公子" [ref=e433] [cursor=pointer]:
+                    - /url: //space.bilibili.com/11731157/
+                    - img [ref=e434]
+                    - generic [ref=e435]: 平原公子
+                  - generic [ref=e436]:
+                    - img [ref=e437]
+                    - text: 32.1万
+                    - img [ref=e438]
+                    - text: "707"
+              - generic [ref=e440]:
+                - link [ref=e444] [cursor=pointer]:
+                  - /url: /video/BV1fyRkB9ET9/?spm_id_from=333.788.recommend_more_video.8
+                - generic [ref=e445]:
+                  - link "“七次人口普查结果出来了的那一刻，已成艺术”" [ref=e446] [cursor=pointer]:
+                    - /url: /video/BV1fyRkB9ET9/?spm_id_from=333.788.recommend_more_video.8
+                    - paragraph [ref=e447]: “七次人口普查结果出来了的那一刻，已成艺术”
+                  - link "一位普通的人罢了" [ref=e449] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3493293602113803/
+                    - img [ref=e450]
+                    - generic [ref=e451]: 一位普通的人罢了
+                  - generic [ref=e452]:
+                    - img [ref=e453]
+                    - text: 39.1万
+                    - img [ref=e454]
+                    - text: "180"
+              - generic [ref=e456]:
+                - link [ref=e460] [cursor=pointer]:
+                  - /url: /video/BV1esduBpE8e/?spm_id_from=333.788.recommend_more_video.9
+                - generic [ref=e461]:
+                  - link "溃败！留给东大的时间不多了" [ref=e462] [cursor=pointer]:
+                    - /url: /video/BV1esduBpE8e/?spm_id_from=333.788.recommend_more_video.9
+                    - paragraph [ref=e463]: 溃败！留给东大的时间不多了
+                  - link "超级五月兔" [ref=e465] [cursor=pointer]:
+                    - /url: //space.bilibili.com/316968460/
+                    - img [ref=e466]
+                    - generic [ref=e467]: 超级五月兔
+                  - generic [ref=e468]:
+                    - img [ref=e469]
+                    - text: 70.4万
+                    - img [ref=e470]
+                    - text: "249"
+              - generic [ref=e472]:
+                - link [ref=e476] [cursor=pointer]:
+                  - /url: /video/BV183L863EGt/?spm_id_from=333.788.recommend_more_video.10
+                - generic [ref=e477]:
+                  - link "地球OL传来噩耗，泰国印度都不生孩子了" [ref=e478] [cursor=pointer]:
+                    - /url: /video/BV183L863EGt/?spm_id_from=333.788.recommend_more_video.10
+                    - paragraph [ref=e479]: 地球OL传来噩耗，泰国印度都不生孩子了
+                  - link "精致的男孩富贵" [ref=e481] [cursor=pointer]:
+                    - /url: //space.bilibili.com/86883701/
+                    - img [ref=e482]
+                    - generic [ref=e483]: 精致的男孩富贵
+                  - generic [ref=e484]:
+                    - img [ref=e485]
+                    - text: 77.2万
+                    - img [ref=e486]
+                    - text: "1647"
+              - generic [ref=e488]:
+                - link [ref=e492] [cursor=pointer]:
+                  - /url: /video/BV1yyYee2EWq/?spm_id_from=333.788.recommend_more_video.11
+                - generic [ref=e493]:
+                  - link "女子吃麻辣烫发现价格不对，加根豆芽试探称的变化，瞬间被惊呆了" [ref=e494] [cursor=pointer]:
+                    - /url: /video/BV1yyYee2EWq/?spm_id_from=333.788.recommend_more_video.11
+                    - paragraph [ref=e495]: 女子吃麻辣烫发现价格不对，加根豆芽试探称的变化，瞬间被惊呆了
+                  - link "邯讯新视频" [ref=e497] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2038140132/
+                    - img [ref=e498]
+                    - generic [ref=e499]: 邯讯新视频
+                  - generic [ref=e500]:
+                    - img [ref=e501]
+                    - text: 43.9万
+                    - img [ref=e502]
+                    - text: "11"
+              - generic [ref=e504]:
+                - link [ref=e508] [cursor=pointer]:
+                  - /url: /video/BV1LCG169Ehg/?spm_id_from=333.788.recommend_more_video.12
+                - generic [ref=e509]:
+                  - link "喜马拉雅山的恩情还不完！印度高温破纪录！全球最热的城市排名只有两个不在印度！印度人快要热死了！" [ref=e510] [cursor=pointer]:
+                    - /url: /video/BV1LCG169Ehg/?spm_id_from=333.788.recommend_more_video.12
+                    - paragraph [ref=e511]: 喜马拉雅山的恩情还不完！印度高温破纪录！全球最热的城市排名只有两个不在印度！印度人快要热死了！
+                  - link "文同学文案" [ref=e513] [cursor=pointer]:
+                    - /url: //space.bilibili.com/170914/
+                    - img [ref=e514]
+                    - generic [ref=e515]: 文同学文案
+                  - generic [ref=e516]:
+                    - img [ref=e517]
+                    - text: 279.0万
+                    - img [ref=e518]
+                    - text: "5992"
+              - generic [ref=e520]:
+                - link [ref=e524] [cursor=pointer]:
+                  - /url: /video/BV1f4Vp6cEpB/?spm_id_from=333.788.recommend_more_video.13
+                - generic [ref=e525]:
+                  - link "一夜之间，户口没那么重要了" [ref=e526] [cursor=pointer]:
+                    - /url: /video/BV1f4Vp6cEpB/?spm_id_from=333.788.recommend_more_video.13
+                    - paragraph [ref=e527]: 一夜之间，户口没那么重要了
+                  - link "大飞说说" [ref=e529] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2121761371/
+                    - img [ref=e530]
+                    - generic [ref=e531]: 大飞说说
+                  - generic [ref=e532]:
+                    - img [ref=e533]
+                    - text: 19.3万
+                    - img [ref=e534]
+                    - text: "351"
+              - generic [ref=e536]:
+                - link [ref=e540] [cursor=pointer]:
+                  - /url: /video/BV1jgcfzyEPg/?spm_id_from=333.788.recommend_more_video.14
+                - generic [ref=e541]:
+                  - link "【2026两会观察】部分代表提案减少对劳动者保护。我觉得牺牲劳动者换不来发展！" [ref=e542] [cursor=pointer]:
+                    - /url: /video/BV1jgcfzyEPg/?spm_id_from=333.788.recommend_more_video.14
+                    - paragraph [ref=e543]: 【2026两会观察】部分代表提案减少对劳动者保护。我觉得牺牲劳动者换不来发展！
+                  - link "爱法援的猫头鹰" [ref=e545] [cursor=pointer]:
+                    - /url: //space.bilibili.com/401087679/
+                    - img [ref=e546]
+                    - generic [ref=e547]: 爱法援的猫头鹰
+                  - generic [ref=e548]:
+                    - img [ref=e549]
+                    - text: 183.2万
+                    - img [ref=e550]
+                    - text: 1.0万
+              - generic [ref=e552]:
+                - link [ref=e556] [cursor=pointer]:
+                  - /url: /video/BV1nSduBKEmc/?spm_id_from=333.788.recommend_more_video.15
+                - generic [ref=e557]:
+                  - link "送上门的就这么给放走了" [ref=e558] [cursor=pointer]:
+                    - /url: /video/BV1nSduBKEmc/?spm_id_from=333.788.recommend_more_video.15
+                    - paragraph [ref=e559]: 送上门的就这么给放走了
+                  - link "抽象兵工厂" [ref=e561] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3546909507586701/
+                    - img [ref=e562]
+                    - generic [ref=e563]: 抽象兵工厂
+                  - generic [ref=e564]:
+                    - img [ref=e565]
+                    - text: 27.3万
+                    - img [ref=e566]
+                    - text: "471"
+              - generic [ref=e568]:
+                - link [ref=e572] [cursor=pointer]:
+                  - /url: /video/BV1xdGX6fEkC/?spm_id_from=333.788.recommend_more_video.16
+                - generic [ref=e573]:
+                  - link "这么癫的温度，地球爹你还要闹到什么时候!" [ref=e574] [cursor=pointer]:
+                    - /url: /video/BV1xdGX6fEkC/?spm_id_from=333.788.recommend_more_video.16
+                    - paragraph [ref=e575]: 这么癫的温度，地球爹你还要闹到什么时候!
+                  - link "叼着奶瓶逛青楼xyl" [ref=e577] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1681465529/
+                    - img [ref=e578]
+                    - generic [ref=e579]: 叼着奶瓶逛青楼xyl
+                  - generic [ref=e580]:
+                    - img [ref=e581]
+                    - text: 15.8万
+                    - img [ref=e582]
+                    - text: "66"
+              - generic [ref=e584]:
+                - link [ref=e588] [cursor=pointer]:
+                  - /url: /video/BV1Q2FYzFEVy/?spm_id_from=333.788.recommend_more_video.17
+                - generic [ref=e589]:
+                  - link "我要买黄金，我要当天才交易员" [ref=e590] [cursor=pointer]:
+                    - /url: /video/BV1Q2FYzFEVy/?spm_id_from=333.788.recommend_more_video.17
+                    - paragraph [ref=e591]: 我要买黄金，我要当天才交易员
+                  - link "窝囊小苏" [ref=e593] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3546660831496564/
+                    - img [ref=e594]
+                    - generic [ref=e595]: 窝囊小苏
+                  - generic [ref=e596]:
+                    - img [ref=e597]
+                    - text: 14.3万
+                    - img [ref=e598]
+                    - text: "9"
+              - generic [ref=e600]:
+                - link [ref=e604] [cursor=pointer]:
+                  - /url: /video/BV1h4NczHEQK/?spm_id_from=333.788.recommend_more_video.18
+                - generic [ref=e605]:
+                  - link "中考为什么分不下去了？" [ref=e606] [cursor=pointer]:
+                    - /url: /video/BV1h4NczHEQK/?spm_id_from=333.788.recommend_more_video.18
+                    - paragraph [ref=e607]: 中考为什么分不下去了？
+                  - link "壹鸣财经" [ref=e609] [cursor=pointer]:
+                    - /url: //space.bilibili.com/343287618/
+                    - img [ref=e610]
+                    - generic [ref=e611]: 壹鸣财经
+                  - generic [ref=e612]:
+                    - img [ref=e613]
+                    - text: 413.2万
+                    - img [ref=e614]
+                    - text: 1.8万
+              - generic [ref=e616]:
+                - link [ref=e620] [cursor=pointer]:
+                  - /url: /video/BV1eBGX63ER7/?spm_id_from=333.788.recommend_more_video.19
+                - generic [ref=e621]:
+                  - link "看我装糖，阴他一手！" [ref=e622] [cursor=pointer]:
+                    - /url: /video/BV1eBGX63ER7/?spm_id_from=333.788.recommend_more_video.19
+                    - paragraph [ref=e623]: 看我装糖，阴他一手！
+                  - link "没脸鉴车" [ref=e625] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3494367664801943/
+                    - img [ref=e626]
+                    - generic [ref=e627]: 没脸鉴车
+                  - generic [ref=e628]:
+                    - img [ref=e629]
+                    - text: 48.2万
+                    - img [ref=e630]
+                    - text: "2122"
+            - generic [ref=e631] [cursor=pointer]: 展开
+          - link "安魂曲的满分之选!" [ref=e633] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e634]: 安魂曲的满分之选!

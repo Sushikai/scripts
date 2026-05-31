@@ -1,20 +1,18 @@
-#!/usr/bin/env python3
-"""
-B站视频哲学评论Bot
-自动巡查自己的视频，如果没有评论（或评论数少），用LLM生成哲学内容并发送评论。
-使用Playwright直接抓取页面，绕过WBI签名风控。
-"""
 import asyncio
 import json
 import os
 import re
 import httpx
 import requests
+import sys
 from playwright.async_api import async_playwright
 from bilibili_api import comment, Credential
 from bilibili_api.comment import CommentResourceType
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+sys.path.insert(0, '/Users/kaikai/scripts')
+from bilibili_utils.reply.auto_reply import _filter_thinking_content
 
 COOKIES_FILE = "/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt"
 DONE_FILE = "/tmp/bili_philosophy_commented.json"
@@ -97,7 +95,8 @@ def generate_philosophy(text, prompt_type="comment"):
         result = resp.json()
         txt = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
         if txt:
-            return txt
+            filtered = _filter_thinking_content(txt)
+            return filtered if filtered else txt
     except Exception as e:
         print(f"    MiniMax调用失败: {e}")
 
@@ -115,13 +114,15 @@ def generate_philosophy(text, prompt_type="comment"):
             msg = d.get("choices", [{}])[0].get("message", {})
             txt = msg.get("content", "").strip()
             if txt:
-                return txt
+                filtered = _filter_thinking_content(txt)
+                return filtered if filtered else txt
             reasoning = msg.get("reasoning", "")
             if reasoning:
                 txt = reasoning.split("|")[-1].strip()
                 txt = re.sub(r'\[.*?\]\s*', '', txt).strip()
                 if txt:
-                    return txt
+                    filtered = _filter_thinking_content(txt)
+                    return filtered if filtered else txt
         except Exception as e:
             print(f"    Ollama 模型 {_model} 调用失败: {e}")
     return None

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-粉丝发掘脚本 - 通过点赞吸引潜在粉丝
+粉丝发掘脚本 - 通过点赞吸引潜在粉丝（多账号版）
 
 逻辑：
 1. 搜索目标领域的热门视频
@@ -33,6 +33,14 @@ DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 # 动作日志（用于转化分析）
 FAN_HUNTER_ACTIONS = SCRIPT_DIR / "fan_hunter_actions.jsonl"
 
+# 多账号 Cookie 文件
+ALL_COOKIE_FILES = [
+    Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt"),
+    Path("/Users/kaikai/scripts/20岁还没开始环球旅行_cookies.txt"),
+    Path("/Users/kaikai/scripts/tiktok_story_bili/那那天下雨了_cookies.txt"),
+    Path("/Users/kaikai/scripts/tiktok_story_bili/风走了叶落_cookies.txt"),
+]
+
 def _log_action(action: dict):
     try:
         with open(FAN_HUNTER_ACTIONS, 'a', encoding='utf-8') as f:
@@ -40,37 +48,93 @@ def _log_action(action: dict):
     except Exception:
         pass
 
-def load_bili_cookies():
-    """从 /Users/kaikai/scripts/20岁还没赚够100w_cookies.txt 加载（兼容 list 和 dict 和 netscape 格式）"""
-    path = '/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt'
+def _load_json_cookies(path: Path) -> dict:
     try:
-        with open(path) as f:
-            first_char = f.read(1)
-        with open(path) as f:
-            if first_char == '{' or first_char == '[':
-                data = json.load(f)
-                if isinstance(data, list):
-                    return {c['name']: c['value'] for c in data}
-                elif isinstance(data, dict):
-                    return data
-            else:
-                # netscape format
-                cookies = {}
-                with open(path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith('#'):
-                            continue
-                        parts = line.split('\t')
-                        if len(parts) >= 7:
-                            cookies[parts[5]] = parts[6]
-                return cookies
-        return {}
-    except Exception as e:
-        print(f"加载 cookies 失败: {e}")
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if isinstance(data, dict) and 'SESSDATA' in data:
+            return data
+        if isinstance(data, list):
+            return {c['name']: c['value'] for c in data if 'name' in c and 'value' in c}
+    except Exception:
+        pass
+    return {}
+
+def _load_netscape_cookies(path: Path) -> dict:
+    cookies = {}
+    try:
+        for line in path.read_text(encoding='utf-8').split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split('\t')
+            if len(parts) >= 7:
+                cookies[parts[5]] = parts[6]
+    except Exception:
+        pass
+    return cookies
+
+def _load_cookies_from_file(path: Path) -> dict:
+    try:
+        text = path.read_text(encoding='utf-8').strip()
+        if text.startswith('{') or text.startswith('['):
+            return _load_json_cookies(path)
+        else:
+            return _load_netscape_cookies(path)
+    except Exception:
         return {}
 
-BILI_COOKIES = load_bili_cookies()
+def _validate_account(cookies: dict) -> bool:
+    if not cookies.get("SESSDATA"):
+        return False
+    try:
+        r = requests.get(
+            "https://api.bilibili.com/x/web-interface/nav",
+            cookies=cookies,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.bilibili.com",
+            },
+            timeout=8
+        )
+        j = r.json()
+        return j.get("code") == 0 and j.get("data", {}).get("isLogin") == True
+    except Exception:
+        return False
+
+def load_all_accounts():
+    accounts = []
+    for i, path in enumerate(ALL_COOKIE_FILES):
+        cookies = _load_cookies_from_file(path)
+        if not cookies.get("SESSDATA"):
+            print(f"  账号{i+1} [{path.name}] 无SESSDATA，跳过")
+            continue
+        if not _validate_account(cookies):
+            print(f"  账号{i+1} [{path.name}] 验证失败，跳过")
+            continue
+        uname = ""
+        try:
+            r = requests.get("https://api.bilibili.com/x/web-interface/nav", cookies=cookies, timeout=8)
+            uname = r.json().get("data", {}).get("uname", path.stem[:10])
+        except Exception:
+            uname = path.stem[:10]
+        print(f"  账号{i+1} [{uname}] 加载成功")
+        accounts.append({
+            "name": path.stem[:15],
+            "cookies": cookies,
+            "session": requests.Session(),
+        })
+        accounts[-1]["session"].mount('https://', HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504})))
+    return accounts
+
+ACCOUNTS = load_all_accounts()
+if not ACCOUNTS:
+    print("没有可用账号，退出")
+    sys.exit(0)
+
+for acc in ACCOUNTS:
+    acc["liked_file"] = OUTPUT_DIR / f"liked_comments_{acc['name'][:8]}.json"
+    acc["output_dir"] = OUTPUT_DIR / acc["name"][:8]
+    acc["output_dir"].mkdir(exist_ok=True, parents=True)
 
 # 搜索关键词（目标领域）
 SEARCH_KEYWORDS = [
@@ -346,13 +410,13 @@ def like_comment(rpid: int, oid: int, session: requests.Session, cookies: dict) 
         log(f"  ⚠️ 点赞异常: {e}")
         return False
 
-def get_liked_comments_file() -> Path:
-    """获取已点赞记录文件"""
-    return OUTPUT_DIR / "liked_comments.json"
+def get_liked_comments_file(account: dict) -> Path:
+    """获取已点赞记录文件（按账号隔离）"""
+    return account["liked_file"]
 
-def load_liked_comments() -> set:
-    """加载已点赞的评论ID"""
-    f = get_liked_comments_file()
+def load_liked_comments(account: dict) -> set:
+    """加载已点赞的评论ID（按账号隔离）"""
+    f = get_liked_comments_file(account)
     if f.exists():
         try:
             with open(f) as fp:
@@ -362,17 +426,17 @@ def load_liked_comments() -> set:
             pass
     return set()
 
-def save_liked_comment(rpid: int):
-    """记录已点赞的评论"""
-    f = get_liked_comments_file()
-    liked = load_liked_comments()
+def save_liked_comment(account: dict, rpid: int):
+    """记录已点赞的评论（按账号隔离）"""
+    f = get_liked_comments_file(account)
+    liked = load_liked_comments(account)
     liked.add(rpid)
     with open(f, 'w') as fp:
         json.dump({"rpid_list": list(liked), "updated": datetime.now().isoformat()}, fp)
 
-def log_like_detail(uname: str, content: str, video_title: str, bvid: str, rpid: int):
-    """记录每次点赞详情到 CSV"""
-    csv_path = OUTPUT_DIR / "like_log.csv"
+def log_like_detail(account: dict, uname: str, content: str, video_title: str, bvid: str, rpid: int):
+    """记录每次点赞详情到 CSV（按账号隔离）"""
+    csv_path = account["output_dir"] / "like_log.csv"
     file_exists = csv_path.exists()
     try:
         with open(csv_path, 'a', encoding='utf-8') as f:
@@ -565,18 +629,25 @@ def score_user(uid: str, comments: list, keyword_match_count: int, interaction_l
     return score
 
 
-def main(light_mode: bool = False):
+def main_for_account(acc, light_mode: bool = False):
+    """对单个账号执行粉丝发掘"""
+    name = acc["name"]
+    cookies = acc["cookies"]
+    session = acc["session"]
+
     target_users_limit = LIGHT_MODE_USERS if light_mode else MAX_USERS_PER_RUN
     log(f"\n{'='*60}")
-    log(f"🔥 粉丝发掘脚本启动{' [轻量模式]' if light_mode else ''}")
+    log(f"🔥 [{name}] 粉丝发掘脚本启动{' [轻量模式]' if light_mode else ''}")
     log(f"{'='*60}")
 
-    cookies = BILI_COOKIES
     if not cookies.get("SESSDATA"):
         log("❌ 未找到有效的B站 Cookie，无法执行点赞")
-        return
+        return 0
 
-    session = get_session()
+    session = acc["session"]
+    if not session:
+        session = get_session()
+        acc["session"] = session
 
     # ── 阶段1: 获取热门视频 + 关键词搜索目标领域视频 ─────────────────
     log(f"\n① 获取热门视频 + 搜索目标领域...")
@@ -699,9 +770,9 @@ def main(light_mode: bool = False):
     # ── 阶段4: 点赞直到成功70个 ───────────────────────────────
     TARGET_LIKES = 70
     log(f"\n④ 对 {len(all_users)} 个用户进行点赞（目标：成功 {TARGET_LIKES} 个赞）...")
-    liked_file = get_liked_comments_file()
-    liked_rpids = load_liked_comments()
-    log(f"  已有点赞记录: {len(liked_rpids)} 条")
+    liked_file = get_liked_comments_file(acc)
+    liked_rpids = load_liked_comments(acc)
+    log(f"  [{name}] 已有点赞记录: {len(liked_rpids)} 条")
 
     total_liked = 0
     total_users = 0
@@ -738,9 +809,10 @@ def main(light_mode: bool = False):
         for c in user_to_like:
             ok = like_comment(c["rpid"], c["oid"], session, cookies)
             if ok:
-                save_liked_comment(c["rpid"])
+                save_liked_comment(acc, c["rpid"])
                 liked_rpids.add(c["rpid"])
                 log_like_detail(
+                    acc,
                     uname=c.get("uname", uname),
                     content=c.get("content", ""),
                     video_title=c.get("title", ""),
@@ -768,10 +840,43 @@ def main(light_mode: bool = False):
 
     # ── 完成 ─────────────────────────────────────────────────────
     log(f"\n{'='*60}")
-    log(f"✅ 粉丝发掘完成")
+    log(f"✅ [{name}] 粉丝发掘完成")
     log(f"   处理用户: {total_users}")
     log(f"   总点赞: {total_liked}")
     log(f"   已记录: {len(liked_rpids)} 条")
+    log(f"{'='*60}")
+    return total_liked
+
+
+def main(light_mode: bool = False):
+    # 目标账号：优先运行此账号，其他账号降低频率
+    TARGET_ACCOUNT = "20岁还没开始环球旅行"
+    total = 0
+    for acc in ACCOUNTS:
+        is_target = TARGET_ACCOUNT in acc.get("name", "")
+        # 非目标账号1小时只能运行1次（避免频繁操作被风控）
+        if not is_target:
+            cd_file = Path(f"/tmp/bili_fanhunt_cd_{acc['name'][:8]}.json")
+            try:
+                if cd_file.exists():
+                    last = json.loads(cd_file.read_text()).get("last_run_ts", 0)
+                    if time.time() - last < 3600:
+                        log(f"  ⏳ [{acc['name']}] 冷却中（距上次运行不足1小时），跳过")
+                        continue
+            except Exception:
+                pass
+        try:
+            n = main_for_account(acc, light_mode)
+            total += n if n else 0
+            # 保存cooldown（仅非目标账号）
+            if n > 0 and not is_target:
+                cd_file = Path(f"/tmp/bili_fanhunt_cd_{acc['name'][:8]}.json")
+                cd_file.write_text(json.dumps({"last_run_ts": time.time()}))
+        except Exception as e:
+            log(f"  ⚠️ [{acc['name']}] 执行出错: {e}")
+            continue
+    log(f"\n{'='*60}")
+    log(f"✅ 全部账号完成，总计点赞: {total}")
     log(f"{'='*60}")
 
 if __name__ == "__main__":

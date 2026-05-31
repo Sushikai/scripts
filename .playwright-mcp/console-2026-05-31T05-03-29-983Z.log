@@ -1,0 +1,27 @@
+[    1124ms] Uncaught TypeError: Cannot read properties of undefined (reading 'register')
+    at <anonymous> (https://s1.hdslb.com/bfs/seed/jinkela/short/bmg/register/cmpt.js:5:320)
+    at <anonymous> (https://s1.hdslb.com/bfs/seed/jinkela/short/bmg/register/cmpt.js:5:197)
+    at <anonymous> (https://s1.hdslb.com/bfs/seed/jinkela/short/bmg/register/cmpt.js:5:225)
+[    1181ms] ReferenceError: bmgCmptOnload is not defined
+    at HTMLImageElement.onload (https://www.bilibili.com/video/BV1GJ411x7h7/:5:73548)
+[    1182ms] [LOG] %c
+                     //
+         \\         //
+          \\       //
+    ##DDDDDDDDDDDDDDDDDDDDDD##
+    ## DDDDDDDDDDDDDDDDDDDD ##   ________   ___   ___        ___   ________   ___   ___        ___
+    ## hh                hh ##   |\   __  \ |\  \ |\  \      |\  \ |\   __  \ |\  \ |\  \      |\  \
+    ## hh    //    \\    hh ##   \ \  \|\ /_\ \  \\ \  \     \ \  \\ \  \|\ /_\ \  \\ \  \     \ \  \
+    ## hh   //      \\   hh ##    \ \   __  \\ \  \\ \  \     \ \  \\ \   __  \\ \  \\ \  \     \ \  \
+    ## hh                hh ##     \ \  \|\  \\ \  \\ \  \____ \ \  \\ \  \|\  \\ \  \\ \  \____ \ \  \
+    ## hh      wwww      hh ##      \ \_______\\ \__\\ \_______\\ \__\\ \_______\\ \__\\ \_______\\ \__\
+    ## hh                hh ##       \|_______| \|__| \|_______| \|__| \|_______| \|__| \|_______| \|__|
+    ## MMMMMMMMMMMMMMMMMMMM ##
+    ##MMMMMMMMMMMMMMMMMMMMMM##                                          Release undefined@no release yet
+         \/            \/                                       Powered by @bilibili/jinkela-core@2.8.14 color:#00a1d6 @ https://s1.hdslb.com/bfs/static/jinkela/video/video.d712de4c301b98a8697119d91d0ad8cb475a3658.js:0
+[    1469ms] [INFO] %c%s line-height: 30px; color: #FF6699 bili-fe-fp: 1.1.4 @ https://s1.hdslb.com/bfs/seed/jinkela/short/user-fingerprint/bili-user-fingerprint.min.js:0
+[    2294ms] [INFO] %c bili-fe-mirror %c v2.1.0  padding: 2px 6px; border-radius: 3px 0 0 3px; color: #fff; background: #FF6699; font-weight: bold; padding: 2px 6px; border-radius: 0 3px 3px 0; color: #fff; background: #FF9999; font-weight: bold; @ https://s1.hdslb.com/bfs/seed/jinkela/short/b-mirror/biliMirror.umd.mini.js:1
+[    3776ms] [LOG] 白屏检测是否正常 {status: ok, loop: 0, data: Object} @ https://www.bilibili.com/video/BV1GJ411x7h7/:4
+[    5559ms] [WARNING] Deprecated API for given entry type. @ https://s1.hdslb.com/bfs/static/shanks/laputa-home/assets/index-fe35e7d5.js:47
+[    5971ms] [INFO] %c bili-fe-mirror %c v2.1.0  padding: 2px 6px; border-radius: 3px 0 0 3px; color: #fff; background: #FF6699; font-weight: bold; padding: 2px 6px; border-radius: 0 3px 3px 0; color: #fff; background: #FF9999; font-weight: bold; @ https://s1.hdslb.com/bfs/seed/jinkela/short/b-mirror/biliMirror.umd.mini.js:1
+[    6644ms] [LOG] 白屏检测是否正常 {status: ok, loop: 0, data: Object} @ https://www.bilibili.com/?spm_id_from=333.788.selfDef.errorpage:159

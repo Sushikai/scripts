@@ -49,6 +49,8 @@ LOG_FILE = Path(__file__).parent / "run.log"
 
 BILI_COOKIE_FILE = Path(__file__).parent / "那那天下雨了_cookies.txt"
 TIKTOK_COOKIE_FILE = Path(__file__).parent / "ticktoks_cookies.txt"
+DOUYIN_COOKIE_FILE = Path(__file__).parent / "风走了叶落_cookies.txt"
+DOUYIN_UPLOAD_SCRIPT = Path("/Users/kaikai/ai_video_upload/douyin_upload.py")
 
 WEIGHT_LIKE = 1
 WEIGHT_REPOST = 3
@@ -668,17 +670,26 @@ def run_pipeline():
         else:
             log("⚠️ B站上传失败")
 
-        # 8. 记录历史
+        # 8. 抖音上传
+        log("[抖音] 开始上传...")
+        dy_result = douyin_upload_sync(str(video_file), new_title, desc)
+        if dy_result:
+            log("✅ 抖音上传成功!")
+        else:
+            log("⚠️ 抖音上传失败")
+
+        # 9. 记录历史
         history[vid] = {
             "title": title,
             "new_title": new_title,
             "downloaded_at": time.strftime("%Y-%m-%d %H:%M"),
             "file": str(video_file),
             "bili_result": str(bili_result),
+            "dy_result": str(dy_result),
         }
         save_history(history)
 
-        if bili_result:
+        if bili_result or dy_result:
             upload_history[vid] = {
                 "title": new_title,
                 "uploaded_at": time.strftime("%Y-%m-%d %H:%M"),

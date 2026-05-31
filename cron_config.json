@@ -1,0 +1,159 @@
+{
+  "description": "定时任务统一配置 - 已清空（2026-05-31）",
+  "status": "ALL JOBS CLEARED - pending reconfiguration",
+  "accounts": {
+    "A_20岁还没赚够100w": {"uid": "140289989", "cookie": "20岁还没赚够100w_cookies.txt"},
+    "B_20岁还没开始环球旅行": {"uid": "1650357577", "cookie": "20岁还没开始环球旅行_cookies.txt"},
+    "C_那那天下雨了": {"uid": "3707000147937515", "cookie": "tiktok_story_bili/那那天下雨了_cookies.txt"}
+  },
+  "instances": {
+    "hermes_kaikai": {
+      "jobs": [
+        {
+          "name": "哲学评论Bot",
+          "script": "yinliu/philosophy_comment.py",
+          "account": "A",
+          "schedule": "every 2h",
+          "status": "active"
+        },
+        {
+          "name": "刷引流评论",
+          "script": "yinliu/poster.py",
+          "account": "A,B,C",
+          "schedule": "every 30m",
+          "status": "active",
+          "note": "引流评论，3账号共用cooldown，账号B/C每60分钟限1次"
+        },
+        {
+          "name": "B站评论自动回复",
+          "script": "bilibili_utils/reply/auto_reply.py",
+          "account": "A,B,C",
+          "schedule": "every 20m",
+          "status": "active",
+          "note": "评论回复，每条评论间隔60秒cooldown"
+        },
+        {
+          "name": "B站每日总结",
+          "script": ".hermes/scripts/bilibili_daily_summary.py",
+          "schedule": "0 22 * * *",
+          "status": "active"
+        },
+        {
+          "name": "信息差视频-早8晚6",
+          "script": "news/news_video_v8.py",
+          "account": "B",
+          "schedule": "0 8,18 * * *",
+          "status": "active",
+          "note": "仅账号B，生成+上传信息差视频"
+        }
+      ]
+    },
+    "video_processor": {
+      "jobs": [
+        {
+          "name": "B站私信监控",
+          "script": "bilibili_utils/dm/monitor.py",
+          "account": "A,B,C",
+          "schedule": "every 2m",
+          "status": "active",
+          "note": "多账号私信智能回复"
+        },
+        {
+          "name": "B站评论自动回复v18",
+          "script": "bilibili_utils/reply/auto_reply.py",
+          "account": "A,B,C",
+          "schedule": "every 15m",
+          "status": "active",
+          "note": "建议从every 5m改为every 15m，降低API频率"
+        },
+        {
+          "name": "B站引流评论",
+          "script": "yinliu/poster.py",
+          "account": "A,B,C",
+          "schedule": "0 * * * *",
+          "status": "active"
+        }
+      ]
+    },
+    "hermes_searching": {
+      "jobs": [
+        {
+          "name": "每日新闻视频生成",
+          "script": "news/news_video_v8.py",
+          "account": "B",
+          "schedule": "0 8,18 * * *",
+          "status": "active"
+        }
+      ]
+    },
+    "Hermes_video_processer": {
+      "jobs": [
+        {
+          "name": "峰哥视频管道-早8点",
+          "script": "video/fengge_pipeline.py",
+          "account": "A",
+          "schedule": "0 8 * * *",
+          "status": "active"
+        },
+        {
+          "name": "峰哥视频管道-晚8点",
+          "script": "video/fengge_pipeline.py",
+          "account": "A",
+          "schedule": "0 20 * * *",
+          "status": "active"
+        }
+      ]
+    },
+    "movie_narrator": {
+      "jobs": [
+        {
+          "name": "bilibili_auto_upload",
+          "script": ".hermes/scripts/bilibili_auto_upload.py",
+          "schedule": "0 9,21 * * *",
+          "status": "active",
+          "note": "movie narrator -> 搜索抖音热点事件相关视频，峰哥关键词"
+        },
+        {
+          "name": "news_daily_morning",
+          "script": "news/news_video_v8.py",
+          "account": "B",
+          "schedule": "0 8 * * *",
+          "status": "active",
+          "note": "与 hermes_searching 重复，考虑合并"
+        },
+        {
+          "name": "news_daily_evening",
+          "script": "news/news_video_v8.py",
+          "account": "B",
+          "schedule": "0 18 * * *",
+          "status": "active",
+          "note": "与 hermes_searching 重复，考虑合并"
+        }
+      ]
+    },
+    "quant_trader": {
+      "jobs": [
+        {
+          "name": "每小时回测汇报",
+          "schedule": "every 60m",
+          "status": "active"
+        }
+      ]
+    }
+  },
+  "duplicate_warnings": [
+    "news_video_v8.py 在 hermes_kaikai, hermes_searching, movie_narrator 三个实例中都配置了，每天运行4次",
+    "bilibili_reply_v17.py 在 hermes_kaikai(every 20m) 和 video_processor(every 15m) 都运行，实际频率偏高",
+    "yinliu/poster.py 在 hermes_kaikai(every 30m) 和 video_processor(every 60m) 都运行"
+  ],
+  "missing_scripts": [
+    "bilibili_follower_monitor.py - hermes_kaikai 的两个粉丝监控任务引用了此脚本但文件不存在",
+    "fengge_pipeline.py 在 /Users/kaikai/scripts/video/fengge_pipeline.py 存在，需确认内容是否完整"
+  ],
+  "recommendations": [
+    "合并 movie_narrator 的 news_daily_morning/evening 到 hermes_searching",
+    "video_processor 的评论自动回复从 every 5m 改为 every 15m",
+    "删除 hermes_kaikai 中引用不存在脚本的任务（bilibili_follower_monitor.py）",
+    "合并 hermes_kaikai 和 video_processor 的引流评论任务，避免重复运行"
+  ]
+}

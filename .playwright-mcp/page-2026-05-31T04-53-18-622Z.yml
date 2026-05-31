@@ -1,0 +1,479 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - list [ref=e5]:
+      - listitem [ref=e6]:
+        - link "首页" [ref=e7] [cursor=pointer]:
+          - /url: //www.bilibili.com
+          - img [ref=e8]
+          - generic [ref=e10]:
+            - text: 首页
+            - img [ref=e11]
+      - listitem [ref=e14]:
+        - link "番剧" [ref=e15] [cursor=pointer]:
+          - /url: //www.bilibili.com/anime/
+      - listitem [ref=e16]:
+        - link "直播" [ref=e17] [cursor=pointer]:
+          - /url: //live.bilibili.com/
+      - listitem [ref=e18]:
+        - link "游戏中心" [ref=e19] [cursor=pointer]:
+          - /url: //game.bilibili.com/
+      - listitem [ref=e20]:
+        - link "会员购" [ref=e21] [cursor=pointer]:
+          - /url: //show.bilibili.com/platform/home.html?msource=pc_web
+      - listitem [ref=e22]:
+        - link "漫画" [ref=e23] [cursor=pointer]:
+          - /url: //manga.bilibili.com?from=bill_top_mnav
+      - listitem [ref=e24]:
+        - link "赛事" [ref=e25] [cursor=pointer]:
+          - /url: //www.bilibili.com/v/game/match/
+    - list [ref=e26]:
+      - listitem [ref=e27] [cursor=pointer]:
+        - img [ref=e29]
+  - generic [ref=e32]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "【官方 MV】Never Gonna Give You Up - Rick Astley" [level=1] [ref=e37]
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - img [ref=e41]
+            - generic [ref=e42]: 9949.5万
+          - generic [ref=e43]:
+            - img [ref=e44]
+            - generic [ref=e45]: 13.8万
+          - generic [ref=e47]: 2020-01-01 07:43:23
+      - generic "哔哩哔哩播放器" [ref=e57]
+      - generic [ref=e67]:
+        - generic [ref=e69]:
+          - generic "点赞（Q）" [ref=e71] [cursor=pointer]:
+            - img [ref=e72]
+            - generic [ref=e74]: 272.2万
+          - generic "投币（W）" [ref=e76] [cursor=pointer]:
+            - img [ref=e77]
+            - generic [ref=e79]: 118.5万
+          - generic "收藏（E）" [ref=e81] [cursor=pointer]:
+            - img [ref=e82]
+            - generic [ref=e84]: 143.1万
+          - generic [ref=e87] [cursor=pointer]:
+            - img [ref=e88]
+            - generic [ref=e90]: 44.7万
+        - img [ref=e93] [cursor=pointer]
+      - generic [ref=e95]:
+        - generic [ref=e96]: "-"
+        - list [ref=e97]:
+          - listitem [ref=e98]:
+            - text: 字幕制作者（中文（中国））：
+            - link "账号已注销" [ref=e99] [cursor=pointer]:
+              - /url: //space.bilibili.com/371800306
+          - listitem [ref=e100]:
+            - text: 字幕制作者（中文（繁體））：
+            - link "路人N-" [ref=e101] [cursor=pointer]:
+              - /url: //space.bilibili.com/237814922
+          - listitem [ref=e102]:
+            - text: 字幕制作者（中文（中國香港））：
+            - link "FF小黄人" [ref=e103] [cursor=pointer]:
+              - /url: //space.bilibili.com/592667008
+          - listitem [ref=e104]:
+            - text: 字幕制作者（日本語）：
+            - link "゚゚初音ミク" [ref=e105] [cursor=pointer]:
+              - /url: //space.bilibili.com/437457729
+          - listitem [ref=e106]:
+            - text: 字幕制作者（한국어）：
+            - link "至放大來演吧" [ref=e107] [cursor=pointer]:
+              - /url: //space.bilibili.com/16089720
+          - listitem [ref=e108]:
+            - text: 字幕制作者（Deutsch(DE)）：
+            - link "Microsoft_Win11" [ref=e109] [cursor=pointer]:
+              - /url: //space.bilibili.com/388428805
+          - listitem [ref=e110]:
+            - text: 字幕制作者（Русский）：
+            - link "夜航信号灯" [ref=e111] [cursor=pointer]:
+              - /url: //space.bilibili.com/369596063
+          - listitem [ref=e112]:
+            - text: 字幕制作者（Català）：
+            - link "D-SHABBY" [ref=e113] [cursor=pointer]:
+              - /url: //space.bilibili.com/3546965484767441
+          - listitem [ref=e114]:
+            - text: 字幕制作者（美国手语）：
+            - link "宫十五" [ref=e115] [cursor=pointer]:
+              - /url: //space.bilibili.com/1486777491
+      - generic [ref=e117]:
+        - generic "发现《Never gonna give you up》" [ref=e120] [cursor=pointer]:
+          - img [ref=e121]
+          - generic [ref=e123]: 发现《Never gonna give you up》
+          - img [ref=e124]
+        - link "Never Gonna Give You Up" [ref=e128] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=Never%20Gonna%20Give%20You%20Up&from_source=video_tag
+        - link "Rick Astley" [ref=e131] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=Rick%20Astley&from_source=video_tag
+        - link "流行音乐" [ref=e134] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%B5%81%E8%A1%8C%E9%9F%B3%E4%B9%90&from_source=video_tag
+        - link "欧美音乐" [ref=e137] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8E%E9%9F%B3%E4%B9%90&from_source=video_tag
+        - link "MV" [ref=e140] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=MV&from_source=video_tag
+        - link "欧美MV" [ref=e143] [cursor=pointer]:
+          - /url: //search.bilibili.com/all?keyword=%E6%AC%A7%E7%BE%8EMV&from_source=video_tag
+      - generic [ref=e144]:
+        - link:
+          - /url: javascript:void(0);
+    - generic:
+      - generic:
+        - generic [ref=e147]:
+          - link [ref=e150] [cursor=pointer]:
+            - /url: //space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.head.click
+          - generic [ref=e153]:
+            - generic [ref=e154]:
+              - link "索尼音乐中国" [ref=e155] [cursor=pointer]:
+                - /url: //space.bilibili.com/486906719/?spm_id_from=333.788.upinfo.detail.click
+              - link " 发消息" [ref=e156] [cursor=pointer]:
+                - /url: //message.bilibili.com/?spm_id_from=333.788.upinfo.detail.click#whisper/mid486906719
+                - generic [ref=e157]: 
+                - text: 发消息
+            - generic "官方营业，欢迎一键三连~~~" [ref=e158]
+        - generic [ref=e166]:
+          - link "均价十几，便宜但爆实用的穷鬼好物！巨好用 元气的小不点 540.0万 247" [ref=e168] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e169]:
+              - img [ref=e172]
+              - generic [ref=e175]:
+                - generic "均价十几，便宜但爆实用的穷鬼好物！巨好用" [ref=e176]
+                - generic [ref=e178]:
+                  - img [ref=e179]
+                  - generic [ref=e180]: 元气的小不点
+                - generic [ref=e181]:
+                  - img [ref=e182]
+                  - text: 540.0万
+                  - img [ref=e183]
+                  - text: "247"
+          - img [ref=e185]
+        - generic [ref=e186]:
+          - generic [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]:
+                - generic [ref=e190]: 接下来播放
+                - generic [ref=e192] [cursor=pointer]: 自动连播
+              - generic [ref=e196]:
+                - link [ref=e200] [cursor=pointer]:
+                  - /url: /video/BV1jz421R7V2/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e201]:
+                  - link "该视频已失效" [ref=e202] [cursor=pointer]:
+                    - /url: /video/BV1jz421R7V2/?spm_id_from=333.788.recommend_more_video.-1&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e203]: 该视频已失效
+                  - link "鈡葉" [ref=e205] [cursor=pointer]:
+                    - /url: //space.bilibili.com/548893050/
+                    - img [ref=e206]
+                    - generic [ref=e207]: 鈡葉
+                  - generic [ref=e208]:
+                    - img [ref=e209]
+                    - text: 1679.0万
+                    - img [ref=e210]
+                    - text: 9.2万
+            - generic [ref=e212]:
+              - generic [ref=e214]:
+                - link [ref=e218] [cursor=pointer]:
+                  - /url: /video/BV1gU4y167kU/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e219]:
+                  - link "美国保险公司邀请RickAstley重新录制了经典歌曲Never Gonna Give You Up" [ref=e220] [cursor=pointer]:
+                    - /url: /video/BV1gU4y167kU/?spm_id_from=333.788.recommend_more_video.0&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e221]: 美国保险公司邀请RickAstley重新录制了经典歌曲Never Gonna Give You Up
+                  - link "baadda" [ref=e223] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1789638843/
+                    - img [ref=e224]
+                    - generic [ref=e225]: baadda
+                  - generic [ref=e226]:
+                    - img [ref=e227]
+                    - text: 11.2万
+                    - img [ref=e228]
+                    - text: "24"
+              - generic [ref=e230]:
+                - link [ref=e234] [cursor=pointer]:
+                  - /url: /video/BV1vMbrzFEAA/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e235]:
+                  - link "⚡️ 互 联 网 三 大 骗 局 ⚡️" [ref=e236] [cursor=pointer]:
+                    - /url: /video/BV1vMbrzFEAA/?spm_id_from=333.788.recommend_more_video.1&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e237]: ⚡️ 互 联 网 三 大 骗 局 ⚡️
+                  - link "欢愉牢哈" [ref=e239] [cursor=pointer]:
+                    - /url: //space.bilibili.com/662585275/
+                    - img [ref=e240]
+                    - generic [ref=e241]: 欢愉牢哈
+                  - generic [ref=e242]:
+                    - img [ref=e243]
+                    - text: 20.5万
+                    - img [ref=e244]
+                    - text: "350"
+              - generic [ref=e246]:
+                - link [ref=e250] [cursor=pointer]:
+                  - /url: /video/BV1f34y1r7y8/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e251]:
+                  - link "天堂に駆ける" [ref=e252] [cursor=pointer]:
+                    - /url: /video/BV1f34y1r7y8/?spm_id_from=333.788.recommend_more_video.2&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e253]: 天堂に駆ける
+                  - link "星咲雫" [ref=e255] [cursor=pointer]:
+                    - /url: //space.bilibili.com/62567078/
+                    - img [ref=e256]
+                    - generic [ref=e257]: 星咲雫
+                  - generic [ref=e258]:
+                    - img [ref=e259]
+                    - text: 1682.0万
+                    - img [ref=e260]
+                    - text: 1.3万
+              - generic [ref=e262]:
+                - link [ref=e266] [cursor=pointer]:
+                  - /url: /video/BV1eS4y157Ey/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e267]:
+                  - link "大家好，我是Rick Astley,今天我入驻b站了！ doge" [ref=e268] [cursor=pointer]:
+                    - /url: /video/BV1eS4y157Ey/?spm_id_from=333.788.recommend_more_video.3&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e269]: 大家好，我是Rick Astley,今天我入驻b站了！ doge
+                  - link "Rickrocknroll" [ref=e271] [cursor=pointer]:
+                    - /url: //space.bilibili.com/373025504/
+                    - img [ref=e272]
+                    - generic [ref=e273]: Rickrocknroll
+                  - generic [ref=e274]:
+                    - img [ref=e275]
+                    - text: 1758.9万
+                    - img [ref=e276]
+                    - text: 8.1万
+              - generic [ref=e278]:
+                - link [ref=e282] [cursor=pointer]:
+                  - /url: /video/BV1jy421q79T/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e283]:
+                  - link "Whistle但是全损音质plus" [ref=e284] [cursor=pointer]:
+                    - /url: /video/BV1jy421q79T/?spm_id_from=333.788.recommend_more_video.4&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e285]: Whistle但是全损音质plus
+                  - link "越看越想舍" [ref=e287] [cursor=pointer]:
+                    - /url: //space.bilibili.com/521272500/
+                    - img [ref=e288]
+                    - generic [ref=e289]: 越看越想舍
+                  - generic [ref=e290]:
+                    - img [ref=e291]
+                    - text: 17.6万
+                    - img [ref=e292]
+                    - text: "121"
+              - generic [ref=e294]:
+                - link [ref=e298] [cursor=pointer]:
+                  - /url: /video/BV17KQcBfE69/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e299]:
+                  - link "【超清混音/Hi-res】You are beautiful" [ref=e300] [cursor=pointer]:
+                    - /url: /video/BV17KQcBfE69/?spm_id_from=333.788.recommend_more_video.5&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e301]: 【超清混音/Hi-res】You are beautiful
+                  - link "丰川太空鸡" [ref=e303] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3546575068465706/
+                    - img [ref=e304]
+                    - generic [ref=e305]: 丰川太空鸡
+                  - generic [ref=e306]:
+                    - img [ref=e307]
+                    - text: 259.0万
+                    - img [ref=e308]
+                    - text: "2723"
+              - generic [ref=e310]:
+                - link [ref=e314] [cursor=pointer]:
+                  - /url: /video/BV1AN9JBFERS/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e315]:
+                  - link "绷不住了！还真是1:1复刻，Never Gonna Give You Up。" [ref=e316] [cursor=pointer]:
+                    - /url: /video/BV1AN9JBFERS/?spm_id_from=333.788.recommend_more_video.6&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e317]: 绷不住了！还真是1:1复刻，Never Gonna Give You Up。
+                  - link "KAFKA不卡" [ref=e319] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3493126398282043/
+                    - img [ref=e320]
+                    - generic [ref=e321]: KAFKA不卡
+                  - generic [ref=e322]:
+                    - img [ref=e323]
+                    - text: 7.7万
+                    - img [ref=e324]
+                    - text: "4"
+              - generic [ref=e326]:
+                - link [ref=e330] [cursor=pointer]:
+                  - /url: /video/BV1V4UYY5EhD/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e331]:
+                  - link "视频已失效" [ref=e332] [cursor=pointer]:
+                    - /url: /video/BV1V4UYY5EhD/?spm_id_from=333.788.recommend_more_video.7&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e333]: 视频已失效
+                  - link "四氯金酸-HAuCl4" [ref=e335] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3493084276984624/
+                    - img [ref=e336]
+                    - generic [ref=e337]: 四氯金酸-HAuCl4
+                  - generic [ref=e338]:
+                    - img [ref=e339]
+                    - text: 25.4万
+                    - img [ref=e340]
+                    - text: "382"
+              - generic [ref=e342]:
+                - link [ref=e346] [cursor=pointer]:
+                  - /url: /video/BV1Mr4y1a7M5/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e347]:
+                  - link "大家好，我是Rick Astley，我入驻b站了" [ref=e348] [cursor=pointer]:
+                    - /url: /video/BV1Mr4y1a7M5/?spm_id_from=333.788.recommend_more_video.8&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e349]: 大家好，我是Rick Astley，我入驻b站了
+                  - link "RICKASTLRY" [ref=e351] [cursor=pointer]:
+                    - /url: //space.bilibili.com/520075112/
+                    - img [ref=e352]
+                    - generic [ref=e353]: RICKASTLRY
+                  - generic [ref=e354]:
+                    - img [ref=e355]
+                    - text: 143.0万
+                    - img [ref=e356]
+                    - text: "568"
+              - generic [ref=e358]:
+                - link [ref=e362] [cursor=pointer]:
+                  - /url: /video/BV1gp4y1B7yd/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e363]:
+                  - link "现场玩梗Rick Astley" [ref=e364] [cursor=pointer]:
+                    - /url: /video/BV1gp4y1B7yd/?spm_id_from=333.788.recommend_more_video.9&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e365]: 现场玩梗Rick Astley
+                  - link "通訊录好友" [ref=e367] [cursor=pointer]:
+                    - /url: //space.bilibili.com/25072174/
+                    - img [ref=e368]
+                    - generic [ref=e369]: 通訊录好友
+                  - generic [ref=e370]:
+                    - img [ref=e371]
+                    - text: 197.5万
+                    - img [ref=e372]
+                    - text: "207"
+              - generic [ref=e374]:
+                - link [ref=e378] [cursor=pointer]:
+                  - /url: /video/BV1UT42167xb/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e379]:
+                  - link "【4K珍藏】诈骗神曲《Never Gonna Give You Up》！愿者上钩！" [ref=e380] [cursor=pointer]:
+                    - /url: /video/BV1UT42167xb/?spm_id_from=333.788.recommend_more_video.10&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e381]: 【4K珍藏】诈骗神曲《Never Gonna Give You Up》！愿者上钩！
+                  - link "4K音乐馆" [ref=e383] [cursor=pointer]:
+                    - /url: //space.bilibili.com/2043250564/
+                    - img [ref=e384]
+                    - generic [ref=e385]: 4K音乐馆
+                  - generic [ref=e386]:
+                    - img [ref=e387]
+                    - text: 231.0万
+                    - img [ref=e388]
+                    - text: "2810"
+              - generic [ref=e390]:
+                - link [ref=e394] [cursor=pointer]:
+                  - /url: /video/BV1vh8TzgEix/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e395]:
+                  - link "B站播放量最高的30只mv，6月新歌飙升至第八，术曲3杀" [ref=e396] [cursor=pointer]:
+                    - /url: /video/BV1vh8TzgEix/?spm_id_from=333.788.recommend_more_video.11&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e397]: B站播放量最高的30只mv，6月新歌飙升至第八，术曲3杀
+                  - link "全站最好吃的橘子" [ref=e399] [cursor=pointer]:
+                    - /url: //space.bilibili.com/3493288612989054/
+                    - img [ref=e400]
+                    - generic [ref=e401]: 全站最好吃的橘子
+                  - generic [ref=e402]:
+                    - img [ref=e403]
+                    - text: 17.2万
+                    - img [ref=e404]
+                    - text: "6215"
+              - generic [ref=e406]:
+                - link [ref=e410] [cursor=pointer]:
+                  - /url: /video/BV1R34y1Q7J4/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e411]:
+                  - link "Ngana Rindu高级版" [ref=e412] [cursor=pointer]:
+                    - /url: /video/BV1R34y1Q7J4/?spm_id_from=333.788.recommend_more_video.12&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e413]: Ngana Rindu高级版
+                  - link "schei8e" [ref=e415] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1603908990/
+                    - img [ref=e416]
+                    - generic [ref=e417]: schei8e
+                  - generic [ref=e418]:
+                    - img [ref=e419]
+                    - text: 3200.3万
+                    - img [ref=e420]
+                    - text: 2.1万
+              - generic [ref=e422]:
+                - link [ref=e426] [cursor=pointer]:
+                  - /url: /video/BV1gC41177DP/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e427]:
+                  - link "为什么我的知更鸟放完大招唱Never Gonna Give you up" [ref=e428] [cursor=pointer]:
+                    - /url: /video/BV1gC41177DP/?spm_id_from=333.788.recommend_more_video.13&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e429]: 为什么我的知更鸟放完大招唱Never Gonna Give you up
+                  - link "芜狐狐_Official" [ref=e431] [cursor=pointer]:
+                    - /url: //space.bilibili.com/37874293/
+                    - img [ref=e432]
+                    - generic [ref=e433]: 芜狐狐_Official
+                  - generic [ref=e434]:
+                    - img [ref=e435]
+                    - text: 22.5万
+                    - img [ref=e436]
+                    - text: "103"
+              - generic [ref=e438]:
+                - link [ref=e442] [cursor=pointer]:
+                  - /url: /video/BV13S4y1E7ua/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e443]:
+                  - link "【你 被 骗 了】广东公共《DV现场》观众点歌 Never Gonna Give You Up（2022.7.19）" [ref=e444] [cursor=pointer]:
+                    - /url: /video/BV13S4y1E7ua/?spm_id_from=333.788.recommend_more_video.14&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e445]: 【你 被 骗 了】广东公共《DV现场》观众点歌 Never Gonna Give You Up（2022.7.19）
+                  - link "wxlys2000" [ref=e447] [cursor=pointer]:
+                    - /url: //space.bilibili.com/312791513/
+                    - img [ref=e448]
+                    - generic [ref=e449]: wxlys2000
+                  - generic [ref=e450]:
+                    - img [ref=e451]
+                    - text: 162.5万
+                    - img [ref=e452]
+                    - text: "952"
+              - generic [ref=e454]:
+                - link [ref=e458] [cursor=pointer]:
+                  - /url: /video/BV1dg4y1Z7B1/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e459]:
+                  - link "Josh Hutcherson Whistle.mp4" [ref=e460] [cursor=pointer]:
+                    - /url: /video/BV1dg4y1Z7B1/?spm_id_from=333.788.recommend_more_video.15&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e461]: Josh Hutcherson Whistle.mp4
+                  - link "WtfWasThat" [ref=e463] [cursor=pointer]:
+                    - /url: //space.bilibili.com/441145305/
+                    - img [ref=e464]
+                    - generic [ref=e465]: WtfWasThat
+                  - generic [ref=e466]:
+                    - img [ref=e467]
+                    - text: 319.0万
+                    - img [ref=e468]
+                    - text: "941"
+              - generic [ref=e470]:
+                - link [ref=e474] [cursor=pointer]:
+                  - /url: /video/BV1LJ411W7Bo/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e475]:
+                  - link "满级大佬屠杀新手村" [ref=e476] [cursor=pointer]:
+                    - /url: /video/BV1LJ411W7Bo/?spm_id_from=333.788.recommend_more_video.16&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e477]: 满级大佬屠杀新手村
+                  - link "Ueroey" [ref=e479] [cursor=pointer]:
+                    - /url: //space.bilibili.com/247412150/
+                    - img [ref=e480]
+                    - generic [ref=e481]: Ueroey
+                  - generic [ref=e482]:
+                    - img [ref=e483]
+                    - text: 6567.3万
+                    - img [ref=e484]
+                    - text: 15.0万
+              - generic [ref=e486]:
+                - link [ref=e490] [cursor=pointer]:
+                  - /url: /video/BV16o4y1k7gh/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e491]:
+                  - link "【官方】sakanaction（サカナクション) - 多分、風。" [ref=e492] [cursor=pointer]:
+                    - /url: /video/BV16o4y1k7gh/?spm_id_from=333.788.recommend_more_video.17&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e493]: 【官方】sakanaction（サカナクション) - 多分、風。
+                  - link "sakanaction鱼韵乐队" [ref=e495] [cursor=pointer]:
+                    - /url: //space.bilibili.com/1693810421/
+                    - img [ref=e496]
+                    - generic [ref=e497]: sakanaction鱼韵乐队
+                  - generic [ref=e498]:
+                    - img [ref=e499]
+                    - text: 610.6万
+                    - img [ref=e500]
+                    - text: 1.8万
+              - generic [ref=e502]:
+                - link [ref=e506] [cursor=pointer]:
+                  - /url: /video/BV1RN4y1n75t/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                - generic [ref=e507]:
+                  - 'link "奥斯卡金曲《That Girl/那个女孩》#车载音乐 #欧美音乐 #thatgirl" [ref=e508] [cursor=pointer]':
+                    - /url: /video/BV1RN4y1n75t/?spm_id_from=333.788.recommend_more_video.18&trackid=web_related_0.router-related-2589621-zbgqr.1780203197270.211
+                    - paragraph [ref=e509]: "奥斯卡金曲《That Girl/那个女孩》#车载音乐 #欧美音乐 #thatgirl"
+                  - link "夜店经典DJ" [ref=e511] [cursor=pointer]:
+                    - /url: //space.bilibili.com/243715263/
+                    - img [ref=e512]
+                    - generic [ref=e513]: 夜店经典DJ
+                  - generic [ref=e514]:
+                    - img [ref=e515]
+                    - text: 1458.7万
+                    - img [ref=e516]
+                    - text: 10.9万
+            - generic [ref=e517] [cursor=pointer]: 展开
+          - link "备升学、学技能、稳就业，职教成长一站搞定！" [ref=e519] [cursor=pointer]:
+            - /url: javascript:void(0);
+            - generic [ref=e520]: 备升学、学技能、稳就业，职教成长一站搞定！

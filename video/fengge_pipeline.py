@@ -34,13 +34,15 @@ UPLOAD_HISTORY_FILE = Path("/Users/kaikai/tiktok_automation/fengge_upload_histor
 LOCK_FILE = Path("/tmp/fengge_pipeline.lock")
 LOG_FILE = Path("/tmp/fengge_pipeline.log")
 
-SEARCH_KEYWORD = "峰哥直播切片"
-SEARCH_PAGES = 10
-RECENT_DAYS = 5
-TOP_CANDIDATES = 30
-WEIGHT_LIKE = 1
-WEIGHT_REPOST = 3
-WEIGHT_COIN = 2
+SEARCH_KEYWORDS = ["峰哥直播切片"]
+FILTER_KEYWORDS = ["峰哥", "VOL"]
+SEARCH_PAGES = 5
+RECENT_DAYS = 3
+TOP_CANDIDATES = 50
+# 热门加分：播放量门槛（低于此播放量不加分）
+HOT_VIEW_THRESHOLD = 1000
+# 发布时间衰减：每超3天分数打此系数
+RECENCY_DECAY_HALF_DAYS = 3.0
 
 # ═══════════════════════════════════════════════════════
 # 工具函数
@@ -151,90 +153,73 @@ _session.mount(
 # ═══════════════════════════════════════════════════════
 def _clean_title(title: str) -> str:
     """清理标题中的HTML实体和高亮标记"""
-    import html
-    # 先unescape HTML实体（会转 \u003C → <）
+    import html, re
+    # B站 search HTML uses JS unicode escapes like < for <
+    def js_unescape(s):
+        def repl(m):
+            try:
+                return chr(int(m.group(1), 16))
+            except:
+                return m.group(0)
+        return re.sub(r'\\u([0-9a-fA-F]{4})', repl, s)
+    title = js_unescape(title)
     title = html.unescape(title)
-    # 去掉B站搜索高亮标记
-    title = title.replace('<em class="keyword">', '')
-    title = title.replace('<em class=keyword>', '')
-    title = title.replace('<em class=\\"keyword\\">', '')
-    title = title.replace('</em>', '')
+    title = re.sub(r'<em\s+class="?keyword"?>', '', title)
+    title = re.sub(r'</em>', '', title)
     title = title.strip()
-    # 检测是否解析失败的损坏标题（残留 <em 或空/过短）
-    if '<em' in title or not title or len(title) < 5:
-        return None  # 上层会跳过
+    pat = r'<em|&lt;'
+    if re.search(pat, title) or not title or len(title) < 5:
+        return None
     return title
 
 
 def get_search_results(keyword: str, pages: int = 2) -> list[dict]:
     """
-    从Bilibili搜索页面HTML解析视频数据
+    从Bilibili搜索API获取视频数据
     """
-    import re
-
     all_results = []
     cutoff_ts = (datetime.now() - timedelta(days=RECENT_DAYS)).timestamp()
-
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer": "https://www.bilibili.com",
     }
     cookies = load_cookies()
 
-    keyword_enc = urllib.parse.quote(keyword)
-
     for page in range(1, pages + 1):
-        url = f"https://search.bilibili.com/video?keyword={keyword_enc}&order=pubdate&page={page}"
         try:
+            keyword_enc = urllib.parse.quote(keyword)
+            url = f"https://api.bilibili.com/x/web-interface/search/all/v2?keyword={keyword_enc}&page={page}&page_size=20"
             r = _session.get(url, headers=headers, cookies=cookies, timeout=15)
             if r.status_code != 200:
                 log(f"  第{page}页: HTTP {r.status_code}")
                 break
-
-            content = r.text
-
-            # 从HTML中提取所有BVID及其上下文（原始脚本方法）
-            bvid_matches = list(re.finditer(r'bvid:"(BV[\w]+)"', content))
-
-            page_recent = 0
-            for m in bvid_matches:
-                bv = m.group(1)
-                context = content[m.end():m.end() + 2000]
-
-                title_m = re.search(r',title:"([^"]+)"', context)
-                author_m = re.search(r',author:"([^"]+)"', context)
-                play_m = re.search(r'[,\s]play:(\d+)', context)
-                pubdate_m = re.search(r'[,}]pubdate:(\d+)', context)
-
-                if not (title_m and play_m and pubdate_m):
-                    continue
-
-                pubdate = int(pubdate_m.group(1))
-                if pubdate < cutoff_ts:
-                    continue
-
-                raw_title = title_m.group(1)
-                title = _clean_title(raw_title)
-                play = int(play_m.group(1))
-                author = author_m.group(1) if author_m else "未知"
-
-                # 过滤掉解析失败的损坏标题
-                if not title or len(title) < 5 or title.startswith('<em'):
-                    continue
-
-                all_results.append({
-                    "bvid": bv,
-                    "title": title,
-                    "author": author,
-                    "play": play,
-                    "pubdate": pubdate,
-                })
-                page_recent += 1
-
-            log(f"  第{page}页: 找到{page_recent}个近期视频")
+            data = r.json()
+            if data.get("code") != 0:
+                log(f"  第{page}页: API error {data.get('code')}")
+                break
+            page_results = []
+            for item in data.get('data', {}).get('result', []):
+                if item.get('result_type') == 'video':
+                    for v in item.get('data', []):
+                        pubdate = v.get('pubdate', 0)
+                        if pubdate < cutoff_ts:
+                            continue
+                        raw_title = v.get('title', '')
+                        title = _clean_title(raw_title)
+                        if not title or len(title) < 5:
+                            continue
+                        all_results.append({
+                            "bvid": v.get('bvid', ''),
+                            "title": title,
+                            "author": v.get('author', ''),
+                            "play": v.get('play', 0),
+                            "pubdate": pubdate,
+                        })
+                        page_results.append(v.get('bvid', ''))
+            log(f"  第{page}页: 找到{len(page_results)}个近期视频")
+            if not page_results:
+                break
             time.sleep(1.0)
-
         except Exception as e:
             log(f"  第{page}页请求失败: {e}")
             break
@@ -246,7 +231,7 @@ def get_search_results(keyword: str, pages: int = 2) -> list[dict]:
 # 视频数据
 # ═══════════════════════════════════════════════════════
 def get_video_info(bvid: str) -> dict:
-    """获取视频的正式标题和统计数据"""
+    """获取视频的正式标题、统计数据和封面"""
     try:
         cookies = load_cookies()
         headers = {
@@ -265,6 +250,7 @@ def get_video_info(bvid: str) -> dict:
         d = data.get("data", {})
         title = _clean_title(d.get("title", ""))
         stat = d.get("stat", {})
+        pic = d.get("pic", "")
 
         return {
             "title": title,
@@ -273,23 +259,38 @@ def get_video_info(bvid: str) -> dict:
                 "repost": stat.get("share", 0),
                 "coin": stat.get("coin", 0),
                 "view": stat.get("view", 0),
-            }
+            },
+            "cover_url": pic,
         }
     except Exception as e:
         log(f"    [API] 失败 {bvid}: {e}")
         return {}
 
 
-def score_video(stat: dict) -> float:
-    """计算视频评分：(点赞*1 + 转发*2 + 投币*3 + 收藏*4) / 播放量"""
+def score_video(stat: dict, pubdate: int = 0) -> float:
+    """Score video with hot boost and recency decay."""
     view = stat.get("view", 0)
     if view <= 0:
         return 0.0
-    score = (stat.get("like", 0) * 1 +
-             stat.get("repost", 0) * 2 +
-             stat.get("coin", 0) * 3 +
-             stat.get("favorite", 0) * 4) / view
-    return score
+    base = (stat.get("like", 0) * 1 +
+            stat.get("repost", 0) * 2 +
+            stat.get("coin", 0) * 3 +
+            stat.get("favorite", 0) * 4) / view
+
+    # 热门加分
+    if view > HOT_VIEW_THRESHOLD:
+        import math
+        hot_boost = math.pow(math.log10(view) / math.log10(HOT_VIEW_THRESHOLD), 0.5)
+        base *= hot_boost
+
+    # 时间衰减
+    if pubdate > 0:
+        import math
+        age_days = (time.time() - pubdate) / 86400
+        decay = math.pow(0.5, age_days / RECENCY_DECAY_HALF_DAYS)
+        base *= decay
+
+    return base
 
 
 # ═══════════════════════════════════════════════════════
@@ -306,7 +307,7 @@ def download_video(bvid: str, output_dir: Path) -> Path | None:
     cmd = [
         "/opt/homebrew/bin/yt-dlp",
         "--cookies", str(get_netscape_cookie_file()),
-        "-f", "bestvideo*+bestaudio/best",
+        "-f", "bestvideo[height>=1080]+bestaudio/bestvideo[height>=720]+bestaudio/best",
         "-o", str(output_file),
         f"https://www.bilibili.com/video/{bvid}"
     ]
@@ -436,7 +437,7 @@ def generate_desc_and_comment(title: str) -> tuple[str, str]:
 # ═══════════════════════════════════════════════════════
 # B站上传
 # ═══════════════════════════════════════════════════════
-def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21):
+def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21, cover_url: str = ""):
     """上传视频到B站，返回bvid或None"""
     video_path = Path(video_path)
     if not video_path.exists():
@@ -447,10 +448,23 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21):
         import asyncio
         from bilibili_api import Credential
         from bilibili_api.video_uploader import VideoUploader, VideoUploaderPage, VideoMeta, bvid2aid, Lines
-        from PIL import Image
+        import urllib.request
 
+        # 下载封面
         cover_path = Path("/tmp/fengge_upload_cover.png")
-        if not cover_path.exists():
+        if cover_url:
+            try:
+                log(f"  [上传] 下载封面: {cover_url}")
+                urllib.request.urlretrieve(cover_url, cover_path)
+                log(f"  [上传] 封面已下载: {cover_path}")
+            except Exception as e:
+                log(f"  [上传] 封面下载失败: {e}")
+                # 生成纯色封面
+                from PIL import Image
+                img = Image.new('RGB', (160, 90), color=(200, 0, 0))
+                img.save(cover_path)
+        else:
+            from PIL import Image
             img = Image.new('RGB', (160, 90), color=(200, 0, 0))
             img.save(cover_path)
 
@@ -476,7 +490,7 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21):
                 title=title,
                 description=desc
             )
-            uploader = VideoUploader(pages=[page], meta=meta, credential=cred, line=Lines.BDA2)
+            uploader = VideoUploader(pages=[page], meta=meta, credential=cred)
             ret = await uploader.start()
             return ret
 
@@ -554,11 +568,21 @@ def run_pipeline():
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. 搜索
-    log(f"[搜索] 搜索「{SEARCH_KEYWORD}」近{RECENT_DAYS}天视频...")
-    results = get_search_results(SEARCH_KEYWORD, pages=SEARCH_PAGES)
-    log(f"[搜索] 共找到 {len(results)} 个视频")
-    if not results:
+    # 2. 搜索（多关键词合并去重）
+    seen_bvids = set()
+    all_results = []
+    for kw in SEARCH_KEYWORDS:
+        log(f"[搜索] 搜索「{kw}」近{RECENT_DAYS}天视频...")
+        results = get_search_results(kw, pages=SEARCH_PAGES)
+        for v in results:
+            if v["bvid"] not in seen_bvids:
+                seen_bvids.add(v["bvid"])
+                all_results.append(v)
+        log(f"[搜索] 「{kw}」找到 {len(results)} 个视频（累计去重后: {len(all_results)}）")
+        time.sleep(1)
+
+    log(f"[搜索] 共找到 {len(all_results)} 个视频")
+    if not all_results:
         log("[搜索] 失败，退出")
         return
 
@@ -567,7 +591,7 @@ def run_pipeline():
     upload_history = load_upload_history()
     downloaded = set(history.keys())
     uploaded = set(upload_history.keys())
-    candidates = [v for v in results if v["bvid"] not in downloaded and v["bvid"] not in uploaded]
+    candidates = [v for v in all_results if v["bvid"] not in downloaded and v["bvid"] not in uploaded]
     log(f"[候选] {len(candidates)}个（已排除下载过{len(results)-len(candidates)-len(uploaded)}个 + 已上传{len(uploaded)}个）")
     if not candidates:
         log("[候选] 没有新视频，退出")
@@ -588,13 +612,16 @@ def run_pipeline():
 
         title = api_data.get("title", "")
         stats = api_data.get("stats", {})
-        # 过滤：标题必须存在且包含峰哥/VOL/【 之一（才是真正的直播切片）
-        if not title or not any(kw in title for kw in ["峰哥", "VOL", "【"]):
+        cover_url = api_data.get("cover_url", "")
+        # 过滤：标题必须存在且包含目标关键词之一（才是真正的直播切片）
+        if not title or not any(kw in title for kw in FILTER_KEYWORDS):
             skip_title = title or "(空)"
             log(f"  [{v['bvid']}] 非直播切片/标题损坏，跳过: {skip_title}")
             continue
         v["title"] = title  # 用API返回的干净标题替换搜索阶段的损坏标题
-        score = score_video(stats)
+        v["cover_url"] = cover_url
+        pubdate = v.get("pubdate", 0)
+        score = score_video(stats, pubdate)
         v["stats"] = stats
         v["score"] = score
         scored.append(v)
@@ -661,7 +688,7 @@ def run_pipeline():
 
     # 12. 上传
     log("[上传] 开始上传...")
-    upload_result = biliup_upload(str(upload_file), title_text, desc_text)
+    upload_result = biliup_upload(str(upload_file), title_text, desc_text, cover_url=chosen.get("cover_url", ""))
     upload_bvid = upload_result if isinstance(upload_result, str) else None
     log(f"[上传] 结果: {upload_result}")
 
