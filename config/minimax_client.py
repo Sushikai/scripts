@@ -82,6 +82,12 @@ class MiniMaxClient:
                 # 清理可能残留的thinking痕迹和空行
                 text = re.sub(r'\n+', '', text)
                 text = re.sub(r'^[\s\W]+', '', text)
+                # 过滤 prompt reflection（模型把提示词当内容返回）
+                if any(text.startswith(p) for p in [
+                    "好的，我现在需要", "用户要求我", "我是一个", "你是一个",
+                    "主题是", "要求非常", "【要求", "任务要求",
+                ]):
+                    continue
                 if len(text) >= 80:
                     return text
             except Exception:

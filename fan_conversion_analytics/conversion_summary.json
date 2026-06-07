@@ -1,15 +1,15 @@
 {
-  "date": "2026-05-31",
-  "timestamp": "2026-05-31T20:26:09.257647",
+  "date": "2026-06-07",
+  "timestamp": "2026-06-07T20:51:40.708122",
   "current_followers": 0,
   "new_followers": 0,
-  "total_actions": 1355,
+  "total_actions": 2929,
   "total_converted": 0,
   "overall_conversion_rate": 0.0,
   "per_script": {
     "fan_hunter": {
-      "actions": 1169,
-      "acted_users": 486,
+      "actions": 2709,
+      "acted_users": 1243,
       "converted": 0,
       "conversion_rate": 0.0,
       "avg_follow_days": 0
@@ -22,8 +22,8 @@
       "avg_follow_days": 0
     },
     "reply_v17": {
-      "actions": 186,
-      "acted_users": 48,
+      "actions": 220,
+      "acted_users": 61,
       "converted": 0,
       "conversion_rate": 0.0,
       "avg_follow_days": 0

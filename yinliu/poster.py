@@ -117,7 +117,7 @@ for acc in ACCOUNTS:
     print(f"\n[{acc['name']}] 开始处理，还剩 {len(new_videos)} 个视频待发评论")
     for bvid in new_videos:
         count = get_reply_count(acc["session"], bvid, acc["cookies"])
-        if count == 0:
+        if count >= 0:  # 发所有未回复过的视频（count=-1表示API异常也跳过，避免误发）
             comment = random.choice(COMMENTS)
             if send_comment(acc["session"], bvid, comment, acc["bili_jct"], acc["cookies"]):
                 acc["replied"].add(bvid)

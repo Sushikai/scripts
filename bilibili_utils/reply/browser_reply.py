@@ -130,14 +130,14 @@ signal.alarm(280)
 def load_cookies():
     """Load cookies as list of dicts for Playwright. Supports both JSON and Netscape formats."""
     try:
-        with open(COOKIES_FILE) as f:
+        with open(COOKIES_FILE, encoding="utf-8") as f:
             first_line = f.readline().strip()
 
         if first_line.startswith("# Netscape") or first_line.startswith("#HTTP"):
             # Netscape format - parse as dict for httpx, return list for playwright
             cookies_dict = {}
             cookies_list = []
-            with open(COOKIES_FILE) as f:
+            with open(COOKIES_FILE, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):
@@ -154,8 +154,8 @@ def load_cookies():
             return cookies_list, cookies_dict
         else:
             # JSON format
-            f.seek(0)
-            data = json.load(f)
+            with open(COOKIES_FILE, encoding="utf-8") as f:
+                data = json.load(f)
             if isinstance(data, list):
                 cookies = data
             elif isinstance(data, dict):

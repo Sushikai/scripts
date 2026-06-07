@@ -2,6 +2,8 @@
 B站 Cookie 加载工具
 统一所有 B站相关脚本的 cookie 加载逻辑
 """
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Optional

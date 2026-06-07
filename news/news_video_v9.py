@@ -45,7 +45,7 @@ def _get_session() -> requests.Session:
 OUTPUT_DIR = Path("/Users/kaikai/ai_video_project/news_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 CHANNEL_NAME = "20岁还没开始环球旅行"
-_TOPIC_SCRIPTS_CACHE = None
+_TOPIC_SCRIPTS_CACHE = {}
 _WHISPER_MODEL = None
 _WHISPER_MODEL_LOCK = threading.Lock()
 HEADERS = {
@@ -229,7 +229,7 @@ def get_hot_topics_v9(num: int = 20) -> list:
         log(f"  ⚠️ 话题不足10条，仅 {len(diversified)} 条")
 
     log(f"  选题去重后: {len(diversified)}条")
-    return diversified[:num]
+    return diversified[:int(num) if num else 20]
 
 
 def _fetch_bing_news(topic: str) -> str:
@@ -261,23 +261,52 @@ def _fetch_bing_news(topic: str) -> str:
     return ""
 
 
-def _call_minimax_script(topic: str, index: int) -> str:
+def _call_ollama_script(topic: str, index: int) -> str:
     """v9 专用脚本生成：叙事散文风格，180-220字，5.6字/秒"""
-    prompt = f"""你是一个有10年经验的B站口播博主，专做热点新闻信息差，风格诙谐幽默。
+    import requests
+    prompt = f"""【要求】你是一个有10年经验的B站口播博主，专做热点新闻信息差，风格诙谐幽默。
+围绕话题「{topic}」写一段180-220字的口播文案。
 
-请围绕话题「{topic}」写一段180-220字的口播文案。
-
-要求（极其重要）：
+【格式要求】（极其重要，严格遵守）：
 1. 开头必须有强钩子！用意外、震惊、反差的方式切入
 2. 像叙事散文一样娓娓道来，用「第一，」「第二，」「第三，」过渡（数字也算时间）
 3. 内容要有具体数字、排名、百分比，数据越精确越好
 4. 用口语短句，每句不超过12字，节奏快
 5. 可以用"诶"、"卧槽"、"真的假的"增加幽默感
-6. 避免：据悉、数据显示、首先其次最后、郑重声明、官话套话
-7. 内容要有信息增量，你知道的别人不知道，或者别人知道但理解错了
-8. 直接输出文案，一气呵成，不要前缀不要注释不要空行
+6. 禁止使用：据悉、数据显示、首先其次最后、郑重声明、官话套话
+7. 内容要有信息增量，你知道的别人不知道
+8. 【直接输出文案正文】，不要前缀、不要注释、不要空行、不要思考过程、不要任务说明
 
-口播文案："""
+【输出】"""
+    try:
+        resp = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "qwen2.5:32b-instruct-q4_K_M", "prompt": prompt, "stream": False, "options": {"num_predict": 500, "temperature": 0.8, "num_ctx": 8192}},
+            timeout=300
+        )
+        if resp.status_code == 200:
+            result = resp.json().get("response", "").strip()
+            # 过滤可能存在的 thinking 残留
+            result = re.sub(r'\[.*?\]', '', result)
+            result = re.sub(r'思考.*?：', '', result)
+            result = re.sub(r'任务要求.*?\n', '', result)
+            result = re.sub(r'【要求】.*?\n', '', result)
+            result = re.sub(r'【格式要求】.*?\n', '', result)
+            result = re.sub(r'【输出】.*?\n', '', result)
+            result = re.sub(r'分析.*?\n', '', result)
+            result = re.sub(r'^.*?】', '', result)
+            result = re.sub(r'^.*?：', '', result)
+            result = re.sub(r'```+[\s\S]*?```+', '', result)
+            result = result.strip()
+            if 30 <= len(result) <= 500:
+                return result
+    except Exception:
+        pass
+    return ""
+
+
+def _call_minimax_script(topic: str, index: int) -> str:
+    """v9 MiniMax API 调用（已弃用，保留兼容）"""
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from config.minimax_client import MiniMaxClient
@@ -292,14 +321,19 @@ def _call_minimax_script(topic: str, index: int) -> str:
 def generate_script_v9(topic: str, index: int) -> str:
     """
     v9 文案生成：
-    强制调用 MiniMax API 生成 180-220 字叙事散文风格脚本
-    失败则 Bing 新闻搜索兜底
+    优先 Ollama 本地模型 → MiniMax API → Bing 新闻搜索兜底 → 话题本身
     """
     global _TOPIC_SCRIPTS_CACHE
 
-    log(f"  🤖 MiniMax脚本[{index+1}]: {topic[:20]}...")
+    log(f"  🤖 本地模型生成[{index+1}]: {topic[:20]}...")
+    script = _call_ollama_script(topic, index)
+    if script and len(script) >= 30:
+        _TOPIC_SCRIPTS_CACHE[topic] = script
+        return script
+
+    log(f"  🔥 MiniMax API 兜底: {topic[:20]}...")
     script = _call_minimax_script(topic, index)
-    if script and len(script) >= 10:
+    if script and len(script) >= 30:
         _TOPIC_SCRIPTS_CACHE[topic] = script
         return script
 
@@ -383,20 +417,25 @@ def download_bilibili_video(bvid: str, output_path: str, clip_dur: float = None)
 
 _XTTS_MODEL = None
 _XTTS_DEVICE = None
+_XTTS_LOCK = threading.Lock()
+_TTS_INFERENCE_LOCK = threading.Lock()  # 全局TTS推理锁，防止并发XTTS导致内存爆炸
 
 def _get_xtts_model():
     global _XTTS_MODEL, _XTTS_DEVICE
     if _XTTS_MODEL is not None:
         return _XTTS_MODEL
-    import torch
-    _XTTS_DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
-    os.environ["COQUI_TOS_AGREED"] = "1"
-    from TTS.api import TTS
-    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
-    tts.to(_XTTS_DEVICE)
-    _XTTS_MODEL = tts
-    log(f"  🤖 XTTS模型已加载，设备: {_XTTS_DEVICE}")
-    return tts
+    with _XTTS_LOCK:
+        if _XTTS_MODEL is not None:
+            return _XTTS_MODEL
+        import torch
+        _XTTS_DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+        os.environ["COQUI_TOS_AGREED"] = "1"
+        from TTS.api import TTS
+        tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+        tts.to(_XTTS_DEVICE)
+        _XTTS_MODEL = tts
+        log(f"  🤖 XTTS模型已加载，设备: {_XTTS_DEVICE}")
+        return tts
 
 def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
     ref_audio = VOICE_CLONE_REF_AUDIO
@@ -404,7 +443,8 @@ def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
         log(f"  ⚠️ 参考音频不存在: {ref_audio}")
         return False
 
-    work_dir = f"/tmp/xtts_clone_{TASK_ID}"
+    work_dir = f"/tmp/xtts_clone_{TASK_ID}_{index}"
+    os.makedirs(work_dir, exist_ok=True)
     os.makedirs(work_dir, exist_ok=True)
 
     ref_wav = f"{work_dir}/ref.wav"
@@ -428,14 +468,15 @@ def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
         def _tts_worker():
             try:
                 tts = _get_xtts_model()
-                result[0] = tts.tts(text=script, speaker_wav=ref_wav, language='zh-cn')
+                with _TTS_INFERENCE_LOCK:
+                    result[0] = tts.tts(text=script, speaker_wav=ref_wav, language='zh-cn')
             except Exception as e:
                 error[0] = e
 
         t = threading.Thread(target=_tts_worker)
         t.daemon = True
         t.start()
-        t.join(timeout=120)
+        t.join(timeout=300)
         if t.is_alive():
             log(f"  ⚠️ XTTS第{index+1}条超时，跳过")
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -865,7 +906,7 @@ def burn_subtitle_pil(video_path: str, srt_path: str, output_path: str, clip_dur
 def verify_subtitles_burned(video_path: str) -> bool:
     import numpy as np
     from PIL import Image
-    for t in [5, 15, 25]:
+    for t in [2, 8, 15, 25, 40, 50, 60]:
         frame_path = f"/tmp/sub_check_{uuid.uuid4().hex[:6]}.jpg"
         r = subprocess.run([
             "ffmpeg", "-y", "-ss", str(t), "-i", video_path,
@@ -876,10 +917,11 @@ def verify_subtitles_burned(video_path: str) -> bool:
         img = Image.open(frame_path)
         arr = np.array(img)
         h, w = arr.shape[:2]
-        bottom = arr[int(h * 0.75):, :, :]
-        brightness = bottom.mean()
+        # 检查字幕区域（y=780-950）的亮度
+        sub_region = arr[int(h * 0.72):int(h * 0.88), :, :]
+        brightness = sub_region.mean()
         os.remove(frame_path)
-        if brightness > 20:
+        if brightness > 8:
             return True
     return False
 
@@ -1021,7 +1063,7 @@ def main(date_str: str = "today"):
              "-of", "default=noprint_wrappers=1:nokey=1", cached_audio],
             capture_output=True, text=True, timeout=5
         ).stdout.strip() or 20)
-        if audio_dur < 5:
+        if audio_dur <= 0:
             log(f"  ⚠️ 第{i+1}条音频{audio_dur:.1f}秒太短，跳过")
             return None
 
@@ -1051,10 +1093,10 @@ def main(date_str: str = "today"):
         srt_path = str(OUTPUT_DIR / f"v9_sub_{sid}.srt")
         generate_srt_from_audio(cached_audio, srt_path, i, script)
 
-        return (i, topic, cached_audio, srt_path, bg_video_path, bv_id, audio_dur)
+        return (i, topic, cached_audio, srt_path, bg_video_path, audio_dur, bv_id, 0.0)
 
     segments = []
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(process_topic, (i, item)): i for i, item in enumerate(topics)}
         for future in as_completed(futures):
             idx = futures[future]
@@ -1073,11 +1115,15 @@ def main(date_str: str = "today"):
         log("❌ 没有可用片段")
         return
 
-    log(f"\n  有效片段: {len(segments)}")
+    log(f"\n  有效片段: {len(segments)}"); import sys; sys.stdout.flush()
 
     # ── Step 3: 烧录字幕 ─────────────────────────────────────────────
     def _process_single_clip(args):
         i, topic, audio, srt, bg, dur, seg_idx, video_offset = args
+        dur = dur or 0
+        if dur <= 0:
+            log(f"  ⚠️ 第{i+1}条 dur={dur}，跳过")
+            return None
         sid = f"{TASK_ID}_{i}"
         clip_path = str(OUTPUT_DIR / f"v9_clip_{sid}.mp4")
         cropped_bg = str(OUTPUT_DIR / f"v9_crop_{sid}.mp4")
@@ -1131,16 +1177,17 @@ def main(date_str: str = "today"):
     clip_durations = []
 
     total_segs = len(segments)
-    video_total_dur = sum(dur for _, _, _, _, _, _, dur in segments)
+    video_total_dur = sum(dur or 0 for _, _, _, _, _, _, _, dur in segments)
 
     all_topics = []
     cur_ts = 0.0
-    for (_, topic, _, _, _, _, dur) in segments:
+    for (_, topic, _, _, _, _, dur, _) in segments:
+        dur = dur or 0
         all_topics.append((topic, cur_ts, cur_ts + dur))
         cur_ts += dur
 
     tasks = []
-    for seg_i, (orig_idx, topic, audio, srt, bg, bv, dur) in enumerate(segments):
+    for seg_i, (orig_idx, topic, audio, srt, bg, dur, _, _) in enumerate(segments):
         if bg and os.path.exists(bg) and os.path.getsize(bg) > 5000:
             offset = 0.0
             for (t_topic, t_start, t_end) in all_topics:
@@ -1305,6 +1352,7 @@ if __name__ == "__main__":
         sessdata=_cookies['SESSDATA'],
         bili_jct=_cookies['bili_jct'],
         buvid3=_cookies['buvid3'],
+        bili_ticket=_cookies.get('bili_ticket', ''),
     )
 
     _top_topic = _clip_durations[0][0] if _clip_durations else "今日热点速递"

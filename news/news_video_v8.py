@@ -141,102 +141,185 @@ def verify_video_has_frames(path: str) -> bool:
     return False
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 解法3: 扩展选题 → 4数据源 = 目标15+条不重复话题
 # ══════════════════════════════════════════════════════════════════════════════
+# 数据源配置（写入文件顶部import之后）
+# ══════════════════════════════════════════════════════════════════════════════
+import concurrent.futures, datetime as _dt
 
-def get_hot_topics_v8(num: int = 20) -> list:
-    """
-    解法3-全: 抖音+微博+知乎+百度+微博要闻 = 目标15+条不重复话题
-    """
-    topics = []
-    seen_keys = set()  # 用完整话题字符串去重
+_TOPIC_CACHE_FILE = "/tmp/news_topic_cache.json"
+_TOPIC_CACHE_TTL = 86400
 
-    # ── 数据源1: 抖音热搜（实测可访问）────────────────────────────────
+# ── 独立数据源抓取函数 ────────────────────────────────────────────────────
+
+def _fetch_36kr() -> list:
+    """36氪快讯"""
+    try:
+        r = _get_session().get("https://36kr.com/newsflashes", timeout=8)
+        import re
+        items = re.findall(r'<a[^>]*href="/p/\d+"[^>]*>([^<]{5,60})</a>', r.text)
+        return [t.strip() for t in items[:12]]
+    except:
+        return []
+
+def _fetch_bbc_rss() -> list:
+    """BBC News RSS（国际新闻兜底）"""
+    try:
+        r = _get_session().get("https://feeds.bbci.co.uk/news/rss.xml", timeout=8)
+        import re
+        items = re.findall(r'<title><!\[CDATA\[([^\]]+)\]\]></title>', r.text)
+        return [re.sub(r'<[^>]+>', '', t).strip() for t in items[1:16]]
+    except:
+        return []
+
+def _fetch_huxiu() -> list:
+    """虎嗅头条"""
     try:
         r = _get_session().get(
-            "https://www.iesdouyin.com/aweme/v1/hot/search/list/",
-            headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)"},
+            "https://api.huxiu.com/v1/article/list?platform=pc&page=1&tag_id=&node_id=",
             timeout=8
         )
         if r.status_code == 200:
-            word_list = r.json().get("data", {}).get("word_list", [])
-            for item in word_list[:num]:
-                word = item.get("word", "")
-                hot_val = item.get("hot_value", "")
-                if word and len(word) >= 3:
-                    key = word  # 用完整话题字符串去重，不用前8字
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        topics.append({"topic": word, "source": "抖音热搜", "hot": hot_val})
-            log(f"  抖音热搜: {len(word_list)}条")
-    except Exception as e:
-        log(f"  ⚠️ 抖音热搜: {e}")
+            return [item.get("title","") for item in r.json().get("data",{}).get("list",[])[:12]]
+        return []
+    except:
+        return []
 
-    # ── 数据源2: 微博热搜（备用）─────────────────────────────────────
+def _fetch_bilibili() -> list:
+    """B站综合热门"""
+    try:
+        r = _get_session().get("https://api.bilibili.com/x/web-interface/ranking/v2?rid=0", timeout=8)
+        if r.status_code == 200 and r.json().get("code") == 0:
+            items = r.json().get("data", {}).get("list", [])[:15]
+            return [i.get("title","").replace("<em>","").replace("</em>","") for i in items if i.get("title")]
+        return []
+    except:
+        return []
+
+def _fetch_weibo() -> list:
+    """微博热搜（Cookie-Free）"""
     try:
         r = _get_session().get(
             "https://weibo.com/ajax/side/hotSearch",
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=8
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", "Referer": "https://weibo.com"},
+            timeout=8
         )
         if r.status_code == 200:
-            band_list = r.json().get("data", {}).get("band_list", [])
-            for item in band_list[:num]:
-                word = item.get("word", "")
-                if word and len(word) >= 3:
-                    key = word
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        topics.append({"topic": word, "source": "微博热搜"})
-    except Exception as e:
-        log(f"  ⚠️ 微博热搜: {e}")
+            return [i.get("word","") for i in r.json().get("data",{}).get("band_list",[]) if i.get("word")]
+        return []
+    except:
+        return []
 
-    # ── 数据源3: 知乎热榜（备用）─────────────────────────────────────
+def _fetch_baidu_html() -> list:
+    """百度热搜（HTML解析）"""
     try:
         r = _get_session().get(
-            "https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total",
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=8
+            "https://top.baidu.com/board/49168",
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            timeout=8
         )
+        import re
         if r.status_code == 200:
-            for item in r.json().get("data", [])[:num]:
-                title = item.get("target", {}).get("title", "")
-                if title and len(title) >= 4:
-                    key = title
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        topics.append({"topic": title, "source": "知乎热榜"})
-    except Exception as e:
-        log(f"  ⚠️ 知乎热搜: {e}")
+            items = re.findall(r'class="c-single-text-ellipsis">([^<]+)<', r.text)
+            return [t.strip()[:30] for t in items[:12] if t.strip()]
+        return []
+    except:
+        return []
 
-    # ── 数据源4: 百度实时（备用）─────────────────────────────────────
+def _save_topic_cache(topics: list):
     try:
-        r = _get_session().get(
-            "https://top.baidu.com/api?get=news&flag=1",
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=8
-        )
-        if r.status_code == 200:
-            news_list = r.json().get("data", {}).get("newsList", [])
-            for item in news_list[:num//2]:
-                word = item.get("word", "")
-                if word and len(word) >= 3:
-                    key = word
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        topics.append({"topic": word, "source": "百度实时"})
+        with open(_TOPIC_CACHE_FILE, "w") as f:
+            json.dump({"topics": topics, "timestamp": time.time()}, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+def _load_topic_cache() -> list:
+    try:
+        if not os.path.exists(_TOPIC_CACHE_FILE):
+            return []
+        data = json.loads(open(_TOPIC_CACHE_FILE).read())
+        if time.time() - data.get("timestamp", 0) > _TOPIC_CACHE_TTL:
+            return []
+        return data.get("topics", [])
+    except:
+        return []
+
+# ── 话题抓取主函数 ────────────────────────────────────────────────────────
+
+def get_hot_topics_v8(num: int = 20) -> list:
+    """
+    多数据源并行 → 合并去重 → 缓存兜底 → 固定话题池最终保底
+    实测可访问：36氪、虎嗅、B站、微博、百度、BBC RSS
+    """
+    topics = []
+    seen = set()
+
+    def add_topic(word: str, source: str):
+        if word and len(word) >= 4 and word not in seen:
+            seen.add(word)
+            topics.append({"topic": word, "source": source})
+
+    # 并行抓取
+    fetchers = [
+        ("36氪",   _fetch_36kr),
+        ("BBC RSS", _fetch_bbc_rss),
+        ("虎嗅",   _fetch_huxiu),
+        ("B站",    _fetch_bilibili),
+        ("微博",   _fetch_weibo),
+        ("百度",   _fetch_baidu_html),
+    ]
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+            futures = {ex.submit(fn): name for name, fn in fetchers}
+            for f in concurrent.futures.as_completed(futures, timeout=20):
+                name = futures[f]
+                try:
+                    results = f.result()
+                    if results:
+                        for r in results:
+                            add_topic(r, name)
+                except Exception as e:
+                    log(f"  ⚠️ {name} 异常: {e}")
     except Exception as e:
-        log(f"  ⚠️ 百度实时: {e}")
+        log(f"  ⚠️ 并行抓取异常: {e}")
 
-    # ── 抖音优先排序 ─────────────────────────────────
-    # 抖音12条，百度8条，微博/知乎各5条，按来源 + 顺序保留
-    douyin = [t for t in topics if t.get("source") == "抖音热搜"][:12]
-    baidu = [t for t in topics if t.get("source") == "百度实时"][:8]
-    others = [t for t in topics if t.get("source") not in ("抖音热搜", "百度实时")][:5]
-    diversified = douyin + baidu + others
+    log(f"  抓取结果: {len(topics)}条 (来自 {[t['source'] for t in topics]})")
 
-    if len(diversified) < 10:
-        log(f"  ⚠️ 话题不足10条，仅 {len(diversified)} 条")
+    # 缓存兜底
+    if len(topics) >= 8:
+        _save_topic_cache(topics)
+        return topics[:num]
 
-    log(f"  选题去重后: {len(diversified)}条")
-    return diversified[:num]
+    cached = _load_topic_cache()
+    if cached:
+        for t in cached:
+            if len(topics) >= num:
+                break
+            add_topic(t["topic"] if isinstance(t, dict) else t, "缓存")
+        log(f"  缓存补充: {len(topics)}条")
+
+    # 固定话题池最终保底
+    if len(topics) < 8:
+        log(f"  ⚠️ 话题不足({len(topics)}条)，固定话题池兜底")
+        fixed = [
+            "年轻人生活方式改变趋势","AI技术落地应用场景","就业市场变化分析",
+            "房地产市场最新动态","教育改革热点话题","消费趋势转型升级",
+            "科技发展对社会影响","社会热点事件解读","文化现象深度分析",
+            "数字经济发展机遇","环境保护行动进展","人口结构变化应对",
+            "医疗健康领域创新","创业投资环境变化","国际关系最新走向",
+            "国产替代进程加速","新能源汽车市场格局","人工智能伦理讨论",
+            "乡村振新战略实施","直播电商发展趋势",
+        ]
+        hour = _dt.datetime.now().hour
+        pool = fixed[hour % len(fixed):] + fixed[:hour % len(fixed)]
+        for t in pool[:12]:
+            add_topic(t, "固定话题池")
+        _save_topic_cache(topics)
+
+    log(f"  最终选题: {len(topics)}条")
+    return topics[:num]
+
+
 
 def _get_whisper_model():
     """全局单例 WhisperModel，避免每次字幕都重新加载（启动慢约10秒）"""
@@ -526,10 +609,10 @@ def generate_tts_clone(script: str, output_path: str, index: int) -> bool:
         t = threading.Thread(target=_tts_worker)
         t.daemon = True
         t.start()
-        t.join(timeout=120)
+        t.join(timeout=300)
         if t.is_alive():
             # XTTS挂死，杀掉进程
-            log(f"  ⚠️ XTTS第{index+1}条超时(10s)，跳过")
+            log(f"  ⚠️ XTTS第{index+1}条超时(300s)，跳过")
             shutil.rmtree(work_dir, ignore_errors=True)
             return False
         if error[0]:
@@ -1467,7 +1550,7 @@ if __name__ == "__main__":
     _TASK_ID = uuid.uuid4().hex[:8]
     # 动态生成标题：日期 + 最具争议性话题
     _top_topic = _clip_durations[0][0] if _clip_durations else "今日热点速递"
-    _time_mark = "早差" if _dt.now().hour < 12 else "晚差"
+    _time_mark = "早差" if datetime.now().hour < 12 else "晚差"
     _title = f"【{_time_mark}信息差】{date_short}：{_top_topic}…今日热点速递"
 
     # ── Step 10.5: 上传前去重检查 ─────────────────────────────────

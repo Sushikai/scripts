@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 os.environ["PATH"] = "/Users/kaikai/bin:" + os.environ.get("PATH", "")
 
+import asyncio
 import fcntl
 import json
 import random
@@ -35,10 +36,14 @@ from urllib3.util.retry import Retry
 # 配置
 # ═══════════════════════════════════════════════════════
 SEARCH_KEYWORDS = [
-    "AI story short film",
-    "AI generated story narrative",
-    "AI storyteller emotional",
-    "artificial intelligence story",
+    "cute pets viral",
+    "satisfying video",
+    "cozy vlog aesthetic",
+    "funny cat compilation",
+    "satisfying ASMR building",
+    "room transformation",
+    "pet reaction hilarious",
+    "satisfying cleaning",
 ]
 SEARCH_PAGES = 3
 RECENT_DAYS = 7
@@ -59,6 +64,321 @@ DOUYIN_UPLOAD_SCRIPT = Path("/Users/kaikai/ai_video_upload/douyin_upload.py")
 WEIGHT_LIKE = 1
 WEIGHT_REPOST = 3
 WEIGHT_COIN = 2
+
+# ═══════════════════════════════════════════════════════
+# 字幕烧录
+# ═══════════════════════════════════════════════════════
+_SUBTITLE_MODEL = None
+_SUBTITLE_LOCK = None
+
+def _get_whisper_model():
+    global _SUBTITLE_MODEL, _SUBTITLE_LOCK
+    if _SUBTITLE_MODEL is None:
+        import threading
+        _SUBTITLE_LOCK = threading.Lock()
+        with _SUBTITLE_LOCK:
+            if _SUBTITLE_MODEL is None:
+                from faster_whisper import WhisperModel
+                _SUBTITLE_MODEL = WhisperModel("small", device="cpu", compute_type="int8")
+    return _SUBTITLE_MODEL
+
+def _extract_audio_for_subtitle(video_path: Path, audio_path: Path) -> bool:
+    result = subprocess.run([
+        "ffmpeg", "-y", "-i", str(video_path),
+        "-vn", "-acodec", "libmp3lame", "-ab", "128k",
+        str(audio_path)
+    ], capture_output=True, text=True, timeout=120)
+    return result.returncode == 0
+
+def _generate_srt_from_audio(audio_path: Path, srt_path: Path) -> bool:
+    try:
+        model = _get_whisper_model()
+        segments, _ = model.transcribe(str(audio_path), language="en", beam_size=5)
+        with open(srt_path, "w", encoding="utf-8") as f:
+            for i, seg in enumerate(segments):
+                start, end, text = seg.start, seg.end, seg.text.strip()
+                if not text:
+                    continue
+                def fmt(t):
+                    h, ms = divmod(t, 3600)
+                    m, s = divmod(ms, 60)
+                    sec, mil = divmod(s, 1)
+                    return f"{int(h):02d}:{int(m):02d}:{int(sec):02d},{int(mil*1000):03d}"
+                f.write(f"{i+1}\n{fmt(start)} --> {fmt(end)}\n{text}\n\n")
+        return True
+    except Exception as e:
+        log(f"  [字幕] Whisper: {e}")
+        return False
+
+def _translate_srt_to_chinese(srt_path: Path) -> bool:
+    """将英文字幕翻译成中文并覆盖原SRT"""
+    try:
+        from llm_utils import call_ollama
+
+        with open(srt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # 分割SRT逐块翻译，避免内容太长
+        blocks = content.strip().split("\n\n")
+        translated_blocks = []
+
+        for block in blocks:
+            lines = block.strip().split("\n")
+            if len(lines) < 2:
+                continue
+
+            # 检查是否是有效的字幕块（第一行是数字）
+            if lines[0].strip().isdigit():
+                idx = lines[0]
+                timestamp = lines[1]
+                text = "\n".join(lines[2:])
+
+                if text.strip():
+                    # 翻译文本 - 更强的prompt
+                    prompt = text
+                    translated_text = call_ollama(
+                        prompt,
+                        system="You are a translator. Translate the following English text to Chinese. Output ONLY the Chinese translation, nothing else. Do not explain, do not add quotes."
+                    )
+                    if translated_text and len(translated_text) > 3:
+                        # 清理可能的引号和多余空白
+                        translated_text = translated_text.strip().strip('"\'')
+                        translated_blocks.append(f"{idx}\n{timestamp}\n{translated_text}")
+                    else:
+                        translated_blocks.append(f"{idx}\n{timestamp}\n{text}")
+            else:
+                # 非字幕行保留原样
+                translated_blocks.append(block)
+
+        result = "\n\n".join(translated_blocks) + "\n"
+
+        if result and len(result) > 20:
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(result)
+            log("[字幕] 翻译完成 (EN→ZH)")
+            return True
+        else:
+            log(f"[字幕] 翻译结果异常，保留英文")
+            return False
+    except Exception as e:
+        log(f"  [字幕] 翻译异常: {e}")
+        return False
+
+def _is_chinese_srt(srt_path: Path) -> bool:
+    """判断SRT文件是否包含中文字符"""
+    try:
+        import re
+        with open(srt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # 统计中文字符数量
+        chinese_chars = re.findall(r'[一-鿿]', content)
+        return len(chinese_chars) > 10
+    except Exception:
+        return False
+
+def _burn_subtitle(video_path: Path, srt_path: Path, output_path: Path) -> bool:
+    """用ffmpeg subtitles滤镜烧录SRT（保留原音频），失败则回退到OpenCV"""
+    # 优先用ffmpeg subtitles滤镜（音频自动保留）
+    srt_escaped = str(srt_path).replace("'", "'\\''")
+    result = subprocess.run([
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-vf", f"subtitles='{srt_escaped}':fontsdir=/System/Library/Fonts",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac",
+        str(output_path)
+    ], capture_output=True, text=True, timeout=600)
+
+    if result.returncode == 0 and output_path.exists():
+        return True
+
+    log(f"  [字幕] ffmpeg subtitles失败({result.returncode})，回退到OpenCV: {result.stderr[-100:]}")
+    return _burn_subtitle_cv2(video_path, srt_path, output_path)
+
+
+def _burn_subtitle_cv2(video_path: Path, srt_path: Path, output_path: Path) -> bool:
+    """用OpenCV逐帧烧录SRT字幕（无音频，需外部合并）"""
+    try:
+        import cv2
+        with open(srt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        def parse_t(t):
+            t = t.strip().replace(",", ".")
+            hms, ms = t.split(".")
+            h, m, s = hms.split(":")
+            return float(h)*3600 + float(m)*60 + float(s) + float(ms)/1000
+
+        subs = []
+        for block in re.split(r"\n\n+", content.strip()):
+            lines = block.strip().split("\n")
+            if len(lines) < 3:
+                continue
+            times = lines[1].split(" --> ")
+            if len(times) != 2:
+                continue
+            start = parse_t(times[0])
+            end = parse_t(times[1])
+            text = "\n".join(lines[2:])
+            if text:
+                subs.append((start, end, text))
+
+        if not subs:
+            return False
+
+        cap = cv2.VideoCapture(str(video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        fourcc = cv2.VideoWriter_fourcc(*'H264')
+        out = cv2.VideoWriter(str(output_path), fourcc, fps, (w, h))
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = w / 1920 * 0.8
+        thickness = max(1, int(w / 1920 * 2))
+        margin = int(w * 0.02)
+        bg_height = int(h * 0.09)
+
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            t = frame_idx / fps
+
+            active = None
+            for s, e, txt in subs:
+                if s <= t < e:
+                    active = txt
+                    break
+
+            if active is not None:
+                bar_y = h - bg_height
+                cv2.rectangle(frame, (0, bar_y), (w, h), (0, 0, 0), -1)
+                max_chars = max(10, int(w / (font_scale * 20)))
+                words = active.split()
+                lines_list, line = [], ""
+                for word in words:
+                    test = (line + " " + word).strip()
+                    if len(test) <= max_chars:
+                        line = test
+                    else:
+                        if line:
+                            lines_list.append(line)
+                        line = word
+                if line:
+                    lines_list.append(line)
+                line_h = int(bg_height / max(len(lines_list), 1))
+                for li, line_text in enumerate(lines_list[:5]):
+                    y_pos = bar_y + int((li + 0.8) * line_h)
+                    x_pos = margin
+                    while cv2.getTextSize(line_text[:max_chars], font, font_scale, thickness)[0][0] > w - margin * 2 and len(line_text) > max_chars:
+                        line_text = line_text[:len(line_text)//2] + "…"
+                    cv2.putText(frame, line_text, (x_pos, y_pos), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+            out.write(frame)
+            frame_idx += 1
+
+        cap.release()
+        out.release()
+        return output_path.exists()
+    except Exception as e:
+        log(f"  [字幕] cv2: {e}")
+        return False
+
+def burn_subtitle(video_file: Path, vid: str, downloaded_srt: Path | None = None) -> Path | None:
+    """
+    烧录字幕到视频，返回新视频路径
+    优先级：下载的原始字幕 > Whisper+LLM翻译
+    """
+    audio_path = WORK_DIR / f"{vid}_audio.mp3"
+    srt_path   = WORK_DIR / f"{vid}.srt"
+    subbed     = WORK_DIR / f"{vid}_subbed.mp4"
+
+    # 如果已有烧录好的视频，直接返回
+    if subbed.exists():
+        log("[字幕] 已有烧录版本，跳过")
+        return subbed
+
+    # 优先使用下载的原始字幕
+    if downloaded_srt and downloaded_srt.exists() and downloaded_srt != srt_path:
+        import shutil
+        shutil.copy(downloaded_srt, srt_path)
+        log("[字幕] 使用下载的原始字幕")
+        # 检查是否需要翻译（如果不是中文）
+        if not _is_chinese_srt(srt_path):
+            log("[字幕] 原始字幕非中文，翻译中...")
+            if not _translate_srt_to_chinese(srt_path):
+                log("[字幕] 翻译失败，跳过烧录")
+                return video_file
+    else:
+        # 兜底：Whisper识别 + LLM翻译
+        log("[字幕] 提取音频...")
+        if not _extract_audio_for_subtitle(video_file, audio_path):
+            log("[字幕] 音频提取失败")
+            return video_file
+
+        log("[字幕] 生成SRT (Whisper EN)...")
+        if not _generate_srt_from_audio(audio_path, srt_path):
+            audio_path.unlink(missing_ok=True)
+            log("[字幕] SRT生成失败")
+            return video_file
+
+        log("[字幕] 翻译字幕 (EN→ZH)...")
+        if not _translate_srt_to_chinese(srt_path):
+            log("[字幕] 翻译失败，跳过烧录")
+            audio_path.unlink(missing_ok=True)
+            srt_path.unlink(missing_ok=True)
+            return video_file
+
+    with open(srt_path, "r", encoding="utf-8") as f:
+        srt_content = f.read()
+    srt_lines = srt_content.strip().split("\n")
+    subtitle_blocks = [i for i, l in enumerate(srt_lines) if l.strip().isdigit()]
+    if len(subtitle_blocks) < 3:
+        log(f"[字幕] 字幕块太少({len(subtitle_blocks)}个)，跳过烧录")
+        audio_path.unlink(missing_ok=True)
+        srt_path.unlink(missing_ok=True)
+        return video_file
+
+    log("[字幕] 烧录...")
+    # ffmpeg subtitles保留音频；OpenCV回退则无音频，需单独合并
+    if not _burn_subtitle(video_file, srt_path, subbed):
+        audio_path.unlink(missing_ok=True)
+        srt_path.unlink(missing_ok=True)
+        log("[字幕] 烧录失败")
+        return video_file
+
+    # 检查烧录后视频是否有音频（ffmpeg有，cv2无）
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "json", str(subbed)],
+        capture_output=True, text=True, timeout=30
+    )
+    has_audio = '"codec_type":"audio"' in probe.stdout
+
+    if not has_audio:
+        # cv2烧录无音频，用ffmpeg合并原音频
+        final_subbed = WORK_DIR / f"{vid}_final.mp4"
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", str(subbed),
+            "-i", str(video_file),
+            "-c:v", "copy", "-c:a", "aac", "-shortest",
+            str(final_subbed)
+        ], capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and final_subbed.exists():
+            subbed.unlink()
+            final_subbed.rename(subbed)
+            log("[字幕] OpenCV回退音频合并完成")
+        else:
+            log(f"[字幕] 音频合并失败: {result.stderr[-100:]}")
+
+    audio_path.unlink(missing_ok=True)
+    srt_path.unlink(missing_ok=True)
+    video_file.unlink(missing_ok=True)
+    log("[字幕] 完成")
+    return subbed
 
 # ═══════════════════════════════════════════════════════
 # 工具函数
@@ -156,47 +476,92 @@ _session.mount(
     "https://",
     HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504}))
 )
+_session.mount(
+    "http://",
+    HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1.5, status_forcelist={429, 500, 502, 503, 504}))
+)
 
 
 # ═══════════════════════════════════════════════════════
 # TikTok 搜索
 # ═══════════════════════════════════════════════════════
 def search_tiktok(keyword: str, count: int = 10) -> list[dict]:
-    """用yt-dlp的ytsearch获取TikTok视频ID和标题"""
+    """
+    通过 Playwright 访问 TikTok 搜索页，提取视频数字 ID
+    """
     results = []
-    search_query = f"ytsearch{count}:{keyword}"
-    cmd = [
-        "yt-dlp",
-        "--cookies", str(TIKTOK_COOKIE_FILE.resolve()),
-        "--no-playlist",
-        "--get-id", "--get-title",
-        "--no-warnings",
-        search_query
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode != 0:
-            log(f"  [搜索] yt-dlp失败: {result.stderr[-200:]}")
-            return []
+        from playwright.async_api import async_playwright
+    except ImportError:
+        log("  [搜索] playwright 未安装，跳过")
+        return results
 
-        output = result.stdout.strip()
-        if not output:
-            return []
+    async def _search():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            encoded_kw = urllib.parse.quote(keyword)
+            search_url = f"https://www.tiktok.com/search?q={encoded_kw}&t=0"
+            try:
+                await page.goto(search_url, timeout=60000)
+                await page.wait_for_timeout(5000)
+                # 滚动触发加载
+                for _ in range(5):
+                    await page.evaluate("window.scrollBy(0, 1200)")
+                    await asyncio.sleep(2)
+                content = await page.content()
+            finally:
+                await browser.close()
 
-        # yt-dlp outputs: title line then video_id line, alternating
-        lines = [l.strip() for l in output.split("\n") if l.strip()]
-        i = 0
-        while i < len(lines) - 1:
-            title_line = lines[i]
-            id_line = lines[i + 1] if i + 1 < len(lines) else ""
-            vid_match = re.match(r'^([a-zA-Z0-9_]{10,30})$', id_line)
-            if vid_match and len(title_line) > 2:
-                results.append({"id": id_line, "title": title_line, "keyword": keyword})
-                i += 2
-                continue
-            i += 1
+            found = re.findall(r'"aweme_id":"(\d{15,})"', content)
+            found = list(dict.fromkeys(found))  # 去重保持顺序
+            return found[:count]
+
+    try:
+        video_ids = asyncio.run(_search())
+        for vid in video_ids:
+            results.append({
+                "id": vid,
+                "title": f"AI Story {vid}",
+                "keyword": keyword
+            })
+        if results:
+            log(f"  [搜索] Playwright找到 {len(results)} 个视频")
     except Exception as e:
-        log(f"  [搜索] 异常: {e}")
+        log(f"  [搜索] Playwright异常: {e}")
+
+    # 备选：用 yt-dlp ytsearch 但只取 TikTok 相关结果
+    if not results:
+        try:
+            search_query = f"ytsearch{count}:tiktok satisfying cute pet viral"
+            cmd = [
+                sys.executable,
+                "-m", "yt_dlp",
+                "--flat-playlist",
+                "--print", "%(id)s %(title)s %(view_count)s",
+                "--no-warnings",
+                search_query
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    parts = line.split(" ", 2)
+                    if len(parts) >= 2:
+                        vid = parts[0].strip()
+                        title = parts[1].strip() if len(parts) > 1 else ""
+                        view_count = int(parts[2].strip()) if len(parts) > 2 and parts[2].strip().isdigit() else 0
+                        if re.match(r"^[a-zA-Z0-9_-]{10,30}$", vid):
+                            results.append({
+                                "id": vid,
+                                "title": title,
+                                "view": view_count,
+                                "like": view_count // 50,  # 估算
+                                "keyword": keyword
+                            })
+                log(f"  [搜索] yt-dlp fallback 找到 {len(results)} 个")
+        except Exception as e:
+            log(f"  [搜索] yt-dlp fallback 异常: {e}")
+
     return results
 
 
@@ -258,7 +623,7 @@ def get_tiktok_video_info(video_id: str) -> dict:
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
-    url = f"https://www.tiktok.com/@/video/{video_id}"
+    url = f"https://www.tiktok.com/video/{video_id}"
     try:
         r = _session.get(url, headers=headers, timeout=15, allow_redirects=True)
         if r.status_code != 200:
@@ -359,20 +724,20 @@ def generate_search_keywords() -> list[str]:
     try:
         from llm_utils import call_ollama
 
-        prompt = """You are a TikTok content trends analyst specializing in AI-generated videos.
+        prompt = """You are a TikTok content trends analyst.
 
-Current date: 2026-05-30
+Current date: 2026-06-01
 
-Generate exactly 5 diverse English search keywords for finding viral AI-generated story/narrative videos on TikTok.
+Generate exactly 5 diverse trending TikTok search keywords that are currently viral and popular.
 
 Requirements:
-1. Mix of video styles: short films, emotional stories, sci-fi, fantasy, horror, romance, comedy, drama
-2. Each keyword must be distinct and NOT overlap with others
-3. Use terms like: AI generated, AI story, AI narrative, artificial intelligence, machine story, etc.
-4. Focus on content that has high viral potential (emotional, surprising, dramatic)
-5. Keywords should be 3-7 words each
+1. Focus on trending categories: pets, satisfying ASMR, room makeovers, funny cat compilations, cleaning transformation, cozy vlog, food ASMR
+2. Each keyword must be distinct
+3. Use popular terms like: satisfying, viral, compilation, transformation, reaction, aesthetic, cozy
+4. Target high-view content categories
+5. Keywords should be 2-5 words each
 
-Output format (just the keywords, one per line, no numbers or bullets:
+Output format (just the keywords, one per line, no numbers or bullets):
 [keyword1]
 [keyword2]
 [keyword3]
@@ -461,7 +826,7 @@ def crop_video(input_file: Path, output_file: Path) -> Path | None:
     log(f"  [裁剪] {w}x{h} -> {new_w}x{new_h}")
 
     for attempt in range(3):
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
         if result.returncode == 0 and output_file.exists():
             size_mb = output_file.stat().st_size / 1024 / 1024
             log(f"  [裁剪] 完成 ({size_mb:.1f}MB)")
@@ -476,39 +841,108 @@ def crop_video(input_file: Path, output_file: Path) -> Path | None:
 # ═══════════════════════════════════════════════════════
 # 下载
 # ═══════════════════════════════════════════════════════
-def download_tiktok_video(video_id: str, output_dir: Path) -> Path | None:
+def download_tiktok_video(video_id: str, output_dir: Path) -> tuple[Path | None, Path | None]:
+    """
+    下载视频，返回 (视频路径, 字幕路径)
+    字幕优先下载中文/英文，兜底用Whisper+LLM翻译
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{video_id}.mp4"
+    subtitle_file = output_dir / f"{video_id}.srt"
 
     if output_file.exists():
         log(f"  [下载] 已存在，跳过: {video_id}")
-        return output_file
+        # 检查是否有字幕
+        if subtitle_file.exists():
+            return output_file, subtitle_file
+        return output_file, None
 
-    url = f"https://www.tiktok.com/@/video/{video_id}"
-    cmd = [
-        "yt-dlp",
+    # 判断是TikTok纯数字ID还是YouTube ID，构造对应URL和cookies
+    is_tiktok = video_id.isdigit()
+    if is_tiktok:
+        url = f"https://www.tiktok.com/video/{video_id}"
+        cookies_args = ["--cookies", str(TIKTOK_COOKIE_FILE)]
+    else:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        # YouTube公开视频不需要cookies
+        cookies_args = []
+
+    # 先尝试下载字幕（中文字幕优先）
+    subs_cmd = [
+        sys.executable, "-m", "yt_dlp",
         "--no-playlist",
-        "--cookies", str(TIKTOK_COOKIE_FILE),
+        "--cookies-from-browser", "chrome",
+        "--extractor-args", "youtube:player_client=android",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs", "zh-Hans,zh-Hant,en",
+        "--skip-download",
+        "--convert-subs", "srt",
+        "-o", str(output_dir / video_id),
+        url
+    ]
+
+    for attempt in range(2):
+        result = subprocess.run(subs_cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            # 找生成的字幕文件
+            for ext in [".zh-Hans.srt", ".zh-Hant.srt", ".en.srt", ".srt"]:
+                potential = output_dir / f"{video_id}{ext}"
+                if potential.exists() and potential != subtitle_file:
+                    # 复制到标准名
+                    import shutil
+                    shutil.copy(potential, subtitle_file)
+                    log(f"  [字幕] 下载到原始字幕: {ext}")
+                    break
+            else:
+                log(f"  [字幕] 未找到字幕文件，将使用Whisper生成")
+
+    cmd = [
+        sys.executable,
+        "-m", "yt_dlp",
+        "--no-playlist",
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "--no-warnings",
         "-o", str(output_file),
         url
     ]
+    # YouTube需要特殊处理：使用Chrome cookies + android客户端
+    if not is_tiktok:
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "--no-playlist",
+            "--cookies-from-browser", "chrome",
+            "--extractor-args", "youtube:player_client=android",
+            "-f", "18/best",
+            "--no-warnings",
+            "-o", str(output_file),
+            url
+        ]
 
     for attempt in range(3):
         log(f"  [下载] [{attempt+1}/3] {video_id}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
         if result.returncode == 0 and output_file.exists():
             size_mb = output_file.stat().st_size / 1024 / 1024
             log(f"  [下载] 完成 {output_file} ({size_mb:.1f}MB)")
-            return output_file
+            # 检查音频轨道，没有则重试
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json",
+                 "-show_streams", str(output_file)],
+                capture_output=True, text=True
+            )
+            if probe.returncode == 0 and '"codec_type":"audio"' not in probe.stdout:
+                log(f"  [下载] 音频轨道缺失，重试: {video_id}")
+                output_file.unlink(missing_ok=True)
+                continue
+            return output_file, subtitle_file if subtitle_file.exists() else None
         log(f"  [下载] 失败 (attempt {attempt+1}): {result.stderr[-200:]}")
         if attempt < 2:
             time.sleep(5 * (attempt + 1))
 
     log(f"  [下载] 最终失败: {video_id}")
-    return None
+    return None, None
 
 
 # ═══════════════════════════════════════════════════════
@@ -606,7 +1040,7 @@ def douyin_upload_sync(video_path: str, title: str, desc: str) -> bool:
             "--title", title,
             "--desc", desc,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
         if result.returncode == 0:
             log(f"  [抖音上传] 成功")
             return True
@@ -764,7 +1198,7 @@ def run_pipeline():
 
         # 4. 下载
         log("[下载] 开始下载...")
-        video_file = download_tiktok_video(vid, WORK_DIR)
+        video_file, subtitle_file = download_tiktok_video(vid, WORK_DIR)
         if not video_file:
             log("[下载] 失败，跳过")
             continue
@@ -784,6 +1218,10 @@ def run_pipeline():
             log("[裁剪] 完成")
         else:
             log("[裁剪] 失败，使用原文件")
+
+        # 5b. 生成并烧录字幕（优先下载字幕，兜底Whisper+LLM）
+        log("[字幕] 生成并烧录字幕...")
+        video_file = burn_subtitle(video_file, vid, subtitle_file)
 
         # 6. 生成标题描述
         log("[LLM] 生成标题和简介...")

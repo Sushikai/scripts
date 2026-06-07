@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import os
-os.environ["PATH"] = "/Users/kaikai/bin:" + os.environ.get("PATH", "")
+os.environ["PATH"] = "/opt/homebrew/bin:/Users/kaikai/bin:" + os.environ.get("PATH", "")
 
 import fcntl
 import json
@@ -447,7 +447,7 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21, cover_u
     try:
         import asyncio
         from bilibili_api import Credential
-        from bilibili_api.video_uploader import VideoUploader, VideoUploaderPage, VideoMeta, bvid2aid, Lines
+        from bilibili_api.video_uploader import VideoUploader, VideoUploaderPage, VideoMeta, bvid2aid, Lines, Picture
         import urllib.request
 
         # 下载封面
@@ -459,14 +459,36 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21, cover_u
                 log(f"  [上传] 封面已下载: {cover_path}")
             except Exception as e:
                 log(f"  [上传] 封面下载失败: {e}")
-                # 生成纯色封面
+                # 尝试从视频截取一帧作为封面
+                from PIL import Image
+                import subprocess
+                result = subprocess.run([
+                    'ffmpeg', '-y', '-ss', '1', '-i', str(video_path),
+                    '-vframes', '1', '-vf', 'scale=320:-1',
+                    '-q:v', '2', str(cover_path)
+                ], capture_output=True, text=True)
+                if result.returncode != 0 or not cover_path.exists():
+                    log(f"  [上传] 截取封面失败: {result.stderr[-100:]}")
+                    # 降级：生成纯色封面
+                    img = Image.new('RGB', (160, 90), color=(200, 0, 0))
+                    img.save(cover_path)
+                else:
+                    log(f"  [上传] 截取视频帧作为封面")
+        else:
+            # cover_url为空，从视频截取一帧作为封面
+            import subprocess
+            result = subprocess.run([
+                'ffmpeg', '-y', '-ss', '1', '-i', str(video_path),
+                '-vframes', '1', '-vf', 'scale=320:-1',
+                '-q:v', '2', str(cover_path)
+            ], capture_output=True, text=True)
+            if result.returncode != 0 or not cover_path.exists():
+                log(f"  [上传] 截取封面失败: {result.stderr[-100:]}")
                 from PIL import Image
                 img = Image.new('RGB', (160, 90), color=(200, 0, 0))
                 img.save(cover_path)
-        else:
-            from PIL import Image
-            img = Image.new('RGB', (160, 90), color=(200, 0, 0))
-            img.save(cover_path)
+            else:
+                log(f"  [上传] 截取视频帧作为封面")
 
         data = load_cookies()
         cred = Credential(
@@ -482,8 +504,8 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21, cover_u
                 tid=tid,
                 title=title,
                 desc=desc,
-                cover=str(cover_path),
                 tags=["峰哥", "剪辑", "自动上传"],
+                cover=Picture.from_file(str(cover_path)),
             )
             page = VideoUploaderPage(
                 path=str(video_path),

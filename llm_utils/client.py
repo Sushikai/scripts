@@ -1,6 +1,8 @@
 """
 LLM 统一接口 — Ollama + MiniMax 自动切换
 """
+from __future__ import annotations
+
 import os
 import re
 import requests
@@ -20,7 +22,7 @@ for _env_path in _env_paths:
                 os.environ.setdefault(_k, _v)
 
 # ── Ollama 配置 ──────────────────────────────────────────────
-OLLAMA_BASE = "http://localhost:11434/v1"
+OLLAMA_BASE = "http://localhost:11434/v1/chat/completions"
 OLLAMA_MODELS = ["qwen2.5:32b-instruct-q4_K_M", "gemma3:4b", "deepseek-r1:1.5b"]
 
 # ── MiniMax 配置 ─────────────────────────────────────────────
