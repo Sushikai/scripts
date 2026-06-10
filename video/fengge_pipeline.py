@@ -36,6 +36,8 @@ LOG_FILE = Path("/tmp/fengge_pipeline.log")
 
 SEARCH_KEYWORDS = ["峰哥直播切片"]
 FILTER_KEYWORDS = ["峰哥", "VOL"]
+# 首页推荐开关（True=优先从B站首页推荐拿峰哥视频，False=用关键词搜索兜底）
+USE_RECOMMENDED_FIRST = True
 SEARCH_PAGES = 5
 RECENT_DAYS = 3
 TOP_CANDIDATES = 50
@@ -171,6 +173,67 @@ def _clean_title(title: str) -> str:
     if re.search(pat, title) or not title or len(title) < 5:
         return None
     return title
+
+
+def get_recommended_videos(limit: int = 50) -> list[dict]:
+    """
+    从B站推荐feed获取视频（需SESSDATA认证）
+    优先拿你的个性化首页推荐（你账号看过的内容推荐的）
+    """
+    try:
+        cookies = load_cookies()
+        sessdata = cookies.get("SESSDATA", "")
+        if not sessdata:
+            log("[推荐] 无SESSDATA，跳过")
+            return []
+
+        from bilibili_api import search
+        from bilibili_api.search import SearchObjectType, OrderVideo
+        import asyncio
+
+        results = []
+        # 按最新发布排序搜"峰哥"，拿最近3天内最新的
+        cutoff_ts = (datetime.now() - timedelta(days=3)).timestamp()
+        page = 1
+        while len(results) < limit:
+            try:
+                resp = asyncio.run(search.search_by_type(
+                    keyword="峰哥",
+                    search_type=SearchObjectType.VIDEO,
+                    order_type=OrderVideo.PUBDATE,  # 最新发布
+                    order_sort=1,  # 降序
+                    page_size=20,
+                    page=page,
+                ))
+                items = resp.get("result", [])
+                if not items:
+                    break
+                for v in items:
+                    bvid = v.get("bvid", "")
+                    pubdate = v.get("pubdate", 0)
+                    if pubdate and pubdate < cutoff_ts:
+                        break
+                    title = _clean_title(v.get("title", ""))
+                    if not title or len(title) < 5:
+                        continue
+                    results.append({
+                        "bvid": bvid,
+                        "title": title,
+                        "author": v.get("author", ""),
+                        "play": v.get("play", 0),
+                        "pubdate": pubdate,
+                    })
+                page += 1
+                time.sleep(1)
+            except Exception as e:
+                log(f"[推荐] 第{page}页异常: {e}")
+                break
+
+        log(f"[推荐] 获取到 {len(results)} 个峰哥视频（最新发布排序）")
+        return results
+    except Exception as e:
+        log(f"[推荐] 获取失败: {e}")
+        return []
 
 
 def get_search_results(keyword: str, pages: int = 2) -> list[dict]:
@@ -448,7 +511,13 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21, cover_u
         import asyncio
         from bilibili_api import Credential
         from bilibili_api.video_uploader import VideoUploader, VideoUploaderPage, VideoMeta, bvid2aid, Lines, Picture
+        from bilibili_api.clients.HTTPXClient import HTTPXClient
+        from bilibili_api.utils.network import register_client, select_client
         import urllib.request
+
+        # 切换到httpx客户端，避免curl_cffi的curl: (16)错误
+        register_client("httpx", HTTPXClient, {"http2": False})
+        select_client("httpx")
 
         # 下载封面
         cover_path = Path("/tmp/fengge_upload_cover.png")
@@ -590,22 +659,34 @@ def run_pipeline():
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. 搜索（多关键词合并去重）
+    # 2. 获取候选视频（优先推荐feed兜底搜索）
     seen_bvids = set()
     all_results = []
-    for kw in SEARCH_KEYWORDS:
-        log(f"[搜索] 搜索「{kw}」近{RECENT_DAYS}天视频...")
-        results = get_search_results(kw, pages=SEARCH_PAGES)
-        for v in results:
+    results = []  # 避免 UnboundLocalError
+
+    if USE_RECOMMENDED_FIRST:
+        rec = get_recommended_videos(limit=100)
+        for v in rec:
             if v["bvid"] not in seen_bvids:
                 seen_bvids.add(v["bvid"])
                 all_results.append(v)
-        log(f"[搜索] 「{kw}」找到 {len(results)} 个视频（累计去重后: {len(all_results)}）")
-        time.sleep(1)
+        log(f"[推荐] 获取到 {len(all_results)} 个（已去重）")
 
-    log(f"[搜索] 共找到 {len(all_results)} 个视频")
     if not all_results:
-        log("[搜索] 失败，退出")
+        log("[推荐] 无结果，切换搜索兜底...")
+        for kw in SEARCH_KEYWORDS:
+            log(f"[搜索] 搜索「{kw}」近{RECENT_DAYS}天视频...")
+            results = get_search_results(kw, pages=SEARCH_PAGES)
+            for v in results:
+                if v["bvid"] not in seen_bvids:
+                    seen_bvids.add(v["bvid"])
+                    all_results.append(v)
+            log(f"[搜索] 「{kw}」找到 {len(results)} 个视频（累计去重后: {len(all_results)}）")
+            time.sleep(1)
+
+    log(f"[候选] 共找到 {len(all_results)} 个视频")
+    if not all_results:
+        log("[候选] 失败，退出")
         return
 
     # 3. 排除历史下载 & 已上传
@@ -614,7 +695,8 @@ def run_pipeline():
     downloaded = set(history.keys())
     uploaded = set(upload_history.keys())
     candidates = [v for v in all_results if v["bvid"] not in downloaded and v["bvid"] not in uploaded]
-    log(f"[候选] {len(candidates)}个（已排除下载过{len(results)-len(candidates)-len(uploaded)}个 + 已上传{len(uploaded)}个）")
+    excluded = len(all_results) - len(candidates)
+    log(f"[候选] {len(candidates)}个（已排除{excluded}个）")
     if not candidates:
         log("[候选] 没有新视频，退出")
         return

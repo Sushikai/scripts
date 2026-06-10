@@ -1,164 +1,164 @@
-[2026-06-07 20:00:04] ============================================================
-[2026-06-07 20:00:04] YouTube故事AI视频搬运流水线启动
-[2026-06-07 20:00:05] [网络] YouTube可访问 ✅
-[2026-06-07 20:00:18] [LLM] 生成关键词: ['AI generated emotional drama', 'Sci-fi AI narrative surprise', 'Fantasy machine story adventure', 'AI created romantic twist', 'Horror tale by artificial intelligence']
-[2026-06-07 20:00:18] [关键词] LLM关键词不足，自动补足: AI cinematic viral short
-[2026-06-07 20:00:18] [关键词] LLM关键词不足，自动补足: AI narrative fantasy realm
-[2026-06-07 20:00:18] [关键词] LLM关键词不足，自动补足: AI romance drama short video
-[2026-06-07 20:00:18] [关键词] 共8个: ['AI generated emotional drama', 'Sci-fi AI narrative surprise', 'Fantasy machine story adventure', 'AI created romantic twist', 'Horror tale by artificial intelligence']...
-[2026-06-07 20:00:18] [搜索] YouTube关键词: AI generated emotional drama
-[2026-06-07 20:00:20]   [搜索] ytsearch 'AI generated emotional drama' 找到 20 个
-[2026-06-07 20:00:20]   找到 20 个视频
-[2026-06-07 20:00:22] [搜索] YouTube关键词: Sci-fi AI narrative surprise
-[2026-06-07 20:00:27]   [搜索] ytsearch 'Sci-fi AI narrative surprise' 找到 20 个
-[2026-06-07 20:00:27]   找到 20 个视频
-[2026-06-07 20:00:29] [搜索] YouTube关键词: Fantasy machine story adventure
-[2026-06-07 20:00:34]   [搜索] ytsearch 'Fantasy machine story adventure' 找到 20 个
-[2026-06-07 20:00:34]   找到 20 个视频
-[2026-06-07 20:00:36] [搜索] YouTube关键词: AI created romantic twist
-[2026-06-07 20:00:39]   [搜索] ytsearch 'AI created romantic twist' 找到 20 个
-[2026-06-07 20:00:39]   找到 20 个视频
-[2026-06-07 20:00:41] [搜索] YouTube关键词: Horror tale by artificial intelligence
-[2026-06-07 20:00:43]   [搜索] ytsearch 'Horror tale by artificial intelligence' 找到 20 个
-[2026-06-07 20:00:43]   找到 20 个视频
-[2026-06-07 20:00:46] [搜索] YouTube关键词: AI cinematic viral short
-[2026-06-07 20:00:48]   [搜索] ytsearch 'AI cinematic viral short' 找到 20 个
-[2026-06-07 20:00:48]   找到 20 个视频
-[2026-06-07 20:00:50] [搜索] YouTube关键词: AI narrative fantasy realm
-[2026-06-07 20:00:52]   [搜索] ytsearch 'AI narrative fantasy realm' 找到 20 个
-[2026-06-07 20:00:52]   找到 20 个视频
-[2026-06-07 20:00:54] [搜索] YouTube关键词: AI romance drama short video
-[2026-06-07 20:00:56]   [搜索] ytsearch 'AI romance drama short video' 找到 20 个
-[2026-06-07 20:00:56]   找到 20 个视频
-[2026-06-07 20:00:58] [搜索] 共找到 160 个视频
-[2026-06-07 20:00:58] [候选] 152个（已排除下载过-11个 + 已上传19个）
-[2026-06-07 20:01:02]   评分 [6Ge2Rkde7UU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2301s)
-[2026-06-07 20:01:02]   [6Ge2Rkde7UU] 赞:0 播:0 时长:2301s → 评分:2.0150
-[2026-06-07 20:01:02]   评分 [7gZq6LbqGuw] rate=0.0 heat=0.1 dur=62.3 → 12.48 (播:1 赞:0 评:0 时长:179s)
-[2026-06-07 20:01:02]   [7gZq6LbqGuw] 赞:0 播:0 时长:179s → 评分:12.4750
-[2026-06-07 20:01:02]   评分 [kNTGOHJVcoQ] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:59s)
-[2026-06-07 20:01:02]   [kNTGOHJVcoQ] 赞:0 播:0 时长:59s → 评分:20.0150
-[2026-06-07 20:01:02]   评分 [_n5sG6-sRCk] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:16s)
-[2026-06-07 20:01:02]   [_n5sG6-sRCk] 赞:0 播:0 时长:16s → 评分:20.0150
-[2026-06-07 20:01:02]   评分 [CkeveZ2caQE] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3751s)
-[2026-06-07 20:01:02]   [CkeveZ2caQE] 赞:0 播:0 时长:3751s → 评分:2.0150
-[2026-06-07 20:01:04]   评分 [Tx8QKwPpBbo] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:733s)
-[2026-06-07 20:01:04]   [Tx8QKwPpBbo] 赞:0 播:0 时长:733s → 评分:2.0150
-[2026-06-07 20:01:04]   评分 [3TOKxBapLsY] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1803s)
-[2026-06-07 20:01:04]   [3TOKxBapLsY] 赞:0 播:0 时长:1803s → 评分:2.0150
-[2026-06-07 20:01:04]   评分 [-482TEpzM98] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:7s)
-[2026-06-07 20:01:04]   [-482TEpzM98] 赞:0 播:0 时长:7s → 评分:12.0150
-[2026-06-07 20:01:05]   评分 [VNTwDxgE5FM] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:105s)
-[2026-06-07 20:01:05]   [VNTwDxgE5FM] 赞:0 播:0 时长:105s → 评分:20.0150
-[2026-06-07 20:01:05]   评分 [BZVe2lVy7o0] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-07 20:01:05]   [BZVe2lVy7o0] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-07 20:01:05]   评分 [61NRFMKSnpU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1348s)
-[2026-06-07 20:01:05]   [61NRFMKSnpU] 赞:0 播:0 时长:1348s → 评分:2.0150
-[2026-06-07 20:01:06]   评分 [y6R4UOkDCJE] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-07 20:01:07]   [y6R4UOkDCJE] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-07 20:01:08]   评分 [UW_ZhvA_KEI] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-07 20:01:08]   [UW_ZhvA_KEI] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-07 20:01:08]   评分 [NMpK4A5Y39k] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:4304s)
-[2026-06-07 20:01:08]   [NMpK4A5Y39k] 赞:0 播:0 时长:4304s → 评分:2.0150
-[2026-06-07 20:01:08]   评分 [bOahyLgJ0_E] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2546s)
-[2026-06-07 20:01:08]   [bOahyLgJ0_E] 赞:0 播:0 时长:2546s → 评分:2.0150
-[2026-06-07 20:01:09]   评分 [B46JA6LBpDc] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1072s)
-[2026-06-07 20:01:09]   [B46JA6LBpDc] 赞:0 播:0 时长:1072s → 评分:2.0150
-[2026-06-07 20:01:10]   评分 [g95RlkzqzTU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1567s)
-[2026-06-07 20:01:10]   [g95RlkzqzTU] 赞:0 播:0 时长:1567s → 评分:2.0150
-[2026-06-07 20:01:10]   评分 [hzRqnO-Plx8] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:35s)
-[2026-06-07 20:01:10]   [hzRqnO-Plx8] 赞:0 播:0 时长:35s → 评分:20.0150
-[2026-06-07 20:01:10]   评分 [qsM_Ca2Or7g] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1742s)
-[2026-06-07 20:01:10]   [qsM_Ca2Or7g] 赞:0 播:0 时长:1742s → 评分:2.0150
-[2026-06-07 20:01:11]   评分 [zYFtykLzTHg] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2796s)
-[2026-06-07 20:01:11]   [zYFtykLzTHg] 赞:0 播:0 时长:2796s → 评分:2.0150
-[2026-06-07 20:01:11]   评分 [q3Hx4wi2KdU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:484s)
-[2026-06-07 20:01:11]   [q3Hx4wi2KdU] 赞:0 播:0 时长:484s → 评分:2.0150
-[2026-06-07 20:01:11]   评分 [UTwO0lXiWaE] rate=0.0 heat=0.1 dur=52.1 → 10.44 (播:1 赞:0 评:0 时长:213s)
-[2026-06-07 20:01:11]   [UTwO0lXiWaE] 赞:0 播:0 时长:213s → 评分:10.4350
-[2026-06-07 20:01:12]   评分 [FE_ANUYwwUM] rate=0.0 heat=0.1 dur=38.9 → 7.80 (播:1 赞:0 评:0 时长:257s)
-[2026-06-07 20:01:12]   [FE_ANUYwwUM] 赞:0 播:0 时长:257s → 评分:7.7950
-[2026-06-07 20:01:12]   评分 [mwpTvFm_bS4] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2492s)
-[2026-06-07 20:01:12]   [mwpTvFm_bS4] 赞:0 播:0 时长:2492s → 评分:2.0150
-[2026-06-07 20:01:14]   评分 [wyf01u5vMrE] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:616s)
-[2026-06-07 20:01:14]   [wyf01u5vMrE] 赞:0 播:0 时长:616s → 评分:2.0150
-[2026-06-07 20:01:14]   评分 [7X1NWYb7BeA] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:72s)
-[2026-06-07 20:01:14]   [7X1NWYb7BeA] 赞:0 播:0 时长:72s → 评分:20.0150
-[2026-06-07 20:01:14]   评分 [f4v0qPiO5Lk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3525s)
-[2026-06-07 20:01:14]   [f4v0qPiO5Lk] 赞:0 播:0 时长:3525s → 评分:2.0150
-[2026-06-07 20:01:14]   评分 [h0jKngtsoQg] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2254s)
-[2026-06-07 20:01:14]   [h0jKngtsoQg] 赞:0 播:0 时长:2254s → 评分:2.0150
-[2026-06-07 20:01:15]   评分 [rKUoBFHRHYw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:583s)
-[2026-06-07 20:01:15]   [rKUoBFHRHYw] 赞:0 播:0 时长:583s → 评分:2.0150
-[2026-06-07 20:01:15]   评分 [i8tfWo7jNHA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3490s)
-[2026-06-07 20:01:15]   [i8tfWo7jNHA] 赞:0 播:0 时长:3490s → 评分:2.0150
-[2026-06-07 20:01:15] [时长过滤] 30 -> 12 个（排除>300秒的）
-[2026-06-07 20:01:15] [选中] 将处理 2 个视频
-[2026-06-07 20:01:15] 
+[2026-06-10 10:00:05] ============================================================
+[2026-06-10 10:00:05] YouTube故事AI视频搬运流水线启动
+[2026-06-10 10:00:08] [网络] YouTube可访问 ✅
+[2026-06-10 10:00:19] [LLM] 生成关键词: ['AI generated emotional drama', 'Sci-fi AI narrative surprise', 'Fantasy machine story adventure', 'Romantic artificial intelligence tale', 'Horror AI short film shock']
+[2026-06-10 10:00:19] [关键词] LLM关键词不足，自动补足: surprising AI generated story
+[2026-06-10 10:00:19] [关键词] LLM关键词不足，自动补足: AI generated emotional short film
+[2026-06-10 10:00:19] [关键词] LLM关键词不足，自动补足: machine story sci-fi adventure
+[2026-06-10 10:00:19] [关键词] 共8个: ['AI generated emotional drama', 'Sci-fi AI narrative surprise', 'Fantasy machine story adventure', 'Romantic artificial intelligence tale', 'Horror AI short film shock']...
+[2026-06-10 10:00:19] [搜索] YouTube关键词: AI generated emotional drama
+[2026-06-10 10:00:21]   [搜索] ytsearch 'AI generated emotional drama' 找到 20 个
+[2026-06-10 10:00:21]   找到 20 个视频
+[2026-06-10 10:00:24] [搜索] YouTube关键词: Sci-fi AI narrative surprise
+[2026-06-10 10:00:27]   [搜索] ytsearch 'Sci-fi AI narrative surprise' 找到 20 个
+[2026-06-10 10:00:27]   找到 20 个视频
+[2026-06-10 10:00:30] [搜索] YouTube关键词: Fantasy machine story adventure
+[2026-06-10 10:00:33]   [搜索] ytsearch 'Fantasy machine story adventure' 找到 20 个
+[2026-06-10 10:00:33]   找到 20 个视频
+[2026-06-10 10:00:35] [搜索] YouTube关键词: Romantic artificial intelligence tale
+[2026-06-10 10:00:42]   [搜索] ytsearch 'Romantic artificial intelligence tale' 找到 20 个
+[2026-06-10 10:00:42]   找到 20 个视频
+[2026-06-10 10:00:44] [搜索] YouTube关键词: Horror AI short film shock
+[2026-06-10 10:00:46]   [搜索] ytsearch 'Horror AI short film shock' 找到 20 个
+[2026-06-10 10:00:46]   找到 20 个视频
+[2026-06-10 10:00:48] [搜索] YouTube关键词: surprising AI generated story
+[2026-06-10 10:00:51]   [搜索] ytsearch 'surprising AI generated story' 找到 20 个
+[2026-06-10 10:00:51]   找到 20 个视频
+[2026-06-10 10:00:53] [搜索] YouTube关键词: AI generated emotional short film
+[2026-06-10 10:00:56]   [搜索] ytsearch 'AI generated emotional short film' 找到 20 个
+[2026-06-10 10:00:56]   找到 20 个视频
+[2026-06-10 10:00:58] [搜索] YouTube关键词: machine story sci-fi adventure
+[2026-06-10 10:01:01]   [搜索] ytsearch 'machine story sci-fi adventure' 找到 20 个
+[2026-06-10 10:01:01]   找到 20 个视频
+[2026-06-10 10:01:03] [搜索] 共找到 160 个视频
+[2026-06-10 10:01:03] [候选] 151个（已排除下载过-10个 + 已上传19个）
+[2026-06-10 10:01:06]   评分 [kNTGOHJVcoQ] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:59s)
+[2026-06-10 10:01:06]   [kNTGOHJVcoQ] 赞:0 播:0 时长:59s → 评分:20.0150
+[2026-06-10 10:01:07]   评分 [Zy3mh8aA0lA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3122s)
+[2026-06-10 10:01:07]   [Zy3mh8aA0lA] 赞:0 播:0 时长:3122s → 评分:2.0150
+[2026-06-10 10:01:07]   评分 [Fu43_6EEHLA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:4086s)
+[2026-06-10 10:01:07]   [Fu43_6EEHLA] 赞:0 播:0 时长:4086s → 评分:2.0150
+[2026-06-10 10:01:08]   评分 [7gZq6LbqGuw] rate=0.0 heat=0.1 dur=62.3 → 12.48 (播:1 赞:0 评:0 时长:179s)
+[2026-06-10 10:01:08]   [7gZq6LbqGuw] 赞:0 播:0 时长:179s → 评分:12.4750
+[2026-06-10 10:01:08]   评分 [CfcNX2ixsHo] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:7438s)
+[2026-06-10 10:01:08]   [CfcNX2ixsHo] 赞:0 播:0 时长:7438s → 评分:2.0150
+[2026-06-10 10:01:08]   评分 [VYTvCdxqd_k] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3714s)
+[2026-06-10 10:01:08]   [VYTvCdxqd_k] 赞:0 播:0 时长:3714s → 评分:2.0150
+[2026-06-10 10:01:09]   评分 [61NRFMKSnpU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1348s)
+[2026-06-10 10:01:09]   [61NRFMKSnpU] 赞:0 播:0 时长:1348s → 评分:2.0150
+[2026-06-10 10:01:10]   评分 [-482TEpzM98] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:7s)
+[2026-06-10 10:01:10]   [-482TEpzM98] 赞:0 播:0 时长:7s → 评分:12.0150
+[2026-06-10 10:01:11]   评分 [i178OzdBgWI] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:6197s)
+[2026-06-10 10:01:11]   [i178OzdBgWI] 赞:0 播:0 时长:6197s → 评分:2.0150
+[2026-06-10 10:01:11]   评分 [ZFoSu2xBhPI] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1245s)
+[2026-06-10 10:01:11]   [ZFoSu2xBhPI] 赞:0 播:0 时长:1245s → 评分:2.0150
+[2026-06-10 10:01:11]   评分 [WGzguMj5lPM] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3503s)
+[2026-06-10 10:01:11]   [WGzguMj5lPM] 赞:0 播:0 时长:3503s → 评分:2.0150
+[2026-06-10 10:01:12]   评分 [IIOVvC4zEmM] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:662s)
+[2026-06-10 10:01:12]   [IIOVvC4zEmM] 赞:0 播:0 时长:662s → 评分:2.0150
+[2026-06-10 10:01:12]   评分 [VN0TlsKoVAs] rate=0.0 heat=0.1 dur=33.2 → 6.66 (播:1 赞:0 评:0 时长:276s)
+[2026-06-10 10:01:12]   [VN0TlsKoVAs] 赞:0 播:0 时长:276s → 评分:6.6550
+[2026-06-10 10:01:13]   评分 [PFC7GJHhWyQ] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:762s)
+[2026-06-10 10:01:13]   [PFC7GJHhWyQ] 赞:0 播:0 时长:762s → 评分:2.0150
+[2026-06-10 10:01:13]   评分 [UW_ZhvA_KEI] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
+[2026-06-10 10:01:13]   [UW_ZhvA_KEI] 赞:0 播:0 时长:9s → 评分:12.0150
+[2026-06-10 10:01:14]   评分 [NMpK4A5Y39k] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:4304s)
+[2026-06-10 10:01:14]   [NMpK4A5Y39k] 赞:0 播:0 时长:4304s → 评分:2.0150
+[2026-06-10 10:01:14]   评分 [q3Hx4wi2KdU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:484s)
+[2026-06-10 10:01:14]   [q3Hx4wi2KdU] 赞:0 播:0 时长:484s → 评分:2.0150
+[2026-06-10 10:01:15]   评分 [kQyDXkxI2bk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2643s)
+[2026-06-10 10:01:15]   [kQyDXkxI2bk] 赞:0 播:0 时长:2643s → 评分:2.0150
+[2026-06-10 10:01:15]   评分 [h0jKngtsoQg] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2254s)
+[2026-06-10 10:01:15]   [h0jKngtsoQg] 赞:0 播:0 时长:2254s → 评分:2.0150
+[2026-06-10 10:01:17]   评分 [hzRqnO-Plx8] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:35s)
+[2026-06-10 10:01:17]   评分 [emQAbQ9dsLk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2794s)
+[2026-06-10 10:01:17]   [hzRqnO-Plx8] 赞:0 播:0 时长:35s → 评分:20.0150
+[2026-06-10 10:01:17]   [emQAbQ9dsLk] 赞:0 播:0 时长:2794s → 评分:2.0150
+[2026-06-10 10:01:17]   评分 [MmgXrniPhUY] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2641s)
+[2026-06-10 10:01:17]   [MmgXrniPhUY] 赞:0 播:0 时长:2641s → 评分:2.0150
+[2026-06-10 10:01:18]   评分 [UTwO0lXiWaE] rate=0.0 heat=0.1 dur=52.1 → 10.44 (播:1 赞:0 评:0 时长:213s)
+[2026-06-10 10:01:18]   [UTwO0lXiWaE] 赞:0 播:0 时长:213s → 评分:10.4350
+[2026-06-10 10:01:18]   评分 [zYFtykLzTHg] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2796s)
+[2026-06-10 10:01:18]   [zYFtykLzTHg] 赞:0 播:0 时长:2796s → 评分:2.0150
+[2026-06-10 10:01:19]   评分 [3pu2w02kLwo] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2641s)
+[2026-06-10 10:01:19]   [3pu2w02kLwo] 赞:0 播:0 时长:2641s → 评分:2.0150
+[2026-06-10 10:01:21]   评分 [mwpTvFm_bS4] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2492s)
+[2026-06-10 10:01:21]   [mwpTvFm_bS4] 赞:0 播:0 时长:2492s → 评分:2.0150
+[2026-06-10 10:01:22]   评分 [0h7qU5OyVAA] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:112s)
+[2026-06-10 10:01:22]   [0h7qU5OyVAA] 赞:0 播:0 时长:112s → 评分:20.0150
+[2026-06-10 10:01:28]   评分 [g95RlkzqzTU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1567s)
+[2026-06-10 10:01:28]   [g95RlkzqzTU] 赞:0 播:0 时长:1567s → 评分:2.0150
+[2026-06-10 10:01:30]   评分 [UDoiLiueh9U] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3527s)
+[2026-06-10 10:01:30]   [UDoiLiueh9U] 赞:0 播:0 时长:3527s → 评分:2.0150
+[2026-06-10 10:01:34]   评分 [nCMkSOZevnA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2384s)
+[2026-06-10 10:01:34]   [nCMkSOZevnA] 赞:0 播:0 时长:2384s → 评分:2.0150
+[2026-06-10 10:01:34] [时长过滤] 30 -> 8 个（排除>300秒的）
+[2026-06-10 10:01:34] [选中] 将处理 2 个视频
+[2026-06-10 10:01:34] 
 ========================================
-[2026-06-07 20:01:15] [处理] kNTGOHJVcoQ: A Betrayal Unveiled | AI-Generated Short Film
-[2026-06-07 20:01:15] [下载] 开始下载...
-[2026-06-07 20:01:15]   [下载] [1/3] kNTGOHJVcoQ (单流MP4(hv))
-[2026-06-07 20:01:42]   [下载] 单流MP4(hv)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:01:34] [处理] kNTGOHJVcoQ: A Betrayal Unveiled | AI-Generated Short Film
+[2026-06-10 10:01:34] [下载] 开始下载...
+[2026-06-10 10:01:34]   [下载] [1/3] kNTGOHJVcoQ (单流MP4(hv))
+[2026-06-10 10:01:38]   [下载] 单流MP4(hv)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:01:42]   [下载] [1/3] kNTGOHJVcoQ (单流MP4(sys))
-[2026-06-07 20:01:47]   [下载] 单流MP4(sys)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:01:38]   [下载] [1/3] kNTGOHJVcoQ (单流MP4(sys))
+[2026-06-10 10:01:40]   [下载] 单流MP4(sys)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:01:47]   [下载] [1/3] kNTGOHJVcoQ (720p合并)
-[2026-06-07 20:01:51]   [下载] 720p合并失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:01:40]   [下载] [1/3] kNTGOHJVcoQ (720p合并)
+[2026-06-10 10:01:44]   [下载] 720p合并失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:01:56]   [下载] [2/3] kNTGOHJVcoQ (单流MP4(hv))
-[2026-06-07 20:01:59]   [下载] 单流MP4(hv)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:01:49]   [下载] [2/3] kNTGOHJVcoQ (单流MP4(hv))
+[2026-06-10 10:01:52]   [下载] 单流MP4(hv)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:01:59]   [下载] [2/3] kNTGOHJVcoQ (单流MP4(sys))
-[2026-06-07 20:02:01]   [下载] 单流MP4(sys)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:01:52]   [下载] [2/3] kNTGOHJVcoQ (单流MP4(sys))
+[2026-06-10 10:01:55]   [下载] 单流MP4(sys)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:01]   [下载] [2/3] kNTGOHJVcoQ (720p合并)
-[2026-06-07 20:02:03]   [下载] 720p合并失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:01:55]   [下载] [2/3] kNTGOHJVcoQ (720p合并)
+[2026-06-10 10:01:59]   [下载] 720p合并失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:13]   [下载] [3/3] kNTGOHJVcoQ (单流MP4(hv))
-[2026-06-07 20:02:16]   [下载] 单流MP4(hv)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:09]   [下载] [3/3] kNTGOHJVcoQ (单流MP4(hv))
+[2026-06-10 10:02:14]   [下载] 单流MP4(hv)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:16]   [下载] [3/3] kNTGOHJVcoQ (单流MP4(sys))
-[2026-06-07 20:02:18]   [下载] 单流MP4(sys)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:14]   [下载] [3/3] kNTGOHJVcoQ (单流MP4(sys))
+[2026-06-10 10:02:17]   [下载] 单流MP4(sys)失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:18]   [下载] [3/3] kNTGOHJVcoQ (720p合并)
-[2026-06-07 20:02:21]   [下载] 720p合并失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:17]   [下载] [3/3] kNTGOHJVcoQ (720p合并)
+[2026-06-10 10:02:22]   [下载] 720p合并失败:  kNTGOHJVcoQ: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:21]   [下载] 最终失败: kNTGOHJVcoQ
-[2026-06-07 20:02:21] [下载] 失败，跳过
-[2026-06-07 20:02:21] 
+[2026-06-10 10:02:22]   [下载] 最终失败: kNTGOHJVcoQ
+[2026-06-10 10:02:22] [下载] 失败，跳过
+[2026-06-10 10:02:22] 
 ========================================
-[2026-06-07 20:02:21] [处理] _n5sG6-sRCk: Seedance 2.0 Created an Emotional Film Scene From One Prompt 🤯 | AI Acting Is Here
-[2026-06-07 20:02:21] [下载] 开始下载...
-[2026-06-07 20:02:21]   [下载] [1/3] _n5sG6-sRCk (单流MP4(hv))
-[2026-06-07 20:02:23]   [下载] 单流MP4(hv)失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:22] [处理] hzRqnO-Plx8: Faux: AI Love Story - A Thrilling Sci-Fi Romance!
+[2026-06-10 10:02:22] [下载] 开始下载...
+[2026-06-10 10:02:22]   [下载] [1/3] hzRqnO-Plx8 (单流MP4(hv))
+[2026-06-10 10:02:26]   [下载] 单流MP4(hv)失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:23]   [下载] [1/3] _n5sG6-sRCk (单流MP4(sys))
-[2026-06-07 20:02:27]   [下载] 单流MP4(sys)失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:26]   [下载] [1/3] hzRqnO-Plx8 (单流MP4(sys))
+[2026-06-10 10:02:30]   [下载] 单流MP4(sys)失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:27]   [下载] [1/3] _n5sG6-sRCk (720p合并)
-[2026-06-07 20:02:30]   [下载] 720p合并失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:30]   [下载] [1/3] hzRqnO-Plx8 (720p合并)
+[2026-06-10 10:02:33]   [下载] 720p合并失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:35]   [下载] [2/3] _n5sG6-sRCk (单流MP4(hv))
-[2026-06-07 20:02:37]   [下载] 单流MP4(hv)失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:39]   [下载] [2/3] hzRqnO-Plx8 (单流MP4(hv))
+[2026-06-10 10:02:44]   [下载] 单流MP4(hv)失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:37]   [下载] [2/3] _n5sG6-sRCk (单流MP4(sys))
-[2026-06-07 20:02:40]   [下载] 单流MP4(sys)失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:44]   [下载] [2/3] hzRqnO-Plx8 (单流MP4(sys))
+[2026-06-10 10:02:49]   [下载] 单流MP4(sys)失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:02:40]   [下载] [2/3] _n5sG6-sRCk (720p合并)
-[2026-06-07 20:02:58]   [下载] 720p合并失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:02:49]   [下载] [2/3] hzRqnO-Plx8 (720p合并)
+[2026-06-10 10:02:52]   [下载] 720p合并失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:03:08]   [下载] [3/3] _n5sG6-sRCk (单流MP4(hv))
-[2026-06-07 20:03:11]   [下载] 单流MP4(hv)失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:03:02]   [下载] [3/3] hzRqnO-Plx8 (单流MP4(hv))
+[2026-06-10 10:03:06]   [下载] 单流MP4(hv)失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:03:11]   [下载] [3/3] _n5sG6-sRCk (单流MP4(sys))
-[2026-06-07 20:03:14]   [下载] 单流MP4(sys)失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:03:06]   [下载] [3/3] hzRqnO-Plx8 (单流MP4(sys))
+[2026-06-10 10:03:11]   [下载] 单流MP4(sys)失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:03:14]   [下载] [3/3] _n5sG6-sRCk (720p合并)
-[2026-06-07 20:03:17]   [下载] 720p合并失败:  _n5sG6-sRCk: Requested format is not available. Use --list-formats for a list of available formats
+[2026-06-10 10:03:11]   [下载] [3/3] hzRqnO-Plx8 (720p合并)
+[2026-06-10 10:03:15]   [下载] 720p合并失败:  hzRqnO-Plx8: Requested format is not available. Use --list-formats for a list of available formats
 
-[2026-06-07 20:03:17]   [下载] 最终失败: _n5sG6-sRCk
-[2026-06-07 20:03:17] [下载] 失败，跳过
-[2026-06-07 20:03:17] ============================================================
-[2026-06-07 20:03:17] ✅ 流水线完成!
+[2026-06-10 10:03:15]   [下载] 最终失败: hzRqnO-Plx8
+[2026-06-10 10:03:15] [下载] 失败，跳过
+[2026-06-10 10:03:15] ============================================================
+[2026-06-10 10:03:15] ✅ 流水线完成!
