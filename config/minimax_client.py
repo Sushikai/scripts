@@ -61,18 +61,44 @@ class MiniMaxClient:
 
     def generate_script(self, topic: str) -> str:
         """生成口播文案，直接自然，无AI反射"""
-        system_prompt = "你是一个接地气的B站口播博主，说话像朋友聊天，句子短，不啰嗦，直接开始说内容。"
+        # 动态导入config，避免循环引用
+        try:
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from info_gap_pipeline.config import SCRIPT_MAX_TOKENS, SCRIPT_TEMPERATURE
+            max_tokens = SCRIPT_MAX_TOKENS
+            temperature = SCRIPT_TEMPERATURE
+        except Exception:
+            max_tokens = 800
+            temperature = 1.0
 
-        # 简洁直接的prompt，避免结构化要求触发反射
-        user_prompt = f"{topic}。说点什么。"
+        system_prompt = (
+            "你是一个接地气的B站口播博主，说话像朋友聊天，句子短，不啰嗦，直接开始说内容。"
+            "风格：信息差揭秘系列，悬念开头，数据驱动，有深度有节奏。"
+        )
+
+        # 强化版prompt，引导生成更丰富的内容
+        user_prompt = (
+            f"话题：{topic}\n\n"
+            "你是一个信息差视频博主，录制一期节目。\n"
+            "【要求】\n"
+            "1. 开头：「第一、{topic}」，直接陈述，不说大家好，直接进入。\n"
+            "2. 信息密度要高，数据要说精确的（610万、48%、2.9%）。\n"
+            "3. 允许长句，信息密度要高，不限制句子长度。\n"
+            "4. 段内过渡词：然而、對此、不過、對此，專家強調。\n"
+            "5. 结尾：「今日分享到此結束，感謝觀看」。\n"
+            "6. 总字数：300-600字（4-6分钟口播量）。\n\n"
+            "现在直接输出文案，直接开始："
+        ).format(topic=topic)
 
         for attempt in range(self.retry):
             try:
                 client = self._client()
                 msg = client.messages.create(
                     model=self.model,
-                    max_tokens=250,
-                    temperature=0.9,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
@@ -97,8 +123,8 @@ class MiniMaxClient:
                 # 过滤 markdown 格式
                 if text.startswith("#") or text.startswith("-") or text.startswith("*"):
                     continue
-                # 合理长度：50-220字
-                if 50 <= len(text) <= 220:
+                # 合理长度：100-600字（4-6分钟视频需要300-600字口播）
+                if 100 <= len(text) <= 600:
                     return text
             except Exception:
                 pass
@@ -120,26 +146,30 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
 
 2. 句子长度不限制。允许长句，信息密度要高。禁止把句子拆成短句。每句能说多长就说多长。
 
-3. 数字可以说精确的：610万、48%、2.9%，不需要说"几百""几万"。参考视频怎么用你就怎么用。
+3. 数字说精确的：610万、48%、2.9%，不需要说"几百""几万"。
 
-4. 段内过渡词用这些（按真实参考视频的语气）：
+4. 段内过渡词：
    「然而」——引出争议或反面观点
    「對此」——引出官方/专家回应
    「不過」——引出转折或补充
-   「對此，專家強調」——引出解决方案
+   「專家強調」——引出解决方案
 
-5. 禁止出现以下任何一种：
-   - "第1、""第2、""第X、"（要用"第一、""第二、"）
+5. 如果内容较多，使用「第二、」「第三、」等继续展开（不是第2、第3，是中文数字）
+
+6. 禁止出现：
+   - "第1、""第2、""第X、"
    - "首先其次最后"
-   - "短句""不超过X字"（不限制句子长度）
    - "据悉""数据显示"
    - "相信大家""让我们一起"
-   - "真的吗""这就离谱""你想想"（这些根本不是参考视频的语气）
+   - "真的吗""这就离谱""你想想"
 
-6. 每段结构：事件名 → 具体内容2-4句 → 过渡词 → 争议/影响/数据 → 下一段
+7. 每段结构：事件名 → 具体内容 → 过渡词 → 争议/影响/数据 → 下一段
 
-7. 参考视频原声音频结尾：「今日分享到此結束，感謝觀看」
-   你的文案结尾必须一模一样用这句话。
+8. 结尾必须用：「今日分享到此結束，感謝觀看」
+
+9. 语速要快，中等偏快，约5-6字/秒。
+
+10. 总字数：300-600字（4-6分钟口播量）。
 
 现在直接输出文案，直接开始："""
     try:
@@ -150,8 +180,8 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": 600,
-                    "temperature": 0.7,
+                    "num_predict": 800,
+                    "temperature": 0.8,
                     "num_ctx": 8192,
                     "stop": ["\n\n\n", "---", "===", "【", "##", "提示词", "以下是"],
                 }
@@ -174,7 +204,7 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
             result = result.strip()
             if not result or len(result) < 40:
                 raise ValueError(f"生成的文案过短或为空: {result[:50]}")
-            if 40 <= len(result) <= 600:
+            if 40 <= len(result) <= 800:
                 return result
     except Exception:
         pass

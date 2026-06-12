@@ -1,1 +1,43 @@
-.pyc
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# bilibili cookies
+*_cookies.txt
+.bilibili_cookies.json
+
+# Project: info_gap_pipeline - generated/intermediate files
+info_gap_pipeline/outputs/
+info_gap_pipeline/temp/
+info_gap_pipeline/logs/
+info_gap_pipeline/data/
+info_gap_pipeline/download/
+info_gap_pipeline/edit/
+info_gap_pipeline/research/
+info_gap_pipeline/scheduler/
+info_gap_pipeline/script_gen/
+info_gap_pipeline/voiceover/
+info_gap_pipeline/__pycache__/
+info_gap_pipeline/.pytest_cache/
+info_gap_pipeline/tests/__pycache__/
+info_gap_pipeline/tests/.pytest_cache/
+
+# Test files
+*.mp4
+test_*.mp4
+
+# Environment
+.env
+.env_*
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
