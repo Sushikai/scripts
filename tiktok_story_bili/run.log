@@ -1,166 +1,164 @@
-[2026-06-12 20:00:04] ============================================================
-[2026-06-12 20:00:04] YouTube故事AI视频搬运流水线启动
-[2026-06-12 20:00:06] [网络] YouTube可访问 ✅
-[2026-06-12 20:00:16] [LLM] 生成关键词: ['AI generated sci-fi twist', 'Emotional AI narrative drama', 'Machine story fantasy adventure', 'Artificial intelligence romance surprise', 'AI story horror reveal']
-[2026-06-12 20:00:16] [关键词] LLM关键词不足，自动补足: AI horror mystery short film
-[2026-06-12 20:00:16] [关键词] LLM关键词不足，自动补足: AI horror mystery short film
-[2026-06-12 20:00:16] [关键词] LLM关键词不足，自动补足: AI horror mystery short film
-[2026-06-12 20:00:16] [关键词] 共8个: ['AI generated sci-fi twist', 'Emotional AI narrative drama', 'Machine story fantasy adventure', 'Artificial intelligence romance surprise', 'AI story horror reveal']...
-[2026-06-12 20:00:16] [搜索] YouTube关键词: AI generated sci-fi twist
-[2026-06-12 20:00:22]   [搜索] ytsearch 'AI generated sci-fi twist' 找到 20 个
-[2026-06-12 20:00:22]   找到 20 个视频
-[2026-06-12 20:00:24] [搜索] YouTube关键词: Emotional AI narrative drama
-[2026-06-12 20:00:30]   [搜索] ytsearch 'Emotional AI narrative drama' 找到 20 个
-[2026-06-12 20:00:30]   找到 20 个视频
-[2026-06-12 20:00:32] [搜索] YouTube关键词: Machine story fantasy adventure
-[2026-06-12 20:01:10]   [搜索] ytsearch 'Machine story fantasy adventure' 找到 20 个
-[2026-06-12 20:01:10]   找到 20 个视频
-[2026-06-12 20:01:13] [搜索] YouTube关键词: Artificial intelligence romance surprise
-[2026-06-12 20:01:15]   [搜索] ytsearch 'Artificial intelligence romance surprise' 找到 20 个
-[2026-06-12 20:01:15]   找到 20 个视频
-[2026-06-12 20:01:17] [搜索] YouTube关键词: AI story horror reveal
-[2026-06-12 20:01:18]   [搜索] ytsearch 'AI story horror reveal' 失败(尝试1/3): by TransportError("('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))"))
-
-[2026-06-12 20:01:27]   [搜索] ytsearch 'AI story horror reveal' 找到 20 个
-[2026-06-12 20:01:27]   找到 20 个视频
-[2026-06-12 20:01:30] [搜索] YouTube关键词: AI horror mystery short film
-[2026-06-12 20:01:32]   [搜索] ytsearch 'AI horror mystery short film' 找到 20 个
-[2026-06-12 20:01:32]   找到 20 个视频
-[2026-06-12 20:01:34] [搜索] YouTube关键词: AI horror mystery short film
-[2026-06-12 20:01:37]   [搜索] ytsearch 'AI horror mystery short film' 找到 20 个
-[2026-06-12 20:01:37]   找到 20 个视频
-[2026-06-12 20:01:39] [搜索] YouTube关键词: AI horror mystery short film
-[2026-06-12 20:01:41]   [搜索] ytsearch 'AI horror mystery short film' 找到 20 个
-[2026-06-12 20:01:41]   找到 20 个视频
-[2026-06-12 20:01:43] [搜索] 共找到 160 个视频
-[2026-06-12 20:01:43] [候选] 159个（已排除下载过-18个 + 已上传19个）
-[2026-06-12 20:01:47]   评分 [YxSiGCoQ7A0] rate=0.0 heat=0.1 dur=71.3 → 14.28 (播:1 赞:0 评:0 时长:149s)
-[2026-06-12 20:01:47]   [YxSiGCoQ7A0] 赞:0 播:0 时长:149s → 评分:14.2750
-[2026-06-12 20:01:47]   评分 [myoHsCE45vs] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:15s)
-[2026-06-12 20:01:47]   [myoHsCE45vs] 赞:0 播:0 时长:15s → 评分:20.0150
-[2026-06-12 20:01:47]   评分 [7HPuk0lHouM] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:46s)
-[2026-06-12 20:01:47]   [7HPuk0lHouM] 赞:0 播:0 时长:46s → 评分:20.0150
-[2026-06-12 20:01:47]   评分 [LX60innDtcI] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:40s)
-[2026-06-12 20:01:47]   [LX60innDtcI] 赞:0 播:0 时长:40s → 评分:20.0150
-[2026-06-12 20:01:47]   评分 [6lzOecfCUzU] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:74s)
-[2026-06-12 20:01:47]   [6lzOecfCUzU] 赞:0 播:0 时长:74s → 评分:20.0150
-[2026-06-12 20:01:48]   评分 [8hNmphidBdA] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:92s)
-[2026-06-12 20:01:48]   [8hNmphidBdA] 赞:0 播:0 时长:92s → 评分:20.0150
-[2026-06-12 20:01:49]   评分 [NLAZubEa6X4] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:642s)
-[2026-06-12 20:01:49]   [NLAZubEa6X4] 赞:0 播:0 时长:642s → 评分:2.0150
-[2026-06-12 20:01:49]   评分 [6dz3laI5kMc] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:58s)
-[2026-06-12 20:01:49]   [6dz3laI5kMc] 赞:0 播:0 时长:58s → 评分:20.0150
-[2026-06-12 20:01:49]   评分 [kuG2WwxhBWs] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2640s)
-[2026-06-12 20:01:49]   [kuG2WwxhBWs] 赞:0 播:0 时长:2640s → 评分:2.0150
-[2026-06-12 20:01:49]   评分 [ZUXts1KyOq4] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:84s)
-[2026-06-12 20:01:49]   [ZUXts1KyOq4] 赞:0 播:0 时长:84s → 评分:20.0150
-[2026-06-12 20:01:50]   评分 [r74YwcrT6no] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-12 20:01:50]   [r74YwcrT6no] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-12 20:01:50]   评分 [Wh1uryFDty4] rate=0.0 heat=0.1 dur=70.1 → 14.04 (播:1 赞:0 评:0 时长:153s)
-[2026-06-12 20:01:50]   [Wh1uryFDty4] 赞:0 播:0 时长:153s → 评分:14.0350
-[2026-06-12 20:01:51]   评分 [iUytI1OxBgM] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:34s)
-[2026-06-12 20:01:51]   [iUytI1OxBgM] 赞:0 播:0 时长:34s → 评分:20.0150
-[2026-06-12 20:01:51]   评分 [V0A7rnFGSTU] rate=0.0 heat=0.1 dur=74.3 → 14.88 (播:1 赞:0 评:0 时长:139s)
-[2026-06-12 20:01:51]   [V0A7rnFGSTU] 赞:0 播:0 时长:139s → 评分:14.8750
-[2026-06-12 20:01:51]   评分 [zSdl0DZ19cw] rate=0.0 heat=0.1 dur=39.8 → 7.98 (播:1 赞:0 评:0 时长:254s)
-[2026-06-12 20:01:51]   [zSdl0DZ19cw] 赞:0 播:0 时长:254s → 评分:7.9750
-[2026-06-12 20:01:52]   评分 [2tL_nNakcsk] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:55s)
-[2026-06-12 20:01:52]   [2tL_nNakcsk] 赞:0 播:0 时长:55s → 评分:20.0150
-[2026-06-12 20:01:52]   评分 [QjR8yu6RkP0] rate=0.0 heat=0.1 dur=71.6 → 14.34 (播:1 赞:0 评:0 时长:148s)
-[2026-06-12 20:01:52]   [QjR8yu6RkP0] 赞:0 播:0 时长:148s → 评分:14.3350
-[2026-06-12 20:01:53]   评分 [_JGO64cC84U] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:115s)
-[2026-06-12 20:01:53]   [_JGO64cC84U] 赞:0 播:0 时长:115s → 评分:20.0150
-[2026-06-12 20:01:53]   评分 [lm92rdiapIU] rate=0.0 heat=0.1 dur=35.3 → 7.08 (播:1 赞:0 评:0 时长:269s)
-[2026-06-12 20:01:53]   [lm92rdiapIU] 赞:0 播:0 时长:269s → 评分:7.0750
-[2026-06-12 20:01:54]   评分 [seayuOCFxHQ] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3980s)
-[2026-06-12 20:01:54]   [seayuOCFxHQ] 赞:0 播:0 时长:3980s → 评分:2.0150
-[2026-06-12 20:01:54]   评分 [Dzu_IHc_0PQ] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:4059s)
-[2026-06-12 20:01:54]   [Dzu_IHc_0PQ] 赞:0 播:0 时长:4059s → 评分:2.0150
-[2026-06-12 20:01:54]   评分 [IUCecReHTHk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:4424s)
-[2026-06-12 20:01:54]   [IUCecReHTHk] 赞:0 播:0 时长:4424s → 评分:2.0150
-[2026-06-12 20:01:56]   评分 [D1pDzqqO4Cw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3583s)
-[2026-06-12 20:01:56]   [D1pDzqqO4Cw] 赞:0 播:0 时长:3583s → 评分:2.0150
-[2026-06-12 20:01:56]   评分 [sMB2uy-wVWc] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:53s)
-[2026-06-12 20:01:56]   [sMB2uy-wVWc] 赞:0 播:0 时长:53s → 评分:20.0150
-[2026-06-12 20:01:57]   评分 [t8l-PZNOoDA] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-12 20:01:57]   [t8l-PZNOoDA] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-12 20:01:57]   评分 [ffb6Wdvdu7U] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-12 20:01:57]   [ffb6Wdvdu7U] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-12 20:01:57]   评分 [Ab9aMyRJQ3g] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:34s)
-[2026-06-12 20:01:57]   [Ab9aMyRJQ3g] 赞:0 播:0 时长:34s → 评分:20.0150
-[2026-06-12 20:01:57]   评分 [wErdtEO-bCE] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-06-12 20:01:57]   [wErdtEO-bCE] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-06-12 20:01:57]   评分 [hL-LGV7xrlc] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:7399s)
-[2026-06-12 20:01:57]   [hL-LGV7xrlc] 赞:0 播:0 时长:7399s → 评分:2.0150
-[2026-06-12 20:01:58]   评分 [fatwpHjOEq0] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:6062s)
-[2026-06-12 20:01:58]   [fatwpHjOEq0] 赞:0 播:0 时长:6062s → 评分:2.0150
-[2026-06-12 20:01:58] [时长过滤] 30 -> 22 个（排除>300秒的）
-[2026-06-12 20:01:58] [选中] 将处理 2 个视频
-[2026-06-12 20:01:58] 
+[2026-07-01 20:00:04] ============================================================
+[2026-07-01 20:00:04] YouTube故事AI视频搬运流水线启动
+[2026-07-01 20:00:04] [网络] YouTube可访问 ✅
+[2026-07-01 20:00:17] [LLM] 生成关键词: ['AI generated emotional short film', 'Artificial intelligence sci-fi narrative', 'Machine story surprising romance twist', 'AI fantasy drama adventure', 'Horror story crafted by AI']
+[2026-07-01 20:00:17] [关键词] LLM关键词不足，自动补足: machine story sci-fi adventure
+[2026-07-01 20:00:17] [关键词] LLM关键词不足，自动补足: AI cinematic viral short
+[2026-07-01 20:00:17] [关键词] LLM关键词不足，自动补足: AI romance drama short video
+[2026-07-01 20:00:17] [关键词] 共8个: ['AI generated emotional short film', 'Artificial intelligence sci-fi narrative', 'Machine story surprising romance twist', 'AI fantasy drama adventure', 'Horror story crafted by AI']...
+[2026-07-01 20:00:17] [搜索] YouTube关键词: AI generated emotional short film
+[2026-07-01 20:00:19]   [搜索] ytsearch 'AI generated emotional short film' 找到 20 个
+[2026-07-01 20:00:19]   找到 20 个视频
+[2026-07-01 20:00:21] [搜索] YouTube关键词: Artificial intelligence sci-fi narrative
+[2026-07-01 20:00:23]   [搜索] ytsearch 'Artificial intelligence sci-fi narrative' 找到 20 个
+[2026-07-01 20:00:23]   找到 20 个视频
+[2026-07-01 20:00:25] [搜索] YouTube关键词: Machine story surprising romance twist
+[2026-07-01 20:00:38]   [搜索] ytsearch 'Machine story surprising romance twist' 找到 20 个
+[2026-07-01 20:00:38]   找到 20 个视频
+[2026-07-01 20:00:40] [搜索] YouTube关键词: AI fantasy drama adventure
+[2026-07-01 20:00:42]   [搜索] ytsearch 'AI fantasy drama adventure' 找到 20 个
+[2026-07-01 20:00:42]   找到 20 个视频
+[2026-07-01 20:00:44] [搜索] YouTube关键词: Horror story crafted by AI
+[2026-07-01 20:00:46]   [搜索] ytsearch 'Horror story crafted by AI' 找到 20 个
+[2026-07-01 20:00:46]   找到 20 个视频
+[2026-07-01 20:00:48] [搜索] YouTube关键词: machine story sci-fi adventure
+[2026-07-01 20:00:49]   [搜索] ytsearch 'machine story sci-fi adventure' 找到 20 个
+[2026-07-01 20:00:49]   找到 20 个视频
+[2026-07-01 20:00:51] [搜索] YouTube关键词: AI cinematic viral short
+[2026-07-01 20:01:04]   [搜索] ytsearch 'AI cinematic viral short' 找到 20 个
+[2026-07-01 20:01:04]   找到 20 个视频
+[2026-07-01 20:01:06] [搜索] YouTube关键词: AI romance drama short video
+[2026-07-01 20:01:08]   [搜索] ytsearch 'AI romance drama short video' 找到 20 个
+[2026-07-01 20:01:08]   找到 20 个视频
+[2026-07-01 20:01:10] [搜索] 共找到 160 个视频
+[2026-07-01 20:01:10] [候选] 154个（已排除下载过-13个 + 已上传19个）
+[2026-07-01 20:01:11]   评分 [vqHfolHIlEk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:652s)
+[2026-07-01 20:01:11]   评分 [yFDdoLIW9pw] rate=0.0 heat=0.1 dur=72.5 → 14.52 (播:1 赞:0 评:0 时长:145s)
+[2026-07-01 20:01:11]   评分 [gx6U2dGNw0I] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:39s)
+[2026-07-01 20:01:11]   [vqHfolHIlEk] 赞:0 播:0 时长:652s → 评分:2.0150
+[2026-07-01 20:01:11]   [yFDdoLIW9pw] 赞:0 播:0 时长:145s → 评分:14.5150
+[2026-07-01 20:01:11]   [gx6U2dGNw0I] 赞:0 播:0 时长:39s → 评分:20.0150
+[2026-07-01 20:01:11]   评分 [CwEbKw3bUpo] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:580s)
+[2026-07-01 20:01:11]   评分 [CxyN4bTcP1Q] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:372s)
+[2026-07-01 20:01:11]   评分 [KKm5foh8mOw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:418s)
+[2026-07-01 20:01:11]   [CwEbKw3bUpo] 赞:0 播:0 时长:580s → 评分:2.0150
+[2026-07-01 20:01:11]   [CxyN4bTcP1Q] 赞:0 播:0 时长:372s → 评分:2.0150
+[2026-07-01 20:01:11]   [KKm5foh8mOw] 赞:0 播:0 时长:418s → 评分:2.0150
+[2026-07-01 20:01:11]   评分 [TBZi8q4O_8Y] rate=0.0 heat=0.1 dur=43.4 → 8.70 (播:1 赞:0 评:0 时长:242s)
+[2026-07-01 20:01:11]   [TBZi8q4O_8Y] 赞:0 播:0 时长:242s → 评分:8.6950
+[2026-07-01 20:01:11]   评分 [edvPrDCWwOk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3723s)
+[2026-07-01 20:01:11]   [edvPrDCWwOk] 赞:0 播:0 时长:3723s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [p86R22D2cF0] rate=0.0 heat=0.1 dur=74.9 → 15.00 (播:1 赞:0 评:0 时长:137s)
+[2026-07-01 20:01:12]   [p86R22D2cF0] 赞:0 播:0 时长:137s → 评分:14.9950
+[2026-07-01 20:01:12]   评分 [QrUL6F9eoiY] rate=0.0 heat=0.1 dur=59.6 → 11.94 (播:1 赞:0 评:0 时长:188s)
+[2026-07-01 20:01:12]   [QrUL6F9eoiY] 赞:0 播:0 时长:188s → 评分:11.9350
+[2026-07-01 20:01:12]   评分 [JhH3uxcdM1M] rate=0.0 heat=0.1 dur=62.6 → 12.54 (播:1 赞:0 评:0 时长:178s)
+[2026-07-01 20:01:12]   评分 [IIOVvC4zEmM] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:662s)
+[2026-07-01 20:01:12]   [JhH3uxcdM1M] 赞:0 播:0 时长:178s → 评分:12.5350
+[2026-07-01 20:01:12]   [IIOVvC4zEmM] 赞:0 播:0 时长:662s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [F0mAw6oiM-Y] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:650s)
+[2026-07-01 20:01:12]   [F0mAw6oiM-Y] 赞:0 播:0 时长:650s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [nJIL7ZS8rtE] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:61s)
+[2026-07-01 20:01:12]   [nJIL7ZS8rtE] 赞:0 播:0 时长:61s → 评分:20.0150
+[2026-07-01 20:01:12]   评分 [dp4-Sv0uVzE] rate=0.0 heat=0.1 dur=35.0 → 7.02 (播:1 赞:0 评:0 时长:270s)
+[2026-07-01 20:01:12]   [dp4-Sv0uVzE] 赞:0 播:0 时长:270s → 评分:7.0150
+[2026-07-01 20:01:12]   评分 [qVXXi8a3f_M] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:111s)
+[2026-07-01 20:01:12]   [qVXXi8a3f_M] 赞:0 播:0 时长:111s → 评分:20.0150
+[2026-07-01 20:01:12]   评分 [aNLaI1lhlbA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:770s)
+[2026-07-01 20:01:12]   评分 [JXAsdsHXZ5c] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2775s)
+[2026-07-01 20:01:12]   [aNLaI1lhlbA] 赞:0 播:0 时长:770s → 评分:2.0150
+[2026-07-01 20:01:12]   [JXAsdsHXZ5c] 赞:0 播:0 时长:2775s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [4_Paw1c86_Q] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:886s)
+[2026-07-01 20:01:12]   [4_Paw1c86_Q] 赞:0 播:0 时长:886s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [1y7qHsEEp5k] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:429s)
+[2026-07-01 20:01:12]   [1y7qHsEEp5k] 赞:0 播:0 时长:429s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [EYZ-3Slq5Xw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:5608s)
+[2026-07-01 20:01:12]   [EYZ-3Slq5Xw] 赞:0 播:0 时长:5608s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [7oy2_hpk8kY] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:23790s)
+[2026-07-01 20:01:12]   [7oy2_hpk8kY] 赞:0 播:0 时长:23790s → 评分:2.0150
+[2026-07-01 20:01:12]   评分 [YzhMLN2RNSU] rate=0.0 heat=0.1 dur=64.7 → 12.96 (播:1 赞:0 评:0 时长:171s)
+[2026-07-01 20:01:12]   [YzhMLN2RNSU] 赞:0 播:0 时长:171s → 评分:12.9550
+[2026-07-01 20:01:12]   评分 [oNQXKqu3k7U] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:12053s)
+[2026-07-01 20:01:13]   [oNQXKqu3k7U] 赞:0 播:0 时长:12053s → 评分:2.0150
+[2026-07-01 20:01:13]   评分 [vp7xoPeWzEw] rate=0.0 heat=0.1 dur=54.8 → 10.98 (播:1 赞:0 评:0 时长:204s)
+[2026-07-01 20:01:13]   [vp7xoPeWzEw] 赞:0 播:0 时长:204s → 评分:10.9750
+[2026-07-01 20:01:13]   评分 [jdtY0TRm0fM] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2724s)
+[2026-07-01 20:01:13]   [jdtY0TRm0fM] 赞:0 播:0 时长:2724s → 评分:2.0150
+[2026-07-01 20:01:13]   评分 [xfMQ7hzyFW4] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1648s)
+[2026-07-01 20:01:13]   [xfMQ7hzyFW4] 赞:0 播:0 时长:1648s → 评分:2.0150
+[2026-07-01 20:01:13]   评分 [fa8k8IQ1_X0] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1003s)
+[2026-07-01 20:01:13]   [fa8k8IQ1_X0] 赞:0 播:0 时长:1003s → 评分:2.0150
+[2026-07-01 20:01:13]   评分 [ZxvPdYMw_Sw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:950s)
+[2026-07-01 20:01:13]   [ZxvPdYMw_Sw] 赞:0 播:0 时长:950s → 评分:2.0150
+[2026-07-01 20:01:13]   评分 [4gKBHYjbUAM] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:573s)
+[2026-07-01 20:01:13]   [4gKBHYjbUAM] 赞:0 播:0 时长:573s → 评分:2.0150
+[2026-07-01 20:01:13] [时长过滤] 30 -> 11 个（排除>300秒的）
+[2026-07-01 20:01:13] [选中] 将处理 2 个视频
+[2026-07-01 20:01:13] 
 ========================================
-[2026-06-12 20:01:58] [处理] myoHsCE45vs: Creating Stunning 3D short Movie in AI | 3D Cinematic Experience
-[2026-06-12 20:01:58] [下载] 开始下载...
-[2026-06-12 20:01:58]   [下载] [1/3] myoHsCE45vs (单流MP4(hv))
-[2026-06-12 20:02:01]   [下载] 单流MP4(hv)失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:13] [处理] gx6U2dGNw0I: Old Memories | A Cinematic AI-Generated Short Film (Emotional Storytelling)
+[2026-07-01 20:01:13] [下载] 开始下载...
+[2026-07-01 20:01:13]   [下载] [1/3] gx6U2dGNw0I (单流MP4(hv))
+[2026-07-01 20:01:13]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:01]   [下载] [1/3] myoHsCE45vs (单流MP4(sys))
-[2026-06-12 20:02:04]   [下载] 单流MP4(sys)失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:13]   [下载] [1/3] gx6U2dGNw0I (单流MP4(sys))
+[2026-07-01 20:01:14]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:04]   [下载] [1/3] myoHsCE45vs (720p合并)
-[2026-06-12 20:02:07]   [下载] 720p合并失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:14]   [下载] [1/3] gx6U2dGNw0I (720p合并)
+[2026-07-01 20:01:14]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:12]   [下载] [2/3] myoHsCE45vs (单流MP4(hv))
-[2026-06-12 20:02:18]   [下载] 单流MP4(hv)失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:19]   [下载] [2/3] gx6U2dGNw0I (单流MP4(hv))
+[2026-07-01 20:01:19]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:18]   [下载] [2/3] myoHsCE45vs (单流MP4(sys))
-[2026-06-12 20:02:20]   [下载] 单流MP4(sys)失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:19]   [下载] [2/3] gx6U2dGNw0I (单流MP4(sys))
+[2026-07-01 20:01:20]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:20]   [下载] [2/3] myoHsCE45vs (720p合并)
-[2026-06-12 20:02:27]   [下载] 720p合并失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:20]   [下载] [2/3] gx6U2dGNw0I (720p合并)
+[2026-07-01 20:01:20]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:37]   [下载] [3/3] myoHsCE45vs (单流MP4(hv))
-[2026-06-12 20:02:41]   [下载] 单流MP4(hv)失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:30]   [下载] [3/3] gx6U2dGNw0I (单流MP4(hv))
+[2026-07-01 20:01:31]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:41]   [下载] [3/3] myoHsCE45vs (单流MP4(sys))
-[2026-06-12 20:02:43]   [下载] 单流MP4(sys)失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:31]   [下载] [3/3] gx6U2dGNw0I (单流MP4(sys))
+[2026-07-01 20:01:31]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:43]   [下载] [3/3] myoHsCE45vs (720p合并)
-[2026-06-12 20:02:49]   [下载] 720p合并失败:  myoHsCE45vs: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:31]   [下载] [3/3] gx6U2dGNw0I (720p合并)
+[2026-07-01 20:01:31]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:49]   [下载] 最终失败: myoHsCE45vs
-[2026-06-12 20:02:49] [下载] 失败，跳过
-[2026-06-12 20:02:49] 
+[2026-07-01 20:01:31]   [下载] 最终失败: gx6U2dGNw0I
+[2026-07-01 20:01:31] [下载] 失败，跳过
+[2026-07-01 20:01:31] 
 ========================================
-[2026-06-12 20:02:49] [处理] 7HPuk0lHouM: THE VEIL - My first AI generated Sci Fi Movie Trailer (2025)
-[2026-06-12 20:02:49] [下载] 开始下载...
-[2026-06-12 20:02:49]   [下载] [1/3] 7HPuk0lHouM (单流MP4(hv))
-[2026-06-12 20:02:52]   [下载] 单流MP4(hv)失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:31] [处理] nJIL7ZS8rtE: ❤️ AI Love Story | Emotional Short Film
+[2026-07-01 20:01:31] [下载] 开始下载...
+[2026-07-01 20:01:31]   [下载] [1/3] nJIL7ZS8rtE (单流MP4(hv))
+[2026-07-01 20:01:31]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:52]   [下载] [1/3] 7HPuk0lHouM (单流MP4(sys))
-[2026-06-12 20:02:55]   [下载] 单流MP4(sys)失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:31]   [下载] [1/3] nJIL7ZS8rtE (单流MP4(sys))
+[2026-07-01 20:01:32]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:02:55]   [下载] [1/3] 7HPuk0lHouM (720p合并)
-[2026-06-12 20:02:57]   [下载] 720p合并失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:32]   [下载] [1/3] nJIL7ZS8rtE (720p合并)
+[2026-07-01 20:01:32]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:03:02]   [下载] [2/3] 7HPuk0lHouM (单流MP4(hv))
-[2026-06-12 20:03:30]   [下载] 单流MP4(hv)失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:37]   [下载] [2/3] nJIL7ZS8rtE (单流MP4(hv))
+[2026-07-01 20:01:37]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:03:30]   [下载] [2/3] 7HPuk0lHouM (单流MP4(sys))
-[2026-06-12 20:03:33]   [下载] 单流MP4(sys)失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:37]   [下载] [2/3] nJIL7ZS8rtE (单流MP4(sys))
+[2026-07-01 20:01:37]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:03:33]   [下载] [2/3] 7HPuk0lHouM (720p合并)
-[2026-06-12 20:03:35]   [下载] 720p合并失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:37]   [下载] [2/3] nJIL7ZS8rtE (720p合并)
+[2026-07-01 20:01:37]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:03:45]   [下载] [3/3] 7HPuk0lHouM (单流MP4(hv))
-[2026-06-12 20:03:48]   [下载] 单流MP4(hv)失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:48]   [下载] [3/3] nJIL7ZS8rtE (单流MP4(hv))
+[2026-07-01 20:01:48]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:03:48]   [下载] [3/3] 7HPuk0lHouM (单流MP4(sys))
-[2026-06-12 20:04:15]   [下载] 单流MP4(sys)失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:48]   [下载] [3/3] nJIL7ZS8rtE (单流MP4(sys))
+[2026-07-01 20:01:48]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:04:15]   [下载] [3/3] 7HPuk0lHouM (720p合并)
-[2026-06-12 20:04:17]   [下载] 720p合并失败:  7HPuk0lHouM: Requested format is not available. Use --list-formats for a list of available formats
+[2026-07-01 20:01:48]   [下载] [3/3] nJIL7ZS8rtE (720p合并)
+[2026-07-01 20:01:48]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
 
-[2026-06-12 20:04:17]   [下载] 最终失败: 7HPuk0lHouM
-[2026-06-12 20:04:17] [下载] 失败，跳过
-[2026-06-12 20:04:17] ============================================================
-[2026-06-12 20:04:17] ✅ 流水线完成!
+[2026-07-01 20:01:48]   [下载] 最终失败: nJIL7ZS8rtE
+[2026-07-01 20:01:48] [下载] 失败，跳过
+[2026-07-01 20:01:48] ============================================================
+[2026-07-01 20:01:48] ✅ 流水线完成!

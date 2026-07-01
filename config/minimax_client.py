@@ -23,15 +23,17 @@ class MiniMaxClient:
     def _extract_text(self, msg) -> str:
         """从 Anthropic 响应中提取文本，兼容所有 block 类型"""
         for block in msg.content:
-            # TextBlock / 纯文本
+            # TextBlock / 纯文本（优先返回，避免被 ThinkingBlock 干扰）
             if hasattr(block, 'text') and block.text:
                 return block.text
-            # MiniMax thinking block
-            if hasattr(block, 'thinking') and block.thinking:
-                return block.thinking
-            # content 字段
+        # 如果没有 TextBlock，尝试 content 字段
+        for block in msg.content:
             if hasattr(block, 'content') and block.content:
                 return block.content
+        # 最后才尝试 thinking block（MIniMax 扩展思考）
+        for block in msg.content:
+            if hasattr(block, 'thinking') and block.thinking:
+                return block.thinking
         return ""
 
     def score_topic(self, topic: str) -> float:
@@ -88,7 +90,7 @@ class MiniMaxClient:
             "3. 允许长句，信息密度要高，不限制句子长度。\n"
             "4. 段内过渡词：然而、對此、不過、對此，專家強調。\n"
             "5. 结尾：「今日分享到此結束，感謝觀看」。\n"
-            "6. 总字数：300-600字（4-6分钟口播量）。\n\n"
+            "6. 总字数：150-200字（2-3分钟口播量），锚定参考视频BV1EY7k6aEPg每话题约180字。\n\n"
             "现在直接输出文案，直接开始："
         ).format(topic=topic)
 
@@ -154,14 +156,14 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
    「不過」——引出转折或补充
    「專家強調」——引出解决方案
 
-5. 如果内容较多，使用「第二、」「第三、」等继续展开（不是第2、第3，是中文数字）
+5. 必须使用「第一、」「第二、」「第三、」三段式结构展开内容（不是第2、第3，是中文数字），即使内容不那么多也要分成三段
 
-6. 禁止出现：
-   - "第1、""第2、""第X、"
-   - "首先其次最后"
-   - "据悉""数据显示"
-   - "相信大家""让我们一起"
-   - "真的吗""这就离谱""你想想"
+6. 禁止出现以下任何词汇（绝对不能出现，哪怕一次）：
+   - 章节词："首先"、"其次"、"最后"、"第1、"、"第2、"、"第3、"
+   - 记者腔："据悉"、"相信大家"、"让我们一起"、"大家好"、"大家好呀"
+   - 网络腔："真的吗"、"这就离谱"、"你想想"、"有意思"
+   - 主观腔："我觉得"、"我认为"、"大家都知道"
+   - 会议腔："第1点"、"第2点"、"一方面"、"另一方面"
 
 7. 每段结构：事件名 → 具体内容 → 过渡词 → 争议/影响/数据 → 下一段
 
@@ -169,7 +171,7 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
 
 9. 语速要快，中等偏快，约5-6字/秒。
 
-10. 总字数：300-600字（4-6分钟口播量）。
+10. 总字数：150-200字（2-3分钟口播量），锚定参考视频BV1EY7k6aEPg每话题约180字。
 
 现在直接输出文案，直接开始："""
     try:
@@ -180,7 +182,7 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": 800,
+                    "num_predict": 300,
                     "temperature": 0.8,
                     "num_ctx": 8192,
                     "stop": ["\n\n\n", "---", "===", "【", "##", "提示词", "以下是"],
@@ -204,7 +206,7 @@ def generate_script_ollama(topic: str, model: str = "qwen2.5:32b-instruct-q4_K_M
             result = result.strip()
             if not result or len(result) < 40:
                 raise ValueError(f"生成的文案过短或为空: {result[:50]}")
-            if 40 <= len(result) <= 800:
+            if 40 <= len(result) <= 250:
                 return result
     except Exception:
         pass
