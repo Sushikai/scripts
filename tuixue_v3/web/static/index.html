@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0908" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>退学 v3 · 操作台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- background mesh + noise -->
+<div class="bg-mesh" aria-hidden="true"></div>
+<div class="bg-noise" aria-hidden="true"></div>
+
+<!-- top bar -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark">退学</span><span class="brand-mark-2">v3</span>
+      <span class="brand-sub">TUIXUE · 操作台</span>
+    </div>
+    <span class="ts-stamp" id="ts-stamp" aria-live="polite"></span>
+    <button class="iconbtn" id="refresh-ticker" title="刷新">
+      <svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.5a6.5 6.5 0 0 0-5.7 3.4l-1.6-.5A8 8 0 0 1 8 0v1.5zm.3 5.2a.7.7 0 0 0-1 0L4.6 9.3a.7.7 0 0 0 1 1L7 9v3.5a.7.7 0 0 0 1.4 0V9l1.4 1.3a.7.7 0 0 0 1-1l-2.5-2.6z"/></svg>
+    </button>
+  </div>
+  <div class="tickerbar" id="tickerbar">
+    <div class="ticker-empty">加载市场概览 …</div>
+  </div>
+</header>
+
+<main class="canvas">
+
+  <!-- ─── DASHBOARD ─── -->
+  <section class="view view-dash" data-view="dash">
+    <header class="view-head">
+      <p class="caption">CONTROL DECK · 01</p>
+      <h1 class="display">把模型交给<span class="accent">纪律</span>，<br/>把判断留给人。</h1>
+      <p class="lede">退学炒股四层流水线 · 远程触发 · 实时出结论</p>
+    </header>
+
+    <div class="grid grid-2">
+      <article class="card card-cta" id="cta-scan">
+        <div class="card-eyebrow">SCREEN · 实时龙头股</div>
+        <h2 class="card-title">一键<span class="accent">扫描</span></h2>
+        <p class="card-text">跑完 L1 风控 → L2 周期闸门 → L3 形态 → L4 分时，按 L4→L1 优先级返回当日候选。</p>
+        <button class="btn btn-primary" data-jump="screen">
+          <span>立即扫描</span><span class="btn-arrow">↗</span>
+        </button>
+      </article>
+
+      <article class="card card-cta" id="cta-bt">
+        <div class="card-eyebrow">BACKTEST · 历史回放</div>
+        <h2 class="card-title">策略<span class="accent">回测</span></h2>
+        <p class="card-text">按区间复盘最近 6-18 个月，给出胜率 / 月均 / 最大回撤 / 盈亏比。</p>
+        <button class="btn btn-primary" data-jump="backtest">
+          <span>开始回测</span><span class="btn-arrow">↗</span>
+        </button>
+      </article>
+    </div>
+
+    <div class="grid grid-3 mt-32">
+      <article class="card">
+        <div class="card-eyebrow">SECTOR · 板块快照</div>
+        <h3 class="card-h">涨停池</h3>
+        <div class="metric" id="m-zt"><span class="m-num">—</span><span class="m-unit">只</span></div>
+        <p class="caption dim">今日连板家数 · 实时</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">SECTOR · 板块快照</div>
+        <h3 class="card-h">沪深成交</h3>
+        <div class="metric"><span class="m-num" id="m-amt">—</span><span class="m-unit">亿</span></div>
+        <p class="caption dim">今日两市成交额（实时）</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">SECTOR · 系统状态</div>
+        <h3 class="card-h">缓存命中</h3>
+        <div class="metric"><span class="m-num" id="m-cache">—</span><span class="m-unit">%</span></div>
+        <p class="caption dim">最近一次扫描命中率</p>
+      </article>
+    </div>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">QUICK · 快捷入口</div>
+      <h3 class="card-h">个股深查</h3>
+      <div class="searchbar">
+        <input id="dash-search" class="search-input" placeholder="输入股票代码或名称（如 600519 / 茅台）"/>
+        <button class="btn btn-ghost" id="dash-search-go">查询 →</button>
+      </div>
+    </article>
+  </section>
+
+  <!-- ─── SCREEN ─── -->
+  <section class="view view-screen" data-view="screen" hidden>
+    <header class="view-head">
+      <p class="caption">SCREEN · 02</p>
+      <h1 class="display">实时<span class="accent">龙头股</span></h1>
+      <p class="lede">按退学体系四层过筛 · 模式一致性优先</p>
+    </header>
+
+    <div class="grid grid-2">
+      <article class="card">
+        <div class="card-eyebrow">RUN · 触发</div>
+        <div class="runrow">
+          <input id="screen-date" class="search-input" placeholder="YYYYMMDD（留空=今日）"/>
+          <button class="btn btn-primary" id="run-screen">
+            <span>扫描</span><span class="btn-arrow">↗</span>
+          </button>
+        </div>
+        <p class="caption dim">默认 mode=live；mode=backtest 用于指定交易日回测。</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">SUMMARY · 结果概况</div>
+        <div class="metric"><span class="m-num" id="screen-count">0</span><span class="m-unit">只</span></div>
+        <p class="caption dim" id="screen-meta">未运行</p>
+      </article>
+    </div>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">CANDIDATES · 候选池</div>
+      <div class="table-wrap">
+        <table id="screen-table" class="data-table">
+          <thead>
+            <tr><th>代码</th><th>名称</th><th>板块</th><th>RR</th><th>换手</th><th>涨幅</th><th>流通</th><th>详情</th></tr>
+          </thead>
+          <tbody><tr><td colspan="8" class="empty">等待扫描 …</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <!-- ─── BACKTEST ─── -->
+  <section class="view view-backtest" data-view="backtest" hidden>
+    <header class="view-head">
+      <p class="caption">BACKTEST · 03</p>
+      <h1 class="display">历史<span class="accent">回放</span></h1>
+      <p class="lede">T 日选股 → T+1 开盘买入 → 持有 N 日 → 按规则卖出</p>
+    </header>
+
+    <div class="grid grid-2">
+      <article class="card">
+        <div class="card-eyebrow">PARAM · 参数</div>
+        <div class="form">
+          <label><span>起始</span><input id="bt-start" value="2025-01-01"/></label>
+          <label><span>截止</span><input id="bt-end" value="2026-06-30"/></label>
+          <label><span>每日买入</span><input id="bt-top" type="number" value="3" min="1" max="10"/></label>
+          <label><span>持有日</span><input id="bt-hold" type="number" value="5" min="1" max="20"/></label>
+          <label><span>采样</span><input id="bt-sample" type="number" value="200" min="20" max="1000"/></label>
+          <label><span>卖出</span><select id="bt-sell">
+            <option value="rule">rule（按规则）</option>
+            <option value="max">max（期内最高）</option>
+            <option value="close">close（到期收盘）</option>
+          </select></label>
+        </div>
+        <button class="btn btn-primary" id="run-bt" style="margin-top: 1rem">
+          <span>开始回测</span><span class="btn-arrow">↗</span>
+        </button>
+      </article>
+
+      <article class="card">
+        <div class="card-eyebrow">SUMMARY · 综合指标</div>
+        <div class="kpi-grid" id="bt-kpis"></div>
+      </article>
+    </div>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">RISK · 铁律三.4 回撤风控</div>
+      <div id="bt-risk-host" class="dim" style="padding: .6rem 0">回测完成后显示</div>
+    </article>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">EQUITY · 资金曲线</div>
+      <div id="equity-chart" style="height:280px"></div>
+    </article>
+
+    <div id="bt-risk-actions-host"></div>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">MONTHLY · 月度明细</div>
+      <div class="table-wrap">
+        <table id="bt-monthly" class="data-table">
+          <thead><tr><th>月份</th><th>笔数</th><th>胜率</th><th>平均%</th><th>月度%</th><th>最佳%</th><th>最差%</th></tr></thead>
+          <tbody><tr><td colspan="7" class="empty">未运行</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <!-- ─── STOCK DETAIL ─── -->
+  <section class="view view-stock" data-view="stock" hidden>
+    <header class="view-head">
+      <p class="caption">DETAIL · 04</p>
+      <h1 class="display"><span id="stock-title">个股</span><span class="accent">·</span><span id="stock-code">—</span></h1>
+      <p class="lede" id="stock-sub">搜索 → 一只股票开始</p>
+    </header>
+
+    <article class="card">
+      <div class="searchbar">
+        <input id="stock-search" class="search-input" placeholder="代码 / 名称（如 600519 / 平安）"/>
+        <button class="btn btn-primary" id="stock-go">查询 ↗</button>
+      </div>
+      <div id="stock-search-results" class="search-results"></div>
+    </article>
+
+    <div class="grid grid-3 mt-24">
+      <article class="card">
+        <div class="card-eyebrow">QUOTE · 实时</div>
+        <div class="metric"><span class="m-num" id="q-price">—</span><span class="m-unit">元</span></div>
+        <p class="caption" id="q-change">—</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">FLOW · 主力</div>
+        <div class="metric"><span class="m-num" id="q-main">—</span><span class="m-unit">万</span></div>
+        <p class="caption dim">今日主力净流入</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">SEATS · 席位</div>
+        <div class="metric"><span class="m-num" id="q-seats">0</span><span class="m-unit">条</span></div>
+        <p class="caption dim" id="q-seats-sub">近 10 日龙虎</p>
+      </article>
+    </div>
+
+    <div class="tabs mt-32">
+      <button class="tab active" data-tab="flow">资金流向</button>
+      <button class="tab" data-tab="kline">K 线</button>
+      <button class="tab" data-tab="seats">游资席位</button>
+      <button class="tab" data-tab="ai">AI 复盘 · 铁律</button>
+    </div>
+
+    <article class="card mt-16">
+      <div class="card-eyebrow" data-tab-title>资本动向</div>
+      <div data-tab-pane="flow">
+        <div id="flow-chart" style="height:340px"></div>
+      </div>
+      <div data-tab-pane="kline" hidden>
+        <div id="kline-chart" style="height:340px"></div>
+      </div>
+      <div data-tab-pane="seats" hidden>
+        <div class="table-wrap">
+          <table id="seats-table" class="data-table">
+            <thead><tr><th>日期</th><th>席位</th><th>方向</th><th>质量组</th><th>标签</th></tr></thead>
+            <tbody><tr><td colspan="5" class="empty">查询后显示</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div data-tab-pane="ai" hidden>
+        <div id="ai-panel" hidden>
+          <div class="ai-head">
+            <div class="ai-verdict-block">
+              <span class="ai-verdict-label">判定</span>
+              <span class="ai-verdict" id="ai-verdict">…</span>
+              <span class="ai-status" id="ai-status">调用中</span>
+            </div>
+            <div class="ai-conviction-block">
+              <span class="ai-conviction-label">确信度</span>
+              <span class="ai-conviction-num" id="ai-conviction">— / 100</span>
+              <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="ai-conviction-bar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <p class="ai-summary" id="ai-summary"></p>
+          <div class="ai-detail" id="ai-detail"></div>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ─── OPTIMIZE ─── -->
+  <section class="view view-optimize" data-view="optimize" hidden>
+    <header class="view-head">
+      <p class="caption">OPTIMIZE · 05</p>
+      <h1 class="display">参数<span class="accent">调优</span></h1>
+      <p class="lede">10 次迭代网格扫描 · 自动恢复最佳参数</p>
+    </header>
+
+    <article class="card">
+      <div class="card-eyebrow">RUN · 触发</div>
+      <p class="card-text">网格扫描 30+ 阈值组合 · 综合得分 = 0.5×月均 + 0.3×胜率 + 0.2×盈亏比。</p>
+      <button class="btn btn-primary" id="run-optimize">
+        <span>开始调优</span><span class="btn-arrow">↗</span>
+      </button>
+      <p class="caption dim" id="optimize-status" style="margin-top: .75rem">未运行</p>
+    </article>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">REPORTS · 历史报告</div>
+      <div class="table-wrap">
+        <table id="reports-table" class="data-table">
+          <thead><tr><th>报告</th><th>类型</th><th>大小</th><th>时间</th></tr></thead>
+          <tbody><tr><td colspan="4" class="empty">加载中 …</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <!-- ─── DRAGONS · 龙头战法 ─── -->
+  <section class="view view-dragons" data-view="dragons" hidden>
+    <header class="view-head">
+      <p class="caption">DRAGONS · 07</p>
+      <h1 class="display">龙头<span class="accent">战法</span></h1>
+      <p class="lede">四步流水线 · 情绪 → 主线 → 龙头 → 决策 · 6 维评分</p>
+      <div class="view-actions">
+        <span class="caption dim" id="dragons-date">—</span>
+        <span class="caption dim" id="dragons-elapsed">—</span>
+        <button class="btn btn-primary" id="dragons-refresh">
+          <span>手动刷新</span><span class="btn-arrow">↻</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 步骤 1: 整体情绪 -->
+    <article class="card" id="dragons-sentiment">
+      <div class="card-eyebrow">STEP 1 · 整体情绪</div>
+      <div class="sentiment-row">
+        <div class="sentiment-label" id="dragons-sentiment-label">—</div>
+        <div class="sentiment-stats">
+          <span>涨停 <b id="dragons-zt-count">—</b></span>
+          <span>最高连板 <b id="dragons-max-streak">—</b></span>
+          <span>连板梯队 <b id="dragons-streak-dist">—</b></span>
+        </div>
+      </div>
+    </article>
+
+    <!-- 步骤 2: 主线题材 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">STEP 2 · 今日主线 Top 5</div>
+      <div id="dragons-mainline" class="mainline-grid">
+        <p class="empty">加载中 …</p>
+      </div>
+    </article>
+
+    <!-- 步骤 3: Top 10 龙头 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">STEP 3 · 龙头候选 Top 10</div>
+      <p class="caption dim" style="margin: .25rem 0 .75rem">
+        6 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 (满分 128, 封单降级时 108)
+      </p>
+      <div id="dragons-top10" class="dragon-cards">
+        <p class="empty">加载中 …</p>
+      </div>
+    </article>
+
+    <!-- 步骤 4: 决策建议 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">STEP 4 · 决策建议</div>
+      <div id="dragons-decision" class="decision-grid">
+        <p class="empty">加载中 …</p>
+      </div>
+    </article>
+
+    <!-- 步骤 4: 全部涨停 (折叠) -->
+    <article class="card mt-16">
+      <div class="card-eyebrow collapsible" id="dragons-all-toggle">
+        <span>STEP 4 · 全部涨停 (<span id="dragons-all-count">—</span>)</span>
+        <span class="arrow">▶</span>
+      </div>
+      <div id="dragons-all-wrap" class="hidden">
+        <p class="caption dim" style="margin: .25rem 0 .75rem">
+          所有涨停 + 评分明细 · 点击行展开 6 维评分
+        </p>
+        <div class="table-wrap">
+          <table id="dragons-all-table" class="data-table">
+            <thead><tr>
+              <th>#</th><th>代码</th><th>名称</th><th>板块</th><th>连板</th>
+              <th>市值</th><th>换手</th><th>封成比</th><th>总分</th><th>提示</th>
+            </tr></thead>
+            <tbody><tr><td colspan="10" class="empty">加载中 …</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </article>
+
+    <!-- 状态条 -->
+    <p class="caption dim" id="dragons-status" style="margin-top: 1rem">未加载</p>
+  </section>
+
+  <!-- ─── LAWS · 心法铁律 ─── -->
+  <section class="view view-laws" data-view="laws" hidden>
+    <header class="view-head">
+      <p class="caption">DISCIPLINE · 06</p>
+      <h1 class="display">退学心法 · <span class="accent">铁律</span></h1>
+      <p class="lede">《我和小明》原文 · 浓缩成 46 条 · 作为每日下单前的铁闸</p>
+    </header>
+
+    <!-- 滚动口号条 -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span class="mq-item">控心魔</span><span class="mq-sep">·</span>
+        <span class="mq-item">弃杂毛</span><span class="mq-sep">·</span>
+        <span class="mq-item">设止损</span><span class="mq-sep">·</span>
+        <span class="mq-item">不补仓</span><span class="mq-sep">·</span>
+        <span class="mq-item">无计划不买票</span><span class="mq-sep">·</span>
+        <span class="mq-item">看不清就空仓</span><span class="mq-sep">·</span>
+        <span class="mq-item">主线合力才参与</span><span class="mq-sep">·</span>
+        <span class="mq-item">连续盈利减仓位</span><span class="mq-sep">·</span>
+        <span class="mq-item">错单果断离场</span><span class="mq-sep">·</span>
+        <span class="mq-item">不攀比不执念</span><span class="mq-sep">·</span>
+        <span class="mq-item">每日复盘自省</span><span class="mq-sep">·</span>
+        <span class="mq-item">慢节奏复利为王</span><span class="mq-sep">·</span>
+        <!-- 重复一组用于无缝循环 -->
+        <span class="mq-item">控心魔</span><span class="mq-sep">·</span>
+        <span class="mq-item">弃杂毛</span><span class="mq-sep">·</span>
+        <span class="mq-item">设止损</span><span class="mq-sep">·</span>
+        <span class="mq-item">不补仓</span><span class="mq-sep">·</span>
+        <span class="mq-item">无计划不买票</span><span class="mq-sep">·</span>
+        <span class="mq-item">看不清就空仓</span><span class="mq-sep">·</span>
+        <span class="mq-item">主线合力才参与</span><span class="mq-sep">·</span>
+        <span class="mq-item">连续盈利减仓位</span><span class="mq-sep">·</span>
+        <span class="mq-item">错单果断离场</span><span class="mq-sep">·</span>
+        <span class="mq-item">不攀比不执念</span><span class="mq-sep">·</span>
+        <span class="mq-item">每日复盘自省</span><span class="mq-sep">·</span>
+        <span class="mq-item">慢节奏复利为王</span><span class="mq-sep">·</span>
+      </div>
+    </div>
+
+    <!-- 4 大类铁律 -->
+    <div id="laws-categories" class="laws-grid"></div>
+
+    <!-- 极简口诀 -->
+    <article class="card card-koujue mt-32">
+      <div class="card-eyebrow">五 · 极简每日执行口诀</div>
+      <h3 class="card-h">抄写到桌前每天复读</h3>
+      <pre class="koujue" id="laws-koujue"></pre>
+    </article>
+
+    <!-- 合规审计小卡片 -->
+    <article class="card mt-32 laws-compliance">
+      <div class="card-eyebrow">SELF-AUDIT · 系统对照铁律</div>
+      <h3 class="card-h">本系统已实现 / 未实现</h3>
+      <p class="caption dim" style="margin-bottom: 1rem">点击下方类别展开，看具体行号 / 修复进度</p>
+      <div id="laws-compliance" class="compliance-list"></div>
+    </article>
+  </section>
+
+</main>
+
+<!-- bottom tab bar (mobile) -->
+<nav class="tabbar" id="tabbar">
+  <button class="tabbar-item active" data-jump="dash"><span class="tabbar-glyph">◎</span><span>首页</span></button>
+  <button class="tabbar-item" data-jump="screen"><span class="tabbar-glyph">▦</span><span>扫描</span></button>
+  <button class="tabbar-item" data-jump="dragons"><span class="tabbar-glyph">★</span><span>龙头</span></button>
+  <button class="tabbar-item" data-jump="backtest"><span class="tabbar-glyph">◆</span><span>回测</span></button>
+  <button class="tabbar-item" data-jump="stock"><span class="tabbar-glyph">◇</span><span>个股</span></button>
+  <button class="tabbar-item" data-jump="optimize"><span class="tabbar-glyph">◈</span><span>调优</span></button>
+  <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span>心法</span></button>
+</nav>
+
+<!-- top tab bar (desktop) -->
+<nav class="toptabs" id="toptabs">
+  <button class="toptab active" data-jump="dash">01 · 首页</button>
+  <button class="toptab" data-jump="screen">02 · 扫描</button>
+  <button class="toptab" data-jump="dragons">03 · 龙头</button>
+  <button class="toptab" data-jump="backtest">04 · 回测</button>
+  <button class="toptab" data-jump="stock">05 · 个股</button>
+  <button class="toptab" data-jump="optimize">06 · 调优</button>
+  <button class="toptab" data-jump="laws">07 · 心法</button>
+</nav>
+
+<!-- toast -->
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="/static/app.js" defer></script>
+</body>
+</html>

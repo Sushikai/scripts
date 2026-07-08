@@ -1,15 +1,15 @@
 {
-  "date": "2026-07-01",
-  "timestamp": "2026-07-01T22:43:47.664514",
+  "date": "2026-07-09",
+  "timestamp": "2026-07-09T05:28:52.353707",
   "current_followers": 0,
   "new_followers": 0,
-  "total_actions": 7014,
+  "total_actions": 8188,
   "total_converted": 0,
   "overall_conversion_rate": 0.0,
   "per_script": {
     "fan_hunter": {
-      "actions": 6793,
-      "acted_users": 3454,
+      "actions": 7967,
+      "acted_users": 4047,
       "converted": 0,
       "conversion_rate": 0.0,
       "avg_follow_days": 0

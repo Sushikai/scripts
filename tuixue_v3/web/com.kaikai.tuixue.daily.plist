@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kaikai.tuixue.daily</string>
+
+  <!-- 每天 08:00 自动重启 FastAPI + 隧道,TG 推送新 URL -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- 触发动作后不退出:持续到 Ctrl+C 或 unload -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/kaikai/scripts/tuixue_v3/web/start_remote.sh</string>
+  </array>
+
+  <!-- 工作目录:让相对路径正常 -->
+  <key>WorkingDirectory</key>
+  <string>/Users/kaikai/scripts</string>
+
+  <!-- 标准输出/错误到日志 -->
+  <key>StandardOutPath</key>
+  <string>/tmp/tuixue_launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/tuixue_launchd.err.log</string>
+
+  <!-- 进程异常退出时自动重启 -->
+  <key>KeepAlive</key>
+  <false/>
+
+  <!-- 触发时间偏好:准点 -->
+  <key>StartInterval</key>
+  <integer>86400</integer>
+</dict>
+</plist>

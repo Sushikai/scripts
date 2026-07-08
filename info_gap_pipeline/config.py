@@ -47,8 +47,8 @@ WHISPER_LANGUAGE = "zh"
 # 视频时长容差（秒）
 DURATION_TOLERANCE = 0.5
 
-# bilibili cookies（与 fengge_pipeline 共用同一个账号和文件）
-BILIBILI_COOKIES_FILE = Path("/Users/kaikai/scripts/20岁还没赚够100w_cookies.txt")
+# bilibili cookies
+BILIBILI_COOKIES_FILE = Path("/Users/kaikai/scripts/20岁还没开始环球旅行_cookies.txt")
 # yt-dlp下载用cookies（Netscape格式，fengge 自动维护的持久化文件）
 BILIBILI_COOKIES_NETSCAPE = Path.home() / ".hermes" / "cookies" / "bilibili_netscape.txt"
 

@@ -1,0 +1,18 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated SQLite caches
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime caches and logs
+cache/
+logs/
+reports/
+
+# Local env overrides
+.env
+.env_*
