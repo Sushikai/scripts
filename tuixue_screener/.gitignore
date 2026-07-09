@@ -1,0 +1,16 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated caches / output
+cache/
+data/cache.db
+data/cache.db-shm
+data/cache.db-wal
+logs/
+reports/
+
+# Local env
+.env
+.env_*

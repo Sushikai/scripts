@@ -1,0 +1,14 @@
+{
+  "service_name": "Voice API",
+  "version": "1.0.0",
+  "default_voice": "zh-CN-XiaoxiaoNeural",
+  "default_rate": "+0%",
+  "default_volume": "+0%",
+  "default_pitch": "+0Hz",
+  "models": {
+    "tts": "edge-tts (微软Azure)",
+    "clone": "XTTS (Coqui, 声纹克隆)"
+  },
+  "xtts_model_path": null,
+  "xtts_downloaded": false
+}

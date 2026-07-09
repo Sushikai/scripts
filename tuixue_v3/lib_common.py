@@ -998,7 +998,7 @@ def _realtime_tencent(code: str):
     if len(fields) < 40:
         return None
     try:
-        return {
+        d = {
             "最新价": float(fields[3]) if fields[3] else 0,
             "今开":   float(fields[5]) if fields[5] else 0,
             "昨收":   float(fields[4]) if fields[4] else 0,
@@ -1009,6 +1009,24 @@ def _realtime_tencent(code: str):
             "成交额": float(fields[37]) * 10000 if fields[37] else 0,
             "时间":   fields[30],
         }
+        # 扩展字段（field[38..46]）— 换手 / 量比 / 振幅 / 流通市值 / 总市值 / 市盈率
+        def _f(i):
+            try:
+                return float(fields[i]) if i < len(fields) and fields[i] else 0
+            except (ValueError, IndexError):
+                return 0
+        d["换手率"]   = _f(38)   # %
+        d["量比"]     = _f(39)
+        d["振幅"]     = _f(43)   # %
+        d["流通市值"] = _f(44)   # 亿
+        d["总市值"]   = _f(45)   # 亿
+        d["市盈率"]   = _f(46)   # 动
+        # 名字（fields[1]）也带上，部分上游只填了 code 当 name
+        try:
+            d["name"] = fields[1]
+        except (IndexError, TypeError):
+            pass
+        return d
     except (ValueError, IndexError):
         return None
 

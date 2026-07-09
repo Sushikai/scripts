@@ -1,0 +1,17 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# TTS output
+output/
+temp/
+models/voiceprints/
+
+# Local env
+.env
+.env_*
+
+# Logs
+*.log
+logs/

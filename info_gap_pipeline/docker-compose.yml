@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  pipeline:
+    image: python:3.11-slim
+    container_name: info_gap_pipeline
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - ~/.bilibili_cookies.json:/root/.bilibili_cookies.json:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+    command: python3 main.py --schedule
+    restart: unless-stopped
+    network_mode: host # 需要访问国内平台
+    # network_mode: bridge + proxy 如果有代理
+
+  # 可选：本地TTS服务（替代Edge-TTS）
+  # tts_service:
+  #   image: ghcr.io/coqui-ai/tts
+  #   container_name: coqui_tts
+  #   ports:
+  #     - "5002:5002"
+  #   volumes:
+  #     - ./data/tts_models:/root/.local/share/tts
+  #   command: python3 TTS/server/server.py --model_name multi_archive_tts_models --Port 5002

@@ -94,6 +94,12 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
                     seat = str(row.get(seat_col, "") or "").strip()
                     if not seat:
                         continue
+                    # 金额列：兼容多种列名
+                    amt_col = next((c for c in detail_df.columns if any(k in c for k in ("成交额", "金额"))), None)
+                    try:
+                        amt_val = float(row.get(amt_col, 0) or 0) if amt_col else 0
+                    except (ValueError, TypeError):
+                        amt_val = 0
                     # 部分返回里 "营业部名称" 是单字段；若有多个用 ; 分隔
                     for s in seat.split(";"):
                         s = s.strip()
@@ -106,6 +112,7 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
                             "direction": flag,
                             "group": match[0] if match else "",
                             "label": match[1] if match else "",
+                            "amount_wan": round(amt_val, 2) if amt_val else None,
                         })
     except Exception as e:
         log.warning(f"ak lhb detail {code} 失败: {e}")
@@ -137,6 +144,9 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
         except Exception as e:
             log.warning(f"ak lhb_statistic 失败: {e}")
 
+    # 统计：按方向累计金额
+    buy_total = sum((r.get("amount_wan") or 0) for r in rows if r.get("direction") == "买入")
+    sell_total = sum((r.get("amount_wan") or 0) for r in rows if r.get("direction") == "卖出")
     return {
         "code": code,
         "rows": rows[:60],
@@ -144,4 +154,6 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
         "seat_count": len([r for r in rows if r.get("group")]),
         "total_lhb_rows": len(rows),
         "known_groups": list(known.get("_slots", {}).keys() if isinstance(known.get("_slots"), dict) else []),
+        "buy_total_wan":  round(buy_total, 2) if buy_total else None,
+        "sell_total_wan": round(sell_total, 2) if sell_total else None,
     }

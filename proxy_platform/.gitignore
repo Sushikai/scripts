@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyc+
+backend/__pycache__/
+**/__pycache__/
+
+# SQLite DB
+*.db
+*.db-shm
+*.db-wal
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+*.tsbuildinfo
+.eslintcache
+
+# Logs / runtime state
+*.log
+*.pid
+.cache/
+
+# Coverage
+.nyc_output/
+coverage/
+
+# Local env
+.env
+.env_*

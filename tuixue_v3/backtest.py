@@ -86,10 +86,10 @@ def _simulate_trade(df: pd.DataFrame, buy_date: str, sell_date: str, mode: str =
         high = float(row["最高"])
         low = float(row["最低"])
         close = float(row["收盘"])
-        # 止盈：收盘价 ≥ 买入 × 1.06
-        if high >= buy_price * 1.06:
+        # 止盈：收盘价 ≥ 买入 × 1.08
+        if high >= buy_price * 1.08:
             triggered = "take_profit_trail"
-            sell_price = buy_price * 1.03   # 回落 3% 卖出
+            sell_price = buy_price * 1.05   # 回落 3% 卖出（8% 触发 → 5% 落袋）
             sell_d = row["日期"]
             break
         # 跌破 MA10：日线收盘 < MA10
@@ -98,9 +98,9 @@ def _simulate_trade(df: pd.DataFrame, buy_date: str, sell_date: str, mode: str =
             sell_price = close
             sell_d = row["日期"]
             break
-        # 单日跌幅 > 8%
-        if (low / buy_price - 1) < -0.08:
-            triggered = "stop_loss_8pct"
+        # 单日跌幅 > 3%
+        if (low / buy_price - 1) < -0.03:
+            triggered = "stop_loss_3pct"
             sell_price = low
             sell_d = row["日期"]
             break
