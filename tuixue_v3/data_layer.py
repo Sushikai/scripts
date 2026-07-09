@@ -82,13 +82,34 @@ def _cache_load_df(name: str, ttl_sec: int) -> pd.DataFrame | None:
 # 全市场股票列表（带缓存）
 # ═══════════════════════════════════════════════════
 def fetch_stock_list() -> list[tuple[str, str]]:
-    """返回 [(code, name), ...]，剔除创业板/科创板/北交所/ST"""
+    """返回 [(code, name), ...]，剔除创业板/科创板/北交所/ST
+    2026-07-09: 改用 akshare.stock_info_a_code_name() 全量（稳定 5500+ 只）
+    然后本地过滤，避开 msf.fetch_spot_a 实时接口被 ban / 数据不全的问题
+    """
     cache_key = "stock_list_filtered"
     cached = _cache_load(cache_key, cfg.CACHE_TTL_FUNDAMENTAL)
     if cached:
         return [(c, n) for c, n in cached]
 
-    raw = msf.fetch_spot_a(exclude_bjs=True, exclude_st=True) or []
+    raw = []
+    # 主：akshare 全量（稳定 5500+ 只）
+    try:
+        import akshare as ak
+        df = ak.stock_info_a_code_name()
+        if df is not None and not df.empty and "code" in df.columns and "name" in df.columns:
+            for _, r in df.iterrows():
+                c = str(r["code"]).zfill(6)
+                n = str(r["name"])
+                if c and n:
+                    raw.append((c, n))
+    except Exception as e:
+        log.warning(f"fetch_stock_list akshare 失败,降级 msf: {e}")
+        # 备：实时接口（数据常常不全）
+        try:
+            raw = msf.fetch_spot_a(exclude_bjs=True, exclude_st=True) or []
+        except Exception as e2:
+            log.warning(f"msf.fetch_spot_a 失败: {e2}")
+
     filtered = []
     for code, name in raw:
         if not code:
