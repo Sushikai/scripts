@@ -1016,11 +1016,18 @@ def _realtime_tencent(code: str):
             except (ValueError, IndexError):
                 return 0
         d["换手率"]   = _f(38)   # %
-        d["量比"]     = _f(39)
+        # 量比: 腾讯 -99 / -99.99 / 0.0 等都是"无数据/未开市"占位 → 返 None
+        v_lb = _f(39)
+        d["量比"] = v_lb if v_lb > 0 else None
         d["振幅"]     = _f(43)   # %
-        d["流通市值"] = _f(44)   # 亿
-        d["总市值"]   = _f(45)   # 亿
-        d["市盈率"]   = _f(46)   # 动
+        # 流通/总市值: 0 / 负值视为无效
+        v_circ = _f(44)
+        v_total = _f(45)
+        d["流通市值"] = v_circ if v_circ > 0 else None  # 亿
+        d["总市值"]   = v_total if v_total > 0 else None  # 亿
+        # 市盈率: 负值(亏损)保留但 0 / -99 占位过滤
+        v_pe = _f(46)
+        d["市盈率"]   = v_pe if (v_pe > 0 or v_pe < -100) else None  # 动
         # 名字（fields[1]）也带上，部分上游只填了 code 当 name
         try:
             d["name"] = fields[1]

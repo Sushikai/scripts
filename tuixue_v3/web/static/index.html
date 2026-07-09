@@ -116,20 +116,34 @@
         <p class="caption dim">默认 mode=live；mode=backtest 用于指定交易日回测。</p>
       </article>
       <article class="card">
-        <div class="card-eyebrow">SUMMARY · 结果概况</div>
-        <div class="metric"><span class="m-num" id="screen-count">0</span><span class="m-unit">只</span></div>
-        <p class="caption dim" id="screen-meta">未运行</p>
+        <div class="card-eyebrow">GLOBAL · 美/韩 → A 股</div>
+        <div class="metric" id="global-sentiment-headline" style="margin-bottom:.5rem">
+          <span class="m-num" id="global-score">—</span><span class="m-unit">/100</span>
+        </div>
+        <div id="global-sentiment-pill" class="sentiment-pill sentiment-neutral" style="display:inline-block">加载中 …</div>
+        <div class="sentiment-stats" id="global-stats" style="margin-top:.6rem"></div>
+        <div id="global-sector-impact" class="mainline-grid" style="margin-top:.75rem"></div>
+        <p class="caption dim" id="global-meta" style="margin-top:.5rem">未拉取</p>
       </article>
     </div>
+
+    <article class="card mt-16" id="ai-aggregate-card" hidden>
+      <div class="card-eyebrow">🤖 AI 综合榜 · 板块整体点评</div>
+      <p class="lede" id="ai-aggregate-overall" style="margin: .25rem 0 .75rem 0; font-size: .9rem; line-height: 1.4"></p>
+      <ol id="ai-aggregate-list" class="ai-rank-list"></ol>
+    </article>
 
     <article class="card mt-32">
       <div class="card-eyebrow">CANDIDATES · 候选池</div>
       <div class="table-wrap">
         <table id="screen-table" class="data-table">
           <thead>
-            <tr><th>代码</th><th>名称</th><th>板块</th><th>RR</th><th>换手</th><th>涨幅</th><th>流通</th><th>详情</th></tr>
+            <tr>
+              <th>代码</th><th>名称</th><th>板块</th><th>RR</th>
+              <th>换手</th><th>涨幅</th><th>流通</th><th>角色</th><th>AI</th><th>详情</th>
+            </tr>
           </thead>
-          <tbody><tr><td colspan="8" class="empty">等待扫描 …</td></tr></tbody>
+          <tbody><tr><td colspan="10" class="empty">等待扫描 …</td></tr></tbody>
         </table>
       </div>
     </article>
@@ -198,6 +212,7 @@
       <p class="caption">DETAIL · 04</p>
       <h1 class="display"><span id="stock-title">个股</span><span class="accent">·</span><span id="stock-code">—</span></h1>
       <p class="lede" id="stock-sub">搜索 → 一只股票开始</p>
+      <div class="view-actions" id="stock-tags-host"></div>
     </header>
 
     <article class="card">
@@ -208,44 +223,168 @@
       <div id="stock-search-results" class="search-results"></div>
     </article>
 
-    <div class="grid grid-3 mt-24">
+    <!-- 主指标 8 卡 -->
+    <div class="grid grid-4 mt-24" id="stock-quote-grid">
       <article class="card">
-        <div class="card-eyebrow">QUOTE · 实时</div>
+        <div class="card-eyebrow">QUOTE · 实时价</div>
         <div class="metric"><span class="m-num" id="q-price">—</span><span class="m-unit">元</span></div>
         <p class="caption" id="q-change">—</p>
       </article>
       <article class="card">
-        <div class="card-eyebrow">FLOW · 主力</div>
+        <div class="card-eyebrow">FLOW · 主力净流</div>
         <div class="metric"><span class="m-num" id="q-main">—</span><span class="m-unit">万</span></div>
-        <p class="caption dim">今日主力净流入</p>
+        <p class="caption dim" id="q-main-sub">今日 · 4 单合计</p>
       </article>
       <article class="card">
-        <div class="card-eyebrow">SEATS · 席位</div>
+        <div class="card-eyebrow">换手 · 量比</div>
+        <div class="metric"><span class="m-num" id="q-turnover">—</span><span class="m-unit">%</span></div>
+        <p class="caption dim" id="q-volratio">量比 —</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">振幅 · 5日涨跌</div>
+        <div class="metric"><span class="m-num" id="q-amp">—</span><span class="m-unit">%</span></div>
+        <p class="caption dim" id="q-5d">5日 —</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">市值 · 流通</div>
+        <div class="metric"><span class="m-num" id="q-mcap">—</span><span class="m-unit">亿</span></div>
+        <p class="caption dim" id="q-mcap-sub">流通 —</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">市盈率 · PE</div>
+        <div class="metric"><span class="m-num" id="q-pe">—</span><span class="m-unit">×</span></div>
+        <p class="caption dim" id="q-pe-sub">动 · 当前</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">当日 · 高/低</div>
+        <div class="metric"><span class="m-num" id="q-hl">—</span></div>
+        <p class="caption dim" id="q-hl-sub">开 / 昨收</p>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">SEATS · 游资</div>
         <div class="metric"><span class="m-num" id="q-seats">0</span><span class="m-unit">条</span></div>
         <p class="caption dim" id="q-seats-sub">近 10 日龙虎</p>
+      </article>
+    </div>
+
+    <!-- 当日明细 + 涨停/跌停价 + 连板历史 -->
+    <article class="card mt-16" id="stock-limit-up-card">
+      <div class="card-eyebrow">🔥 LIMIT-UP · 连板梯队 + 板块联动</div>
+      <div id="stock-limit-up-body">
+        <p class="caption dim">查询股票后将显示连板 / 5 日涨停 / 板块涨停清单</p>
+      </div>
+    </article>
+
+    <div class="grid grid-2 mt-16">
+      <article class="card">
+        <div class="card-eyebrow">TODAY · 当日明细</div>
+        <div class="kv" id="q-today-kv">
+          <div class="kv-row"><span>开盘</span><b id="q-open">—</b></div>
+          <div class="kv-row"><span>昨收</span><b id="q-prev">—</b></div>
+          <div class="kv-row"><span>最高</span><b id="q-high">—</b></div>
+          <div class="kv-row"><span>最低</span><b id="q-low">—</b></div>
+          <div class="kv-row"><span>涨停价</span><b id="q-lu">—</b></div>
+          <div class="kv-row"><span>跌停价</span><b id="q-ld">—</b></div>
+          <div class="kv-row"><span>成交量</span><b id="q-vol">—</b></div>
+          <div class="kv-row"><span>成交额</span><b id="q-amt">—</b></div>
+          <div class="kv-row"><span>20日涨跌</span><b id="q-20d">—</b></div>
+          <div class="kv-row"><span>5日均量</span><b id="q-v5">—</b></div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="card-eyebrow">STREAK · 近期涨停 / 连板</div>
+        <div id="q-streak-host"><p class="caption dim" style="margin: 0">无近 10 日涨停记录</p></div>
+      </article>
+    </div>
+
+    <div class="grid-4 mt-16">
+      <article class="card" style="grid-column: span 2">
+        <div class="card-eyebrow">SECTOR · 所属板块 / 行业</div>
+        <div id="q-sector-board" class="kv"></div>
+        <div id="q-sector-industries" class="stock-tags" style="margin-top:.5rem"></div>
+        <p class="caption dim" id="q-sector-source" style="margin:.5rem 0 0"></p>
+      </article>
+      <article class="card" style="grid-column: span 2">
+        <div class="card-eyebrow">SECTOR SENTIMENT · 板块情绪 + 相关新闻</div>
+        <div id="q-sector-sentiment" class="kpi-grid"></div>
+        <hr style="margin:.75rem 0; border:0; border-top:1px dashed var(--line)">
+        <div id="q-related-news"></div>
       </article>
     </div>
 
     <div class="tabs mt-32">
       <button class="tab active" data-tab="flow">资金流向</button>
       <button class="tab" data-tab="kline">K 线</button>
+      <button class="tab" data-tab="intraday5d">5 日分时</button>
       <button class="tab" data-tab="seats">游资席位</button>
+      <button class="tab" data-tab="news">📰 新闻</button>
+      <button class="tab" data-tab="sectors">📊 板块</button>
+      <button class="tab" data-tab="holders">👥 散户/主力</button>
       <button class="tab" data-tab="ai">AI 复盘 · 铁律</button>
     </div>
 
     <article class="card mt-16">
       <div class="card-eyebrow" data-tab-title>资本动向</div>
       <div data-tab-pane="flow">
-        <div id="flow-chart" style="height:340px"></div>
+        <p class="caption dim" id="flow-empty" style="margin: 0 0 .5rem">请先在上方搜索一只股票</p>
+        <div class="kpi-grid" id="flow-kpi"></div>
+        <div id="flow-chart" style="height:340px; margin-top:1rem"></div>
+        <div class="table-wrap mt-16" id="flow-detail-wrap" hidden>
+          <table class="data-table" id="flow-detail-table">
+            <thead><tr><th>日期</th><th>主力净</th><th>超大单</th><th>大单</th><th>中单</th><th>小单</th><th>成交额</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
       <div data-tab-pane="kline" hidden>
-        <div id="kline-chart" style="height:340px"></div>
+        <div class="kpi-grid" id="kline-kpi"></div>
+        <div id="kline-chart" style="height:380px; margin-top:1rem"></div>
+      </div>
+      <div data-tab-pane="intraday5d" hidden>
+        <p class="caption dim" style="margin: 0 0 .75rem">5 日日线 + 当日分时 tick · 封成比=封单金额/成交额</p>
+        <div class="kpi-grid" id="intra-kpi"></div>
+        <div class="table-wrap">
+          <table class="data-table" id="intraday5d-table">
+            <thead><tr>
+              <th>日期</th><th>开</th><th>高</th><th>低</th><th>收</th><th>涨幅%</th>
+              <th>涨停</th><th>连板</th><th>封成比%</th><th>封单(亿)</th><th>炸板</th>
+              <th>首封</th><th>板块</th>
+            </tr></thead>
+            <tbody><tr><td colspan="13" class="empty">查询后显示</td></tr></tbody>
+          </table>
+        </div>
+        <div id="intraday5d-chart" style="height:280px; margin-top:1.25rem"></div>
+        <p class="caption dim" id="intraday5d-note" style="margin-top:.5rem"></p>
+
+        <hr style="margin:1.5rem 0; border:0; border-top:1px dashed var(--line)">
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+          <span class="caption dim" style="margin:0">📅 分时回看（任意交易日）</span>
+          <button class="btn btn-mini" id="intra-day-prev" title="上一个交易日">‹</button>
+          <input type="date" id="intra-day-pick" style="padding:.3rem .5rem; font-size:.85rem">
+          <button class="btn btn-mini" id="intra-day-next" title="下一个交易日">›</button>
+          <button class="btn btn-mini" id="intra-day-load" title="加载该日分时">加载</button>
+          <span class="dim" id="intra-day-label" style="font-size:.8rem; margin-left:.25rem"></span>
+        </div>
+        <div id="intra-day-kpi" class="kpi-grid"></div>
+        <div id="intra-day-chart" style="height:320px; margin-top:.5rem"></div>
+        <p class="caption dim" id="intra-day-note" style="margin-top:.5rem"></p>
       </div>
       <div data-tab-pane="seats" hidden>
-        <div class="table-wrap">
+        <div class="kpi-grid" id="seats-kpi"></div>
+        <div class="table-wrap mt-16">
           <table id="seats-table" class="data-table">
-            <thead><tr><th>日期</th><th>席位</th><th>方向</th><th>质量组</th><th>标签</th></tr></thead>
-            <tbody><tr><td colspan="5" class="empty">查询后显示</td></tr></tbody>
+            <thead><tr><th>日期</th><th>席位</th><th>方向</th><th>买/卖(万)</th><th>质量组</th><th>标签</th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty">查询后显示</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div data-tab-pane="holders" hidden>
+        <p class="caption dim" style="margin:0 0 .75rem">📅 数据源：东财季报披露（每年 4/8/10 月更新）· 户均持股按自由流通股算</p>
+        <div class="kpi-grid" id="holders-kpi"></div>
+        <div class="table-wrap mt-16">
+          <table class="data-table" id="holders-table">
+            <thead><tr><th>报告期</th><th>股东户数</th><th>环比</th><th>户均持股</th><th>集中度</th><th>前10大占比</th></tr></thead>
+            <tbody><tr><td colspan="6" class="empty">查询后显示</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -266,6 +405,24 @@
           <p class="ai-summary" id="ai-summary"></p>
           <div class="ai-detail" id="ai-detail"></div>
         </div>
+      </div>
+
+      <div data-tab-pane="news" hidden>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+          <span class="caption dim" style="margin:0">📰 财经新闻  ·  AI 资金引爆潜力评分（申万行业）</span>
+          <button class="btn btn-mini" id="news-refresh-btn" title="重新抓取 + AI 评分">🔄 刷新</button>
+          <span class="dim" id="news-meta" style="font-size:.8rem; margin-left:.25rem"></span>
+        </div>
+        <div id="news-list" class="news-list"></div>
+      </div>
+
+      <div data-tab-pane="sectors" hidden>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+          <span class="caption dim" style="margin:0">📊 申万 31 行业  ·  新闻聚合情绪（利好数/利空数/平均分）</span>
+          <button class="btn btn-mini" id="sectors-refresh-btn" title="刷新">🔄</button>
+          <span class="dim" id="sectors-meta" style="font-size:.8rem; margin-left:.25rem"></span>
+        </div>
+        <div id="sectors-list" class="sectors-list"></div>
       </div>
     </article>
   </section>
@@ -361,13 +518,21 @@
       </div>
       <div id="dragons-all-wrap" class="hidden">
         <p class="caption dim" style="margin: .25rem 0 .75rem">
-          所有涨停 + 评分明细 · 点击行展开 6 维评分
+          所有涨停 + 评分明细 · 点击列名排序 · 点击行跳个股页
         </p>
         <div class="table-wrap">
           <table id="dragons-all-table" class="data-table">
             <thead><tr>
-              <th>#</th><th>代码</th><th>名称</th><th>板块</th><th>连板</th>
-              <th>市值</th><th>换手</th><th>封成比</th><th>总分</th><th>提示</th>
+              <th class="sortable" data-sort="rank">#<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="code">代码<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="name">名称<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="sector">板块<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="streak">连板<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="market_cap">市值<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="turnover">换手<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="seal">封成比<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="score">总分<span class="sort-arrow"></span></th>
+              <th>提示</th>
             </tr></thead>
             <tbody><tr><td colspan="10" class="empty">加载中 …</td></tr></tbody>
           </table>

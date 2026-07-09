@@ -59,13 +59,13 @@ def get_main_flow(code: str) -> dict | None:
         rt = lc.fetch_realtime(code)
         if rt and rt.get("成交额"):
             amount_wan = float(rt["成交额"]) / 1e4
-            # 没有真实分单数据，给个 0 + 标记，让前端知道数据是估算
+            # 没有真实分单数据：返 None 而不是 0，避免前端误以为"主力流出 0"
             return {
-                "main_net": 0.0,
-                "super_net": 0.0,
-                "big_net": 0.0,
-                "mid_net": 0.0,
-                "small_net": 0.0,
+                "main_net":   None,
+                "super_net":  None,
+                "big_net":    None,
+                "mid_net":    None,
+                "small_net":  None,
                 "total_amount_wan": round(amount_wan, 2),
                 "source": "realtime_proxy_no_split",
                 "note": "分单数据不可达，仅给总成交额",

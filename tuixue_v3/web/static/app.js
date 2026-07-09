@@ -22,11 +22,17 @@ let lastRefreshTs = 0;
 // ────────────────────────────────────────────
 const API_TIMEOUTS = {
   // 默认 8s; AI 分析和数据源密集型接口单独加长
-  default: 8_000,
+  default: 12_000,
   '/api/screen':           60_000,  // 实时选股 50 只 11s, 留 5x 缓冲
+  '/api/stream/screen':    90_000,  // SSE 长流:规则 + AI fan-out, 10-15 只 × 5-12s ≈ 60s
   '/api/backtest':        120_000,  // 回测慢
   '/ai_analysis':          35_000,  // AI 分析 7 重兜底 + AI 重试
-  '/api/stock/':           15_000,  // 个股综合接口
+  '/api/screen/ai_aggregate': 35_000,
+  '/api/stock/':           20_000,  // 个股综合接口
+  '/api/market/':          15_000,  // 大盘概览 (ngrok 域名 6-11s 常见)
+  '/api/dragons':          20_000,  // 龙头榜 (冷启动 11s, 热后 0.1s)
+  '/api/sectors/sw':       15_000,  // 板块情绪
+  '/api/sector':           15_000,
 };
 
 function _timeoutFor(path) {
@@ -94,6 +100,98 @@ function showView(name) {
   if (name === 'dash')    refreshTicker();
   if (name === 'optimize') loadReports();
   if (name === 'laws')    renderLawsOnce();
+  if (name === 'screen')  loadGlobalSentiment(false);
+}
+
+// ────────────────────────────────────────────
+// 全局情绪(美/韩 → A 股)加载 + 渲染
+// ────────────────────────────────────────────
+let _globalSentimentCache = null;
+let _globalSentimentTs = 0;
+async function loadGlobalSentiment(force = false) {
+  const head = $('#global-sentiment-pill');
+  if (!head) return;
+  const now = Date.now();
+  if (!force && _globalSentimentCache && (now - _globalSentimentTs) < 60_000) {
+    renderGlobalSentiment(_globalSentimentCache);
+    return;
+  }
+  try {
+    const res = await api(`/api/global/sentiment${force ? '?force=true' : ''}`);
+    if (res) {
+      _globalSentimentCache = res;
+      _globalSentimentTs = now;
+      renderGlobalSentiment(res);
+      paintTickerbarRisk(res.sentiment || 'neutral');
+    }
+  } catch (e) {
+    const meta = $('#global-meta');
+    if (meta) meta.textContent = '拉取失败:' + e.message;
+  }
+}
+
+function renderGlobalSentiment(data) {
+  if (!data) return;
+  const score = data.sentiment_score ?? 50;
+  const sent  = data.sentiment || 'neutral';
+  const pill  = $('#global-sentiment-pill');
+  const num   = $('#global-score');
+  const stats = $('#global-stats');
+  const impact = $('#global-sector-impact');
+  const meta  = $('#global-meta');
+
+  if (num) num.textContent = String(score);
+  if (pill) {
+    const label = sent === 'risk_on' ? '🟢 RISK-ON · 风险偏好' :
+                  sent === 'risk_off' ? '🔴 RISK-OFF · 风险规避' : '⚪ NEUTRAL · 中性';
+    pill.textContent = label;
+    pill.className = `sentiment-pill ${sent === 'risk_on' ? 'sentiment-good' :
+                                   sent === 'risk_off' ? 'sentiment-bad' : 'sentiment-neutral'}`;
+  }
+
+  // 指数/美/韩 leaders 摘要
+  const idxTxt = (data.indices || []).slice(0, 5)
+    .map(i => `${escapeHtml(i.name)} <b style="color:${i.change_pct >= 0 ? 'var(--up)' : 'var(--down)'}">${fmtPct(i.change_pct)}</b>`)
+    .join(' · ');
+  const usTxt = (data.us_leaders || []).slice(0, 3)
+    .map(s => `${escapeHtml(s.ticker)} <b style="color:${(s.change_pct||0) >= 0 ? 'var(--up)' : 'var(--down)'}">${fmtPct(s.change_pct)}</b>`)
+    .join(' · ');
+  const krTxt = (data.kr_leaders || []).slice(0, 3)
+    .map(s => `${escapeHtml(s.ticker)} <b style="color:${(s.change_pct||0) >= 0 ? 'var(--up)' : 'var(--down)'}">${fmtPct(s.change_pct)}</b>`)
+    .join(' · ');
+  if (stats) stats.innerHTML =
+    `<span>📈 指数 ${idxTxt || '—'}</span>` +
+    (usTxt ? `<span>🇺🇸 美股 ${usTxt}</span>` : '') +
+    (krTxt ? `<span>🇰🇷 韩股 ${krTxt}</span>` : '');
+
+  // 板块 impact: A 股受美/韩影响的板块
+  const impacts = Object.entries(data.sector_impact || {})
+    .filter(([_, v]) => v && v.score)
+    .sort((a, b) => Math.abs(b[1].score) - Math.abs(a[1].score))
+    .slice(0, 6);
+  if (impact) impact.innerHTML = impacts.length ? impacts.map(([name, v]) => {
+    const dir = v.direction === '+' ? 'good' : v.direction === '-' ? 'bad' : 'dim';
+    const note = v.note ? `<div class="mainline-meta dim">${escapeHtml(v.note)}</div>` : '';
+    return `<div class="mainline-card">
+      <div class="mainline-name">${escapeHtml(name)}</div>
+      <div class="mainline-meta"><span class="${dir}">${v.direction === '+' ? '↗ 利好' : v.direction === '-' ? '↘ 利空' : '· 中性'}</span></div>
+      ${note}
+    </div>`;
+  }).join('') : '<div class="caption dim" style="grid-column:1/-1;text-align:center;padding:1rem 0">暂无显著板块影响</div>';
+
+  if (meta) {
+    const ts = data.ts ? new Date(data.ts * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
+    const cached = data.cached ? '·缓存' : '';
+    meta.textContent = `更新 ${ts} ${cached} · 60s 缓存`;
+  }
+}
+
+function paintTickerbarRisk(sent) {
+  const bar = $('.tickerbar');
+  if (!bar) return;
+  bar.classList.remove('risk-on', 'risk-off', 'risk-neutral');
+  bar.classList.add(sent === 'risk_on' ? 'risk-on' :
+                    sent === 'risk_off' ? 'risk-off' : 'risk-neutral');
 }
 
 // ────────────────────────────────────────────
@@ -170,51 +268,121 @@ $('#dash-search')?.addEventListener('keydown', (e) => {
 });
 
 function gotoStock(q) {
-  $('#stock-search').value = q;
+  // 6 位代码直接进详情(绕过搜索结果列表,自动刷新数据)
+  const code = String(q || '').trim();
+  if (/^\d{6}$/.test(code)) {
+    $('#stock-search').value = code;
+    showView('stock');
+    loadStockDetail(code);
+    return;
+  }
+  // 中文名/模糊匹配回退到搜索
+  $('#stock-search').value = code;
   showView('stock');
   doStockSearch();
 }
 
 // ────────────────────────────────────────────
-// SCREEN — 同步 POST（轻量、20-60s 可接受；后面再切 SSE）
+// SCREEN — SSE 流式 (rule_done → ai_done ×N → ai_aggregate → done → result)
 // ────────────────────────────────────────────
-$('#run-screen')?.addEventListener('click', async () => {
-  const date = $('#screen-date').value.trim() || null;
+$('#run-screen')?.addEventListener('click', () => {
+  const date = $('#screen-date').value.trim() || '';
   const btn = $('#run-screen');
+  if (btn.disabled) return;
   btn.disabled = true;
-  const originalLabel = btn.querySelector('span')?.textContent || '扫描';
   btn.querySelector('span').textContent = '扫描中…';
   $('#screen-count').textContent = '…';
-  $('#screen-meta').textContent = '运行中，可能需要 10-30 秒 …';
-  $('#screen-table tbody').innerHTML = '<tr><td colspan="8" class="empty">扫描中 …</td></tr>';
+  $('#screen-meta').textContent = '运行中 …';
+  $('#screen-table tbody').innerHTML = '<tr><td colspan="10" class="empty">扫描中 …</td></tr>';
+  $('#ai-aggregate-card').hidden = true;
 
-  // 进度心跳: 每 3s 更新一次提示, 让用户知道没卡死
-  let elapsed = 0;
-  const heartbeat = setInterval(() => {
-    elapsed += 3;
-    $('#screen-meta').textContent = `扫描中... 已 ${elapsed}s (后台并发多时会更慢)`;
-  }, 3_000);
+  const url = `/api/stream/screen?date=${encodeURIComponent(date)}&mode=live`;
+  let resultData = null;
+  const source = new EventSource(url);
+  const aiCells = {}; // code -> ai cell element (供 ai_done 时增量更新)
+  source.addEventListener('phase', (ev) => {
+    let payload = {};
+    try { payload = JSON.parse(ev.data); } catch {}
+    if (payload.phase === 'start') {
+      $('#screen-meta').textContent = '开始扫描 (L1-L4 规则) …';
+    } else if (payload.phase === 'rule_done') {
+      $('#screen-meta').textContent = `规则过完 · ${payload.n_picks} 只候选 · 进入 AI 阶段 (缓存命中跳过已通过) …`;
+      $('#screen-count').textContent = payload.n_picks;
+    } else if (payload.phase === 'ai_done' && payload.code) {
+      const cell = aiCells[payload.code];
+      if (cell) _renderAIBadgeCell(cell, payload.ai);
+      const roleCell = document.querySelector(`td.role-cell[data-code="${payload.code}"]`);
+      if (roleCell) _renderRoleCellAt(roleCell, payload.ai);
+      // 累计 AI 完成数
+      const doneCount = Object.values(aiCells).filter(c => c.querySelector('.ai-badge')?.dataset.loaded === '1').length;
+      $('#screen-meta').textContent = `AI 阶段 · ${doneCount}/${Object.keys(aiCells).length} 完成`;
+      renderStockAIInline(payload.code, payload.ai);
+    } else if (payload.phase === 'ai_aggregate' && payload.aggregate) {
+      renderAIAggregate(payload.aggregate);
+    } else if (payload.phase === 'done') {
+      $('#screen-meta').textContent = `完成 · ${payload.n_picks} 只候选 · 总耗时 ${payload.elapsed_sec || '?'}s`;
+    }
+  });
 
-  try {
-    const data = await api('/api/screen', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, mode: 'live', pool_size: 50, top_n: 5 }),
-    });
-    renderScreenResults(data);
-    toast(`扫描完成 · ${data.candidates?.length || 0} 只候选 · 用时 ${data.elapsed_sec || '?'}s`, 'success');
-  } catch (e) {
-    toast('扫描失败：' + e.message, 'error', 5_000);
-    $('#screen-meta').textContent = '运行失败：' + e.message + ' (后端并发堵了, 等 30s 重试)';
-    $('#screen-table tbody').innerHTML = '<tr><td colspan="8" class="empty">失败</td></tr>';
-  } finally {
-    clearInterval(heartbeat);
+  source.addEventListener('result', (ev) => {
+    try {
+      resultData = JSON.parse(ev.data);
+      // 注: SSE result 事件 payload 是 {ok,data,error,ts} 信封
+      const data = resultData.data || resultData;
+      renderScreenResults(data, aiCells);
+      toast(`扫描完成 · ${(data.candidates || []).length} 只候选 · 用时 ${data.elapsed_sec || '?'}s`, 'success');
+    } catch (e) {
+      toast('结果解析失败：' + e.message, 'error');
+    }
+    source.close();
     btn.disabled = false;
-    btn.querySelector('span').textContent = originalLabel;
-  }
+    btn.querySelector('span').textContent = '扫描';
+  });
+
+  source.addEventListener('error', () => {
+    // EventSource 默认 3 次重连;这里直接 close + 报错
+    source.close();
+    btn.disabled = false;
+    btn.querySelector('span').textContent = '扫描';
+    if (!resultData) {
+      toast('SSE 连接失败 (检查 server 是否启动)', 'error', 5000);
+      $('#screen-meta').textContent = 'SSE 连接失败';
+      $('#screen-table tbody').innerHTML = '<tr><td colspan="10" class="empty">SSE 失败</td></tr>';
+    }
+  });
 });
 
-function renderScreenResults(data) {
+function _renderAIBadgeCell(cellEl, ai) {
+  if (!cellEl) return;
+  if (!ai) {
+    cellEl.innerHTML = '<span class="ai-badge" style="background:rgba(255,255,255,0.05);color:var(--ink3)">…</span>';
+    return;
+  }
+  const verdict = ai.verdict || '-';
+  const conv = ai.conviction ?? 0;
+  const fromCache = ai.from_cache ? '·缓存' : '';
+  cellEl.innerHTML = `<span class="ai-badge v-${verdict}" data-loaded="1" title="${ai.summary || ''}">${verdict}·${conv}${fromCache ? '<sup style="font-size:.6em;opacity:.6">'+fromCache+'</sup>' : ''}</span>`;
+}
+
+// 角色定位(龙头/中军/杂毛) — 单独 cell 渲染
+const _ROLE_LABELS = { '龙头': '龙', '中军': '中', '杂毛': '杂' };
+function _roleToSlug(role) {
+  if (role === '龙头') return 'dragon';
+  if (role === '杂毛') return 'stray';
+  return 'mid';
+}
+function _renderRoleCell(ai) {
+  if (!ai) return '<span class="role-badge" data-loaded="0" title="AI 评估中">…</span>';
+  const role = ai.role || '中军';
+  const label = _ROLE_LABELS[role] || '中';
+  return `<span class="role-badge role-${_roleToSlug(role)}" data-loaded="1" title="板块内角色:${role}">${label}</span>`;
+}
+function _renderRoleCellAt(cellEl, ai) {
+  if (!cellEl) return;
+  cellEl.innerHTML = _renderRoleCell(ai);
+}
+
+function renderScreenResults(data, aiCells = {}) {
   const tbody = $('#screen-table tbody');
   const cands = data.candidates || [];
   $('#screen-count').textContent = cands.length;
@@ -223,6 +391,7 @@ function renderScreenResults(data) {
   const l2 = data.stats_by_layer?.l2 || {};
   const l3 = data.stats_by_layer?.l3 || {};
   const l4 = data.stats_by_layer?.l4 || {};
+  const agg = data.ai_aggregate || null;
   // meta: 包含 prefilter 信息（如果跑了）
   const boardExcl = pre.board_excluded;
   const boardPart = (boardExcl && boardExcl.count > 0)
@@ -233,12 +402,16 @@ function renderScreenResults(data) {
     : pre.after_filter !== undefined
       ? `Prefilter:${pre.input_size || '?'}→${pre.after_filter}(涨停∩热门板块) · `
       : '';
+  const aiPart = agg ? ` · AI榜:${(agg.ranking || []).length} 条` : '';
   $('#screen-meta').textContent =
     boardPart + prePart + `L1:${l1.passed || 0} → L2:${l2.passed || 0} → L3:${l3.passed || 0} → L4:${l4.passed || 0}` +
-    ` · ${data.elapsed_sec || '?'}s`;
+    ` · ${data.elapsed_sec || '?'}s${aiPart}`;
+
+  // 综合榜区块
+  if (agg) renderAIAggregate(agg);
 
   if (!cands.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">当日无候选</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty">当日无候选</td></tr>';
     return;
   }
   tbody.innerHTML = cands.map(c => {
@@ -259,7 +432,9 @@ function renderScreenResults(data) {
     const hsBadge = hsRank
       ? `<span class="tag tag-hs" title="${hsName} 今日热门榜排名">🔥#${hsRank}</span>`
       : '';
-    return `<tr>
+    const ai = c.ai || null;
+    const aiBadgeInitial = ai ? '' : 'data-loaded="0"';
+    return `<tr class="pick-row">
       <td><button class="linkbtn" data-stock="${code}">${code}</button></td>
       <td>${name}</td>
       <td>${sector} ${ztBadge}${hsBadge}</td>
@@ -267,12 +442,138 @@ function renderScreenResults(data) {
       <td class="num">${typeof turnover === 'number' ? turnover.toFixed(2) + '%' : turnover}</td>
       <td class="num" style="color:${colorFor(chg)}">${fmtPct(chg)}</td>
       <td class="num">${typeof liuTong === 'number' ? fmtAmt(liuTong) : liuTong}</td>
+      <td class="role-cell" data-code="${code}" ${aiBadgeInitial}>${_renderRoleCell(ai)}</td>
+      <td class="ai-cell" data-code="${code}" ${aiBadgeInitial}>${ai ? '' : '<span class="ai-badge" data-loaded="0" style="background:rgba(255,255,255,0.05);color:var(--ink3)">…</span>'}</td>
       <td><button class="linkbtn" data-stock="${code}">详情 →</button></td>
+    </tr>
+    <tr class="ai-row" data-code="${code}" hidden>
+      <td colspan="10"><div class="ai-inline-host" data-code="${code}">${_aiInlineInitialHtml(ai)}</div></td>
     </tr>`;
   }).join('');
 
+  // 收集 ai-cell / role-cell 引用,供 SSE ai_done 时增量填
+  tbody.querySelectorAll('td.ai-cell[data-code]').forEach(cell => {
+    aiCells[cell.dataset.code] = cell;
+    // 如果 result 事件里已带 ai,直接填一次
+    const c = cands.find(x => x.code === cell.dataset.code);
+    if (c && c.ai) {
+      _renderAIBadgeCell(cell, c.ai);
+      const roleCell = tbody.querySelector(`td.role-cell[data-code="${c.code}"]`);
+      if (roleCell) _renderRoleCellAt(roleCell, c.ai);
+    }
+  });
+
   tbody.querySelectorAll('button[data-stock]').forEach(btn => {
     btn.addEventListener('click', () => gotoStock(btn.dataset.stock));
+  });
+
+  // AI 行展开:点 ai-cell 的 badge 显示/隐藏 紧接的 ai-row
+  tbody.querySelectorAll('td.ai-cell[data-code]').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const code = cell.dataset.code;
+      const row = tbody.querySelector(`tr.ai-row[data-code="${code}"]`);
+      if (row) row.hidden = !row.hidden;
+    });
+  });
+}
+
+function _aiInlineInitialHtml(ai) {
+  if (!ai) return '<p class="caption dim">AI 分析中 …</p>';
+  const v = ai.verdict || '-';
+  const c = ai.conviction ?? 0;
+  const role = ai.role || '中军';
+  return `<div class="ai-inline">
+    <div class="ai-inline-head">
+      <span class="ai-verdict v-${v}">${v}</span>
+      <span class="role-badge role-${_roleToSlug(role)}" title="板块内角色定位">${role}</span>
+      <span class="ai-conviction-num">${c} / 100</span>
+      <span class="ai-status" style="font-size:.7rem;opacity:.6">${ai.from_cache ? '·缓存命中' : '·实时'}</span>
+    </div>
+    <p class="ai-summary">${ai.summary || ''}</p>
+    <div class="ai-detail">${_renderAIRules(ai)}</div>
+  </div>`;
+}
+
+function _renderAIRules(ai) {
+  const passed = (ai.rules_passed || []).slice(0, 5);
+  const failed = (ai.rules_failed || []).slice(0, 5);
+  const risks  = (ai.key_risks  || []).slice(0, 4);
+  const sec = (s, items, color) => `<div class="ai-rule-section">
+    <span class="ai-rule-label" style="color:${color}">${s}</span>
+    <ul>${(items || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') || '<li class="dim">—</li>'}</ul>
+  </div>`;
+  return sec('✓ PASSED', passed, UP) + sec('✗ FAILED', failed, DOWN) + sec('! RISK', risks, '#d4a056');
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// 龙头全涨停表 · 行展开 AI 6维评分卡(纯本地渲染,无 LLM)
+function _renderAIAnalysisCards(bd, s) {
+  if (!bd) bd = {};
+  const labels = ['连板强度', '资金认可', '封成比', '市值匹配', '技术形态', '题材纯度'];
+  const cards = labels.map(k => {
+    const v = bd[k] || { pts: 0, max: 0, note: '' };
+    const max = v.max || 0;
+    const pct = max > 0 ? Math.round((v.pts || 0) / max * 100) : 0;
+    const cls = pct >= 70 ? 'high' : pct >= 40 ? 'mid' : 'low';
+    const ptsStr = `<span class="adc-pts">${v.pts || 0}<span class="max">/${max}</span></span>`;
+    return `<div class="ai-detail-card">
+      <div class="adc-label">${k}</div>
+      <div class="adc-bar"><div class="adc-bar-fill ${cls}" style="width:${pct}%"></div></div>
+      ${ptsStr}
+      <div class="adc-note">${escapeHtml(v.note || '—')}</div>
+    </div>`;
+  }).join('');
+  const aliases = (s.seat_aliases || []).slice(0, 4);
+  const aliasLine = aliases.length
+    ? ` · 江湖: ${aliases.map(a => '「' + escapeHtml(a) + '」').join(' · ')}`
+    : '';
+  const warnLine = (s.warnings || []).length
+    ? ` · ⚠ ${s.warnings.length} 项警告`
+    : '';
+  return `<div class="ai-detail-grid">${cards}</div>
+    <div class="ai-detail-footer">
+      <span class="meta">${s.code} · ${s.name} · ${s.sector || '—'} · ${s.streak}板 · 评分 <b>${s.score_total || 0}</b>${aliasLine}${warnLine}</span>
+      <button class="btn btn-mini" data-goto="${s.code}">→ 查看完整个股分析</button>
+    </div>`;
+}
+
+// 全局 renderStockAIInline — 在 ai_done SSE 事件 + renderScreenResults 都用
+function renderStockAIInline(code, ai) {
+  const host = document.querySelector(`tr.ai-row[data-code="${code}"] .ai-inline-host`);
+  if (!host) return;
+  host.innerHTML = _aiInlineInitialHtml(ai);
+}
+
+function renderAIAggregate(agg) {
+  const card = $('#ai-aggregate-card');
+  if (!card) return;
+  const list = $('#ai-aggregate-list');
+  const overall = $('#ai-aggregate-overall');
+  if (!agg || (!agg.ranking?.length && !agg.overall_view)) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  overall.textContent = agg.overall_view || '';
+  list.innerHTML = (agg.ranking || []).map((r, i) => {
+    const rec = r.recommendation || '观望';
+    const cls = rec.includes('强烈') ? 'v-buy' : rec.includes('买入') ? 'v-buy' :
+                rec.includes('回避') ? 'v-avoid' : 'v-wait';
+    const role = r.role || '中军';
+    return `<li class="ai-rank-item">
+      <span class="ai-rank-num">${i + 1}</span>
+      <button class="linkbtn ai-rank-code" data-code="${r.code}">${r.code}</button>
+      <span class="ai-rank-name">${escapeHtml(r.name || '')}</span>
+      <span class="role-badge role-${_roleToSlug(role)}" title="板块内角色:${role}">${role}</span>
+      <span class="ai-badge ${cls}">${escapeHtml(rec)}</span>
+      <span class="ai-rank-reason">${escapeHtml(r.reason || '')}</span>
+    </li>`;
+  }).join('');
+  list.querySelectorAll('.ai-rank-code').forEach(btn => {
+    btn.addEventListener('click', () => gotoStock(btn.dataset.code));
   });
 }
 
@@ -569,6 +870,7 @@ function renderStockDetail(code, data) {
   renderFlowKpi(flow.history || []);
   renderKlineKpi(data.kline || []);
   renderSeatsTable(seats.rows || [], seats);
+  renderHolders(data.holders || null);
 
   // 5 日分时：清空并标记需要 lazy load
   intraday5dCache = null;
@@ -1075,13 +1377,11 @@ function drawIntraday5dChart(code, daily, intraday) {
 
 function renderSeatsTable(rows, seats) {
   const tbody = $('#seats-table tbody');
-  // 顶部 KPI
   if (seats) renderSeatsKpi(seats);
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty">近 30 日无龙虎席位</td></tr>';
     return;
   }
-  // 按方向分两组：买入 → 卖出
   const buyRows = rows.filter(r => (r.direction || '').includes('买'));
   const sellRows = rows.filter(r => (r.direction || '').includes('卖'));
   let html = '';
@@ -1096,18 +1396,79 @@ function renderSeatsTable(rows, seats) {
   tbody.innerHTML = html;
 }
 
+function renderHolders(holders) {
+  const tbody = $('#holders-table tbody');
+  if (!holders || !holders.holder_total) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">无最新季报数据</td></tr>';
+    if ($('#holders-kpi')) $('#holders-kpi').innerHTML = '<div class="metric"><span class="m-num">—</span><span class="m-unit">暂无</span></div>';
+    return;
+  }
+  // KPI: 散户占比 / 主力占比 / 集中度 / 户均
+  const retail = holders.retail_proxy_pct;
+  const main = holders.main_proxy_pct;
+  const focus = holders.focus_label || '—';
+  const avg = holders.avg_shares || 0;
+  renderKpi($('#holders-kpi'), [
+    ['散户占比(估)', retail != null ? retail.toFixed(1) + ' %' : '—', retail > 50 ? UP : (retail < 20 ? DOWN : INK2), '非前十大 + 中小单'],
+    ['主力占比(估)', main != null ? main.toFixed(1) + ' %' : '—', main > 70 ? UP : INK2, '前十大 + 大单'],
+    ['股东户数', (holders.holder_total || 0).toLocaleString(), INK1, holders.report_date || ''],
+    ['户均持股', avg > 0 ? avg.toLocaleString() + ' 股' : '—', INK1],
+    ['集中度', focus, focus.includes('集中') ? UP : (focus.includes('分散') ? DOWN : INK2)],
+  ]);
+  // 表格:history 倒序 → 最新在上
+  const rows = (holders.history || []).slice().reverse();
+  tbody.innerHTML = rows.map(r => {
+    const cp = r.change_pct;
+    const cpStr = cp != null
+      ? `<span style="color:${cp > 0 ? DOWN : (cp < 0 ? UP : INK2)}">${cp > 0 ? '+' : ''}${cp.toFixed(2)}%</span>`
+      : '—';
+    const top10 = r.top10_pct != null ? r.top10_pct.toFixed(1) + ' %' : '—';
+    const avg = r.avg_shares != null ? r.avg_shares.toLocaleString() : '—';
+    const fl = r.focus_label || '—';
+    const flColor = fl.includes('集中') ? UP : (fl.includes('分散') ? DOWN : INK2);
+    return `<tr>
+      <td>${r.report_date || '—'}</td>
+      <td>${(r.holder_total || 0).toLocaleString()}</td>
+      <td>${cpStr}</td>
+      <td>${avg}</td>
+      <td><span style="color:${flColor}">${fl}</span></td>
+      <td>${top10}</td>
+    </tr>`;
+  }).join('');
+}
+
 function renderSeatRow(r) {
   const amt = r.amount_wan;
   const amtStr = amt != null
     ? `<span style="color:${(r.direction || '').includes('买') ? UP : DOWN}">${amt >= 1e4 ? (amt/1e4).toFixed(2) + ' 亿' : amt.toFixed(0) + ' 万'}</span>`
     : '—';
+  // 席位单元格:江湖主别名(粗)+ 衍生别名(中)+ 营业部全称(暗)
+  const primary = (r.label || '').trim();
+  const aliases = (r.aliases || []);
+  const realName = (r.real_name || '').trim();
+  const tier = (r.tier || '').trim();
+  const aliasChips = aliases.length
+    ? aliases.slice(0, 3).map(a => `<span class="alias-chip-mini">${escapeHtml(a)}</span>`).join(' ')
+    : '';
+  const seatCell = primary
+    ? `<div class="seat-cell">
+         <div class="seat-alias">「${escapeHtml(primary)}」${tier ? `<span class="seat-tier">${escapeHtml(tier)}</span>` : ''}</div>
+         ${aliasChips ? `<div class="seat-aliases">${aliasChips}</div>` : ''}
+         ${realName ? `<div class="seat-real dim">本名: ${escapeHtml(realName)}</div>` : ''}
+         <div class="seat-full dim">${escapeHtml(r.seat || '—')}</div>
+       </div>`
+    : `<div class="seat-cell"><div class="seat-full">${escapeHtml(r.seat || '—')}</div></div>`;
+  // tier badge 作为 group cell
+  const groupCell = tier && tier !== '论坛ID'
+    ? `<span class="badge badge-tier-${escapeHtml(tier)}">${escapeHtml(tier)}</span>`
+    : (r.group ? `<span class="badge badge-${escapeHtml(r.group)}">${escapeHtml(r.group)}</span>` : '<span class="dim">—</span>');
   return `<tr>
     <td>${r.date || '—'}</td>
-    <td>${escapeHtml(r.seat || '—')}</td>
+    <td>${seatCell}</td>
     <td><span class="dir-${(r.direction || '').includes('买') ? 'buy' : 'sell'}">${r.direction || '—'}</span></td>
     <td class="num">${amtStr}</td>
-    <td>${r.group ? `<span class="badge badge-${r.group}">${r.group}</span>` : '<span class="dim">—</span>'}</td>
-    <td>${escapeHtml(r.label || '') || '<span class="dim">—</span>'}</td>
+    <td>${groupCell}</td>
+    <td>${primary ? `<span class="dim">${escapeHtml(r.note || '')}</span>` : '<span class="dim">—</span>'}</td>
   </tr>`;
 }
 
@@ -1474,6 +1835,33 @@ async function renderLawsOnce() {
 // ────────────────────────────────────────────
 let _dragonsLoaded = false;
 let _dragonsLoading = false;
+let _dragonsData = null;                          // 缓存最近一次 /api/dragons 返回
+const _dragonsSortState = { key: 'rank', dir: 'asc' };  // 全涨停表排序状态
+
+// 排序键映射(对应 dragons.py 输出的字段)
+const _DRAGONS_SORT_KEYS = {
+  rank:        s => s.rank ?? 999,
+  code:        s => s.code || '',
+  name:        s => s.name || '',
+  sector:      s => s.sector || '',
+  streak:      s => s.streak ?? 0,
+  market_cap:  s => s.market_cap_yi ?? 0,
+  turnover:    s => s.turnover_pct ?? 0,
+  seal:        s => s.seal_ratio_pct ?? -1,         // 缺失值排最后
+  score:       s => s.score_total ?? 0,
+};
+function _sortDragonsAll(list, key, dir) {
+  const fn = _DRAGONS_SORT_KEYS[key];
+  if (!fn || !list) return list || [];
+  const sorted = [...list].sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    if (typeof av === 'string') {
+      return dir === 'asc' ? av.localeCompare(bv, 'zh-Hans') : bv.localeCompare(av, 'zh-Hans');
+    }
+    return dir === 'asc' ? av - bv : bv - av;
+  });
+  return sorted;
+}
 
 function renderDragons(data) {
   // api() 已 unwrap envelope, data 本身就是 {date, sentiment, ...}
@@ -1544,6 +1932,9 @@ function renderDragons(data) {
         : '';
       const mainlineBadge = s.is_mainline ? '<span class="badge badge-main">主线</span>' : '';
       const sealTxt = s.seal_ratio_pct != null ? `${s.seal_ratio_pct.toFixed(1)}%` : '—';
+      const aliasChips = (s.seat_aliases || []).length
+        ? `<div class="dragon-aliases">${s.seat_aliases.slice(0, 4).map(a => `<span class="alias-chip">「${escapeHtml(a)}」</span>`).join('')}</div>`
+        : '';
       return `
         <div class="dragon-card">
           <div class="dragon-head">
@@ -1557,6 +1948,7 @@ function renderDragons(data) {
             <span class="dim"> · ${s.streak}板 · 市值${s.market_cap_yi}亿 · 换手${s.turnover_pct}% · 封成${sealTxt}</span>
           </div>
           <div class="dragon-bd">${breakdown}</div>
+          ${aliasChips}
           ${warn}
         </div>`;
     }).join('');
@@ -1566,16 +1958,27 @@ function renderDragons(data) {
   $('#dragons-all-count').textContent = (d.all || []).length;
   const allBody = $('#dragons-all-table tbody');
   const allList = d.all || [];
+  // 排序(应用当前状态)
+  const sortedAll = _sortDragonsAll(allList, _dragonsSortState.key, _dragonsSortState.dir);
+  // 更新列头视觉
+  $$('#dragons-all-table th.sortable').forEach(th => {
+    th.classList.remove('active-sort');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = '';
+    if (th.dataset.sort === _dragonsSortState.key) {
+      th.classList.add('active-sort');
+      if (arrow) arrow.textContent = _dragonsSortState.dir === 'asc' ? '▲' : '▼';
+    }
+  });
   if (allList.length === 0) {
     allBody.innerHTML = '<tr><td colspan="10" class="empty">无数据</td></tr>';
   } else {
-    allBody.innerHTML = allList.map(s => {
-      const bd = s.score_breakdown || {};
-      const bdNote = ['连板强度','资金认可','封成比','市值匹配','技术形态','题材纯度']
-        .map(k => `${k}: ${(bd[k]?.note || '—')}`).join(' · ');
+    allBody.innerHTML = sortedAll.map(s => {
       const sealTxt = s.seal_ratio_pct != null ? `${s.seal_ratio_pct.toFixed(1)}%` : '—';
       const warnTxt = (s.warnings || []).length ? s.warnings.join('; ') : '—';
-      return `<tr data-code="${s.code}">
+      const bd = s.score_breakdown || {};
+      const bdHtml = _renderAIAnalysisCards(bd, s);
+      return `<tr data-code="${s.code}" class="clickable ai-toggle">
         <td>${s.rank}</td>
         <td><a href="#" class="stock-link" data-code="${s.code}">${s.code}</a></td>
         <td>${s.name}</td>
@@ -1587,30 +1990,52 @@ function renderDragons(data) {
         <td><b>${s.score_total}</b></td>
         <td class="dim">${warnTxt}</td>
       </tr>
-      <tr class="bd-detail" data-bd-code="${s.code}" hidden>
-        <td colspan="10" class="dim" style="padding-left: 2rem; font-size: .85rem">${bdNote}</td>
+      <tr class="ai-detail-row" data-bd-code="${s.code}" hidden>
+        <td colspan="10">${bdHtml}</td>
       </tr>`;
     }).join('');
   }
 
-  // 点击行展开详情
-  $('#dragons-all-table tbody').querySelectorAll('tr[data-code]').forEach(tr => {
-    tr.addEventListener('click', () => {
+  // 行点击 → 展开/收起 AI 评分明细(代码 a 自己 stopPropagation,不会双触发)
+  $('#dragons-all-table tbody').querySelectorAll('tr.ai-toggle[data-code]').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a') || e.target.closest('button')) return;
       const code = tr.dataset.code;
-      const detail = tr.nextElementSibling;
-      if (detail && detail.dataset.bdCode === code) detail.hidden = !detail.hidden;
+      const detail = document.querySelector(`#dragons-all-table tr.ai-detail-row[data-bd-code="${code}"]`);
+      if (!detail) return;
+      const willShow = detail.hidden;
+      detail.hidden = !willShow;
+      tr.classList.toggle('expanded', willShow);
     });
   });
-  // 联动到个股详情
+  // 行内"→ 查看完整"按钮 → 跳个股页
+  $('#dragons-all-table tbody').querySelectorAll('button[data-goto]').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      gotoStock(b.dataset.goto);
+    });
+  });
+  // 代码 a → 跳个股页
   $('#dragons-all-table tbody').querySelectorAll('.stock-link').forEach(a => {
     a.addEventListener('click', e => {
       e.preventDefault();
       e.stopPropagation();
-      const code = a.dataset.code;
-      $('#stock-code').value = code;
-      showView('stock');
-      loadStockDetail(code);
+      gotoStock(a.dataset.code);
     });
+  });
+
+  // 表头点击 → 切换排序(只重绘表格,不发后端)
+  $$('#dragons-all-table th.sortable').forEach(th => {
+    th.onclick = () => {
+      const key = th.dataset.sort;
+      if (_dragonsSortState.key === key) {
+        _dragonsSortState.dir = _dragonsSortState.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _dragonsSortState.key = key;
+        _dragonsSortState.dir = (key === 'rank' || key === 'code' || key === 'name' || key === 'sector') ? 'asc' : 'desc';
+      }
+      if (_dragonsData) renderDragons(_dragonsData);
+    };
   });
 
   // STEP 4 折叠交互
@@ -1685,6 +2110,7 @@ async function loadDragons(refresh = false) {
   try {
     const url = '/api/dragons' + (refresh ? '?refresh=true' : '');
     const data = await api(url, { timeout: 60000 });
+    _dragonsData = data;
     renderDragons(data);
     $('#dragons-status').textContent = '已更新 ' + new Date().toLocaleTimeString('zh-CN');
     _dragonsLoaded = true;
@@ -1886,9 +2312,23 @@ async function loadStockSector(code) {
       ['中证',  sec.cics,  '#d4a056'],
       ['GICS',  sec.gics,  '#4fb074'],
     ];
-    host2.innerHTML = inds.filter(([,v]) => v).map(([k,v,c]) =>
+    const stdChips = inds.filter(([,v]) => v).map(([k,v,c]) =>
       `<span class="chip" style="border-color:${c};color:${c}">${k}·${escapeHtml(v)}</span>`
-    ).join('') || '<span class="dim">行业分类待补</span>';
+    ).join('');
+    // AI 概念标（机器人/AI 各子赛道）
+    const aiTags = sec.ai_tags || {labels: [], is_main_field: false};
+    const aiColors = {
+      '机器人本体': '#ff5722', '机器人零部件': '#ff7043', '机器视觉': '#ff8a65',
+      'AI 算力': '#9c27b0', 'AI 芯片': '#7b1fa2', 'AI 软件': '#ba68c8',
+      '智能驾驶': '#03a9f4', '半导体': '#00bcd4', '新能源车': '#4caf50',
+      '传统行业': '#9e9e9e', '未分类': '#bdbdbd'
+    };
+    const aiChips = aiTags.labels.map(l => {
+      const c = aiColors[l] || '#9e9e9e';
+      const warn = (l === '传统行业' || l === '未分类') ? ' ⚠️非主战场' : '';
+      return `<span class="chip" style="border-color:${c};color:${c};font-weight:bold">🏷️ ${escapeHtml(l)}${warn}</span>`;
+    }).join('');
+    host2.innerHTML = stdChips + (aiChips ? '<br/>' + aiChips : (stdChips ? '' : '<span class="dim">行业分类待补</span>'));
     host3.textContent = `行业来源：${sec.source || '—'}${sec.fresh ? '（刚拉到）' : ''}`;
 
     // 相关新闻 + 板块情绪
@@ -1936,6 +2376,77 @@ async function loadStockSector(code) {
     }
   } catch (e) {
     host1.innerHTML = `<div class="kv-row"><span class="down">板块加载失败</span><b>${escapeHtml(e.message)}</b></div>`;
+  }
+
+  // 加载连板 & 板块联动面板（用 申万行业 sw 作为 sector 过滤）
+  loadStockLimitUp(code, sec.sw || sec.csrc || sec.gics);
+}
+
+// 连板 & 板块联动数据 — 调 /api/stock/{code}/limit_up_context
+async function loadStockLimitUp(code, sectorName) {
+  const host = $('#stock-limit-up-body');
+  if (!host) return;
+  host.innerHTML = '<p class="caption dim">连板数据加载中…</p>';
+  try {
+    const url = sectorName
+      ? `/api/stock/${code}/limit_up_context?sector=${encodeURIComponent(sectorName)}`
+      : `/api/stock/${code}/limit_up_context`;
+    const res = await api(url) || {};
+    if (res.error && res.error.includes('超时')) {
+      host.innerHTML = `<p class="caption down">${res.error}</p>`;
+      return;
+    }
+    const today = res.today;
+    const recent5 = res.recent_5d || [];
+    const sectorZt = res.sector_today || [];
+    const summary = res.summary || '';
+
+    const todayHtml = today ? `
+      <div class="kv-row">
+        <span>今日</span>
+        <b style="color:${today.连板数 >= 3 ? UP : today.连板数 >= 1 ? ACCENT : INK2}">
+          ${today.连板数 >= 2 ? '🔥' : '✓'} ${today.连板数 || 0} 板
+          · 封单 ${today.封单金额 ? (today.封单金额 / 1e8).toFixed(2) + ' 亿' : '—'}
+          · 首次 ${today.首次封板时间 ? String(today.首次封板时间).replace(/^(\d{2})(\d{2})\d{2}$/, '$1:$2') : '—'}
+        </b>
+      </div>
+      <div class="kv-row"><span>炸板</span><b>${today.炸板次数 || 0} 次</b></div>
+      <div class="kv-row"><span>所属</span><b>${escapeHtml(today.所属行业 || '—')}</b></div>
+    ` : `<div class="kv-row"><span>今日</span><b class="dim">未涨停</b></div>`;
+
+    const recentHtml = recent5.length > 0 ? `
+      <div class="caption" style="margin:.5rem 0 .25rem">📅 近 5 个交易日涨停</div>
+      <div class="stock-tags">
+        ${recent5.map(r => `
+          <span class="chip" style="color:${ACCENT}">${r.date.slice(4,6)}/${r.date.slice(6,8)} · ${r.连板数 || 1}板</span>
+        `).join('')}
+      </div>
+    ` : '';
+
+    const sectorHtml = sectorZt.length > 0 ? `
+      <div class="caption" style="margin:.5rem 0 .25rem">🔥 板块当日涨停 ${sectorZt.length} 只（取 ${Math.min(sectorZt.length, 10)}）</div>
+      <table class="mini-table" style="width:100%;font-size:.85rem">
+        <tr><th>名称</th><th>连板</th><th>封单</th><th>涨幅</th></tr>
+        ${sectorZt.slice(0, 10).map(s => `
+          <tr style="cursor:pointer" onclick="loadStockDetail('${s.代码}')">
+            <td>${escapeHtml(s.名称)}</td>
+            <td style="color:${(s.连板数||0) >= 2 ? UP : INK2};font-weight:bold">${s.连板数 || 0}</td>
+            <td>${s.封单金额 ? (s.封单金额 / 1e8).toFixed(2) + '亿' : '—'}</td>
+            <td style="color:${(s.涨跌幅||0) > 0 ? UP : DOWN}">${(s.涨跌幅||0).toFixed(1)}%</td>
+          </tr>
+        `).join('')}
+      </table>
+      <p class="caption dim" style="margin:.5rem 0 0">点击名称 → 切换个股</p>
+    ` : `<p class="caption dim" style="margin:.5rem 0 0">板块今日无涨停</p>`;
+
+    host.innerHTML = `
+      ${todayHtml}
+      ${recentHtml}
+      ${sectorHtml}
+      ${summary ? `<div class="kv-row mt-8" style="border-top:.5px solid var(--line);padding-top:.5rem"><span>总结</span><b>${escapeHtml(summary)}</b></div>` : ''}
+    `;
+  } catch (e) {
+    host.innerHTML = `<p class="caption down">连板数据加载失败: ${escapeHtml(e.message)}</p>`;
   }
 }
 

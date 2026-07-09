@@ -14,7 +14,43 @@ log = logging.getLogger("tuixue_v3.web.seats")
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
+_ALIASES_CACHE: dict | None = None
+
+
+def _load_aliases() -> dict:
+    """加载 seat_aliases.json — 完整别名映射(顶级+中生代+席位型+机构/北向)"""
+    global _ALIASES_CACHE
+    if _ALIASES_CACHE is not None:
+        return _ALIASES_CACHE
+    p = DATA_DIR / "seat_aliases.json"
+    if not p.exists():
+        _ALIASES_CACHE = {}
+        return _ALIASES_CACHE
+    try:
+        raw = json.loads(p.read_text())
+        # 展平 _top / _mid / _seat / _fund → 一张 aliases 表 (alias_name → group_key)
+        flat: dict[str, str] = {}  # primary_alias → group_key
+        by_key: dict[str, dict] = {}  # group_key → 完整 info(含 keywords)
+        for section in ("_top", "_mid", "_seat", "_fund"):
+            for gkey, info in (raw.get(section) or {}).items():
+                # 加上 _ 前缀防止和真实 key 撞
+                store_key = f"{section}.{gkey}"
+                by_key[store_key] = info
+                # 主别名 + 衍生别名 都映射到 group_key
+                pa = info.get("primary_alias", gkey)
+                flat[pa] = store_key
+                for a in info.get("aliases", []) or []:
+                    flat[a] = store_key
+        _ALIASES_CACHE = {"flat": flat, "by_key": by_key}
+        return _ALIASES_CACHE
+    except Exception as e:
+        log.warning(f"seat_aliases.json 读取失败: {e}")
+        _ALIASES_CACHE = {}
+        return _ALIASES_CACHE
+
+
 def _load_known() -> dict:
+    """保留兼容 — 新代码走 _load_aliases()"""
     p = DATA_DIR / "known_seats.json"
     if not p.exists():
         return {"_slots": {}, "黑名单": {}}
@@ -25,21 +61,55 @@ def _load_known() -> dict:
         return {"_slots": {}, "黑名单": {}}
 
 
-def _match_seat(seat_name: str, known: dict) -> tuple[str, str] | None:
-    """席位名 → (组, 标签)"""
-    slots = known.get("_slots", {}) or {}
-    for group, members in slots.items():
-        names = []
-        if isinstance(members, dict):
-            names = list(members.keys())
-        elif isinstance(members, list):
-            names = members
-        for n in names:
-            if not n:
+def _match_seat(seat_name: str, known: dict = None) -> tuple[str, str] | None:
+    """席位名 → (组 key, 主别名)。新版走 seat_aliases.json。
+    返回: (group_key, primary_alias) — group_key 是内部组ID, primary_alias 用于 UI 展示
+    """
+    if not seat_name:
+        return None
+    aliases = _load_aliases()
+    if not aliases:
+        return None
+    # 1) 关键字 substring 匹配(优先级最高)
+    for gkey, info in aliases.get("by_key", {}).items():
+        for kw in info.get("keywords", []) or []:
+            if not kw:
                 continue
-            if n in seat_name or seat_name in n:
-                return (group, n)
+            if kw in seat_name or seat_name in kw:
+                return (gkey, info.get("primary_alias", gkey))
+    # 2) 别名直匹配
+    flat = aliases.get("flat", {})
+    for alias, gkey in flat.items():
+        if alias and (alias in seat_name or seat_name in alias):
+            info = aliases["by_key"].get(gkey, {})
+            return (gkey, info.get("primary_alias", alias))
     return None
+
+
+def get_alias_info(group_key: str) -> dict | None:
+    """group_key → 完整别名 info (primary_alias / real_name / aliases / note / tier)"""
+    aliases = _load_aliases()
+    return aliases.get("by_key", {}).get(group_key)
+
+
+def resolve_seat_alias(seat_name: str) -> dict | None:
+    """席位名 → 完整 alias 字典 (primary_alias + real_name + aliases + tier + note)
+    渲染层用 — 一次拿所有展示字段
+    """
+    m = _match_seat(seat_name)
+    if not m:
+        return None
+    gkey, primary = m
+    info = get_alias_info(gkey) or {}
+    return {
+        "group_key":    gkey,
+        "primary":      primary,
+        "real_name":    info.get("real_name", ""),
+        "aliases":      info.get("aliases", []),
+        "tier":         info.get("tier", ""),
+        "note":         info.get("note", ""),
+        "score_bonus":  info.get("score_bonus", 0),
+    }
 
 
 def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
@@ -94,25 +164,32 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
                     seat = str(row.get(seat_col, "") or "").strip()
                     if not seat:
                         continue
-                    # 金额列：兼容多种列名
-                    amt_col = next((c for c in detail_df.columns if any(k in c for k in ("成交额", "金额"))), None)
+                    # 金额列：兼容多种列名(akshare 买入金额 / 卖出金额 / 成交额 → 单位是元,需 ÷1e4 转万)
+                    amt_col = next((c for c in detail_df.columns if any(k in c for k in ("成交额", "金额")) and "比例" not in c), None)
                     try:
-                        amt_val = float(row.get(amt_col, 0) or 0) if amt_col else 0
+                        amt_raw = float(row.get(amt_col, 0) or 0) if amt_col else 0
                     except (ValueError, TypeError):
-                        amt_val = 0
+                        amt_raw = 0
+                    # 元 → 万元
+                    amt_wan = round(amt_raw / 10000.0, 2) if amt_raw else 0
                     # 部分返回里 "营业部名称" 是单字段；若有多个用 ; 分隔
                     for s in seat.split(";"):
                         s = s.strip()
                         if not s:
                             continue
                         match = _match_seat(s, known)
+                        info = resolve_seat_alias(s)
                         rows.append({
                             "date": f"{d[:4]}-{d[4:6]}-{d[6:8]}",
                             "seat": s,
                             "direction": flag,
-                            "group": match[0] if match else "",
-                            "label": match[1] if match else "",
-                            "amount_wan": round(amt_val, 2) if amt_val else None,
+                            "group":      match[0] if match else "",
+                            "label":      match[1] if match else "",
+                            "real_name":  (info or {}).get("real_name", ""),
+                            "aliases":    (info or {}).get("aliases", []),
+                            "tier":       (info or {}).get("tier", ""),
+                            "note":       (info or {}).get("note", ""),
+                            "amount_wan": amt_wan if amt_wan else None,
                         })
     except Exception as e:
         log.warning(f"ak lhb detail {code} 失败: {e}")
@@ -134,12 +211,17 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
                                 if not seat:
                                     continue
                                 match = _match_seat(seat, known)
+                                info = resolve_seat_alias(seat)
                                 rows.append({
                                     "date": str(row.get("日期", ""))[:10],
                                     "seat": seat,
                                     "direction": direction,
-                                    "group": match[0] if match else "",
-                                    "label": match[1] if match else "",
+                                    "group":     match[0] if match else "",
+                                    "label":     match[1] if match else "",
+                                    "real_name": (info or {}).get("real_name", ""),
+                                    "aliases":   (info or {}).get("aliases", []),
+                                    "tier":      (info or {}).get("tier", ""),
+                                    "note":      (info or {}).get("note", ""),
                                 })
         except Exception as e:
             log.warning(f"ak lhb_statistic 失败: {e}")
