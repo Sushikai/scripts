@@ -2040,7 +2040,8 @@ async def api_review_delete_trade(trade_id: int):
 async def api_review_run(trade_id: int, force: bool = False):
     """AI 复盘:查 trade_reviews, 已有返缓存(force=False),否则调 LLM。"""
     try:
-        result = _review.review_trade(trade_id, force=force)
+        # 复盘涉及 subprocess(75s 超时)+ 多源拉取,放线程池不阻塞 event loop
+        result = await to_thread(_review.review_trade, trade_id, force=force)
         return envelope(data=result)
     except Exception as e:
         log.exception("review_trade")

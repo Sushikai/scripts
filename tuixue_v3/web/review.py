@@ -636,23 +636,39 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
     # 写入
     now = systime.time()
     # ai_advice 存到 summary_md 末尾 ([建议]:xxx)
-    summary_md = ai.get("summary", "")
-    advice = ai.get("ai_advice", "")
+    def _str(v, default=""):
+        """AI 偶尔把 string 字段返成 list(dict),统一转 str。"""
+        if v is None:
+            return default
+        if isinstance(v, str):
+            return v
+        if isinstance(v, list):
+            return "; ".join([str(x) if not isinstance(x, dict) else (x.get("text") or x.get("id") or str(x)) for x in v])
+        if isinstance(v, dict):
+            return "; ".join(f"{k}: {vv}" for k, vv in v.items())
+        return str(v)
+    summary_md = _str(ai.get("summary"))
+    advice = _str(ai.get("ai_advice"))
     if advice:
         summary_md = f"{summary_md}\n[建议]{advice}"
+    verdict = _str(ai.get("verdict"), "及格")
+    if verdict not in ("优", "及格", "失误", "严重失误"):
+        verdict = "及格"
+    improvement = _str(ai.get("improvement"))
+    mistake = _str(ai.get("mistake_pattern"), "其他")
     conn.execute(
         "INSERT INTO trade_reviews "
         "(trade_id, model, verdict, score, summary_md, rules_passed_json, rules_failed_json, "
         " mistake_pattern, improvement, key_risks_json, context_json, ts_created) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (trade_id, "MiniMax-M3",
-         ai.get("verdict", "及格"), int(ai.get("score", 60)),
+         verdict, int(ai.get("score", 60)),
          summary_md,
-         json.dumps(ai.get("rules_passed", []), ensure_ascii=False),
-         json.dumps(ai.get("rules_failed", []), ensure_ascii=False),
-         ai.get("mistake_pattern", "其他"),
-         ai.get("improvement", ""),
-         json.dumps(ai.get("key_risks", []), ensure_ascii=False),
+         json.dumps(ai.get("rules_passed", []) or [], ensure_ascii=False, default=str),
+         json.dumps(ai.get("rules_failed", []) or [], ensure_ascii=False, default=str),
+         mistake,
+         improvement,
+         json.dumps(ai.get("key_risks", []) or [], ensure_ascii=False, default=str),
          json.dumps({"ctx_size": len(json.dumps(ctx, default=str)),
                      "ts_review": now, "ai_advice": advice}, ensure_ascii=False),
          now),
