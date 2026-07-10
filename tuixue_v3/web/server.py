@@ -1980,6 +1980,11 @@ async def api_backtest(req: BacktestRequest):
 # ───────────────────────────────────────────────────────────
 from . import review as _review
 
+# ───────────────────────────────────────────────────────────
+# AI 对话框 (2026-07-10)
+# ───────────────────────────────────────────────────────────
+from . import ai_chat
+
 @app.get("/api/review/trades")
 async def api_review_list_trades(limit: int = 50, code: str | None = None, since_days: int | None = 90):
     """最近 N 笔交易(含最新一次 AI 复盘摘要)。"""
@@ -2067,6 +2072,23 @@ async def api_review_next_picks():
         return envelope(data=_review.next_day_picks())
     except Exception as e:
         log.exception("next_picks")
+        return envelope(error=str(e), status_code=500)
+
+
+class ChatRequest(BaseModel):
+    message: str
+    code: str | None = None
+    history: list[dict] | None = None  # [{role, content}]
+
+
+@app.post("/api/chat")
+async def api_chat(req: ChatRequest):
+    """AI 对话:用户问一句,带盘面/铁律 context,返打板建议。"""
+    try:
+        result = ai_chat.chat(req.message, code=req.code, history=req.history or [])
+        return envelope(data=result)
+    except Exception as e:
+        log.exception("chat")
         return envelope(error=str(e), status_code=500)
 
 

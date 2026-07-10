@@ -1,0 +1,62 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: 退学
+        - generic [ref=e6]: v3
+        - generic [ref=e7]: TUIXUE · 操作台
+      - generic [ref=e70]: 已刷新 23:59:42
+      - button "刷新" [ref=e8] [cursor=pointer]:
+        - img [ref=e9]
+    - generic [ref=e11]:
+      - generic [ref=e71]: 上证指数 4,036.59 +1.65%
+      - generic [ref=e72]: 深证成指 15,398.73 +3.07%
+      - generic [ref=e73]: 创业板指 4,018.17 +4.49%
+      - generic [ref=e74]: 沪深300 4,876.31 +2.54%
+      - generic [ref=e75]: 科创50 2,185.83 +8.41%
+      - generic [ref=e76]: 中证500 8,652.79 +3.13%
+      - generic [ref=e77]: 涨停75
+  - main [ref=e13]:
+    - generic [ref=e78]:
+      - generic [ref=e79]:
+        - paragraph [ref=e80]: DRAGONS · 07
+        - heading "龙头战法" [level=1] [ref=e81]
+        - paragraph [ref=e82]: 四步流水线 · 情绪 → 主线 → 龙头 → 决策 · 6 维评分
+        - generic [ref=e83]:
+          - generic [ref=e84]: —
+          - generic [ref=e85]: —
+          - button "手动刷新 ↻" [ref=e86] [cursor=pointer]:
+            - generic [ref=e87]: 手动刷新
+            - generic [ref=e88]: ↻
+      - article [ref=e89]:
+        - generic [ref=e90]: STEP 1 · 整体情绪
+        - generic [ref=e91]:
+          - generic [ref=e92]: —
+          - generic [ref=e93]:
+            - generic [ref=e94]: 涨停 —
+            - generic [ref=e95]: 最高连板 —
+            - generic [ref=e96]: 连板梯队 —
+      - article [ref=e97]:
+        - generic [ref=e98]: STEP 2 · 今日主线 Top 5
+        - paragraph [ref=e100]: 加载中 …
+      - article [ref=e101]:
+        - generic [ref=e102]: STEP 3 · 龙头候选 Top 10
+        - paragraph [ref=e103]: 6 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 (满分 128, 封单降级时 108)
+        - paragraph [ref=e105]: 加载中 …
+      - article [ref=e106]:
+        - generic [ref=e107]: STEP 4 · 决策建议
+        - paragraph [ref=e109]: 加载中 …
+      - article [ref=e110]:
+        - generic [ref=e111] [cursor=pointer]:
+          - generic [ref=e112]: STEP 4 · 全部涨停 (—)
+          - generic [ref=e113]: ▶
+      - paragraph [ref=e114]: 加载中 …
+    - text: 律
+  - navigation [ref=e62]:
+    - button "01 · 首页" [ref=e63] [cursor=pointer]
+    - button "02 · 扫描" [ref=e64] [cursor=pointer]
+    - button "03 · 龙头" [active] [ref=e65] [cursor=pointer]
+    - button "04 · 回测" [ref=e66] [cursor=pointer]
+    - button "05 · 个股" [ref=e67] [cursor=pointer]
+    - button "06 · 调优" [ref=e68] [cursor=pointer]
+    - button "07 · 心法" [ref=e69] [cursor=pointer]

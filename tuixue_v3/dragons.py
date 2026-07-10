@@ -57,6 +57,7 @@ def _score_funding(lhb_info: dict | None) -> tuple[float, str]:
     """
     用户规则: 顶级游资=30, 净流入>5000万=20
     取较高者 (不可叠加)
+    净流入 = 龙虎榜 buy_total_wan − sell_total_wan (单位:万)
     """
     if not lhb_info:
         return 0, "无龙虎榜"
@@ -67,6 +68,14 @@ def _score_funding(lhb_info: dict | None) -> tuple[float, str]:
         return 18, "活跃游资"
     if "机构席位" in groups:
         return 10, "机构席位"
+    # 净流入 5000 万门槛 = 5000 wan
+    buy = float(lhb_info.get("buy_total_wan") or 0)
+    sell = float(lhb_info.get("sell_total_wan") or 0)
+    net = buy - sell
+    if net >= 5000:
+        return 20, f"龙虎榜净买{net:.0f}万"
+    if net > 0:
+        return 10, f"龙虎榜净买{net:.0f}万(<5000)"
     rows = lhb_info.get("total_lhb_rows", 0)
     return 0, f"龙虎榜{rows}条(无主力)"
 
@@ -259,6 +268,7 @@ def score_dragons(date_str: str | None = None) -> dict:
     log.info(f"[dragons] 主线 Top10: {mainline_names[:5]}")
 
     # 3) 龙虎榜 (单日批量, 2 天缓存 — 替代逐股 seat_lookup)
+    # summary lhb(per-stock 龙虎榜净买额/买卖额) + Top30 per-stock seat 明细
     codes = [z["code"] for z in zt_pool if z.get("code")]
     log.info(f"[dragons] 拉 {len(codes)} 只龙虎榜 (批量)")
     lhb_map: dict[str, dict] = {}
@@ -269,37 +279,89 @@ def score_dragons(date_str: str | None = None) -> dict:
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
         if lhb_rows is not None:
-            known = seat_lookup._load_known() if hasattr(seat_lookup, "_load_known") else {}
-            # 把当天龙虎榜按 code 聚合, 标记 known_seats
-            from collections import defaultdict
-            by_code: dict[str, list] = defaultdict(list)
-            for r in (lhb_rows if isinstance(lhb_rows, list) else lhb_rows.to_dict("records") if hasattr(lhb_rows, "to_dict") else []):
+            # summary 字段: 代码/名称/上榜日/解读/龙虎榜净买额/龙虎榜买入额/龙虎榜卖出额/...
+            # 单位是 元 → 转万
+            rows_iter = (lhb_rows if isinstance(lhb_rows, list)
+                         else lhb_rows.to_dict("records") if hasattr(lhb_rows, "to_dict")
+                         else [])
+            for r in rows_iter:
                 c = str(r.get("代码", r.get("code", "")) or "").zfill(6)
-                seat = str(r.get("营业部名称", r.get("seat", "")) or "")
-                direction = str(r.get("类型", r.get("direction", "")) or "")
-                if c and seat:
-                    by_code[c].append({"seat": seat, "direction": direction})
-            # 标记 known_seats 并简化给 scoring
-            for c in codes:
-                entries = by_code.get(c, [])
-                if not entries:
+                if not c or c not in codes:
                     continue
-                groups = set()
-                labels = []
-                for e in entries:
-                    sn = e["seat"]
-                    match = seat_lookup._match_seat(sn, known) if hasattr(seat_lookup, "_match_seat") else None
-                    if match:
-                        groups.add(match[0])
-                        labels.append(match[1])
+                # 兼容多种字段名
+                def _amt(*keys):
+                    for k in keys:
+                        v = r.get(k)
+                        if v is not None:
+                            try: return float(v) / 1e4
+                            except (ValueError, TypeError): pass
+                    return 0
+                buy_w = _amt("龙虎榜买入额", "买入额", "buy_amount")
+                sell_w = _amt("龙虎榜卖出额", "卖出额", "sell_amount")
+                net_w = _amt("龙虎榜净买额", "净买额", "net_amount") or (buy_w - sell_w)
+                reason = str(r.get("上榜原因", r.get("reason", "")) or "")
+                # summary 自带"解读"= "西藏自治区资金卖出" 等
+                comment = str(r.get("解读", r.get("comment", "")) or "")
                 lhb_map[c] = {
-                    "known_groups": list(groups),
-                    "labels": labels[:5],
-                    "total_lhb_rows": len(entries),
+                    "buy_total_wan": round(buy_w, 2),
+                    "sell_total_wan": round(sell_w, 2),
+                    "net_total_wan": round(net_w, 2),
+                    "reason": reason[:80],
+                    "comment": comment[:80],
+                    "known_groups": [],
+                    "labels": [],
+                    "total_lhb_rows": 1,
                 }
     except Exception as e:
         log.warning(f"[dragons] 龙虎榜批量失败: {e}")
-    log.info(f"[dragons] 龙虎榜已收 {len(lhb_map)}/{len(codes)}")
+    log.info(f"[dragons] 龙虎榜 summary 已收 {len(lhb_map)}/{len(codes)}")
+
+    # 3b) Top 30 用 per-stock seat_lookup 拿席位 + 江湖别名(精补)
+    if hasattr(seat_lookup, "_match_seat"):
+        known = seat_lookup._load_known() if hasattr(seat_lookup, "_load_known") else {}
+        top_codes = codes[:30]
+        log.info(f"[dragons] Top{len(top_codes)} per-stock 席位精补")
+
+        def _fetch_seats(code):
+            try:
+                # 直接用 seat_lookup 的单股接口 (已有 ~1s 缓存)
+                return code, seat_lookup.get_stock_seats(code, lookback_days=10)
+            except Exception:
+                return code, None
+
+        ex2 = ThreadPoolExecutor(max_workers=8)
+        try:
+            futures = {ex2.submit(_fetch_seats, c): c for c in top_codes}
+            for fut in futures:
+                try:
+                    code, data = fut.result(timeout=8)
+                except Exception:
+                    continue
+                if not data or not data.get("rows"):
+                    continue
+                groups = set()
+                labels = []
+                seen = set()
+                for r in data["rows"]:
+                    sn = r.get("seat", "")
+                    if not sn or sn in seen:
+                        continue
+                    seen.add(sn)
+                    m = seat_lookup._match_seat(sn, known)
+                    if m:
+                        groups.add(m[0])
+                        if m[1] and m[1] not in labels:
+                            labels.append(m[1])
+                # 合并到 lhb_map(groups/labels 优先,summary 数值保留)
+                base = lhb_map.get(code, {})
+                if groups:
+                    base["known_groups"] = list(groups)
+                    base["labels"] = labels[:5]
+                    base["total_lhb_rows"] = (base.get("total_lhb_rows") or 0) + len(data["rows"])
+                lhb_map[code] = base
+        finally:
+            ex2.shutdown(wait=False, cancel_futures=True)
+        log.info(f"[dragons] Top{len(top_codes)} 席位精补完成,共 {sum(1 for c in lhb_map if lhb_map[c].get('known_groups'))} 只带席位组")
 
     # 4) 技术面 (并行, 4s)
     log.info(f"[dragons] 拉 {len(codes)} 只技术面")
@@ -354,6 +416,7 @@ def score_dragons(date_str: str | None = None) -> dict:
             "burst_count": burst_count,
             "turnover_pct": round(turnover_pct, 1),
             "is_mainline": any(m and (m in sector or sector in m) for m in mainline_names),
+            "seat_aliases": (lhb_map.get(code) or {}).get("labels", [])[:5],
             "score_breakdown": {
                 "连板强度": {"pts": s_streak, "note": note_streak, "max": 30},
                 "资金认可": {"pts": s_funding, "note": note_funding, "max": 30},

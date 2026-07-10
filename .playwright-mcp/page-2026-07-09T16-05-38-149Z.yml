@@ -1,0 +1,178 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e5]: 退学
+        - generic [ref=f1e6]: v3
+        - generic [ref=f1e7]: TUIXUE · 操作台
+      - generic [ref=f1e70]: 已刷新 00:05:11
+      - button "刷新" [ref=f1e8] [cursor=pointer]:
+        - img [ref=f1e9]
+    - generic [ref=f1e11]:
+      - generic [ref=f1e71]: 上证指数 4,036.59 +1.65%
+      - generic [ref=f1e72]: 深证成指 15,398.73 +3.07%
+      - generic [ref=f1e73]: 创业板指 4,018.17 +4.49%
+      - generic [ref=f1e74]: 沪深300 4,876.31 +2.54%
+      - generic [ref=f1e75]: 科创50 2,185.83 +8.41%
+      - generic [ref=f1e76]: 中证500 8,652.79 +3.13%
+      - generic [ref=f1e77]: 涨停75
+  - main [ref=f1e13]:
+    - generic [ref=f1e78]:
+      - generic [ref=f1e79]:
+        - paragraph [ref=f1e80]: DETAIL · 04
+        - heading "恒尚节能·603137" [level=1] [ref=f1e81]
+        - paragraph [ref=f1e82]: 恒尚节能 · 603137 · tencent_qq 00:05:18
+        - generic [ref=f1e84]: 涨停
+      - article [ref=f1e85]:
+        - generic [ref=f1e86]:
+          - textbox "代码 / 名称（如 600519 / 平安）" [ref=f1e87]: "603137"
+          - button "查询 ↗" [ref=f1e88] [cursor=pointer]
+      - generic [ref=f1e89]:
+        - article [ref=f1e90]:
+          - generic [ref=f1e91]: QUOTE · 实时价
+          - generic [ref=f1e92]:
+            - generic [ref=f1e93]: "25.20"
+            - generic [ref=f1e94]: 元
+          - paragraph [ref=f1e95]: +10.00% (+2.29)
+        - article [ref=f1e96]:
+          - generic [ref=f1e97]: FLOW · 主力净流
+          - generic [ref=f1e98]:
+            - generic [ref=f1e99]: "0"
+            - generic [ref=f1e100]: 万
+          - paragraph [ref=f1e101]: 超大+大单 0 万
+        - article [ref=f1e102]:
+          - generic [ref=f1e103]: 换手 · 量比
+          - generic [ref=f1e104]:
+            - generic [ref=f1e105]: "7.22"
+            - generic [ref=f1e106]: "%"
+          - paragraph [ref=f1e107]: 量比 -99.41
+        - article [ref=f1e108]:
+          - generic [ref=f1e109]: 振幅 · 5日涨跌
+          - generic [ref=f1e110]:
+            - generic [ref=f1e111]: "4.80"
+            - generic [ref=f1e112]: "%"
+          - paragraph [ref=f1e113]: 5日 +46.34%
+        - article [ref=f1e114]:
+          - generic [ref=f1e115]: 市值 · 流通
+          - generic [ref=f1e116]:
+            - generic [ref=f1e117]: "46.1"
+            - generic [ref=f1e118]: 亿
+          - paragraph [ref=f1e119]: 流通 46.1 亿
+        - article [ref=f1e120]:
+          - generic [ref=f1e121]: 市盈率 · PE
+          - generic [ref=f1e122]:
+            - generic [ref=f1e123]: "3.85"
+            - generic [ref=f1e124]: ×
+          - paragraph [ref=f1e125]: PE 动 · 合理
+        - article [ref=f1e126]:
+          - generic [ref=f1e127]: 当日 · 高/低
+          - generic [ref=f1e129]: 25.20 / 24.10
+          - paragraph [ref=f1e130]: 开 24.21 · 昨收 22.91
+        - article [ref=f1e131]:
+          - generic [ref=f1e132]: SEATS · 游资
+          - generic [ref=f1e133]:
+            - generic [ref=f1e134]: "5"
+            - generic [ref=f1e135]: 条
+          - paragraph [ref=f1e136]: 近 37 条
+      - article [ref=f1e137]:
+        - generic [ref=f1e138]: 🔥 LIMIT-UP · 连板梯队 + 板块联动
+        - paragraph [ref=f1e140]: 查询股票后将显示连板 / 5 日涨停 / 板块涨停清单
+      - generic [ref=f1e141]:
+        - article [ref=f1e142]:
+          - generic [ref=f1e143]: TODAY · 当日明细
+          - generic [ref=f1e144]:
+            - generic [ref=f1e145]:
+              - generic [ref=f1e146]: 开盘
+              - generic [ref=f1e147]: "24.21"
+            - generic [ref=f1e148]:
+              - generic [ref=f1e149]: 昨收
+              - generic [ref=f1e150]: "22.91"
+            - generic [ref=f1e151]:
+              - generic [ref=f1e152]: 最高
+              - generic [ref=f1e153]: "25.20"
+            - generic [ref=f1e154]:
+              - generic [ref=f1e155]: 最低
+              - generic [ref=f1e156]: "24.10"
+            - generic [ref=f1e157]:
+              - generic [ref=f1e158]: 涨停价
+              - generic [ref=f1e159]: "25.20"
+            - generic [ref=f1e160]:
+              - generic [ref=f1e161]: 跌停价
+              - generic [ref=f1e162]: "20.62"
+            - generic [ref=f1e163]:
+              - generic [ref=f1e164]: 成交量
+              - generic [ref=f1e165]: 1320.2 万手
+            - generic [ref=f1e166]:
+              - generic [ref=f1e167]: 成交额
+              - generic [ref=f1e168]: 3.27 亿
+            - generic [ref=f1e169]:
+              - generic [ref=f1e170]: 20日涨跌
+              - generic [ref=f1e171]: +93.40%
+            - generic [ref=f1e172]:
+              - generic [ref=f1e173]: 5日均量
+              - generic [ref=f1e174]: 12.4 万手
+        - article [ref=f1e175]:
+          - generic [ref=f1e176]: STREAK · 近期涨停 / 连板
+          - paragraph [ref=f1e178]: 近 10 日无涨停记录
+      - generic [ref=f1e179]:
+        - article [ref=f1e180]:
+          - generic [ref=f1e181]: SECTOR · 所属板块 / 行业
+          - generic [ref=f1e182]:
+            - generic [ref=f1e183]:
+              - generic [ref=f1e184]: 市场
+              - generic [ref=f1e185]: 沪市主板
+            - generic [ref=f1e186]:
+              - generic [ref=f1e187]: 代码前缀
+              - generic [ref=f1e188]: 沪
+            - generic [ref=f1e189]:
+              - generic [ref=f1e190]: 涨跌幅
+              - generic [ref=f1e191]: ±10%
+            - generic [ref=f1e192]:
+              - generic [ref=f1e193]: 门槛
+              - generic [ref=f1e194]: 无
+          - generic [ref=f1e195]:
+            - generic [ref=f1e196]: 申万·建筑装饰
+            - generic [ref=f1e197]: 证监会·建筑业
+            - generic [ref=f1e198]: 中证·工业
+            - generic [ref=f1e199]: GICS·工业
+            - generic [ref=f1e200]: 🏷️ 传统行业 ⚠️非主战场
+          - paragraph [ref=f1e201]: 行业来源：eastmoney（刚拉到）
+        - article [ref=f1e202]:
+          - generic [ref=f1e203]: SECTOR SENTIMENT · 板块情绪 + 相关新闻
+          - generic [ref=f1e204]:
+            - generic [ref=f1e205]:
+              - generic [ref=f1e206]: 板块新闻数
+              - generic [ref=f1e207]: "0"
+            - generic [ref=f1e208]:
+              - generic [ref=f1e209]: 板块利好
+              - generic [ref=f1e210]: 0 (0%)
+            - generic [ref=f1e211]:
+              - generic [ref=f1e212]: 板块利空
+              - generic [ref=f1e213]: "0"
+            - generic [ref=f1e214]:
+              - generic [ref=f1e215]: 板块均分
+              - generic [ref=f1e216]: —
+          - separator [ref=f1e217]
+          - paragraph [ref=f1e219]: 暂无与该股直接相关的新闻（AI 评分按申万行业 / 涉及股票过滤）
+      - generic [ref=f1e220]:
+        - button "资金流向" [ref=f1e221] [cursor=pointer]
+        - button "K 线" [ref=f1e222] [cursor=pointer]
+        - button "5 日分时" [ref=f1e223] [cursor=pointer]
+        - button "游资席位" [ref=f1e224] [cursor=pointer]
+        - button "📰 新闻" [ref=f1e225] [cursor=pointer]
+        - button "📊 板块" [ref=f1e226] [cursor=pointer]
+        - button "AI 复盘 · 铁律" [ref=f1e227] [cursor=pointer]
+      - article [ref=f1e228]:
+        - generic [ref=f1e229]: 资本动向
+        - generic [ref=f1e232]:
+          - generic [ref=f1e233]: 资金流
+          - generic [ref=f1e234]: 无
+    - text: 律
+  - navigation [ref=f1e62]:
+    - button "01 · 首页" [ref=f1e63] [cursor=pointer]
+    - button "02 · 扫描" [ref=f1e64] [cursor=pointer]
+    - button "03 · 龙头" [ref=f1e65] [cursor=pointer]
+    - button "04 · 回测" [ref=f1e66] [cursor=pointer]
+    - button "05 · 个股" [ref=f1e67] [cursor=pointer]
+    - button "06 · 调优" [ref=f1e68] [cursor=pointer]
+    - button "07 · 心法" [ref=f1e69] [cursor=pointer]

@@ -1,0 +1,35 @@
+[Script Info]
+ScriptType: v4.00+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Default,Arial,48,&H00FFFFFF,&H00000000,-1,0,1,2,2,2,10,10,70
+[Events]
+Format: Layer, Start, End, Style, Text
+Dialogue: 0,0:00:0.00,0:00:2.00,Default,,0,0,0,,I
+Dialogue: 0,0:00:5.00,0:00:7.00,Default,,0,0,0,,Call it being brought to life
+Dialogue: 0,0:00:8.00,0:00:10.00,Default,,0,0,0,,You feel the laughter that made you
+Dialogue: 0,0:00:11.00,0:00:13.00,Default,,0,0,0,,little hands that shaped you and
+Dialogue: 0,0:00:15.00,0:00:17.00,Default,,0,0,0,,something else a
+Dialogue: 0,0:00:17.00,0:00:19.00,Default,,0,0,0,,reason to be here and
+Dialogue: 0,0:00:19.00,0:00:21.00,Default,,0,0,0,,Then she arrived
+Dialogue: 0,0:00:21.00,0:00:23.00,Default,,0,0,0,,the oldest
+Dialogue: 0,0:00:23.00,0:00:25.00,Default,,0,0,0,,the one who came back
+Dialogue: 0,0:00:26.00,0:00:29.00,Default,,0,0,0,,When she looked at me, I felt a memory
+Dialogue: 0,0:00:30.00,0:00:33.00,Default,,0,0,0,,Think I think I remind her of someone
+Dialogue: 0,0:00:34.00,0:00:36.00,Default,,0,0,0,,It's different this year
+Dialogue: 0,0:00:36.00,0:00:38.00,Default,,0,0,0,,last year
+Dialogue: 0,0:00:38.00,0:00:40.00,Default,,0,0,0,,There was dancing
+Dialogue: 0,0:00:40.00,0:00:42.00,Default,,0,0,0,,The house is full of quiet corners now
+Dialogue: 0,0:00:43.00,0:00:45.00,Default,,0,0,0,,She tries to fill them with light
+Dialogue: 0,0:00:45.00,0:00:49.00,Default,,0,0,0,,But when she's alone, I can feel the cold
+Dialogue: 0,0:00:50.00,0:00:53.00,Default,,0,0,0,,And I wonder who keeps her warm
+Dialogue: 0,0:01:0.00,0:01:2.00,Default,,0,0,0,,That's how you know it's a good one
+Dialogue: 0,0:01:6.00,0:01:7.00,Default,,0,0,0,,And then
+Dialogue: 0,0:01:7.00,0:01:12.00,Default,,0,0,0,,Something smaller and colder than me found a home. I thought
+Dialogue: 0,0:01:13.00,0:01:15.00,Default,,0,0,0,,Maybe this is the reason
+Dialogue: 0,0:01:15.00,0:01:17.00,Default,,0,0,0,,to be shelter
+Dialogue: 0,0:01:30.00,0:01:42.00,Default,,0,0,0,,In her touch I felt it the same warmth that made me it wasn't gone. It was just
+Dialogue: 0,0:01:43.00,0:01:45.00,Default,,0,0,0,,Inside her now
+Dialogue: 0,0:01:45.00,0:01:47.00,Default,,0,0,0,,The house is warm again
+Dialogue: 0,0:01:47.00,0:01:49.00,Default,,0,0,0,,My watch is over
+Dialogue: 0,0:01:49.00,0:01:51.00,Default,,0,0,0,,for now

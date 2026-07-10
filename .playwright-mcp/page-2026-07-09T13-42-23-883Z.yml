@@ -1,0 +1,76 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: 退学
+        - generic [ref=e6]: v3
+        - generic [ref=e7]: TUIXUE · 操作台
+      - generic [ref=e8]: 已刷新 21:42:23
+      - button "刷新" [ref=e9] [cursor=pointer]:
+        - img [ref=e10]
+    - generic [ref=e12]:
+      - generic [ref=e13]: 上证指数 4,036.59 +1.65%
+      - generic [ref=e14]: 深证成指 15,398.73 +3.07%
+      - generic [ref=e15]: 创业板指 4,018.17 +4.49%
+      - generic [ref=e16]: 沪深300 4,876.31 +2.54%
+      - generic [ref=e17]: 科创50 2,185.83 +8.41%
+      - generic [ref=e18]: 中证500 8,652.79 +3.13%
+      - generic [ref=e19]: 涨停75
+  - main [ref=e20]:
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - paragraph [ref=e23]: CONTROL DECK · 01
+        - heading "把模型交给纪律， 把判断留给人。" [level=1] [ref=e24]:
+          - text: 把模型交给纪律，
+          - text: 把判断留给人。
+        - paragraph [ref=e25]: 退学炒股四层流水线 · 远程触发 · 实时出结论
+      - generic [ref=e26]:
+        - article [ref=e27]:
+          - generic [ref=e28]: SCREEN · 实时龙头股
+          - heading "一键扫描" [level=2] [ref=e29]
+          - paragraph [ref=e30]: 跑完 L1 风控 → L2 周期闸门 → L3 形态 → L4 分时，按 L4→L1 优先级返回当日候选。
+          - button "立即扫描 ↗" [ref=e31] [cursor=pointer]:
+            - generic [ref=e32]: 立即扫描
+            - generic [ref=e33]: ↗
+        - article [ref=e34]:
+          - generic [ref=e35]: BACKTEST · 历史回放
+          - heading "策略回测" [level=2] [ref=e36]
+          - paragraph [ref=e37]: 按区间复盘最近 6-18 个月，给出胜率 / 月均 / 最大回撤 / 盈亏比。
+          - button "开始回测 ↗" [ref=e38] [cursor=pointer]:
+            - generic [ref=e39]: 开始回测
+            - generic [ref=e40]: ↗
+      - generic [ref=e41]:
+        - article [ref=e42]:
+          - generic [ref=e43]: SECTOR · 板块快照
+          - heading "涨停池" [level=3] [ref=e44]
+          - generic [ref=e45]: "75"
+          - paragraph [ref=e46]: 今日连板家数 · 实时
+        - article [ref=e47]:
+          - generic [ref=e48]: SECTOR · 板块快照
+          - heading "沪深成交" [level=3] [ref=e49]
+          - generic [ref=e50]:
+            - generic [ref=e51]: 13641.77 亿
+            - generic [ref=e52]: 亿
+          - paragraph [ref=e53]: 今日两市成交额（实时）
+        - article [ref=e54]:
+          - generic [ref=e55]: SECTOR · 系统状态
+          - heading "缓存命中" [level=3] [ref=e56]
+          - generic [ref=e57]:
+            - generic [ref=e58]: —
+            - generic [ref=e59]: "%"
+          - paragraph [ref=e60]: 最近一次扫描命中率
+      - article [ref=e61]:
+        - generic [ref=e62]: QUICK · 快捷入口
+        - heading "个股深查" [level=3] [ref=e63]
+        - generic [ref=e64]:
+          - textbox "输入股票代码或名称（如 600519 / 茅台）" [ref=e65]
+          - button "查询 →" [ref=e66] [cursor=pointer]
+    - text: 律
+  - navigation [ref=e67]:
+    - button "01 · 首页" [ref=e68] [cursor=pointer]
+    - button "02 · 扫描" [ref=e69] [cursor=pointer]
+    - button "03 · 龙头" [ref=e70] [cursor=pointer]
+    - button "04 · 回测" [ref=e71] [cursor=pointer]
+    - button "05 · 个股" [ref=e72] [cursor=pointer]
+    - button "06 · 调优" [ref=e73] [cursor=pointer]
+    - button "07 · 心法" [ref=e74] [cursor=pointer]

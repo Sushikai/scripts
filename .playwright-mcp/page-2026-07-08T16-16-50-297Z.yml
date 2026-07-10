@@ -1,0 +1,77 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: 退学
+        - generic [ref=e6]: v3
+        - generic [ref=e7]: TUIXUE · 操作台
+      - generic [ref=e70]: 已刷新 00:16:21
+      - button "刷新" [ref=e8] [cursor=pointer]:
+        - img [ref=e9]
+    - generic [ref=e11]:
+      - generic [ref=e71]: 上证指数 3,970.88 -0.49%
+      - generic [ref=e72]: 深证成指 14,939.73 -1.87%
+      - generic [ref=e73]: 创业板指 3,845.35 -1.70%
+      - generic [ref=e74]: 沪深300 4,755.53 -0.77%
+      - generic [ref=e75]: 科创50 2,016.23 +0.73%
+      - generic [ref=e76]: 中证500 8,390.02 -1.40%
+      - generic [ref=e77]: 涨停47
+  - main [ref=e13]:
+    - generic [ref=e78]:
+      - generic [ref=e79]:
+        - paragraph [ref=e80]: DRAGONS · 07
+        - heading "龙头战法" [level=1] [ref=e81]
+        - paragraph [ref=e82]: 四步流水线 · 情绪 → 主线 → 龙头 → 决策 · 6 维评分
+        - generic [ref=e83]:
+          - generic [ref=e84]: —
+          - generic [ref=e85]: —
+          - button "手动刷新 ↻" [ref=e86] [cursor=pointer]:
+            - generic [ref=e87]: 手动刷新
+            - generic [ref=e88]: ↻
+      - article [ref=e89]:
+        - generic [ref=e90]: STEP 1 · 整体情绪
+        - generic [ref=e91]:
+          - generic [ref=e92]: —
+          - generic [ref=e93]:
+            - generic [ref=e94]: 涨停 —
+            - generic [ref=e95]: 最高连板 —
+            - generic [ref=e96]: 连板梯队 —
+      - article [ref=e97]:
+        - generic [ref=e98]: STEP 2 · 今日主线 Top 5
+        - paragraph [ref=e100]: 加载中 …
+      - article [ref=e101]:
+        - generic [ref=e102]: STEP 3 · 龙头候选 Top 10
+        - paragraph [ref=e103]: 6 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 (满分 128, 封单降级时 108)
+        - paragraph [ref=e105]: 加载中 …
+      - article [ref=e106]:
+        - generic [ref=e107] [cursor=pointer]:
+          - generic [ref=e108]: STEP 4 · 全部涨停 (—)
+          - generic [ref=e109]: ▶
+        - generic [ref=e110]:
+          - paragraph [ref=e111]: 所有涨停 + 评分明细 · 点击行展开 6 维评分
+          - table [ref=e113]:
+            - rowgroup [ref=e114]:
+              - row "# 代码 名称 板块 连板 市值 换手 封成比 总分 提示" [ref=e115]:
+                - columnheader "#" [ref=e116]
+                - columnheader "代码" [ref=e117]
+                - columnheader "名称" [ref=e118]
+                - columnheader "板块" [ref=e119]
+                - columnheader "连板" [ref=e120]
+                - columnheader "市值" [ref=e121]
+                - columnheader "换手" [ref=e122]
+                - columnheader "封成比" [ref=e123]
+                - columnheader "总分" [ref=e124]
+                - columnheader "提示" [ref=e125]
+            - rowgroup [ref=e126]:
+              - row "加载中 …" [ref=e127]:
+                - cell "加载中 …" [ref=e128]
+      - paragraph [ref=e129]: 加载中 …
+    - text: 律
+  - navigation [ref=e62]:
+    - button "01 · 首页" [ref=e63] [cursor=pointer]
+    - button "02 · 扫描" [ref=e64] [cursor=pointer]
+    - button "03 · 龙头" [active] [ref=e65] [cursor=pointer]
+    - button "04 · 回测" [ref=e66] [cursor=pointer]
+    - button "05 · 个股" [ref=e67] [cursor=pointer]
+    - button "06 · 调优" [ref=e68] [cursor=pointer]
+    - button "07 · 心法" [ref=e69] [cursor=pointer]

@@ -1308,12 +1308,15 @@ def fetch_realtime(code: str) -> dict | None:
     保证盘中午休也有"今日收盘价"，不会误用昨收。
     """
     # 指数代码（000xxx / 399xxx）走专用指数实时源
-    # 顺序：腾讯 qt.gtimg（最快，正确处理指数前缀）→ 东财 push2（历史上更全但 2026-07 被 ban）
-    # → 新浪 hq.sinajs → 复用下面的个股多源循环兜底
-    if (len(code) == 6 and
-        (code.startswith("000") or code.startswith("399") or
-         code.startswith("399") or code in ("000300", "000905", "000852",
-                                            "399006", "399001", "000001", "000688"))):
+    # 关键:000001/000688 既是上证/科创综指 又是平安银行/科创板股票,
+    #     默认用户查的是"股票"而非"指数",要主动用 sz000001/sh688xxx 这种 stock 前缀
+    # 真正的指数代码必须带 sh/sz/cyb 等前缀才能识别
+    # 顺序:腾讯 qt.gtimg → 东财 push2 → 新浪 hq.sinajs → 个股多源循环
+    is_pure_index_code = code in (
+        "sh000001", "sh000300", "sh000905", "sh000688",
+        "sz399001", "sz399006", "sz399905", "sz399852",
+    )
+    if is_pure_index_code:
         for label, fn in (
             ("tencent_qq_index",  _index_realtime_qq),
             ("em_push2delay_idx", _index_realtime_em),
@@ -1327,8 +1330,6 @@ def fetch_realtime(code: str) -> dict | None:
                 rt["_fetch_time"] = time.strftime("%H:%M:%S")
                 return rt
         # 指数专用源都失败 → 继续走下面的个股多源循环（含 sina/akshare）
-        # 注意：_realtime_tencent/_realtime_sina 对 000xxx 指数前缀是错的，
-        # 但万一主路径全挂，至少 akshare hist_min_em 还能兜底拿到当日收盘价
     with _source_lock:
         last_err = ""
         tried = []

@@ -1,0 +1,64 @@
+- generic [active] [ref=f3e1]:
+  - banner [ref=f3e2]:
+    - generic [ref=f3e3]:
+      - generic [ref=f3e4]:
+        - generic [ref=f3e5]: 退学
+        - generic [ref=f3e6]: v3
+        - generic [ref=f3e7]: TUIXUE · 操作台
+      - generic [ref=f3e70]: 已刷新 00:33:08
+      - button "刷新" [ref=f3e8] [cursor=pointer]:
+        - img [ref=f3e9]
+    - generic [ref=f3e11]:
+      - generic [ref=f3e111]: 上证指数 3,970.88 -0.49%
+      - generic [ref=f3e112]: 深证成指 14,939.73 -1.87%
+      - generic [ref=f3e113]: 创业板指 3,845.35 -1.70%
+      - generic [ref=f3e114]: 沪深300 4,755.53 -0.77%
+      - generic [ref=f3e115]: 科创50 2,016.23 +0.73%
+      - generic [ref=f3e116]: 中证500 8,390.02 -1.40%
+      - generic [ref=f3e117]: 涨停47
+  - main [ref=f3e13]:
+    - generic [ref=f3e1108]:
+      - generic [ref=f3e1109]:
+        - paragraph [ref=f3e1110]: DETAIL · 04
+        - heading "朗威股份·301202" [level=1] [ref=f3e1111]
+        - paragraph [ref=f3e1112]: 朗威股份 · 301202
+      - article [ref=f3e1113]:
+        - generic [ref=f3e1114]:
+          - textbox "代码 / 名称（如 600519 / 平安）" [ref=f3e1115]
+          - button "查询 ↗" [ref=f3e1116] [cursor=pointer]
+      - generic [ref=f3e1117]:
+        - article [ref=f3e1118]:
+          - generic [ref=f3e1119]: QUOTE · 实时
+          - generic [ref=f3e1120]:
+            - generic [ref=f3e1121]: "39.19"
+            - generic [ref=f3e1122]: 元
+          - paragraph [ref=f3e1123]: +19.99%
+        - article [ref=f3e1124]:
+          - generic [ref=f3e1125]: FLOW · 主力
+          - generic [ref=f3e1126]:
+            - generic [ref=f3e1127]: "26"
+            - generic [ref=f3e1128]: 万
+          - paragraph [ref=f3e1129]: 今日主力净流入
+        - article [ref=f3e1130]:
+          - generic [ref=f3e1131]: SEATS · 席位
+          - generic [ref=f3e1132]:
+            - generic [ref=f3e1133]: "0"
+            - generic [ref=f3e1134]: 条
+          - paragraph [ref=f3e1135]: 近 0 条龙虎
+      - generic [ref=f3e1136]:
+        - button "资金流向" [ref=f3e1137] [cursor=pointer]
+        - button "K 线" [ref=f3e1138] [cursor=pointer]
+        - button "游资席位" [ref=f3e1139] [cursor=pointer]
+        - button "AI 复盘 · 铁律" [ref=f3e1140] [cursor=pointer]
+      - article [ref=f3e1141]:
+        - generic [ref=f3e1142]: 资本动向
+    - text: 律
+  - navigation [ref=f3e62]:
+    - button "01 · 首页" [ref=f3e63] [cursor=pointer]
+    - button "02 · 扫描" [ref=f3e64] [cursor=pointer]
+    - button "03 · 龙头" [ref=f3e65] [cursor=pointer]
+    - button "04 · 回测" [ref=f3e66] [cursor=pointer]
+    - button "05 · 个股" [ref=f3e67] [cursor=pointer]
+    - button "06 · 调优" [ref=f3e68] [cursor=pointer]
+    - button "07 · 心法" [ref=f3e69] [cursor=pointer]
+  - generic [ref=f3e1147]: 加载 301202 …

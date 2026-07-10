@@ -1,0 +1,176 @@
+{
+  "config": {
+    "start": "2025-07-07",
+    "end": "2026-07-07",
+    "hold": 5,
+    "top": 3,
+    "sample": 200,
+    "thresholds": [
+      60,
+      65,
+      70,
+      75,
+      80,
+      85,
+      90
+    ],
+    "no_cache": false
+  },
+  "data_coverage": {
+    "trade_dates_total": 238,
+    "dates_with_zt_pool": 223,
+    "dates_with_lhb_detail": 233,
+    "dates_with_lhb_seats": 232,
+    "cumulative_zt_hits": 792,
+    "cumulative_lhb_detail_hits": 16564,
+    "cumulative_lhb_seats": 87386,
+    "zt_source": "kline_reconstructed (EM 9501 down, akshare zt_pool 仅 30 天)",
+    "lhb_detail_source": "akshare stock_lhb_detail_em",
+    "lhb_seats_source": "akshare stock_lhb_hyyyb_em (name→code 反查)",
+    "emotion_calendar": {
+      "loaded": 11,
+      "fallback_neutral": 227,
+      "phase_distribution": {
+        "启动": 237,
+        "确认": 1
+      },
+      "blocked_dates_count": 0,
+      "cache_file": "dragon_backtest_v2_emotion_calendar.json"
+    },
+    "mainline_calendar": {
+      "dates_with_mainline": 0,
+      "cache_file": "dragon_backtest_v2_mainline_calendar.json"
+    },
+    "news_cache": {
+      "dates_with_data": 0,
+      "dates_missing": 238,
+      "cache_file": "dragon_backtest_v2_news_cache.json"
+    },
+    "cache_file": "dragon_backtest_v2_daily_cache.json"
+  },
+  "gate_blocks": {
+    "dates": [],
+    "count": 0
+  },
+  "scan_results": {
+    "60": {
+      "trades": 144,
+      "win_rate_pct": 39.58,
+      "avg_return_pct": 0.06,
+      "avg_win_pct": 6.27,
+      "avg_loss_pct": -4.0,
+      "best_trade_pct": 27.83,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": 9.01,
+      "profit_factor": 1.03,
+      "avg_max_drawdown_pct": -3.95,
+      "raw_avg_return_pct": 1.09,
+      "raw_total_return_pct": 156.39,
+      "avg_position_pct": 0.47,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 107
+    },
+    "65": {
+      "trades": 98,
+      "win_rate_pct": 39.8,
+      "avg_return_pct": 0.18,
+      "avg_win_pct": 6.88,
+      "avg_loss_pct": -4.25,
+      "best_trade_pct": 27.83,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": 17.64,
+      "profit_factor": 1.07,
+      "avg_max_drawdown_pct": -4.06,
+      "raw_avg_return_pct": 1.86,
+      "raw_total_return_pct": 182.73,
+      "avg_position_pct": 0.46,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 134
+    },
+    "70": {
+      "trades": 98,
+      "win_rate_pct": 39.8,
+      "avg_return_pct": 0.18,
+      "avg_win_pct": 6.88,
+      "avg_loss_pct": -4.25,
+      "best_trade_pct": 27.83,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": 17.64,
+      "profit_factor": 1.07,
+      "avg_max_drawdown_pct": -4.06,
+      "raw_avg_return_pct": 1.86,
+      "raw_total_return_pct": 182.73,
+      "avg_position_pct": 0.46,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 134
+    },
+    "75": {
+      "trades": 42,
+      "win_rate_pct": 23.81,
+      "avg_return_pct": -3.3,
+      "avg_win_pct": 3.8,
+      "avg_loss_pct": -5.52,
+      "best_trade_pct": 9.09,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": -138.72,
+      "profit_factor": 0.22,
+      "avg_max_drawdown_pct": -6.01,
+      "raw_avg_return_pct": -6.84,
+      "raw_total_return_pct": -287.07,
+      "avg_position_pct": 0.47,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 170
+    },
+    "80": {
+      "trades": 42,
+      "win_rate_pct": 23.81,
+      "avg_return_pct": -3.3,
+      "avg_win_pct": 3.8,
+      "avg_loss_pct": -5.52,
+      "best_trade_pct": 9.09,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": -138.72,
+      "profit_factor": 0.22,
+      "avg_max_drawdown_pct": -6.01,
+      "raw_avg_return_pct": -6.84,
+      "raw_total_return_pct": -287.07,
+      "avg_position_pct": 0.47,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 170
+    },
+    "85": {
+      "trades": 39,
+      "win_rate_pct": 25.64,
+      "avg_return_pct": -3.0,
+      "avg_win_pct": 3.8,
+      "avg_loss_pct": -5.34,
+      "best_trade_pct": 9.09,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": -116.89,
+      "profit_factor": 0.25,
+      "avg_max_drawdown_pct": -5.8,
+      "raw_avg_return_pct": -6.24,
+      "raw_total_return_pct": -243.43,
+      "avg_position_pct": 0.46,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 173
+    },
+    "90": {
+      "trades": 24,
+      "win_rate_pct": 25.0,
+      "avg_return_pct": -3.92,
+      "avg_win_pct": 3.07,
+      "avg_loss_pct": -6.25,
+      "best_trade_pct": 7.07,
+      "worst_trade_pct": -13.02,
+      "total_return_pct": -94.14,
+      "profit_factor": 0.16,
+      "avg_max_drawdown_pct": -6.73,
+      "raw_avg_return_pct": -8.07,
+      "raw_total_return_pct": -193.57,
+      "avg_position_pct": 0.48,
+      "gate_blocked_dates": 0,
+      "candidates_filtered_dates": 186
+    }
+  }
+}

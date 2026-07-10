@@ -1,0 +1,169 @@
+{
+  "_meta": {
+    "built_at": 1783658918,
+    "source": "eastmoney"
+  },
+  "stocks": {
+    "600519": {
+      "sw_raw": "食品饮料-饮料-白酒",
+      "csrc_raw": "制造业-酒、饮料和精制茶制造业",
+      "sw": "食品饮料",
+      "source": "eastmoney",
+      "updated_at": 1783573006
+    },
+    "300750": {
+      "sw_raw": "电气设备-电源设备-储能设备",
+      "csrc_raw": "制造业-电气机械和器材制造业",
+      "sw": "",
+      "source": "eastmoney",
+      "updated_at": 1783573006
+    },
+    "002594": {
+      "sw_raw": "交运设备-汽车-乘用车",
+      "csrc_raw": "制造业-汽车制造业",
+      "sw": "汽车",
+      "source": "eastmoney",
+      "updated_at": 1783573007
+    },
+    "688981": {
+      "sw_raw": "电子设备-半导体-集成电路",
+      "csrc_raw": "制造业-计算机、通信和其他电子设备制造业",
+      "sw": "电子",
+      "source": "eastmoney",
+      "updated_at": 1783573007
+    },
+    "833454": {
+      "sw_raw": "",
+      "csrc_raw": "",
+      "sw": "",
+      "source": "eastmoney",
+      "updated_at": 1783573007
+    },
+    "000001": {
+      "sw_raw": "金融-银行-股份制与城商行",
+      "csrc_raw": "金融业-货币金融服务",
+      "sw": "银行",
+      "source": "eastmoney",
+      "updated_at": 1783573007
+    },
+    "601318": {
+      "sw_raw": "金融-非银行金融-保险",
+      "csrc_raw": "金融业-保险业",
+      "sw": "银行",
+      "source": "eastmoney",
+      "updated_at": 1783573007
+    },
+    "600036": {
+      "sw_raw": "金融-银行-股份制与城商行",
+      "csrc_raw": "金融业-货币金融服务",
+      "sw": "银行",
+      "source": "eastmoney",
+      "updated_at": 1783573007
+    },
+    "601398": {
+      "sw_raw": "金融-银行-国有银行",
+      "csrc_raw": "金融业-货币金融服务",
+      "sw": "银行",
+      "source": "eastmoney",
+      "updated_at": 1783573008
+    },
+    "002841": {
+      "sw_raw": "电子设备-电子元件-电子元件",
+      "csrc_raw": "制造业-计算机、通信和其他电子设备制造业",
+      "sw": "电子",
+      "source": "eastmoney",
+      "updated_at": 1783573799
+    },
+    "002185": {
+      "sw_raw": "电子设备-半导体-集成电路",
+      "csrc_raw": "制造业-计算机、通信和其他电子设备制造业",
+      "sw": "电子",
+      "source": "eastmoney",
+      "updated_at": 1783585677
+    },
+    "002747": {
+      "sw_raw": "机械设备-机器人-工业机器人",
+      "csrc_raw": "制造业-通用设备制造业",
+      "sw": "机械设备",
+      "source": "eastmoney",
+      "updated_at": 1783585776
+    },
+    "002472": {
+      "sw_raw": "交运设备-汽车-汽车零部件",
+      "csrc_raw": "制造业-汽车制造业",
+      "sw": "汽车",
+      "source": "eastmoney",
+      "updated_at": 1783600045
+    },
+    "000977": {
+      "sw_raw": "信息技术-计算机硬件-PC、服务器及硬件",
+      "csrc_raw": "制造业-计算机、通信和其他电子设备制造业",
+      "sw": "计算机",
+      "source": "eastmoney",
+      "updated_at": 1783600045
+    },
+    "000524": {
+      "sw_raw": "休闲、生活及专业服务-休闲服务-旅游服务",
+      "csrc_raw": "租赁和商务服务业-商务服务业",
+      "sw": "社会服务",
+      "source": "eastmoney",
+      "updated_at": 1783600046
+    },
+    "002920": {
+      "sw_raw": "交运设备-汽车-汽车零部件",
+      "csrc_raw": "制造业-计算机、通信和其他电子设备制造业",
+      "sw": "汽车",
+      "source": "eastmoney",
+      "updated_at": 1783600046
+    },
+    "603286": {
+      "sw_raw": "交运设备-汽车-汽车零部件",
+      "csrc_raw": "制造业-汽车制造业",
+      "sw": "汽车",
+      "source": "eastmoney",
+      "updated_at": 1783600046
+    },
+    "002979": {
+      "sw_raw": "机械设备-通用设备-仪器仪表",
+      "csrc_raw": "制造业-仪器仪表制造业",
+      "sw": "机械设备",
+      "source": "eastmoney",
+      "updated_at": 1783600146
+    },
+    "002490": {
+      "sw_raw": "机械设备-专用设备-其他专用机械",
+      "csrc_raw": "制造业-专用设备制造业",
+      "sw": "机械设备",
+      "source": "eastmoney",
+      "updated_at": 1783611143
+    },
+    "603137": {
+      "sw_raw": "建筑-装修装饰-装修装饰",
+      "csrc_raw": "建筑业-建筑装饰、装修和其他建筑业",
+      "sw": "建筑装饰",
+      "source": "eastmoney",
+      "updated_at": 1783613119
+    },
+    "603881": {
+      "sw_raw": "互联网-互联网技术-云服务(含IDC、CDN)",
+      "csrc_raw": "信息传输、软件和信息技术服务业-软件和信息技术服务业",
+      "sw": "计算机",
+      "source": "eastmoney",
+      "updated_at": 1783615266
+    },
+    "600031": {
+      "sw_raw": "机械设备-专用设备-工程机械",
+      "csrc_raw": "制造业-专用设备制造业",
+      "sw": "机械设备",
+      "source": "eastmoney",
+      "updated_at": 1783654503
+    },
+    "000988": {
+      "sw_raw": "电子设备-电子设备制造-电子设备制造",
+      "csrc_raw": "制造业-计算机、通信和其他电子设备制造业",
+      "sw": "电子",
+      "source": "eastmoney",
+      "updated_at": 1783658918
+    }
+  }
+}

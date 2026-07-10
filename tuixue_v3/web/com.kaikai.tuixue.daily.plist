@@ -42,5 +42,12 @@
   <!-- 触发时间偏好:准点 -->
   <key>StartInterval</key>
   <integer>86400</integer>
+
+  <!-- PATH:让 venv / homebrew 工具链可用 -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/kaikai/.hermes/hermes-agent/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
 </dict>
 </plist>

@@ -2643,9 +2643,9 @@ function _reviewRender() {
     const fund = _reviewPct(flow.fund_pct);
     const rev = t.last_review || {};
     return `
-      <tr data-trade-id="${t.id}">
-        <td><code>${escapeHtml(t.code)}</code></td>
-        <td>${escapeHtml(t.name || '—')}</td>
+      <tr data-trade-id="${t.id}" data-code="${escapeHtml(t.code)}" style="cursor:pointer">
+        <td><code class="np-code" onclick="loadStockDetail('${escapeHtml(t.code)}')" title="点击跳转到 ${escapeHtml(t.code)} 个股页">${escapeHtml(t.code)}</code></td>
+        <td class="np-name" onclick="loadStockDetail('${escapeHtml(t.code)}')">${escapeHtml(t.name || '—')}</td>
         <td class="${t._direction_cls}">${_reviewDirection(t.direction)}</td>
         <td class="cell-num">${_reviewFmtNum(t.price, 2)}</td>
         <td class="cell-num">${t.shares}</td>
@@ -2659,12 +2659,20 @@ function _reviewRender() {
         <td>${escapeHtml(rev.mistake_pattern || '—')}</td>
         <td class="caption" title="${escapeHtml(rev.ai_advice || '')}">${escapeHtml(rev.ai_advice || (rev.summary || '—').slice(0, 30))}</td>
         <td>
-          <button class="btn-mini primary" onclick="_reviewRun(${t.id})">AI 复盘</button>
-          <button class="btn-mini danger"  onclick="_reviewDelete(${t.id})">删</button>
+          <button class="btn-mini primary" onclick="event.stopPropagation();_reviewRun(${t.id})">AI 复盘</button>
+          <button class="btn-mini danger"  onclick="event.stopPropagation();_reviewDelete(${t.id})">删</button>
         </td>
       </tr>
     `;
   }).join('');
+  // 行点击 (排除按钮区) → 跳转个股页
+  tbody.querySelectorAll('tr[data-trade-id]').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;  // 排除按钮
+      const c = tr.dataset.code;
+      if (c) loadStockDetail(c);
+    });
+  });
 }
 
 async function _reviewRefreshFlows() {
@@ -2793,12 +2801,13 @@ async function _reviewLoadStats() {
       { lbl: '已平仓', val: d.closed ?? 0 },
       { lbl: '胜率',   val: d.win_rate != null ? d.win_rate.toFixed(1) + '%' : '—', cls: d.win_rate >= 50 ? 'cell-up' : 'cell-down' },
       { lbl: '平均盈亏', val: d.avg_pnl != null ? (d.avg_pnl > 0 ? '+' : '') + d.avg_pnl.toFixed(2) + '%' : '—', cls: d.avg_pnl > 0 ? 'cell-up' : 'cell-down' },
-      { lbl: '最佳', val: d.best ? (d.best.pnl_pct > 0 ? '+' : '') + d.best.pnl_pct.toFixed(2) + '%' : '—', cls: 'cell-up' },
-      { lbl: '最差', val: d.worst ? d.worst.pnl_pct.toFixed(2) + '%' : '—', cls: 'cell-down' },
+      { lbl: '最佳', val: d.best ? (d.best.pnl_pct > 0 ? '+' : '') + d.best.pnl_pct.toFixed(2) + '%' : '—', code: d.best?.code, cls: 'cell-up' },
+      { lbl: '最差', val: d.worst ? d.worst.pnl_pct.toFixed(2) + '%' : '—', code: d.worst?.code, cls: 'cell-down' },
     ];
+    const tradeClickable = t => t.code ? `onclick="loadStockDetail('${escapeHtml(t.code)}')" style="cursor:pointer"` : '';
     $('#review-stats').innerHTML = tiles.map(t => `
-      <div class="stat-tile">
-        <div class="lbl">${t.lbl}</div>
+      <div class="stat-tile" ${tradeClickable(t)}>
+        <div class="lbl">${t.lbl}${t.code ? ` · <code style="color:var(--accent);font-size:.7rem">${escapeHtml(t.code)}</code>` : ''}</div>
         <div class="val ${t.cls || ''}">${t.val}</div>
       </div>
     `).join('') + (d.by_pattern && d.by_pattern.length ? `

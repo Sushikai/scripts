@@ -1,0 +1,984 @@
+- generic [ref=f3e1]:
+  - banner [ref=f3e2]:
+    - generic [ref=f3e3]:
+      - generic [ref=f3e4]:
+        - generic [ref=f3e5]: 退学
+        - generic [ref=f3e6]: v3
+        - generic [ref=f3e7]: TUIXUE · 操作台
+      - generic [ref=f3e70]: 已刷新 00:34:38
+      - button "刷新" [ref=f3e8] [cursor=pointer]:
+        - img [ref=f3e9]
+    - generic [ref=f3e11]:
+      - generic [ref=f3e1162]: 上证指数 3,970.88 -0.49%
+      - generic [ref=f3e1163]: 深证成指 14,939.73 -1.87%
+      - generic [ref=f3e1164]: 创业板指 3,845.35 -1.70%
+      - generic [ref=f3e1165]: 沪深300 4,755.53 -0.77%
+      - generic [ref=f3e1166]: 科创50 2,016.23 +0.73%
+      - generic [ref=f3e1167]: 中证500 8,390.02 -1.40%
+      - generic [ref=f3e1168]: 涨停47
+  - main [ref=f3e13]:
+    - generic [ref=f3e78]:
+      - generic [ref=f3e79]:
+        - paragraph [ref=f3e80]: DRAGONS · 07
+        - heading "龙头战法" [level=1] [ref=f3e81]
+        - paragraph [ref=f3e82]: 四步流水线 · 情绪 → 主线 → 龙头 → 决策 · 6 维评分
+        - generic [ref=f3e83]:
+          - generic [ref=f3e84]: "20260709"
+          - generic [ref=f3e85]: 耗时 7.8s · 评分 47只 · 龙虎榜 0/47 · 技术面 46/47
+          - button "手动刷新 ↻" [active] [ref=f3e86] [cursor=pointer]:
+            - generic [ref=f3e87]: 手动刷新
+            - generic [ref=f3e88]: ↻
+      - article [ref=f3e89]:
+        - generic [ref=f3e90]: STEP 1 · 整体情绪
+        - generic [ref=f3e91]:
+          - generic [ref=f3e92]:
+            - generic [ref=f3e1169]: 一般 · 小仓低吸 · 有7板(极高)
+            - generic [ref=f3e1170]: "操作: 小仓"
+          - generic [ref=f3e93]:
+            - generic [ref=f3e94]: 涨停 47
+            - generic [ref=f3e95]: 最高连板 7板
+            - generic [ref=f3e96]: 连板梯队 7板×1 · 3板×1 · 2板×6 · 1板×39
+      - article [ref=f3e97]:
+        - generic [ref=f3e98]: STEP 2 · 今日主线 Top 5
+        - generic [ref=f3e99]:
+          - generic [ref=f3e1171]:
+            - generic [ref=f3e1172]: 半导体
+            - generic [ref=f3e1173]:
+              - generic [ref=f3e1174]: "-0.66%"
+              - generic [ref=f3e1175]: 净流入 92.60亿
+            - generic [ref=f3e1177]: 流#1
+          - generic [ref=f3e1178]:
+            - generic [ref=f3e1179]: 油气开采及服务
+            - generic [ref=f3e1180]:
+              - generic [ref=f3e1181]: +3.52%
+              - generic [ref=f3e1182]: 净流入 5.38亿
+            - generic [ref=f3e1183]:
+              - generic [ref=f3e1184]: 流#8
+              - generic [ref=f3e1185]: 幅#1
+          - generic [ref=f3e1186]:
+            - generic [ref=f3e1187]: 通信设备
+            - generic [ref=f3e1188]:
+              - generic [ref=f3e1189]: +0.12%
+              - generic [ref=f3e1190]: 净流入 44.75亿
+            - generic [ref=f3e1192]: 流#2
+          - generic [ref=f3e1193]:
+            - generic [ref=f3e1194]: 旅游及酒店
+            - generic [ref=f3e1195]:
+              - generic [ref=f3e1196]: +1.68%
+              - generic [ref=f3e1197]: 净流入 -0.73亿
+            - generic [ref=f3e1199]: 幅#2
+          - generic [ref=f3e1200]:
+            - generic [ref=f3e1201]: 银行
+            - generic [ref=f3e1202]:
+              - generic [ref=f3e1203]: +0.72%
+              - generic [ref=f3e1204]: 净流入 34.21亿
+            - generic [ref=f3e1205]:
+              - generic [ref=f3e1206]: 流#3
+              - generic [ref=f3e1207]: 幅#9
+      - article [ref=f3e101]:
+        - generic [ref=f3e102]: STEP 3 · 龙头候选 Top 10
+        - paragraph [ref=f3e103]: 6 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 (满分 128, 封单降级时 108)
+        - generic [ref=f3e104]:
+          - generic [ref=f3e1208]:
+            - generic [ref=f3e1209]:
+              - generic [ref=f3e1210]: "#1"
+              - generic [ref=f3e1211]: "301202"
+              - generic [ref=f3e1212]: 朗威股份
+              - generic [ref=f3e1213]: "57"
+            - generic [ref=f3e1214]: 通信设备 主线 · 1板 · 市值31.2亿 · 换手5.6% · 封成57.8%
+            - generic [ref=f3e1215]:
+              - generic [ref=f3e1216]:
+                - generic [ref=f3e1217]: 连板强度
+                - generic [ref=f3e1220]: 5/30
+              - generic [ref=f3e1221]:
+                - generic [ref=f3e1222]: 资金认可
+                - generic [ref=f3e1224]: 0/30
+              - generic [ref=f3e1225]:
+                - generic [ref=f3e1226]: 封成比
+                - generic [ref=f3e1229]: 20/20
+              - generic [ref=f3e1230]:
+                - generic [ref=f3e1231]: 市值匹配
+                - generic [ref=f3e1234]: 15/15
+              - generic [ref=f3e1235]:
+                - generic [ref=f3e1236]: 技术形态
+                - generic [ref=f3e1239]: 18/18
+              - generic [ref=f3e1240]:
+                - generic [ref=f3e1241]: 题材纯度
+                - generic [ref=f3e1244]: 15/15
+          - generic [ref=f3e1245]:
+            - generic [ref=f3e1246]:
+              - generic [ref=f3e1247]: "#2"
+              - generic [ref=f3e1248]: "002467"
+              - generic [ref=f3e1249]: 二六三
+              - generic [ref=f3e1250]: "57"
+            - generic [ref=f3e1251]: 通信服务 主线 · 1板 · 市值64.1亿 · 换手6.4% · 封成22.9%
+            - generic [ref=f3e1252]:
+              - generic [ref=f3e1253]:
+                - generic [ref=f3e1254]: 连板强度
+                - generic [ref=f3e1257]: 5/30
+              - generic [ref=f3e1258]:
+                - generic [ref=f3e1259]: 资金认可
+                - generic [ref=f3e1261]: 0/30
+              - generic [ref=f3e1262]:
+                - generic [ref=f3e1263]: 封成比
+                - generic [ref=f3e1266]: 20/20
+              - generic [ref=f3e1267]:
+                - generic [ref=f3e1268]: 市值匹配
+                - generic [ref=f3e1271]: 15/15
+              - generic [ref=f3e1272]:
+                - generic [ref=f3e1273]: 技术形态
+                - generic [ref=f3e1276]: 18/18
+              - generic [ref=f3e1277]:
+                - generic [ref=f3e1278]: 题材纯度
+                - generic [ref=f3e1281]: 15/15
+          - generic [ref=f3e1282]:
+            - generic [ref=f3e1283]:
+              - generic [ref=f3e1284]: "#3"
+              - generic [ref=f3e1285]: "000948"
+              - generic [ref=f3e1286]: 南天信息
+              - generic [ref=f3e1287]: "57"
+            - generic [ref=f3e1288]: 软件开发 主线 · 1板 · 市值49.5亿 · 换手2.7% · 封成57.6%
+            - generic [ref=f3e1289]:
+              - generic [ref=f3e1290]:
+                - generic [ref=f3e1291]: 连板强度
+                - generic [ref=f3e1294]: 5/30
+              - generic [ref=f3e1295]:
+                - generic [ref=f3e1296]: 资金认可
+                - generic [ref=f3e1298]: 0/30
+              - generic [ref=f3e1299]:
+                - generic [ref=f3e1300]: 封成比
+                - generic [ref=f3e1303]: 20/20
+              - generic [ref=f3e1304]:
+                - generic [ref=f3e1305]: 市值匹配
+                - generic [ref=f3e1308]: 15/15
+              - generic [ref=f3e1309]:
+                - generic [ref=f3e1310]: 技术形态
+                - generic [ref=f3e1313]: 18/18
+              - generic [ref=f3e1314]:
+                - generic [ref=f3e1315]: 题材纯度
+                - generic [ref=f3e1318]: 15/15
+          - generic [ref=f3e1319]:
+            - generic [ref=f3e1320]:
+              - generic [ref=f3e1321]: "#4"
+              - generic [ref=f3e1322]: "600094"
+              - generic [ref=f3e1323]: 大名城
+              - generic [ref=f3e1324]: "53.1"
+            - generic [ref=f3e1325]: 房地产开 主线 · 2板 · 市值89.7亿 · 换手0.8% · 封成95.9%
+            - generic [ref=f3e1326]:
+              - generic [ref=f3e1327]:
+                - generic [ref=f3e1328]: 连板强度
+                - generic [ref=f3e1331]: 15/30
+              - generic [ref=f3e1332]:
+                - generic [ref=f3e1333]: 资金认可
+                - generic [ref=f3e1335]: 0/30
+              - generic [ref=f3e1336]:
+                - generic [ref=f3e1337]: 封成比
+                - generic [ref=f3e1340]: 20/20
+              - generic [ref=f3e1341]:
+                - generic [ref=f3e1342]: 市值匹配
+                - generic [ref=f3e1345]: 12/15
+              - generic [ref=f3e1346]:
+                - generic [ref=f3e1347]: 技术形态
+                - generic [ref=f3e1350]: 13/18
+              - generic [ref=f3e1351]:
+                - generic [ref=f3e1352]: 题材纯度
+                - generic [ref=f3e1355]: 8/15
+          - generic [ref=f3e1356]:
+            - generic [ref=f3e1357]:
+              - generic [ref=f3e1358]: "#5"
+              - generic [ref=f3e1359]: "600288"
+              - generic [ref=f3e1360]: 大恒科技
+              - generic [ref=f3e1361]: "53.1"
+            - generic [ref=f3e1362]: 软件开发 主线 · 3板 · 市值74.7亿 · 换手27.9% · 封成3.0%
+            - generic [ref=f3e1363]:
+              - generic [ref=f3e1364]:
+                - generic [ref=f3e1365]: 连板强度
+                - generic [ref=f3e1368]: 20/30
+              - generic [ref=f3e1369]:
+                - generic [ref=f3e1370]: 资金认可
+                - generic [ref=f3e1372]: 0/30
+              - generic [ref=f3e1373]:
+                - generic [ref=f3e1374]: 封成比
+                - generic [ref=f3e1376]: 0/20
+              - generic [ref=f3e1377]:
+                - generic [ref=f3e1378]: 市值匹配
+                - generic [ref=f3e1381]: 15/15
+              - generic [ref=f3e1382]:
+                - generic [ref=f3e1383]: 技术形态
+                - generic [ref=f3e1386]: 18/18
+              - generic [ref=f3e1387]:
+                - generic [ref=f3e1388]: 题材纯度
+                - generic [ref=f3e1391]: 15/15
+            - generic [ref=f3e1392]: ⚠ 换手27.9%>10%极度活跃,警惕出货 · 炸板2次(烂板)
+          - generic [ref=f3e1393]:
+            - generic [ref=f3e1394]:
+              - generic [ref=f3e1395]: "#6"
+              - generic [ref=f3e1396]: "001229"
+              - generic [ref=f3e1397]: 魅视科技
+              - generic [ref=f3e1398]: "51.6"
+            - generic [ref=f3e1399]: 计算机设 主线 · 2板 · 市值31.5亿 · 换手1.5% · 封成166.8%
+            - generic [ref=f3e1400]:
+              - generic [ref=f3e1401]:
+                - generic [ref=f3e1402]: 连板强度
+                - generic [ref=f3e1405]: 15/30
+              - generic [ref=f3e1406]:
+                - generic [ref=f3e1407]: 资金认可
+                - generic [ref=f3e1409]: 0/30
+              - generic [ref=f3e1410]:
+                - generic [ref=f3e1411]: 封成比
+                - generic [ref=f3e1414]: 20/20
+              - generic [ref=f3e1415]:
+                - generic [ref=f3e1416]: 市值匹配
+                - generic [ref=f3e1419]: 15/15
+              - generic [ref=f3e1420]:
+                - generic [ref=f3e1421]: 技术形态
+                - generic [ref=f3e1424]: 8/18
+              - generic [ref=f3e1425]:
+                - generic [ref=f3e1426]: 题材纯度
+                - generic [ref=f3e1429]: 8/15
+          - generic [ref=f3e1430]:
+            - generic [ref=f3e1431]:
+              - generic [ref=f3e1432]: "#7"
+              - generic [ref=f3e1433]: "002951"
+              - generic [ref=f3e1434]: 金时科技
+              - generic [ref=f3e1435]: "48.4"
+            - generic [ref=f3e1436]: 其他电源 · 2板 · 市值65.5亿 · 换手6.7% · 封成10.8%
+            - generic [ref=f3e1437]:
+              - generic [ref=f3e1438]:
+                - generic [ref=f3e1439]: 连板强度
+                - generic [ref=f3e1442]: 15/30
+              - generic [ref=f3e1443]:
+                - generic [ref=f3e1444]: 资金认可
+                - generic [ref=f3e1446]: 0/30
+              - generic [ref=f3e1447]:
+                - generic [ref=f3e1448]: 封成比
+                - generic [ref=f3e1451]: 14/20
+              - generic [ref=f3e1452]:
+                - generic [ref=f3e1453]: 市值匹配
+                - generic [ref=f3e1456]: 15/15
+              - generic [ref=f3e1457]:
+                - generic [ref=f3e1458]: 技术形态
+                - generic [ref=f3e1461]: 18/18
+              - generic [ref=f3e1462]:
+                - generic [ref=f3e1463]: 题材纯度
+                - generic [ref=f3e1465]: 0/15
+          - generic [ref=f3e1466]:
+            - generic [ref=f3e1467]:
+              - generic [ref=f3e1468]: "#8"
+              - generic [ref=f3e1469]: "600756"
+              - generic [ref=f3e1470]: 浪潮软件
+              - generic [ref=f3e1471]: "47.7"
+            - generic [ref=f3e1472]: IT服务Ⅱ 主线 · 1板 · 市值42.9亿 · 换手1.8% · 封成192.5%
+            - generic [ref=f3e1473]:
+              - generic [ref=f3e1474]:
+                - generic [ref=f3e1475]: 连板强度
+                - generic [ref=f3e1478]: 5/30
+              - generic [ref=f3e1479]:
+                - generic [ref=f3e1480]: 资金认可
+                - generic [ref=f3e1482]: 0/30
+              - generic [ref=f3e1483]:
+                - generic [ref=f3e1484]: 封成比
+                - generic [ref=f3e1487]: 20/20
+              - generic [ref=f3e1488]:
+                - generic [ref=f3e1489]: 市值匹配
+                - generic [ref=f3e1492]: 15/15
+              - generic [ref=f3e1493]:
+                - generic [ref=f3e1494]: 技术形态
+                - generic [ref=f3e1497]: 13/18
+              - generic [ref=f3e1498]:
+                - generic [ref=f3e1499]: 题材纯度
+                - generic [ref=f3e1502]: 8/15
+          - generic [ref=f3e1503]:
+            - generic [ref=f3e1504]:
+              - generic [ref=f3e1505]: "#9"
+              - generic [ref=f3e1506]: "002642"
+              - generic [ref=f3e1507]: 荣联科技
+              - generic [ref=f3e1508]: "46.9"
+            - generic [ref=f3e1509]: IT服务Ⅱ 主线 · 1板 · 市值44.3亿 · 换手4.6% · 封成14.8%
+            - generic [ref=f3e1510]:
+              - generic [ref=f3e1511]:
+                - generic [ref=f3e1512]: 连板强度
+                - generic [ref=f3e1515]: 5/30
+              - generic [ref=f3e1516]:
+                - generic [ref=f3e1517]: 资金认可
+                - generic [ref=f3e1519]: 0/30
+              - generic [ref=f3e1520]:
+                - generic [ref=f3e1521]: 封成比
+                - generic [ref=f3e1524]: 14/20
+              - generic [ref=f3e1525]:
+                - generic [ref=f3e1526]: 市值匹配
+                - generic [ref=f3e1529]: 15/15
+              - generic [ref=f3e1530]:
+                - generic [ref=f3e1531]: 技术形态
+                - generic [ref=f3e1534]: 18/18
+              - generic [ref=f3e1535]:
+                - generic [ref=f3e1536]: 题材纯度
+                - generic [ref=f3e1539]: 8/15
+          - generic [ref=f3e1540]:
+            - generic [ref=f3e1541]:
+              - generic [ref=f3e1542]: "#10"
+              - generic [ref=f3e1543]: "300369"
+              - generic [ref=f3e1544]: 绿盟科技
+              - generic [ref=f3e1545]: "46.9"
+            - generic [ref=f3e1546]: 软件开发 主线 · 1板 · 市值52.3亿 · 换手11% · 封成7.8%
+            - generic [ref=f3e1547]:
+              - generic [ref=f3e1548]:
+                - generic [ref=f3e1549]: 连板强度
+                - generic [ref=f3e1552]: 5/30
+              - generic [ref=f3e1553]:
+                - generic [ref=f3e1554]: 资金认可
+                - generic [ref=f3e1556]: 0/30
+              - generic [ref=f3e1557]:
+                - generic [ref=f3e1558]: 封成比
+                - generic [ref=f3e1561]: 7/20
+              - generic [ref=f3e1562]:
+                - generic [ref=f3e1563]: 市值匹配
+                - generic [ref=f3e1566]: 15/15
+              - generic [ref=f3e1567]:
+                - generic [ref=f3e1568]: 技术形态
+                - generic [ref=f3e1571]: 18/18
+              - generic [ref=f3e1572]:
+                - generic [ref=f3e1573]: 题材纯度
+                - generic [ref=f3e1576]: 15/15
+            - generic [ref=f3e1577]: ⚠ 换手11.0%>10%极度活跃,警惕出货 · 炸板2次(烂板)
+      - article [ref=f3e106]:
+        - generic [ref=f3e107] [cursor=pointer]:
+          - generic [ref=f3e108]: STEP 4 · 全部涨停 (47)
+          - generic [ref=f3e109]: ▼
+        - generic [ref=f3e527]:
+          - paragraph [ref=f3e528]: 所有涨停 + 评分明细 · 点击行展开 6 维评分
+          - table [ref=f3e530]:
+            - rowgroup [ref=f3e531]:
+              - row "# 代码 名称 板块 连板 市值 换手 封成比 总分 提示" [ref=f3e532]:
+                - columnheader "#" [ref=f3e533]
+                - columnheader "代码" [ref=f3e534]
+                - columnheader "名称" [ref=f3e535]
+                - columnheader "板块" [ref=f3e536]
+                - columnheader "连板" [ref=f3e537]
+                - columnheader "市值" [ref=f3e538]
+                - columnheader "换手" [ref=f3e539]
+                - columnheader "封成比" [ref=f3e540]
+                - columnheader "总分" [ref=f3e541]
+                - columnheader "提示" [ref=f3e542]
+            - rowgroup [ref=f3e543]:
+              - row "1 301202 朗威股份 通信设备 1板 31.2亿 5.6% 57.8% 57 —" [ref=f3e1578]:
+                - cell "1" [ref=f3e1579]
+                - cell "301202" [ref=f3e1580]:
+                  - link "301202" [ref=f3e1581] [cursor=pointer]:
+                    - /url: "#"
+                - cell "朗威股份" [ref=f3e1582]
+                - cell "通信设备" [ref=f3e1583]
+                - cell "1板" [ref=f3e1584]
+                - cell "31.2亿" [ref=f3e1585]
+                - cell "5.6%" [ref=f3e1586]
+                - cell "57.8%" [ref=f3e1587]
+                - cell "57" [ref=f3e1588]
+                - cell "—" [ref=f3e1589]
+              - row "2 002467 二六三 通信服务 1板 64.1亿 6.4% 22.9% 57 —" [ref=f3e1590]:
+                - cell "2" [ref=f3e1591]
+                - cell "002467" [ref=f3e1592]:
+                  - link "002467" [ref=f3e1593] [cursor=pointer]:
+                    - /url: "#"
+                - cell "二六三" [ref=f3e1594]
+                - cell "通信服务" [ref=f3e1595]
+                - cell "1板" [ref=f3e1596]
+                - cell "64.1亿" [ref=f3e1597]
+                - cell "6.4%" [ref=f3e1598]
+                - cell "22.9%" [ref=f3e1599]
+                - cell "57" [ref=f3e1600]
+                - cell "—" [ref=f3e1601]
+              - row "3 000948 南天信息 软件开发 1板 49.5亿 2.7% 57.6% 57 —" [ref=f3e1602]:
+                - cell "3" [ref=f3e1603]
+                - cell "000948" [ref=f3e1604]:
+                  - link "000948" [ref=f3e1605] [cursor=pointer]:
+                    - /url: "#"
+                - cell "南天信息" [ref=f3e1606]
+                - cell "软件开发" [ref=f3e1607]
+                - cell "1板" [ref=f3e1608]
+                - cell "49.5亿" [ref=f3e1609]
+                - cell "2.7%" [ref=f3e1610]
+                - cell "57.6%" [ref=f3e1611]
+                - cell "57" [ref=f3e1612]
+                - cell "—" [ref=f3e1613]
+              - row "4 600094 大名城 房地产开 2板 89.7亿 0.8% 95.9% 53.1 —" [ref=f3e1614]:
+                - cell "4" [ref=f3e1615]
+                - cell "600094" [ref=f3e1616]:
+                  - link "600094" [ref=f3e1617] [cursor=pointer]:
+                    - /url: "#"
+                - cell "大名城" [ref=f3e1618]
+                - cell "房地产开" [ref=f3e1619]
+                - cell "2板" [ref=f3e1620]
+                - cell "89.7亿" [ref=f3e1621]
+                - cell "0.8%" [ref=f3e1622]
+                - cell "95.9%" [ref=f3e1623]
+                - cell "53.1" [ref=f3e1624]
+                - cell "—" [ref=f3e1625]
+              - row "5 600288 大恒科技 软件开发 3板 74.7亿 27.9% 3.0% 53.1 换手27.9%>10%极度活跃,警惕出货; 炸板2次(烂板)" [ref=f3e1626]:
+                - cell "5" [ref=f3e1627]
+                - cell "600288" [ref=f3e1628]:
+                  - link "600288" [ref=f3e1629] [cursor=pointer]:
+                    - /url: "#"
+                - cell "大恒科技" [ref=f3e1630]
+                - cell "软件开发" [ref=f3e1631]
+                - cell "3板" [ref=f3e1632]
+                - cell "74.7亿" [ref=f3e1633]
+                - cell "27.9%" [ref=f3e1634]
+                - cell "3.0%" [ref=f3e1635]
+                - cell "53.1" [ref=f3e1636]
+                - cell "换手27.9%>10%极度活跃,警惕出货; 炸板2次(烂板)" [ref=f3e1637]
+              - row "6 001229 魅视科技 计算机设 2板 31.5亿 1.5% 166.8% 51.6 —" [ref=f3e1638]:
+                - cell "6" [ref=f3e1639]
+                - cell "001229" [ref=f3e1640]:
+                  - link "001229" [ref=f3e1641] [cursor=pointer]:
+                    - /url: "#"
+                - cell "魅视科技" [ref=f3e1642]
+                - cell "计算机设" [ref=f3e1643]
+                - cell "2板" [ref=f3e1644]
+                - cell "31.5亿" [ref=f3e1645]
+                - cell "1.5%" [ref=f3e1646]
+                - cell "166.8%" [ref=f3e1647]
+                - cell "51.6" [ref=f3e1648]
+                - cell "—" [ref=f3e1649]
+              - row "7 002951 金时科技 其他电源 2板 65.5亿 6.7% 10.8% 48.4 —" [ref=f3e1650]:
+                - cell "7" [ref=f3e1651]
+                - cell "002951" [ref=f3e1652]:
+                  - link "002951" [ref=f3e1653] [cursor=pointer]:
+                    - /url: "#"
+                - cell "金时科技" [ref=f3e1654]
+                - cell "其他电源" [ref=f3e1655]
+                - cell "2板" [ref=f3e1656]
+                - cell "65.5亿" [ref=f3e1657]
+                - cell "6.7%" [ref=f3e1658]
+                - cell "10.8%" [ref=f3e1659]
+                - cell "48.4" [ref=f3e1660]
+                - cell "—" [ref=f3e1661]
+              - row "8 600756 浪潮软件 IT服务Ⅱ 1板 42.9亿 1.8% 192.5% 47.7 —" [ref=f3e1662]:
+                - cell "8" [ref=f3e1663]
+                - cell "600756" [ref=f3e1664]:
+                  - link "600756" [ref=f3e1665] [cursor=pointer]:
+                    - /url: "#"
+                - cell "浪潮软件" [ref=f3e1666]
+                - cell "IT服务Ⅱ" [ref=f3e1667]
+                - cell "1板" [ref=f3e1668]
+                - cell "42.9亿" [ref=f3e1669]
+                - cell "1.8%" [ref=f3e1670]
+                - cell "192.5%" [ref=f3e1671]
+                - cell "47.7" [ref=f3e1672]
+                - cell "—" [ref=f3e1673]
+              - row "9 002642 荣联科技 IT服务Ⅱ 1板 44.3亿 4.6% 14.8% 46.9 —" [ref=f3e1674]:
+                - cell "9" [ref=f3e1675]
+                - cell "002642" [ref=f3e1676]:
+                  - link "002642" [ref=f3e1677] [cursor=pointer]:
+                    - /url: "#"
+                - cell "荣联科技" [ref=f3e1678]
+                - cell "IT服务Ⅱ" [ref=f3e1679]
+                - cell "1板" [ref=f3e1680]
+                - cell "44.3亿" [ref=f3e1681]
+                - cell "4.6%" [ref=f3e1682]
+                - cell "14.8%" [ref=f3e1683]
+                - cell "46.9" [ref=f3e1684]
+                - cell "—" [ref=f3e1685]
+              - row "10 300369 绿盟科技 软件开发 1板 52.3亿 11% 7.8% 46.9 换手11.0%>10%极度活跃,警惕出货; 炸板2次(烂板)" [ref=f3e1686]:
+                - cell "10" [ref=f3e1687]
+                - cell "300369" [ref=f3e1688]:
+                  - link "300369" [ref=f3e1689] [cursor=pointer]:
+                    - /url: "#"
+                - cell "绿盟科技" [ref=f3e1690]
+                - cell "软件开发" [ref=f3e1691]
+                - cell "1板" [ref=f3e1692]
+                - cell "52.3亿" [ref=f3e1693]
+                - cell "11%" [ref=f3e1694]
+                - cell "7.8%" [ref=f3e1695]
+                - cell "46.9" [ref=f3e1696]
+                - cell "换手11.0%>10%极度活跃,警惕出货; 炸板2次(烂板)" [ref=f3e1697]
+              - row "11 002546 新联电子 电网设备 1板 58.8亿 3.6% 25.6% 45.3 炸板3次(烂板)" [ref=f3e1698]:
+                - cell "11" [ref=f3e1699]
+                - cell "002546" [ref=f3e1700]:
+                  - link "002546" [ref=f3e1701] [cursor=pointer]:
+                    - /url: "#"
+                - cell "新联电子" [ref=f3e1702]
+                - cell "电网设备" [ref=f3e1703]
+                - cell "1板" [ref=f3e1704]
+                - cell "58.8亿" [ref=f3e1705]
+                - cell "3.6%" [ref=f3e1706]
+                - cell "25.6%" [ref=f3e1707]
+                - cell "45.3" [ref=f3e1708]
+                - cell "炸板3次(烂板)" [ref=f3e1709]
+              - row "12 001207 联科科技 橡胶 1板 47.6亿 4.7% 26.1% 45.3 —" [ref=f3e1710]:
+                - cell "12" [ref=f3e1711]
+                - cell "001207" [ref=f3e1712]:
+                  - link "001207" [ref=f3e1713] [cursor=pointer]:
+                    - /url: "#"
+                - cell "联科科技" [ref=f3e1714]
+                - cell "橡胶" [ref=f3e1715]
+                - cell "1板" [ref=f3e1716]
+                - cell "47.6亿" [ref=f3e1717]
+                - cell "4.7%" [ref=f3e1718]
+                - cell "26.1%" [ref=f3e1719]
+                - cell "45.3" [ref=f3e1720]
+                - cell "—" [ref=f3e1721]
+              - row "13 002677 浙江美大 厨卫电器 1板 36.2亿 3.8% 27.1% 45.3 —" [ref=f3e1722]:
+                - cell "13" [ref=f3e1723]
+                - cell "002677" [ref=f3e1724]:
+                  - link "002677" [ref=f3e1725] [cursor=pointer]:
+                    - /url: "#"
+                - cell "浙江美大" [ref=f3e1726]
+                - cell "厨卫电器" [ref=f3e1727]
+                - cell "1板" [ref=f3e1728]
+                - cell "36.2亿" [ref=f3e1729]
+                - cell "3.8%" [ref=f3e1730]
+                - cell "27.1%" [ref=f3e1731]
+                - cell "45.3" [ref=f3e1732]
+                - cell "—" [ref=f3e1733]
+              - row "14 603313 梦百合 家居用品 1板 40.3亿 7.8% 40.0% 45.3 —" [ref=f3e1734]:
+                - cell "14" [ref=f3e1735]
+                - cell "603313" [ref=f3e1736]:
+                  - link "603313" [ref=f3e1737] [cursor=pointer]:
+                    - /url: "#"
+                - cell "梦百合" [ref=f3e1738]
+                - cell "家居用品" [ref=f3e1739]
+                - cell "1板" [ref=f3e1740]
+                - cell "40.3亿" [ref=f3e1741]
+                - cell "7.8%" [ref=f3e1742]
+                - cell "40.0%" [ref=f3e1743]
+                - cell "45.3" [ref=f3e1744]
+                - cell "—" [ref=f3e1745]
+              - row "15 603496 恒为科技 计算机设 1板 78.6亿 4.2% 39.1% 43.8 —" [ref=f3e1746]:
+                - cell "15" [ref=f3e1747]
+                - cell "603496" [ref=f3e1748]:
+                  - link "603496" [ref=f3e1749] [cursor=pointer]:
+                    - /url: "#"
+                - cell "恒为科技" [ref=f3e1750]
+                - cell "计算机设" [ref=f3e1751]
+                - cell "1板" [ref=f3e1752]
+                - cell "78.6亿" [ref=f3e1753]
+                - cell "4.2%" [ref=f3e1754]
+                - cell "39.1%" [ref=f3e1755]
+                - cell "43.8" [ref=f3e1756]
+                - cell "—" [ref=f3e1757]
+              - row "16 603137 恒尚节能 装修装饰 7板 41.9亿 25.5% 4.4% 41.4 换手25.5%>10%极度活跃,警惕出货; 7板但封单弱,风险高" [ref=f3e1758]:
+                - cell "16" [ref=f3e1759]
+                - cell "603137" [ref=f3e1760]:
+                  - link "603137" [ref=f3e1761] [cursor=pointer]:
+                    - /url: "#"
+                - cell "恒尚节能" [ref=f3e1762]
+                - cell "装修装饰" [ref=f3e1763]
+                - cell "7板" [ref=f3e1764]
+                - cell "41.9亿" [ref=f3e1765]
+                - cell "25.5%" [ref=f3e1766]
+                - cell "4.4%" [ref=f3e1767]
+                - cell "41.4" [ref=f3e1768]
+                - cell "换手25.5%>10%极度活跃,警惕出货; 7板但封单弱,风险高" [ref=f3e1769]
+              - row "17 002757 南兴股份 专用设备 1板 51.9亿 5.5% 30.0% 41.4 —" [ref=f3e1770]:
+                - cell "17" [ref=f3e1771]
+                - cell "002757" [ref=f3e1772]:
+                  - link "002757" [ref=f3e1773] [cursor=pointer]:
+                    - /url: "#"
+                - cell "南兴股份" [ref=f3e1774]
+                - cell "专用设备" [ref=f3e1775]
+                - cell "1板" [ref=f3e1776]
+                - cell "51.9亿" [ref=f3e1777]
+                - cell "5.5%" [ref=f3e1778]
+                - cell "30.0%" [ref=f3e1779]
+                - cell "41.4" [ref=f3e1780]
+                - cell "—" [ref=f3e1781]
+              - row "18 603285 键邦股份 化学制品 1板 30.2亿 14.3% 26.7% 41.4 换手14.3%>10%极度活跃,警惕出货" [ref=f3e1782]:
+                - cell "18" [ref=f3e1783]
+                - cell "603285" [ref=f3e1784]:
+                  - link "603285" [ref=f3e1785] [cursor=pointer]:
+                    - /url: "#"
+                - cell "键邦股份" [ref=f3e1786]
+                - cell "化学制品" [ref=f3e1787]
+                - cell "1板" [ref=f3e1788]
+                - cell "30.2亿" [ref=f3e1789]
+                - cell "14.3%" [ref=f3e1790]
+                - cell "26.7%" [ref=f3e1791]
+                - cell "41.4" [ref=f3e1792]
+                - cell "换手14.3%>10%极度活跃,警惕出货" [ref=f3e1793]
+              - row "19 600749 西藏旅游 旅游及景 1板 34.8亿 7.6% 14.3% 40.6 炸板3次(烂板)" [ref=f3e1794]:
+                - cell "19" [ref=f3e1795]
+                - cell "600749" [ref=f3e1796]:
+                  - link "600749" [ref=f3e1797] [cursor=pointer]:
+                    - /url: "#"
+                - cell "西藏旅游" [ref=f3e1798]
+                - cell "旅游及景" [ref=f3e1799]
+                - cell "1板" [ref=f3e1800]
+                - cell "34.8亿" [ref=f3e1801]
+                - cell "7.6%" [ref=f3e1802]
+                - cell "14.3%" [ref=f3e1803]
+                - cell "40.6" [ref=f3e1804]
+                - cell "炸板3次(烂板)" [ref=f3e1805]
+              - row "20 002490 山东墨龙 专用设备 1板 37.8亿 9.5% 11.7% 40.6 —" [ref=f3e1806]:
+                - cell "20" [ref=f3e1807]
+                - cell "002490" [ref=f3e1808]:
+                  - link "002490" [ref=f3e1809] [cursor=pointer]:
+                    - /url: "#"
+                - cell "山东墨龙" [ref=f3e1810]
+                - cell "专用设备" [ref=f3e1811]
+                - cell "1板" [ref=f3e1812]
+                - cell "37.8亿" [ref=f3e1813]
+                - cell "9.5%" [ref=f3e1814]
+                - cell "11.7%" [ref=f3e1815]
+                - cell "40.6" [ref=f3e1816]
+                - cell "—" [ref=f3e1817]
+              - row "21 002350 北京科锐 电网设备 1板 80亿 4.2% 15.3% 40.6 —" [ref=f3e1818]:
+                - cell "21" [ref=f3e1819]
+                - cell "002350" [ref=f3e1820]:
+                  - link "002350" [ref=f3e1821] [cursor=pointer]:
+                    - /url: "#"
+                - cell "北京科锐" [ref=f3e1822]
+                - cell "电网设备" [ref=f3e1823]
+                - cell "1板" [ref=f3e1824]
+                - cell "80亿" [ref=f3e1825]
+                - cell "4.2%" [ref=f3e1826]
+                - cell "15.3%" [ref=f3e1827]
+                - cell "40.6" [ref=f3e1828]
+                - cell "—" [ref=f3e1829]
+              - row "22 600602 云赛智联 软件开发 1板 176亿 3.7% 10.1% 40.6 —" [ref=f3e1830]:
+                - cell "22" [ref=f3e1831]
+                - cell "600602" [ref=f3e1832]:
+                  - link "600602" [ref=f3e1833] [cursor=pointer]:
+                    - /url: "#"
+                - cell "云赛智联" [ref=f3e1834]
+                - cell "软件开发" [ref=f3e1835]
+                - cell "1板" [ref=f3e1836]
+                - cell "176亿" [ref=f3e1837]
+                - cell "3.7%" [ref=f3e1838]
+                - cell "10.1%" [ref=f3e1839]
+                - cell "40.6" [ref=f3e1840]
+                - cell "—" [ref=f3e1841]
+              - row "23 603339 四方科技 通用设备 1板 47.9亿 11% 15.9% 40.6 换手11.0%>10%极度活跃,警惕出货; 炸板2次(烂板)" [ref=f3e1842]:
+                - cell "23" [ref=f3e1843]
+                - cell "603339" [ref=f3e1844]:
+                  - link "603339" [ref=f3e1845] [cursor=pointer]:
+                    - /url: "#"
+                - cell "四方科技" [ref=f3e1846]
+                - cell "通用设备" [ref=f3e1847]
+                - cell "1板" [ref=f3e1848]
+                - cell "47.9亿" [ref=f3e1849]
+                - cell "11%" [ref=f3e1850]
+                - cell "15.9%" [ref=f3e1851]
+                - cell "40.6" [ref=f3e1852]
+                - cell "换手11.0%>10%极度活跃,警惕出货; 炸板2次(烂板)" [ref=f3e1853]
+              - row "24 301321 翰博高新 光学光电 1板 73.5亿 9.6% 17.1% 40.6 —" [ref=f3e1854]:
+                - cell "24" [ref=f3e1855]
+                - cell "301321" [ref=f3e1856]:
+                  - link "301321" [ref=f3e1857] [cursor=pointer]:
+                    - /url: "#"
+                - cell "翰博高新" [ref=f3e1858]
+                - cell "光学光电" [ref=f3e1859]
+                - cell "1板" [ref=f3e1860]
+                - cell "73.5亿" [ref=f3e1861]
+                - cell "9.6%" [ref=f3e1862]
+                - cell "17.1%" [ref=f3e1863]
+                - cell "40.6" [ref=f3e1864]
+                - cell "—" [ref=f3e1865]
+              - row "25 002152 广电运通 计算机设 1板 250.2亿 1.8% 28.0% 39.8 —" [ref=f3e1866]:
+                - cell "25" [ref=f3e1867]
+                - cell "002152" [ref=f3e1868]:
+                  - link "002152" [ref=f3e1869] [cursor=pointer]:
+                    - /url: "#"
+                - cell "广电运通" [ref=f3e1870]
+                - cell "计算机设" [ref=f3e1871]
+                - cell "1板" [ref=f3e1872]
+                - cell "250.2亿" [ref=f3e1873]
+                - cell "1.8%" [ref=f3e1874]
+                - cell "28.0%" [ref=f3e1875]
+                - cell "39.8" [ref=f3e1876]
+                - cell "—" [ref=f3e1877]
+              - row "26 600129 太极集团 中药Ⅱ 1板 82.5亿 4.1% 23.3% 39.1 炸板3次(烂板)" [ref=f3e1878]:
+                - cell "26" [ref=f3e1879]
+                - cell "600129" [ref=f3e1880]:
+                  - link "600129" [ref=f3e1881] [cursor=pointer]:
+                    - /url: "#"
+                - cell "太极集团" [ref=f3e1882]
+                - cell "中药Ⅱ" [ref=f3e1883]
+                - cell "1板" [ref=f3e1884]
+                - cell "82.5亿" [ref=f3e1885]
+                - cell "4.1%" [ref=f3e1886]
+                - cell "23.3%" [ref=f3e1887]
+                - cell "39.1" [ref=f3e1888]
+                - cell "炸板3次(烂板)" [ref=f3e1889]
+              - row "27 001365 天海电子 汽车零部 2板 27.5亿 36.7% 13.5% 38.3 换手36.7%>10%极度活跃,警惕出货" [ref=f3e1890]:
+                - cell "27" [ref=f3e1891]
+                - cell "001365" [ref=f3e1892]:
+                  - link "001365" [ref=f3e1893] [cursor=pointer]:
+                    - /url: "#"
+                - cell "天海电子" [ref=f3e1894]
+                - cell "汽车零部" [ref=f3e1895]
+                - cell "2板" [ref=f3e1896]
+                - cell "27.5亿" [ref=f3e1897]
+                - cell "36.7%" [ref=f3e1898]
+                - cell "13.5%" [ref=f3e1899]
+                - cell "38.3" [ref=f3e1900]
+                - cell "换手36.7%>10%极度活跃,警惕出货" [ref=f3e1901]
+              - row "28 000524 岭南控股 旅游及景 1板 66亿 0.5% 516.7% 37.5 —" [ref=f3e1902]:
+                - cell "28" [ref=f3e1903]
+                - cell "000524" [ref=f3e1904]:
+                  - link "000524" [ref=f3e1905] [cursor=pointer]:
+                    - /url: "#"
+                - cell "岭南控股" [ref=f3e1906]
+                - cell "旅游及景" [ref=f3e1907]
+                - cell "1板" [ref=f3e1908]
+                - cell "66亿" [ref=f3e1909]
+                - cell "0.5%" [ref=f3e1910]
+                - cell "516.7%" [ref=f3e1911]
+                - cell "37.5" [ref=f3e1912]
+                - cell "—" [ref=f3e1913]
+              - row "29 001208 华菱线缆 电网设备 1板 47.3亿 2.2% 132.6% 37.5 —" [ref=f3e1914]:
+                - cell "29" [ref=f3e1915]
+                - cell "001208" [ref=f3e1916]:
+                  - link "001208" [ref=f3e1917] [cursor=pointer]:
+                    - /url: "#"
+                - cell "华菱线缆" [ref=f3e1918]
+                - cell "电网设备" [ref=f3e1919]
+                - cell "1板" [ref=f3e1920]
+                - cell "47.3亿" [ref=f3e1921]
+                - cell "2.2%" [ref=f3e1922]
+                - cell "132.6%" [ref=f3e1923]
+                - cell "37.5" [ref=f3e1924]
+                - cell "—" [ref=f3e1925]
+              - row "30 301251 威尔高 元件 2板 46亿 29.6% 0.2% 37.5 换手29.6%>10%极度活跃,警惕出货; 炸板8次(烂板)" [ref=f3e1926]:
+                - cell "30" [ref=f3e1927]
+                - cell "301251" [ref=f3e1928]:
+                  - link "301251" [ref=f3e1929] [cursor=pointer]:
+                    - /url: "#"
+                - cell "威尔高" [ref=f3e1930]
+                - cell "元件" [ref=f3e1931]
+                - cell "2板" [ref=f3e1932]
+                - cell "46亿" [ref=f3e1933]
+                - cell "29.6%" [ref=f3e1934]
+                - cell "0.2%" [ref=f3e1935]
+                - cell "37.5" [ref=f3e1936]
+                - cell "换手29.6%>10%极度活跃,警惕出货; 炸板8次(烂板)" [ref=f3e1937]
+              - row "31 603380 易德龙 消费电子 1板 75.9亿 3.1% 29.6% 37.5 —" [ref=f3e1938]:
+                - cell "31" [ref=f3e1939]
+                - cell "603380" [ref=f3e1940]:
+                  - link "603380" [ref=f3e1941] [cursor=pointer]:
+                    - /url: "#"
+                - cell "易德龙" [ref=f3e1942]
+                - cell "消费电子" [ref=f3e1943]
+                - cell "1板" [ref=f3e1944]
+                - cell "75.9亿" [ref=f3e1945]
+                - cell "3.1%" [ref=f3e1946]
+                - cell "29.6%" [ref=f3e1947]
+                - cell "37.5" [ref=f3e1948]
+                - cell "—" [ref=f3e1949]
+              - row "32 000759 中百集团 一般零售 1板 42.5亿 9.8% 28.2% 37.5 —" [ref=f3e1950]:
+                - cell "32" [ref=f3e1951]
+                - cell "000759" [ref=f3e1952]:
+                  - link "000759" [ref=f3e1953] [cursor=pointer]:
+                    - /url: "#"
+                - cell "中百集团" [ref=f3e1954]
+                - cell "一般零售" [ref=f3e1955]
+                - cell "1板" [ref=f3e1956]
+                - cell "42.5亿" [ref=f3e1957]
+                - cell "9.8%" [ref=f3e1958]
+                - cell "28.2%" [ref=f3e1959]
+                - cell "37.5" [ref=f3e1960]
+                - cell "—" [ref=f3e1961]
+              - row "33 603881 数据港 通信服务 1板 208.7亿 4.9% 16.4% 36.7 —" [ref=f3e1962]:
+                - cell "33" [ref=f3e1963]
+                - cell "603881" [ref=f3e1964]:
+                  - link "603881" [ref=f3e1965] [cursor=pointer]:
+                    - /url: "#"
+                - cell "数据港" [ref=f3e1966]
+                - cell "通信服务" [ref=f3e1967]
+                - cell "1板" [ref=f3e1968]
+                - cell "208.7亿" [ref=f3e1969]
+                - cell "4.9%" [ref=f3e1970]
+                - cell "16.4%" [ref=f3e1971]
+                - cell "36.7" [ref=f3e1972]
+                - cell "—" [ref=f3e1973]
+              - row "34 002910 庄园牧场 饮料乳品 1板 22亿 18.2% 60.6% 35.2 换手18.2%>10%极度活跃,警惕出货" [ref=f3e1974]:
+                - cell "34" [ref=f3e1975]
+                - cell "002910" [ref=f3e1976]:
+                  - link "002910" [ref=f3e1977] [cursor=pointer]:
+                    - /url: "#"
+                - cell "庄园牧场" [ref=f3e1978]
+                - cell "饮料乳品" [ref=f3e1979]
+                - cell "1板" [ref=f3e1980]
+                - cell "22亿" [ref=f3e1981]
+                - cell "18.2%" [ref=f3e1982]
+                - cell "60.6%" [ref=f3e1983]
+                - cell "35.2" [ref=f3e1984]
+                - cell "换手18.2%>10%极度活跃,警惕出货" [ref=f3e1985]
+              - row "35 002396 星网锐捷 通信设备 1板 220.4亿 7.3% 18.2% 32.8 —" [ref=f3e1986]:
+                - cell "35" [ref=f3e1987]
+                - cell "002396" [ref=f3e1988]:
+                  - link "002396" [ref=f3e1989] [cursor=pointer]:
+                    - /url: "#"
+                - cell "星网锐捷" [ref=f3e1990]
+                - cell "通信设备" [ref=f3e1991]
+                - cell "1板" [ref=f3e1992]
+                - cell "220.4亿" [ref=f3e1993]
+                - cell "7.3%" [ref=f3e1994]
+                - cell "18.2%" [ref=f3e1995]
+                - cell "32.8" [ref=f3e1996]
+                - cell "—" [ref=f3e1997]
+              - row "36 603928 兴业股份 塑料 1板 55.7亿 14.4% 13.3% 32.8 换手14.4%>10%极度活跃,警惕出货" [ref=f3e1998]:
+                - cell "36" [ref=f3e1999]
+                - cell "603928" [ref=f3e2000]:
+                  - link "603928" [ref=f3e2001] [cursor=pointer]:
+                    - /url: "#"
+                - cell "兴业股份" [ref=f3e2002]
+                - cell "塑料" [ref=f3e2003]
+                - cell "1板" [ref=f3e2004]
+                - cell "55.7亿" [ref=f3e2005]
+                - cell "14.4%" [ref=f3e2006]
+                - cell "13.3%" [ref=f3e2007]
+                - cell "32.8" [ref=f3e2008]
+                - cell "换手14.4%>10%极度活跃,警惕出货" [ref=f3e2009]
+              - row "37 603183 建研院 专业服务 1板 20.1亿 11.3% 9.4% 32.8 换手11.3%>10%极度活跃,警惕出货" [ref=f3e2010]:
+                - cell "37" [ref=f3e2011]
+                - cell "603183" [ref=f3e2012]:
+                  - link "603183" [ref=f3e2013] [cursor=pointer]:
+                    - /url: "#"
+                - cell "建研院" [ref=f3e2014]
+                - cell "专业服务" [ref=f3e2015]
+                - cell "1板" [ref=f3e2016]
+                - cell "20.1亿" [ref=f3e2017]
+                - cell "11.3%" [ref=f3e2018]
+                - cell "9.4%" [ref=f3e2019]
+                - cell "32.8" [ref=f3e2020]
+                - cell "换手11.3%>10%极度活跃,警惕出货" [ref=f3e2021]
+              - row "38 300454 深信服 软件开发 1板 306.9亿 9.1% 6.7% 31.2 —" [ref=f3e2022]:
+                - cell "38" [ref=f3e2023]
+                - cell "300454" [ref=f3e2024]:
+                  - link "300454" [ref=f3e2025] [cursor=pointer]:
+                    - /url: "#"
+                - cell "深信服" [ref=f3e2026]
+                - cell "软件开发" [ref=f3e2027]
+                - cell "1板" [ref=f3e2028]
+                - cell "306.9亿" [ref=f3e2029]
+                - cell "9.1%" [ref=f3e2030]
+                - cell "6.7%" [ref=f3e2031]
+                - cell "31.2" [ref=f3e2032]
+                - cell "—" [ref=f3e2033]
+              - row "39 603661 恒林股份 家居用品 1板 59.3亿 8.9% 3.5% 29.7 —" [ref=f3e2034]:
+                - cell "39" [ref=f3e2035]
+                - cell "603661" [ref=f3e2036]:
+                  - link "603661" [ref=f3e2037] [cursor=pointer]:
+                    - /url: "#"
+                - cell "恒林股份" [ref=f3e2038]
+                - cell "家居用品" [ref=f3e2039]
+                - cell "1板" [ref=f3e2040]
+                - cell "59.3亿" [ref=f3e2041]
+                - cell "8.9%" [ref=f3e2042]
+                - cell "3.5%" [ref=f3e2043]
+                - cell "29.7" [ref=f3e2044]
+                - cell "—" [ref=f3e2045]
+              - row "40 000977 浪潮信息 计算机设 1板 1146.6亿 2.8% 108.2% 28.1 —" [ref=f3e2046]:
+                - cell "40" [ref=f3e2047]
+                - cell "000977" [ref=f3e2048]:
+                  - link "000977" [ref=f3e2049] [cursor=pointer]:
+                    - /url: "#"
+                - cell "浪潮信息" [ref=f3e2050]
+                - cell "计算机设" [ref=f3e2051]
+                - cell "1板" [ref=f3e2052]
+                - cell "1146.6亿" [ref=f3e2053]
+                - cell "2.8%" [ref=f3e2054]
+                - cell "108.2%" [ref=f3e2055]
+                - cell "28.1" [ref=f3e2056]
+                - cell "—" [ref=f3e2057]
+              - row "41 000506 招金黄金 贵金属 1板 124.6亿 5.4% 17.0% 27.3 —" [ref=f3e2058]:
+                - cell "41" [ref=f3e2059]
+                - cell "000506" [ref=f3e2060]:
+                  - link "000506" [ref=f3e2061] [cursor=pointer]:
+                    - /url: "#"
+                - cell "招金黄金" [ref=f3e2062]
+                - cell "贵金属" [ref=f3e2063]
+                - cell "1板" [ref=f3e2064]
+                - cell "124.6亿" [ref=f3e2065]
+                - cell "5.4%" [ref=f3e2066]
+                - cell "17.0%" [ref=f3e2067]
+                - cell "27.3" [ref=f3e2068]
+                - cell "—" [ref=f3e2069]
+              - row "42 002841 视源股份 消费电子 2板 247.1亿 5.5% 2.6% 25.8 炸板2次(烂板)" [ref=f3e2070]:
+                - cell "42" [ref=f3e2071]
+                - cell "002841" [ref=f3e2072]:
+                  - link "002841" [ref=f3e2073] [cursor=pointer]:
+                    - /url: "#"
+                - cell "视源股份" [ref=f3e2074]
+                - cell "消费电子" [ref=f3e2075]
+                - cell "2板" [ref=f3e2076]
+                - cell "247.1亿" [ref=f3e2077]
+                - cell "5.5%" [ref=f3e2078]
+                - cell "2.6%" [ref=f3e2079]
+                - cell "25.8" [ref=f3e2080]
+                - cell "炸板2次(烂板)" [ref=f3e2081]
+              - row "43 300017 网宿科技 IT服务Ⅱ 1板 343.3亿 12.2% 6.8% 25.8 换手12.2%>10%极度活跃,警惕出货" [ref=f3e2082]:
+                - cell "43" [ref=f3e2083]
+                - cell "300017" [ref=f3e2084]:
+                  - link "300017" [ref=f3e2085] [cursor=pointer]:
+                    - /url: "#"
+                - cell "网宿科技" [ref=f3e2086]
+                - cell "IT服务Ⅱ" [ref=f3e2087]
+                - cell "1板" [ref=f3e2088]
+                - cell "343.3亿" [ref=f3e2089]
+                - cell "12.2%" [ref=f3e2090]
+                - cell "6.8%" [ref=f3e2091]
+                - cell "25.8" [ref=f3e2092]
+                - cell "换手12.2%>10%极度活跃,警惕出货" [ref=f3e2093]
+              - row "44 002674 兴业科技 纺织制造 1板 85.3亿 9.1% 9.4% 25 —" [ref=f3e2094]:
+                - cell "44" [ref=f3e2095]
+                - cell "002674" [ref=f3e2096]:
+                  - link "002674" [ref=f3e2097] [cursor=pointer]:
+                    - /url: "#"
+                - cell "兴业科技" [ref=f3e2098]
+                - cell "纺织制造" [ref=f3e2099]
+                - cell "1板" [ref=f3e2100]
+                - cell "85.3亿" [ref=f3e2101]
+                - cell "9.1%" [ref=f3e2102]
+                - cell "9.4%" [ref=f3e2103]
+                - cell "25" [ref=f3e2104]
+                - cell "—" [ref=f3e2105]
+              - row "45 920857 泓禧科技 消费电子 1板 14.1亿 8.5% 14.8% 24.2 —" [ref=f3e2106]:
+                - cell "45" [ref=f3e2107]
+                - cell "920857" [ref=f3e2108]:
+                  - link "920857" [ref=f3e2109] [cursor=pointer]:
+                    - /url: "#"
+                - cell "泓禧科技" [ref=f3e2110]
+                - cell "消费电子" [ref=f3e2111]
+                - cell "1板" [ref=f3e2112]
+                - cell "14.1亿" [ref=f3e2113]
+                - cell "8.5%" [ref=f3e2114]
+                - cell "14.8%" [ref=f3e2115]
+                - cell "24.2" [ref=f3e2116]
+                - cell "—" [ref=f3e2117]
+              - row "46 600350 山东高速 铁路公路 1板 652.2亿 0.2% 6.3% 19.5 炸板2次(烂板)" [ref=f3e2118]:
+                - cell "46" [ref=f3e2119]
+                - cell "600350" [ref=f3e2120]:
+                  - link "600350" [ref=f3e2121] [cursor=pointer]:
+                    - /url: "#"
+                - cell "山东高速" [ref=f3e2122]
+                - cell "铁路公路" [ref=f3e2123]
+                - cell "1板" [ref=f3e2124]
+                - cell "652.2亿" [ref=f3e2125]
+                - cell "0.2%" [ref=f3e2126]
+                - cell "6.3%" [ref=f3e2127]
+                - cell "19.5" [ref=f3e2128]
+                - cell "炸板2次(烂板)" [ref=f3e2129]
+              - row "47 603296 华勤技术 消费电子 1板 625.2亿 6.2% 1.9% 14.1 —" [ref=f3e2130]:
+                - cell "47" [ref=f3e2131]
+                - cell "603296" [ref=f3e2132]:
+                  - link "603296" [ref=f3e2133] [cursor=pointer]:
+                    - /url: "#"
+                - cell "华勤技术" [ref=f3e2134]
+                - cell "消费电子" [ref=f3e2135]
+                - cell "1板" [ref=f3e2136]
+                - cell "625.2亿" [ref=f3e2137]
+                - cell "6.2%" [ref=f3e2138]
+                - cell "1.9%" [ref=f3e2139]
+                - cell "14.1" [ref=f3e2140]
+                - cell "—" [ref=f3e2141]
+      - paragraph [ref=f3e110]: 已更新 00:34:36
+    - text: 律
+  - navigation [ref=f3e62]:
+    - button "01 · 首页" [ref=f3e63] [cursor=pointer]
+    - button "02 · 扫描" [ref=f3e64] [cursor=pointer]
+    - button "03 · 龙头" [ref=f3e65] [cursor=pointer]
+    - button "04 · 回测" [ref=f3e66] [cursor=pointer]
+    - button "05 · 个股" [ref=f3e67] [cursor=pointer]
+    - button "06 · 调优" [ref=f3e68] [cursor=pointer]
+    - button "07 · 心法" [ref=f3e69] [cursor=pointer]

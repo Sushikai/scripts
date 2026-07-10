@@ -1,0 +1,14 @@
+[Script Info]
+ScriptType: v4.00+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Default,Arial,48,&H00FFFFFF,&H00000000,-1,0,1,2,2,2,10,10,70
+[Events]
+Format: Layer, Start, End, Style, Text
+Dialogue: 0,0:00:0.00,0:00:6.00,Default,,0,0,0,,They walk past me like I don't exist.
+Dialogue: 0,0:00:6.00,0:00:15.00,Default,,0,0,0,,Another shadow among me, fading into the background of a city that never stops.
+Dialogue: 0,0:00:15.00,0:00:29.00,Default,,0,0,0,,Everything moves so fast, but I'm stuck, moving in slow motion, left behind.
+Dialogue: 0,0:00:29.00,0:00:41.00,Default,,0,0,0,,Once I had a home, a family, now only memories remain like ghosts that visit me in the quiet of the night.
+Dialogue: 0,0:00:41.00,0:00:51.00,Default,,0,0,0,,In my dreams I escape, the concrete melts away and I am no longer bound to the earth.
+Dialogue: 0,0:00:51.00,0:01:2.00,Default,,0,0,0,,I am weightless, free, soaring above it all. No pain, no hunger, no fear, just the wind beneath my wings.
+Dialogue: 0,0:01:2.00,0:01:11.00,Default,,0,0,0,,And then I wake up. The sky is still there, but I can't reach it. I'm still here, still trapped.

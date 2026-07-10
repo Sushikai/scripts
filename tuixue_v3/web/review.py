@@ -209,13 +209,15 @@ def delete_trade(trade_id: int) -> bool:
 # AI 复盘 (核心)
 # ═══════════════════════════════════════════════════
 def _build_context(trade: dict) -> dict:
-    """组装复盘上下文: 当时盘面 + 游资 + 资金 + K线 + 板块 + 新闻。"""
+    """组装复盘上下文: 决策日前后盘面 + 游资 + 资金 + K线 + 板块 + 新闻 + 主力出仓。
+    用户要求 (2026-07-10): 必须含前 10 日 + 后 5 日 K线、全部游资席位、主力资金逐日明细。
+    """
     from .. import lib_common as lc
     from . import seat_lookup, fund_flow, holder_lookup
     from . import sector_classify, news_lookup
     code = trade["code"]
     ctx: dict[str, Any] = {}
-    # 1) K线 (决策前 5 日 + 后 5 日)
+    # 1) K线 (决策前 10 日 + 后 5 日 — 看清趋势 vs 噪声)
     try:
         df = lc.fetch_daily(code, days=120)
         if df is not None and not df.empty:
@@ -223,56 +225,174 @@ def _build_context(trade: dict) -> dict:
             tdate = trade["trade_date"]
             tdate_norm = f"{tdate[:4]}-{tdate[4:6]}-{tdate[6:8]}"
             if "日期" in df.columns:
+                # 决策日及后 5 日
                 mask = df["日期"] >= tdate_norm
                 sub = df[mask].head(5)
-                ctx["kline_after"] = sub.to_dict(orient="records")
-                pre = df[df["日期"] < tdate_norm].tail(5)
-                ctx["kline_before"] = pre.to_dict(orient="records")
+                ctx["kline_after"] = _safe_records(sub)
+                # 决策日前 10 日 — 看清趋势
+                pre = df[df["日期"] < tdate_norm].tail(10)
+                ctx["kline_before"] = _safe_records(pre)
+                # 决策日前 10 日整体走势统计(连板数/放量天数/资金态度)
+                ctx["trend_10d_before"] = _compute_trend_stats(pre)
+                # 后 5 日资金 + 走势 — 用来评判"买入是否正确"
+                ctx["aftermath_5d"] = _compute_aftermath(sub)
     except Exception as e:
         log.warning(f"复盘 kline {code} 失败: {e}")
-    # 2) 资金流
+    # 2) 主力资金流(决策点前后 10 日 逐日明细)
+    try:
+        df_fund = lc.fetch_index_daily("sh000001", days=2)  # 触发 fetch 链
+        from .. import lib_common as lc2
+        main_exit = lc2.detect_main_force_exit(code, lookback_days=10)
+        if main_exit:
+            ctx["main_exit_10d"] = main_exit
+    except Exception as e:
+        log.debug(f"复盘 main_exit {code} 失败: {e}")
+    # 3) 资金流 (60 日完整历史 + 当日决策点单日)
     try:
         ff = fund_flow.get_combined(code, days=60)
         if ff.get("history"):
             ctx["fund_flow"] = ff
     except Exception as e:
         log.warning(f"复盘 fund_flow {code} 失败: {e}")
-    # 3) 龙虎榜
+    # 4) 龙虎榜 (60 日内全部席位 — 看清游资进出节奏)
     try:
         seats = seat_lookup.get_stock_seats(code, lookback_days=60)
         if seats.get("rows"):
             ctx["seats"] = seats
+            # 进一步: 提取近 10 日 vs 远 10 日 席位活跃度变化
+            ctx["seats_recent_10d"] = _seats_recent_stats(seats, days=10)
     except Exception as e:
         log.warning(f"复盘 seats {code} 失败: {e}")
-    # 4) 板块
+    # 5) 板块
     try:
         s = sector_classify.get_sector(code, force_refresh=False)
         if s:
             ctx["sector"] = s
     except Exception as e:
         log.warning(f"复盘 sector {code} 失败: {e}")
-    # 5) 新闻
+    # 6) 新闻(优先按股票代码过滤,再回退到近期热点)
     try:
-        news_data = news_lookup.get_cached_news(force_refresh=False, num=20)
+        news_data = news_lookup.get_cached_news(force_refresh=False, num=80)
         all_news = news_data.get("items", []) if isinstance(news_data, dict) else []
-        ctx["news"] = all_news[:5]
+        # 优先挑相关
+        related = [n for n in all_news if code in (n.get("title", "") + str(n.get("codes", [])))]
+        ctx["news"] = (related + all_news)[:8]
     except Exception as e:
         log.warning(f"复盘 news {code} 失败: {e}")
-    # 6) 散户/主力
+    # 7) 散户/主力持股占比
     try:
         h = holder_lookup.fetch_holder_info(code)
         if h:
             ctx["holders"] = h
     except Exception:
         pass
-    # 7) 大市
+    # 8) 大市(沪深300 / 上证 — 决策前后 10 日)
     try:
-        idx = lc.fetch_index_daily("sh000001", days=10)
+        idx = lc.fetch_index_daily("sh000001", days=15)
         if idx is not None and not idx.empty:
-            ctx["market"] = idx.to_dict(orient="records")[-5:]
+            ctx["market_10d"] = idx.to_dict(orient="records")[-10:]
     except Exception:
         pass
     return ctx
+
+
+def _safe_records(df) -> list:
+    """DataFrame → list[dict] 安全转换, 处理 NaN/Timestamp."""
+    if df is None or len(df) == 0:
+        return []
+    out = []
+    for _, row in df.iterrows():
+        item = {}
+        for k, v in row.items():
+            try:
+                import math as _m
+                if isinstance(v, float) and _m.isnan(v):
+                    item[k] = None
+                else:
+                    item[k] = v
+            except Exception:
+                item[k] = str(v) if v is not None else None
+        out.append(item)
+    return out
+
+
+def _compute_trend_stats(df_pre_10d) -> dict:
+    """决策日前 10 日: 连板 / 放量 / 趋势统计。"""
+    if df_pre_10d is None or len(df_pre_10d) == 0:
+        return {}
+    closes = [float(r.get("收盘") or 0) for r in df_pre_10d.to_dict("records")]
+    vols = [float(r.get("成交量") or 0) for r in df_pre_10d.to_dict("records")]
+    if not closes:
+        return {}
+    change_total = round((closes[-1] / closes[0] - 1) * 100, 2) if closes[0] else 0
+    # 涨幅>9% 视为涨停
+    limit_up_days = 0
+    for i in range(1, len(closes)):
+        if closes[i - 1] and (closes[i] / closes[i - 1] - 1) * 100 >= 9.0:
+            limit_up_days += 1
+    # 放量(成交量 > 前均量 1.5 倍)天数
+    avg_vol = sum(vols) / len(vols) if vols else 0
+    big_vol_days = sum(1 for v in vols if avg_vol and v > avg_vol * 1.5) if vols else 0
+    return {
+        "change_total_pct": change_total,
+        "limit_up_days": limit_up_days,
+        "big_vol_days": big_vol_days,
+        "last_close": closes[-1] if closes else 0,
+    }
+
+
+def _compute_aftermath(df_after_5d) -> dict:
+    """决策后 5 日的实际走势 — 用来判断这次操作对错。"""
+    recs = df_after_5d.to_dict("records") if df_after_5d is not None else []
+    if not recs:
+        return {}
+    closes = [float(r.get("收盘") or 0) for r in recs]
+    if not closes or closes[0] == 0:
+        return {}
+    return {
+        "5d_change_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+        "first_close": closes[0],
+        "last_close": closes[-1],
+        "high_after": max(float(r.get("最高") or 0) for r in recs),
+        "low_after": min(float(r.get("最低") or 0) for r in recs),
+        "days": len(recs),
+    }
+
+
+def _seats_recent_stats(seats: dict, days: int = 10) -> dict:
+    """席位近 N 日 vs 之前 N 日活跃度对比(看出游资是在加速还是撤退)。"""
+    rows = seats.get("rows", []) or []
+    if not rows:
+        return {}
+    now = datetime.now().strftime("%Y-%m-%d")
+    recent = []
+    older = []
+    for r in rows:
+        d = str(r.get("date", ""))[:10]
+        if not d:
+            continue
+        # 简化:日期含近的就归 recent,否则 older
+        # 实际应当算 days_before,这里用日期包含关系粗判
+        try:
+            import datetime as _dt
+            dt = _dt.datetime.strptime(d, "%Y-%m-%d")
+            diff = (datetime.now() - dt).days
+            if diff <= days:
+                recent.append(r)
+            else:
+                older.append(r)
+        except Exception:
+            continue
+    buy_w_recent = sum(float(r.get("buy_amt_wan") or 0) for r in recent)
+    buy_w_older = sum(float(r.get("buy_amt_wan") or 0) for r in older)
+    return {
+        "recent_count": len(recent),
+        "older_count": len(older),
+        "recent_buy_wan": buy_w_recent,
+        "older_buy_wan": buy_w_older,
+        "trend": "加速" if buy_w_recent > buy_w_older * 1.3 else (
+            "撤退" if buy_w_recent < buy_w_older * 0.5 else "平稳"),
+    }
 
 
 def _memory_context(limit: int = 30) -> str:
@@ -302,6 +422,7 @@ def _memory_context(limit: int = 30) -> str:
 def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
     """组装 system + user 给 LLM。
     铁律独立 PASS/FAIL:每条铁律独立判定,带编号(如 一.1, 三.6, 五.STEP3)。
+    用户要求 (2026-07-10): 必须基于前 10 日 + 后 5 日 K线 + 全部游资席位 + 主力资金逐日。
     """
     from .. import laws
     sys_p = laws.as_prompt() + "\n\n" + memory + """
@@ -310,10 +431,22 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
 对这次交易,**逐条铁律独立 PASS/FAIL 判定**,要求:
 
 1. 铁律编号格式:"一.1"(第一类第1条)/"三.6"(第三类第6条)/"五.STEP3.资金"(第五类 STEP3 资金维度)
-2. 每条 fail 必须有量化理由(不是"主观感觉")
-3. rules_passed/failed 写编号 + 一句话说明
-4. 同时给出表格列用的简短建议(≤30 字)
-5. 严格 JSON(无 markdown 围栏):
+2. **必须基于以下数据维度**做评判(用户重点要求):
+   - `kline_before` (前 10 日 K线): 看趋势 / 连板 / 放量,判断买入位置是否过高
+   - `kline_after` (后 5 日 K线): 看这次买入是否真的"对了"
+   - `seats.rows` (全部龙虎榜席位, 60 日): 看游资进出 / 顶级游资是否站台 / 共同买入 vs 借机出货
+   - `seats_recent_10d` (近期席位活跃度): `trend` 字段 (加速/撤退/平稳)
+   - `fund_flow` (主力资金 60 日): 看买入当日的资金态度(主力净流入 vs 主力出仓)
+   - `main_exit_10d` (主力出仓检测 10 日): `is_exiting` + `severity` + `reason`
+   - `trend_10d_before` (前 10 日统计): `change_total_pct` / `limit_up_days` / `big_vol_days`
+   - `aftermath_5d` (后 5 日真实走势): `5d_change_pct` 用来判断买入决策的实际收益
+   - `holders` (散户/主力持股占比): `retail_proxy_pct` 与用户主线策略的匹配度
+   - `sector` (板块): 判断用户是否在主线,不是追杂毛
+   - `market_10d` (大盘环境): 解释是否逆势操作
+3. 每条 fail 必须有量化理由(不是"主观感觉") — 引用以上数据作为依据
+4. rules_passed/failed 写编号 + 一句话说明
+5. 同时给出表格列用的简短建议(≤30 字)
+6. 严格 JSON(无 markdown 围栏):
 {
   "verdict": "优"|"及格"|"失误"|"严重失误",
   "score": 0-100,
@@ -325,13 +458,90 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
   "ai_advice": "表格里显示的简短建议(≤30字,如:明早冲高减半,跌破25.2止损)",
   "key_risks": ["复盘当时没看到的风险点"]
 }"""
-    user_p = f"""交易快照:
+    # 把 ctx 拆成"信号卡"逐项列出,确保 AI 一眼看到关键数字
+    parts = [f"""交易快照:
 代码={trade['code']} 名称={trade['name']} 方向={trade['direction']}
 价格={trade['price']} 数量={trade['shares']} 时间={trade['occurred_at']}
-备注={trade.get('memo','') or '无'} 标签={trade.get('tags',[])}
+备注={trade.get('memo','') or '无'} 标签={trade.get('tags',[])}"""]
 
-当时盘面:
-{json.dumps(ctx, ensure_ascii=False, default=str)[:2500]}"""
+    # 1) 决策前 10 日走势统计
+    t10 = ctx.get('trend_10d_before') or {}
+    if t10:
+        parts.append(f"""\n## 决策前 10 日趋势统计
+- 累计涨幅: {t10.get('change_total_pct', 0):+.2f}%
+- 涨停天数: {t10.get('limit_up_days', 0)} 天
+- 放量天数: {t10.get('big_vol_days', 0)} 天 (成交量>均量1.5倍)
+- 决策前一日收盘: {t10.get('last_close', 0)}""")
+
+    # 2) 后 5 日实际走势(用来评判)
+    aft = ctx.get('aftermath_5d') or {}
+    if aft:
+        parts.append(f"""\n## 决策后 5 日真实走势
+- 5 日累计: {aft.get('5d_change_pct', 0):+.2f}%
+- 期间最高/最低: {aft.get('high_after', 0)} / {aft.get('low_after', 0)}""")
+
+    # 3) K 线 JSON (前 10 + 后 5)
+    kline_before = ctx.get('kline_before') or []
+    kline_after = ctx.get('kline_after') or []
+    if kline_before or kline_after:
+        parts.append(f"""\n## 决策前 10 日 K 线 (含 OHLC/量)
+{json.dumps(kline_before, ensure_ascii=False, default=str)[:2500]}""")
+        parts.append(f"""\n## 决策后 5 日 K 线
+{json.dumps(kline_after, ensure_ascii=False, default=str)[:1200]}""")
+
+    # 4) 主力资金 + 出仓检测
+    me = ctx.get('main_exit_10d') or {}
+    if me:
+        sev = me.get('severity', '低')
+        parts.append(f"""\n## 主力资金 10 日检测
+- 是否在出仓: {me.get('is_exiting', False)} | 严重度: {sev}
+- 连续流出天数: {me.get('consecutive_out_days', 0)}
+- 5 日累计主力净流出: {me.get('total_main_out_5d', 0):.2f} 亿元
+- 今日主力净流入: {me.get('today_main_net', 0):+.2f} 亿元
+- 触发原因: {me.get('reason', '—')}
+- 散户是否接盘(典型派发): {me.get('small_in', False)}""")
+
+    # 5) 资金流历史
+    ff = ctx.get('fund_flow') or {}
+    if ff.get('history'):
+        parts.append(f"""\n## 资金流(最近 60 日)
+{json.dumps(ff['history'][-15:], ensure_ascii=False, default=str)[:1500]}""")
+
+    # 6) 龙虎榜 + 近期席位活跃度
+    seats = ctx.get('seats') or {}
+    sr10 = ctx.get('seats_recent_10d') or {}
+    if seats.get('rows'):
+        parts.append(f"""\n## 龙虎榜席位(60 日内全部)
+{json.dumps(seats['rows'][:10], ensure_ascii=False, default=str)[:2000]}
+- 席位总数: {seats.get('seat_count', 0)} | 买入总额: {seats.get('buy_total_wan', 0)}万
+- 近 10 日席位活跃度趋势: {sr10.get('trend', '—')} (近: {sr10.get('recent_count', 0)}条 远: {sr10.get('older_count', 0)}条)""")
+
+    # 7) 散户/主力占比
+    h = ctx.get('holders') or {}
+    if h:
+        parts.append(f"""\n## 股东结构
+- 散户代理占比: {h.get('retail_proxy_pct', 0):.2f}% | 主力代理占比: {h.get('main_proxy_pct', 0):.2f}%
+- 股东户数: {h.get('holder_total', 0):,} | 报告期: {h.get('report_date', '?')}""")
+
+    # 8) 板块
+    s = ctx.get('sector') or {}
+    if s:
+        parts.append(f"""\n## 板块
+{json.dumps(s, ensure_ascii=False, default=str)[:300]}""")
+
+    # 9) 大盘环境
+    mkt = ctx.get('market_10d') or []
+    if mkt:
+        parts.append(f"""\n## 大盘沪深300 近 10 日
+{json.dumps(mkt[-5:], ensure_ascii=False, default=str)[:600]}""")
+
+    # 10) 新闻
+    news = ctx.get('news') or []
+    if news:
+        parts.append(f"""\n## 相关新闻(可能影响决策的近期事件)
+{json.dumps(news[:5], ensure_ascii=False, default=str)[:1500]}""")
+
+    user_p = "\n".join(parts)
     return sys_p, user_p
 
 

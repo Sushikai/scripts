@@ -1,0 +1,228 @@
+{
+  "_doc": "游资席位江湖别名映射表 (2026-07-10 整合)",
+  "_rule": "每个 group 含 keywords(席位 substring 命中即匹配) + primary_alias(主别名) + aliases(衍生别名) + note(风格备注)",
+  "_top": {
+    "章盟主": {
+      "primary_alias": "章盟主",
+      "real_name": "章建平",
+      "aliases": ["章大佬", "百亿善庄", "江浙总舵主"],
+      "keywords": ["上海江苏路", "建国西路", "宁波广福街", "上海溧阳路"],
+      "note": "江浙资金总舵主,中长线+波段",
+      "tier": "顶级",
+      "score_bonus": 30
+    },
+    "赵老哥": {
+      "primary_alias": "赵老哥",
+      "real_name": "赵强",
+      "aliases": ["八年一万倍", "绍兴赵哥", "赵神"],
+      "keywords": ["银河绍兴", "绍兴解放北路", "绍兴解放南路", "北京阜成路"],
+      "note": "八年一万倍传说,连板接力之王",
+      "tier": "顶级",
+      "score_bonus": 30
+    },
+    "炒股养家": {
+      "primary_alias": "炒股养家",
+      "real_name": "网传林广昌",
+      "aliases": ["养家", "一字板之王", "情绪周期鼻祖"],
+      "keywords": ["宛平南路", "茅台路", "红宝石路", "华鑫上海分公司", "华鑫证券上海分公司", "华鑫上海"],
+      "note": "情绪周期理论开创者",
+      "tier": "顶级",
+      "score_bonus": 30
+    },
+    "孙哥": {
+      "primary_alias": "孙哥",
+      "real_name": "孙国栋",
+      "aliases": ["溧阳路孙哥", "孙大佬", "点火哥"],
+      "keywords": ["中信溧阳路", "中信古北路"],
+      "note": "点火战术鼻祖",
+      "tier": "顶级",
+      "score_bonus": 30
+    }
+  },
+  "_mid": {
+    "作手新一": {
+      "primary_alias": "作手新一",
+      "real_name": "网传严冬",
+      "aliases": ["新一", "南京新一", "太平南路龙头王"],
+      "keywords": ["国泰君安南京太平南路", "南京金融城"],
+      "note": "龙头战法现役代表,情绪顶级",
+      "tier": "中生代",
+      "score_bonus": 28
+    },
+    "方新侠": {
+      "primary_alias": "方新侠",
+      "real_name": "不详",
+      "aliases": ["方神", "方胖子", "西安大佬"],
+      "keywords": ["中信西安朱雀大街", "兴业陕西分公司", "方新侠"],
+      "note": "西安系大佬,主线大票",
+      "tier": "中生代",
+      "score_bonus": 28
+    },
+    "瑞鹤仙": {
+      "primary_alias": "瑞鹤仙",
+      "real_name": "不详",
+      "aliases": ["一阳指", "宜昌大佬"],
+      "keywords": ["银河宜昌新世纪", "瑞鹤仙"],
+      "note": "一阳指战法",
+      "tier": "中生代",
+      "score_bonus": 26
+    },
+    "小鳄鱼": {
+      "primary_alias": "小鳄鱼",
+      "real_name": "张建辉",
+      "aliases": ["南京鳄鱼", "90后新生代"],
+      "keywords": ["南京大钟亭", "中投南京太平南路"],
+      "note": "90后新生代代表",
+      "tier": "中生代",
+      "score_bonus": 26
+    },
+    "陈小群": {
+      "primary_alias": "陈小群",
+      "real_name": "不详",
+      "aliases": ["大连群哥", "95后龙头选手"],
+      "keywords": ["银河大连黄河路"],
+      "note": "95后龙头战法代表",
+      "tier": "中生代",
+      "score_bonus": 26
+    },
+    "92科比": {
+      "primary_alias": "92科比",
+      "real_name": "不详",
+      "aliases": ["科比", "淘县周期大师", "泰州科比"],
+      "keywords": ["国泰泰州鼓楼南路"],
+      "note": "淘股吧周期理论大师",
+      "tier": "中生代",
+      "score_bonus": 24
+    },
+    "退学炒股": {
+      "primary_alias": "退学炒股",
+      "real_name": "不详",
+      "aliases": ["退神", "退学"],
+      "keywords": [],
+      "note": "淘县经典 ID (线上复盘)",
+      "tier": "论坛ID",
+      "score_bonus": 0
+    }
+  },
+  "_seat": {
+    "佛山无影脚": {
+      "primary_alias": "佛山无影脚",
+      "real_name": "不详",
+      "aliases": ["绿景路", "佛山佬", "砸盘王"],
+      "keywords": ["光大佛山绿景路", "佛山季华六路", "佛山祖庙路"],
+      "note": "首板一日游之王",
+      "tier": "席位型",
+      "score_bonus": 22
+    },
+    "欢乐海岸": {
+      "primary_alias": "欢乐海岸",
+      "real_name": "不详",
+      "aliases": ["深圳欢乐海岸", "妖股守护者"],
+      "keywords": ["深圳益田路免税商务大厦", "深圳益田路荣超", "中信深圳分公司", "华泰深圳益田路", "欢乐海岸"],
+      "note": "高位妖股锁仓代表",
+      "tier": "席位型",
+      "score_bonus": 24
+    },
+    "呼家楼": {
+      "primary_alias": "呼家楼",
+      "real_name": "不详",
+      "aliases": ["LV", "北京帮", "北京资金"],
+      "keywords": ["北京呼家楼", "北京帮"],
+      "note": "AI/半导体主线大票波段",
+      "tier": "席位型",
+      "score_bonus": 24
+    },
+    "金田路": {
+      "primary_alias": "金田路",
+      "real_name": "不详",
+      "aliases": ["造妖王", "金田大佬"],
+      "keywords": ["深圳金田路", "金田路"],
+      "note": "高位连板接力",
+      "tier": "席位型",
+      "score_bonus": 22
+    },
+    "宁波桑田路": {
+      "primary_alias": "宁波桑田路",
+      "real_name": "不详",
+      "aliases": ["桑田路"],
+      "keywords": ["国盛宁波桑田路", "桑田路"],
+      "note": "分仓打板,可锁可快出",
+      "tier": "席位型",
+      "score_bonus": 22
+    },
+    "炒新一族": {
+      "primary_alias": "炒新一族",
+      "real_name": "不详",
+      "aliases": ["新股专业户", "反核资金"],
+      "keywords": ["华泰上海武定路"],
+      "note": "次新+逆市套利",
+      "tier": "席位型",
+      "score_bonus": 20
+    },
+    "清扬路": {
+      "primary_alias": "清扬路",
+      "real_name": "不详",
+      "aliases": ["无锡砸盘王"],
+      "keywords": ["中投无锡清扬路", "清扬路"],
+      "note": "次新一日游",
+      "tier": "席位型",
+      "score_bonus": 20
+    },
+    "财通杭州": {
+      "primary_alias": "财通杭州系",
+      "real_name": "不详",
+      "aliases": ["财通杭州"],
+      "keywords": ["财通杭州"],
+      "note": "杭州主力席位",
+      "tier": "席位型",
+      "score_bonus": 22
+    },
+    "深圳益田路荣超": {
+      "primary_alias": "荣超系",
+      "real_name": "不详",
+      "aliases": ["深圳益田路荣超", "荣超"],
+      "keywords": ["深圳益田路荣超", "荣超商务中心"],
+      "note": "深圳游资集中地",
+      "tier": "席位型",
+      "score_bonus": 22
+    },
+    "东财拉萨天团": {
+      "primary_alias": "拉萨天团",
+      "real_name": "不详",
+      "aliases": ["东财散户大本营", "散户天团"],
+      "keywords": ["拉萨团结路", "拉萨东环", "东财拉萨"],
+      "note": "⚠ 散户集中营,非主力(铁律二.6 回避)",
+      "tier": "避雷",
+      "score_bonus": -10
+    }
+  },
+  "_fund": {
+    "机构专用": {
+      "primary_alias": "机构席位",
+      "real_name": "公募/险资",
+      "aliases": ["机构", "基金席位"],
+      "keywords": ["机构专用"],
+      "note": "公募/险资/社保",
+      "tier": "机构",
+      "score_bonus": 10
+    },
+    "沪股通专用": {
+      "primary_alias": "北向沪",
+      "real_name": "陆股通",
+      "aliases": ["沪股通", "北向资金"],
+      "keywords": ["沪股通专用"],
+      "note": "北向资金(沪)",
+      "tier": "北向",
+      "score_bonus": 12
+    },
+    "深股通专用": {
+      "primary_alias": "北向深",
+      "real_name": "陆股通",
+      "aliases": ["深股通", "北向资金"],
+      "keywords": ["深股通专用"],
+      "note": "北向资金(深)",
+      "tier": "北向",
+      "score_bonus": 12
+    }
+  }
+}

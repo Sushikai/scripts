@@ -1,0 +1,11 @@
+[Script Info]
+ScriptType: v4.00+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
+Style: Default,Arial,48,&H00FFFFFF,&H00000000,-1,0,1,2,2,2,10,10,70
+[Events]
+Format: Layer, Start, End, Style, Text
+Dialogue: 0,0:00:0.00,0:00:2.00,Default,,0,0,0,,I
+Dialogue: 0,0:00:30.00,0:00:32.00,Default,,0,0,0,,Hey! Hey!
+Dialogue: 0,0:00:32.00,0:00:34.00,Default,,0,0,0,,Hey!
+Dialogue: 0,0:00:34.00,0:00:35.00,Default,,0,0,0,,Ugh!

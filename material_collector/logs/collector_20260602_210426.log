@@ -1,0 +1,53 @@
+2026-06-02 21:04:26,640 [INFO] __main__ - ============================================================
+2026-06-02 21:04:26,640 [INFO] __main__ - 短视频素材采集系统 v1.0
+2026-06-02 21:04:26,640 [INFO] __main__ - 时间: 2026-06-02 21:04:26
+2026-06-02 21:04:26,640 [INFO] __main__ - 平台: douyin_web (Web)
+2026-06-02 21:04:26,640 [INFO] __main__ - 关键词: ['弗洛伊德 峰语录']
+2026-06-02 21:04:26,640 [INFO] __main__ - 风格: 通用
+2026-06-02 21:04:26,640 [INFO] __main__ - 滚动次数: 3
+2026-06-02 21:04:26,640 [INFO] __main__ - ============================================================
+2026-06-02 21:04:26,650 [INFO] __main__ - ============================================================
+2026-06-02 21:04:26,650 [INFO] __main__ - Web采集 | 平台: douyin_web | 关键词: ['弗洛伊德 峰语录']
+2026-06-02 21:04:26,650 [INFO] __main__ - ============================================================
+2026-06-02 21:04:26,650 [INFO] database.materials_db - 数据库初始化完成: /Users/kaikai/scripts/material_collector/database/materials.db
+2026-06-02 21:04:26,650 [INFO] __main__ - 
+>>> 开始采集: douyin_web
+2026-06-02 21:04:27,663 [INFO] collector.playwright_collector - [抖音Web] 开始采集关键词: 弗洛伊德 峰语录
+2026-06-02 21:04:40,721 [INFO] collector.playwright_collector - [抖音Web] 关键词 [弗洛伊德 峰语录] 采集完成: 0 条
+2026-06-02 21:04:42,788 [INFO] __main__ - [douyin_web] 采集完成: 0 条
+2026-06-02 21:04:42,788 [INFO] __main__ - 
+采集完成: 0 条 | 耗时: 16.1秒
+2026-06-02 21:04:42,788 [INFO] __main__ - 
+============================================================
+2026-06-02 21:04:42,788 [INFO] __main__ - 开始 AI 处理
+2026-06-02 21:04:42,788 [INFO] __main__ - ============================================================
+2026-06-02 21:04:42,788 [INFO] database.materials_db - 数据库初始化完成: /Users/kaikai/scripts/material_collector/database/materials.db
+2026-06-02 21:04:42,790 [INFO] __main__ - 待处理: 100 条
+2026-06-02 21:04:42,791 [INFO] processor.material_processor - 开始并发处理: 100 条，8 线程
+2026-06-02 21:05:01,271 [INFO] processor.material_processor - 处理进度: 5/100
+2026-06-02 21:05:17,273 [INFO] processor.material_processor - 处理进度: 10/100
+2026-06-02 21:05:31,252 [INFO] processor.material_processor - 处理进度: 15/100
+2026-06-02 21:05:46,805 [INFO] processor.material_processor - 处理进度: 20/100
+2026-06-02 21:06:05,126 [INFO] processor.material_processor - 处理进度: 25/100
+2026-06-02 21:06:19,263 [INFO] processor.material_processor - 处理进度: 30/100
+2026-06-02 21:06:33,103 [INFO] processor.material_processor - 处理进度: 35/100
+2026-06-02 21:06:48,391 [INFO] processor.material_processor - 处理进度: 40/100
+2026-06-02 21:07:06,881 [INFO] processor.material_processor - 处理进度: 45/100
+2026-06-02 21:07:23,041 [INFO] processor.material_processor - 处理进度: 50/100
+2026-06-02 21:07:37,716 [INFO] processor.material_processor - 处理进度: 55/100
+2026-06-02 21:07:53,514 [INFO] processor.material_processor - 处理进度: 60/100
+2026-06-02 21:08:09,287 [INFO] processor.material_processor - 处理进度: 65/100
+2026-06-02 21:08:25,041 [INFO] processor.material_processor - 处理进度: 70/100
+2026-06-02 21:08:39,718 [INFO] processor.material_processor - 处理进度: 75/100
+2026-06-02 21:08:56,512 [INFO] processor.material_processor - 处理进度: 80/100
+2026-06-02 21:09:11,930 [INFO] processor.material_processor - 处理进度: 85/100
+2026-06-02 21:09:27,823 [INFO] processor.material_processor - 处理进度: 90/100
+2026-06-02 21:09:43,820 [INFO] processor.material_processor - 处理进度: 95/100
+2026-06-02 21:09:59,021 [INFO] processor.material_processor - 处理进度: 100/100
+2026-06-02 21:09:59,122 [INFO] __main__ - 分类统计: {'火花宝宝': 70, '萌娃': 3, '通用': 27}
+2026-06-02 21:09:59,123 [INFO] processor.material_processor - 已导出 100 条到 /Users/kaikai/scripts/material_collector/materials/processed/20260602_210959.json
+2026-06-02 21:09:59,123 [INFO] __main__ - AI 处理完成，已处理 100 条
+2026-06-02 21:09:59,123 [INFO] __main__ - 
+============================================================
+2026-06-02 21:09:59,123 [INFO] __main__ - 全部完成!
+2026-06-02 21:09:59,123 [INFO] __main__ - ============================================================
