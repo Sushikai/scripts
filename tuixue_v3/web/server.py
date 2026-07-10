@@ -11,6 +11,9 @@ import functools
 import json
 import logging
 import os
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 import uuid
@@ -1973,6 +1976,101 @@ async def api_backtest(req: BacktestRequest):
 
 
 # ───────────────────────────────────────────────────────────
+# 复盘系统 (2026-07-10)
+# ───────────────────────────────────────────────────────────
+from . import review as _review
+
+@app.get("/api/review/trades")
+async def api_review_list_trades(limit: int = 50, code: str | None = None, since_days: int | None = 90):
+    """最近 N 笔交易(含最新一次 AI 复盘摘要)。"""
+    try:
+        trades = _review.list_trades(limit=limit, code=code, since_days=since_days)
+        # 每笔挂上 last_review(若有)
+        for t in trades:
+            t["last_review"] = _review.list_reviews(t["id"])[0] if _review.list_reviews(t["id"]) else None
+        return envelope(data={"trades": trades, "count": len(trades)})
+    except Exception as e:
+        log.exception("list_trades")
+        return envelope(error=str(e), status_code=500)
+
+
+@app.post("/api/review/trades")
+async def api_review_record_trade(payload: dict):
+    """记一笔交易。payload: {code, direction, price, shares, occurred_at?, memo?, tags?[]}"""
+    try:
+        tid = _review.record_trade(
+            code=payload.get("code", ""),
+            direction=payload.get("direction", "buy"),
+            price=float(payload.get("price", 0)),
+            shares=int(payload.get("shares", 0)),
+            occurred_at=payload.get("occurred_at"),
+            memo=payload.get("memo", ""),
+            tags=payload.get("tags", []) or [],
+        )
+        return envelope(data={"trade_id": tid, "trade": _review.get_trade(tid)})
+    except Exception as e:
+        log.exception("record_trade")
+        return envelope(error=str(e), status_code=400)
+
+
+@app.put("/api/review/trades/{trade_id}")
+async def api_review_update_trade(trade_id: int, payload: dict):
+    try:
+        ok = _review.update_trade(trade_id, **payload)
+        return envelope(data={"updated": ok, "trade": _review.get_trade(trade_id)})
+    except Exception as e:
+        return envelope(error=str(e), status_code=400)
+
+
+@app.delete("/api/review/trades/{trade_id}")
+async def api_review_delete_trade(trade_id: int):
+    try:
+        ok = _review.delete_trade(trade_id)
+        return envelope(data={"deleted": ok})
+    except Exception as e:
+        return envelope(error=str(e), status_code=400)
+
+
+@app.post("/api/review/trades/{trade_id}/review")
+async def api_review_run(trade_id: int, force: bool = False):
+    """AI 复盘:查 trade_reviews, 已有返缓存(force=False),否则调 LLM。"""
+    try:
+        result = _review.review_trade(trade_id, force=force)
+        return envelope(data=result)
+    except Exception as e:
+        log.exception("review_trade")
+        return envelope(error=str(e), status_code=500)
+
+
+@app.get("/api/review/trades/{trade_id}/reviews")
+async def api_review_list(trade_id: int):
+    """某笔交易的所有 review 记录。"""
+    try:
+        return envelope(data={"reviews": _review.list_reviews(trade_id)})
+    except Exception as e:
+        return envelope(error=str(e), status_code=500)
+
+
+@app.get("/api/review/stats")
+async def api_review_stats(since_days: int = 90):
+    """胜率/平均盈亏/常见错误。"""
+    try:
+        return envelope(data=_review.summary_stats(since_days=since_days))
+    except Exception as e:
+        return envelope(error=str(e), status_code=500)
+
+
+@app.get("/api/review/next_picks")
+async def api_review_next_picks():
+    """次日选股 + 用户错模式风险。"""
+    try:
+        return envelope(data=_review.next_day_picks())
+    except Exception as e:
+        log.exception("next_picks")
+        return envelope(error=str(e), status_code=500)
+
+
+# ───────────────────────────────────────────────────────────
 # 龙头战法 - 6 维评分 + Top 10 + 全涨停列表
 # ───────────────────────────────────────────────────────────
 @app.get("/api/dragons")
@@ -2269,6 +2367,24 @@ async def _on_startup_preheat():
 def main():
     import uvicorn
     import argparse
+    # 加载 ~/.hermes/env.sh (MINIMAX_API_KEY 等)
+    _env_sh = Path.home() / ".hermes" / "env.sh"
+    if _env_sh.exists():
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["bash", "-c", f"source {_env_sh} && env -0"],
+                capture_output=True, timeout=5, text=True,
+            )
+            for line in (r.stdout or "").split("\x00"):
+                if "=" in line and not line.startswith("_"):
+                    k, _, v = line.partition("=")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+            log.info(f"已 source {_env_sh} ({sum(1 for k in os.environ if k.startswith('MINIMAX'))} 个 MINIMAX_*)")
+        except Exception as e:
+            log.warning(f"source env.sh 失败: {e}")
+
     p = argparse.ArgumentParser(description="退学 v3 控制台")
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=7799)
@@ -2294,6 +2410,327 @@ def main():
     print()
     uvicorn.run("tuixue_v3.web.server:app", host=args.host, port=args.port,
                 reload=args.reload, log_level="warning")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 复盘系统 v2 — 资金占比 + SSE 流 (2026-07-10)
+# ═══════════════════════════════════════════════════════════════
+
+# 资金流缓存(60s 短 TTL,前端每 10s 拉)
+_cache_capital = TTLCache(default_ttl=60.0)
+
+
+def _fetch_capital_one(code: str) -> dict:
+    """单只股票的资金结构(主力/散户/基金占比)。
+    3 源降级: 东财 push2 → 腾讯 qt.gtimg → akshare
+    关键: server 进程网络可能受限,用 subprocess 调独立 Python 拿数据(绕开 server 网络栈)
+    """
+    code = code.strip().zfill(6)
+
+    # 用独立子进程拿数据,避免 server 进程网络问题
+    py = sys.executable  # 当前 server 用的 python
+    helper = textwrap.dedent(f'''
+        import sys, json, requests
+        code = "{code}"
+        out = {{"code": code, "ts": 0, "main_pct": 0, "retail_pct": 0, "fund_pct": 0,
+                "main_amount": 0, "big_amount": 0, "mid_amount": 0, "sml_amount": 0, "source": "fallback"}}
+        # 试 1: 东财 push2
+        try:
+            secid = ("0" if code.startswith(("6","9","5")) else "1") + "." + code
+            r = requests.get("https://push2.eastmoney.com/api/qt/stock/get",
+                             params={{"secid": secid, "fields": "f170,f171,f168,f169"}},
+                             headers={{"User-Agent": "Mozilla/5.0"}}, timeout=5)
+            if r.status_code == 200:
+                j = r.json() or {{}}
+                d = j.get("data") or {{}}
+                if d:
+                    main = float(d.get("f170", 0) or 0) / 1e4
+                    big = float(d.get("f168", 0) or 0) / 1e4
+                    mid = float(d.get("f169", 0) or 0) / 1e4
+                    sml = float(d.get("f171", 0) or 0) / 1e4
+                    total = abs(main) + abs(sml) + 1e-6
+                    out.update({{
+                        "main_pct": round(main / total * 100, 2),
+                        "retail_pct": round(sml / total * 100, 2),
+                        "main_amount": round(main, 2),
+                        "big_amount": round(big, 2),
+                        "mid_amount": round(mid, 2),
+                        "sml_amount": round(sml, 2),
+                        "source": "eastmoney"
+                    }})
+                    print(json.dumps(out))
+                    sys.exit(0)
+        except Exception as e:
+            sys.stderr.write(f"eastmoney fail: {{e}}\\n")
+        # 试 2: 腾讯
+        try:
+            r = requests.get(f"https://qt.gtimg.cn/q=ff_{{code}}",
+                             headers={{"User-Agent": "Mozilla/5.0"}}, timeout=5)
+            if r.status_code == 200 and '="' in r.text:
+                body = r.text.split('="', 1)[1].rstrip('";')
+                fs = body.split("~")
+                if len(fs) > 34:
+                    main = float(fs[30] or 0)
+                    big = float(fs[31] or 0)
+                    mid = float(fs[33] or 0)
+                    sml = float(fs[34] or 0)
+                    total = abs(main) + abs(sml) + 1e-6
+                    out.update({{
+                        "main_pct": round(main / total * 100, 2),
+                        "retail_pct": round(sml / total * 100, 2),
+                        "main_amount": round(main, 2),
+                        "big_amount": round(big, 2),
+                        "mid_amount": round(mid, 2),
+                        "sml_amount": round(sml, 2),
+                        "source": "tencent"
+                    }})
+                    print(json.dumps(out))
+                    sys.exit(0)
+        except Exception as e:
+            sys.stderr.write(f"tencent fail: {{e}}\\n")
+        # 试 3: akshare
+        try:
+            import akshare as ak
+            market = "sh" if code.startswith(("6","9","5")) else "sz"
+            df = ak.stock_individual_fund_flow(stock=code, market=market)
+            if df is not None and not df.empty:
+                row = df.iloc[-1]
+                main = float(row.get("主力净流入-净额") or 0) / 1e4
+                big = float(row.get("大单净额") or 0) / 1e4
+                mid = float(row.get("中单净额") or 0) / 1e4
+                sml = float(row.get("小单净额") or 0) / 1e4
+                main_pct = float(row.get("主力净流入-净占比") or 0)
+                total = abs(main) + abs(sml) + 1e-6
+                out.update({{
+                    "main_pct": main_pct,
+                    "retail_pct": round(sml / total * 100, 2),
+                    "main_amount": round(main, 2),
+                    "big_amount": round(big, 2),
+                    "mid_amount": round(mid, 2),
+                    "sml_amount": round(sml, 2),
+                    "source": "akshare"
+                }})
+                print(json.dumps(out))
+                sys.exit(0)
+        except Exception as e:
+            sys.stderr.write(f"akshare fail: {{e}}\\n")
+        # 全失败
+        print(json.dumps(out))
+    ''').strip()
+
+    try:
+        r = subprocess.run(
+            [py, "-c", helper],
+            capture_output=True, timeout=20, text=True,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            data = json.loads(r.stdout.strip().splitlines()[-1])
+            data["ts"] = int(time.time())
+            return data
+        else:
+            log.debug(f"capital helper failed: rc={r.returncode} stderr={r.stderr[:200]}")
+    except subprocess.TimeoutExpired:
+        log.warning(f"_fetch_capital_one {code} 子进程超时")
+    except Exception as e:
+        log.warning(f"_fetch_capital_one {code} 异常: {e}")
+
+    return {
+        "code": code, "ts": int(time.time()),
+        "main_pct": 0.0, "retail_pct": 0.0, "fund_pct": 0.0,
+        "main_amount": 0.0, "big_amount": 0.0, "mid_amount": 0.0, "sml_amount": 0.0,
+        "source": "fallback",
+    }
+
+
+@app.get("/api/capital_flow")
+async def api_capital_flow(codes: str = Query(..., description="逗号分隔,最多 20 只")):
+    """批量资金结构(主力/散户/基金占比)。
+    前端表格每 10s 调一次。
+    性能:用 1 个 helper 子进程拿所有 code,3 源并发,避免每只 1 个 subprocess。
+    """
+    code_list = [c.strip().zfill(6) for c in codes.split(",") if c.strip()][:20]
+    if not code_list:
+        return envelope(data={"flows": []})
+
+    # 先返缓存命中,缺哪些再拉
+    cached_out = []
+    missing = []
+    for c in code_list:
+        hit = _cache_capital.get(("cap", c))
+        if hit is not None:
+            cached_out.append(hit)
+        else:
+            missing.append(c)
+    if not missing:
+        return envelope(data={"flows": cached_out, "ts": time.time(), "cached": True})
+
+    # 用 1 个 helper 子进程批量拉 missing
+    try:
+        result = await asyncio.wait_for(
+            to_thread(_batch_capital_helper, missing),
+            timeout=min(20, 4 + len(missing) * 2),
+        )
+        if result:
+            for item in result:
+                _cache_capital.set(("cap", item["code"]), item)
+            flows = cached_out + result
+        else:
+            flows = cached_out
+        return envelope(data={"flows": flows, "ts": time.time(), "cached": False})
+    except Exception as e:
+        log.warning(f"/api/capital_flow 失败: {e}")
+        return envelope(error=str(e), data={"flows": cached_out})
+
+
+def _batch_capital_helper(codes: list[str]) -> list[dict]:
+    """单子进程批量拉 N 只股票的资金结构(3 源降级:东财→腾讯→akshare)。
+    用 curl 子进程 (系统 PATH 里有),不用 Python requests — 绕开 server 进程网络栈问题。
+    """
+    out = []
+    for code in codes:
+        result = {
+            "code": code, "ts": int(time.time()),
+            "main_pct": 0.0, "retail_pct": 0.0, "fund_pct": 0.0,
+            "main_amount": 0.0, "big_amount": 0.0, "mid_amount": 0.0, "sml_amount": 0.0,
+            "source": "fallback",
+        }
+        # 1) 东财 push2 (用 curl 命令行数组,避免引号转义问题)
+        for retry in range(2):
+            try:
+                secid = ("0" if code.startswith(("6","9","5")) else "1") + "." + code
+                r = subprocess.run(
+                    ["curl", "-s", "--max-time", "6",
+                     "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36",
+                     "-H", "Referer: https://quote.eastmoney.com/",
+                     f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f170,f171,f168,f169"],
+                    capture_output=True, timeout=8, text=True,
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    j = json.loads(r.stdout) or {}
+                    d = j.get("data") or {}
+                    if d and d.get("f170") is not None:
+                        main = float(d.get("f170", 0) or 0) / 1e4
+                        big = float(d.get("f168", 0) or 0) / 1e4
+                        mid = float(d.get("f169", 0) or 0) / 1e4
+                        sml = float(d.get("f171", 0) or 0) / 1e4
+                        tot = abs(main) + abs(sml) + 1e-6
+                        result.update({
+                            "main_pct": round(main / tot * 100, 2),
+                            "retail_pct": round(sml / tot * 100, 2),
+                            "main_amount": round(main, 2),
+                            "big_amount": round(big, 2),
+                            "mid_amount": round(mid, 2),
+                            "sml_amount": round(sml, 2),
+                            "source": "eastmoney",
+                        })
+                        break
+            except Exception as e:
+                log.debug(f"{code} eastmoney retry{retry}: {e}")
+        if result["source"] != "fallback":
+            out.append(result); continue
+        # 2) 腾讯 qt.gtimg
+        try:
+            market_prefix = "sh" if code.startswith(("6","9","5")) else "sz"
+            r = subprocess.run(
+                ["curl", "-s", "--max-time", "5",
+                 "-H", "User-Agent: Mozilla/5.0",
+                 "-H", "Referer: https://gu.qq.com/",
+                 f"https://qt.gtimg.cn/q=ff_{market_prefix}{code}"],
+                capture_output=True, timeout=7, text=True,
+            )
+            if r.returncode == 0 and r.stdout and '="' in r.stdout and 'none_match' not in r.stdout:
+                body = r.stdout.split('="', 1)[1].rstrip('";')
+                fs = body.split("~")
+                if len(fs) > 34:
+                    main = float(fs[30] or 0); big = float(fs[31] or 0)
+                    mid = float(fs[33] or 0); sml = float(fs[34] or 0)
+                    tot = abs(main) + abs(sml) + 1e-6
+                    result.update({
+                        "main_pct": round(main / tot * 100, 2),
+                        "retail_pct": round(sml / tot * 100, 2),
+                        "main_amount": round(main, 2),
+                        "big_amount": round(big, 2),
+                        "mid_amount": round(mid, 2),
+                        "sml_amount": round(sml, 2),
+                        "source": "tencent",
+                    })
+                    out.append(result); continue
+        except Exception as e:
+            log.debug(f"{code} tencent: {e}")
+        # 3) akshare 兜底
+        try:
+            py = sys.executable
+            market = "sh" if code.startswith(("6","9","5")) else "sz"
+            ak_script = (
+                f"import sys, json\n"
+                f"sys.path.insert(0, '/Users/kaikai/.hermes/hermes-agent/venv/lib/python3.11/site-packages')\n"
+                f"import akshare as ak\n"
+                f"df = ak.stock_individual_fund_flow(stock='{code}', market='{market}')\n"
+                f"r = df.iloc[-1].to_dict() if df is not None and not df.empty else {{}}\n"
+                f"print(json.dumps(r, default=str))"
+            )
+            r = subprocess.run([py, "-c", ak_script], capture_output=True, timeout=18, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                row = json.loads(r.stdout.strip().splitlines()[-1])
+                main = float(row.get("主力净流入-净额") or 0) / 1e4
+                big = float(row.get("大单净额") or 0) / 1e4
+                mid = float(row.get("中单净额") or 0) / 1e4
+                sml = float(row.get("小单净额") or 0) / 1e4
+                main_pct = float(row.get("主力净流入-净占比") or 0)
+                tot = abs(main) + abs(sml) + 1e-6
+                result.update({
+                    "main_pct": main_pct,
+                    "retail_pct": round(sml / tot * 100, 2),
+                    "main_amount": round(main, 2),
+                    "big_amount": round(big, 2),
+                    "mid_amount": round(mid, 2),
+                    "sml_amount": round(sml, 2),
+                    "source": "akshare",
+                })
+                out.append(result); continue
+        except Exception as e:
+            log.debug(f"{code} akshare: {e}")
+        out.append(result)
+    return out
+
+
+@app.get("/api/stream/review/{trade_id}")
+async def api_stream_review(trade_id: int):
+    """SSE 流:AI 复盘进度推送。
+    事件类型:
+      - 'start'   复盘开始
+      - 'progress' 阶段消息(build_ctx / ai_call / parse)
+      - 'rules'    铁律分析片段
+      - 'done'     完成(带最终结果)
+      - 'error'    失败
+    """
+    async def event_gen():
+        # 1) start
+        yield {"event": "start", "data": json.dumps({"trade_id": trade_id, "ts": time.time()}, ensure_ascii=False)}
+        await asyncio.sleep(0.05)
+        try:
+            # 2) build context
+            yield {"event": "progress", "data": json.dumps({"stage": "build_ctx", "msg": "拉盘面 K线/资金/游资..."}, ensure_ascii=False)}
+            await asyncio.sleep(0.05)
+            # 3) ai call (同步执行 review_trade; force=False 优先用缓存)
+            import functools as _ft
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                _EXECUTOR, _ft.partial(_review.review_trade, trade_id, force=False)
+            )
+            # 4) rules 流式推送
+            for r in result.get("rules_failed", []):
+                yield {"event": "rule_failed", "data": json.dumps(r, ensure_ascii=False)}
+                await asyncio.sleep(0.05)
+            for r in result.get("rules_passed", []):
+                yield {"event": "rule_passed", "data": json.dumps(r, ensure_ascii=False)}
+                await asyncio.sleep(0.03)
+            # 5) done
+            yield {"event": "done", "data": json.dumps(result, ensure_ascii=False, default=str)}
+        except Exception as e:
+            log.exception("stream_review")
+            yield {"event": "error", "data": json.dumps({"err": str(e)[:300]}, ensure_ascii=False)}
+    return EventSourceResponse(event_gen())
 
 
 if __name__ == "__main__":

@@ -33,6 +33,8 @@ const API_TIMEOUTS = {
   '/api/dragons':          20_000,  // 龙头榜 (冷启动 11s, 热后 0.1s)
   '/api/sectors/sw':       15_000,  // 板块情绪
   '/api/sector':           15_000,
+  '/api/review/trades/':   200_000, // 复盘 AI 单次 55s+ (2026-07-10)
+  '/api/stream/review/':   210_000, // SSE 复盘
 };
 
 function _timeoutFor(path) {
@@ -411,7 +413,23 @@ function renderScreenResults(data, aiCells = {}) {
   if (agg) renderAIAggregate(agg);
 
   if (!cands.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty">当日无候选</td></tr>';
+    // 显示 block 原因(L2 高潮不开仓 / L1 全军覆没 / etc)
+    const reason = data.reason || '';
+    let detail = '';
+    if (l2?.cycle_blocked > 0) {
+      const cd = l2.cycle_detail || {};
+      detail = `<br><span class="caption dim" style="margin-top:.5rem;display:inline-block">L2 block: 阶段=${cd.phase || '?'} · 情绪分=${cd.emotion_score || '?'} · 涨停=${cd.zt_count || '?'} · ${cd.block_reason || ''}</span>`;
+    } else if (l1?.passed === 0) {
+      detail = `<br><span class="caption dim" style="margin-top:.5rem;display:inline-block">L1 全军覆没: 低流动性 ${l1.low_liquidity || 0} · 量能下行 ${l1.vol_down || 0} · 黑名单 ${l1.blacklisted || 0} · 烂基本 ${l1.bad_fundamental || 0}</span>`;
+    }
+    tbody.innerHTML = `<tr><td colspan="10" class="empty center">
+      <div style="padding:1.5rem 0">
+        <div style="font-size:1.1rem;color:var(--ink-2,#a8a39a);margin-bottom:.5rem">🛑 当日无候选 (${reason || 'no_picks'})</div>
+        <div class="caption dim">191 涨停池 → 38 热门板块交集 → L1:${l1.passed || 0} → L2:${l2.passed || 0} → L3:${l3.passed || 0} → L4:${l4.passed || 0}</div>
+        ${detail}
+        <div class="caption dim" style="margin-top:.8rem">💡 退学铁律:情绪高潮不开仓 · 等待次日"退潮"或"启动"信号</div>
+      </div>
+    </td></tr>`;
     return;
   }
   tbody.innerHTML = cands.map(c => {
@@ -738,6 +756,79 @@ $('#stock-search')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') doStockSearch();
 });
 
+// ── 查询历史(localStorage 持久化,最多 10 条,最近在前) ──
+const _STOCK_HIST_KEY = 'tuixue_stock_history_v1';
+const _STOCK_HIST_MAX = 10;
+
+function _loadHist() {
+  try {
+    const raw = localStorage.getItem(_STOCK_HIST_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function _saveHist(arr) {
+  try { localStorage.setItem(_STOCK_HIST_KEY, JSON.stringify(arr.slice(0, _STOCK_HIST_MAX))); }
+  catch (e) { console.warn('save stock history failed', e); }
+}
+function _addHist(code, name) {
+  if (!code) return;
+  code = String(code).padStart(6, '0');
+  name = name || code;
+  let arr = _loadHist();
+  // 去重(同 code 提到最前)
+  arr = arr.filter(x => x.code !== code);
+  arr.unshift({ code, name, ts: Date.now() });
+  arr = arr.slice(0, _STOCK_HIST_MAX);
+  _saveHist(arr);
+  _renderHist();
+}
+function _removeHist(code) {
+  let arr = _loadHist().filter(x => x.code !== code);
+  _saveHist(arr);
+  _renderHist();
+}
+function _clearHist() {
+  _saveHist([]);
+  _renderHist();
+}
+function _renderHist() {
+  const box = $('#stock-history');
+  const list = $('#sh-list');
+  if (!box || !list) return;
+  const arr = _loadHist();
+  if (!arr.length) { box.hidden = true; return; }
+  box.hidden = false;
+  list.innerHTML = arr.map(it => `
+    <span class="sh-pill" data-code="${it.code}" title="${escapeHtml(it.name)} · ${new Date(it.ts).toLocaleString('zh-CN',{hour12:false})}">
+      <span class="sh-code">${escapeHtml(it.code)}</span>
+      <span class="sh-name">${escapeHtml((it.name || '').slice(0, 8))}</span>
+      <span class="sh-x" data-rm="${it.code}" title="删除">×</span>
+    </span>
+  `).join('');
+  // 绑定点击(排除 ×)
+  list.querySelectorAll('.sh-pill').forEach(p => {
+    p.addEventListener('click', (e) => {
+      if (e.target.dataset.rm) {
+        e.stopPropagation();
+        _removeHist(e.target.dataset.rm);
+        return;
+      }
+      const c = p.dataset.code;
+      if (c) {
+        $('#stock-search').value = c;
+        loadStockDetail(c);
+      }
+    });
+  });
+}
+// 初始化 + 清空按钮
+document.addEventListener('DOMContentLoaded', () => {
+  _renderHist();
+  $('#sh-clear')?.addEventListener('click', () => {
+    if (confirm('清空查询历史?')) _clearHist();
+  });
+});
+
 async function doStockSearch() {
   const q = $('#stock-search').value.trim();
   const box = $('#stock-search-results');
@@ -756,7 +847,10 @@ async function doStockSearch() {
         <span class="rp-name">${s.name}</span>
       </button>`).join('');
     box.querySelectorAll('.result-pill').forEach(p =>
-      p.addEventListener('click', () => loadStockDetail(p.dataset.code)));
+      p.addEventListener('click', () => {
+        loadStockDetail(p.dataset.code);
+        _addHist(p.dataset.code, p.dataset.name);
+      }));
   } catch (e) {
     box.innerHTML = `<div class="dim">搜索失败：${e.message}</div>`;
   }
@@ -769,6 +863,9 @@ async function loadStockDetail(code) {
   try {
     const data = await api(`/api/stock/${code}`);
     renderStockDetail(code, data);
+    // 记录到历史(从 stock 详情接口拿 name)
+    const name = (data.quote && data.quote.name) || (data.name) || code;
+    _addHist(code, name);
   } catch (e) {
     toast(`加载失败：${e.message}`, 'error');
   }
@@ -2131,6 +2228,7 @@ const _origShowView = showView;
 showView = function(name) {
   _origShowView(name);
   if (name === 'dragons' && !_dragonsLoaded) loadDragons(false);
+  if (name === 'review') _reviewOnViewEnter();
 };
 $$('[data-jump]').forEach(el => {
   el.addEventListener('click', () => showView(el.dataset.jump));
@@ -2454,4 +2552,418 @@ async function loadStockLimitUp(code, sectorName) {
 document.addEventListener('DOMContentLoaded', () => {
   const nr = $('#news-refresh-btn');      if (nr) nr.addEventListener('click', () => loadNewsList(true));
   const sr = $('#sectors-refresh-btn');  if (sr) sr.addEventListener('click', () => loadSectorsList(true));
+});
+
+// ═══════════════════════════════════════════════════════════
+// REVIEW 复盘 view · 铁律冲突 + 资金占比 + AI 建议 (2026-07-10)
+// ═══════════════════════════════════════════════════════════
+
+const _reviewState = {
+  trades: [],
+  flows: new Map(),   // code -> {main_pct, retail_pct, fund_pct, ...}
+  flowsTimer: null,
+};
+
+function _reviewFmtNum(n, d = 2) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toFixed(d);
+}
+
+function _reviewPct(n) {
+  if (n == null || isNaN(n)) return { text: '—', cls: 'cell-flat' };
+  if (n > 0.5)  return { text: '+' + n.toFixed(1) + '%', cls: 'cell-up' };
+  if (n < -0.5) return { text: n.toFixed(1) + '%',  cls: 'cell-down' };
+  return { text: n.toFixed(1) + '%', cls: 'cell-flat' };
+}
+
+function _reviewConflictBadge(n) {
+  if (n == null) return '<span class="conflict-badge low">—</span>';
+  if (n === 0) return `<span class="conflict-badge low">0</span>`;
+  if (n <= 2)  return `<span class="conflict-badge mid">${n}</span>`;
+  return `<span class="conflict-badge high">${n}</span>`;
+}
+
+function _reviewRulePills(rules, kind) {
+  if (!rules || rules.length === 0) {
+    return `<span class="caption dim">—</span>`;
+  }
+  return rules.slice(0, 4).map(r => {
+    const id = (r && r.id) ? r.id : '?';
+    const text = (r && r.text) ? r.text : (typeof r === 'string' ? r : '');
+    return `<span class="rule-pill ${kind}" title="${escapeHtml(text)}"><span class="rid">${escapeHtml(id)}</span>${escapeHtml(text.slice(0, 18))}</span>`;
+  }).join('');
+}
+
+function _reviewDirection(d) {
+  if (d === 'buy')  return '<span class="cell-up">▲ 买</span>';
+  if (d === 'sell') return '<span class="cell-down">▼ 卖</span>';
+  return d;
+}
+
+function _reviewVerdict(v) {
+  if (!v || v === '—') return '<span class="caption dim">—</span>';
+  return `<span class="verdict-pill ${escapeHtml(v)}">${escapeHtml(v)}</span>`;
+}
+
+async function _reviewLoadList() {
+  const tbody = $('#review-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="15" class="dim center">加载中…</td></tr>';
+  try {
+    const r = await _fetchWithTimeout('/api/review/trades?limit=80&since_days=180');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    _reviewState.trades = (j.data || []).map(t => _reviewEnrichRow(t));
+    _reviewRender();
+    _reviewRefreshFlows();
+    _reviewLoadStats();
+    $('#review-ts').textContent = '已更新 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="15" class="dim center">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function _reviewEnrichRow(t) {
+  // 找该笔交易的最新价 / 盈亏 (用 last_review 不够,价格字段在 t 上)
+  t._direction_cls = t.direction === 'buy' ? 'cell-up' : 'cell-down';
+  return t;
+}
+
+function _reviewRender() {
+  const tbody = $('#review-tbody');
+  if (!tbody) return;
+  if (!_reviewState.trades.length) {
+    tbody.innerHTML = '<tr><td colspan="15" class="dim center">暂无交易 · 上面录入第一笔</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _reviewState.trades.map(t => {
+    const flow = _reviewState.flows.get(t.code) || {};
+    const main = _reviewPct(flow.main_pct);
+    const retail = _reviewPct(flow.retail_pct);
+    const fund = _reviewPct(flow.fund_pct);
+    const rev = t.last_review || {};
+    return `
+      <tr data-trade-id="${t.id}">
+        <td><code>${escapeHtml(t.code)}</code></td>
+        <td>${escapeHtml(t.name || '—')}</td>
+        <td class="${t._direction_cls}">${_reviewDirection(t.direction)}</td>
+        <td class="cell-num">${_reviewFmtNum(t.price, 2)}</td>
+        <td class="cell-num">${t.shares}</td>
+        <td class="caption dim">${escapeHtml((t.occurred_at || '').replace('T', ' ').slice(0, 16))}</td>
+        <td class="cell-num ${main.cls}">${main.text}</td>
+        <td class="cell-num ${retail.cls}">${retail.text}</td>
+        <td class="cell-num ${fund.cls}">${fund.text}</td>
+        <td>${_reviewRulePills(rev.rules_passed, 'pass')}</td>
+        <td>${_reviewRulePills(rev.rules_failed, 'fail')}</td>
+        <td>${_reviewConflictBadge(rev.rules_conflict_count)}</td>
+        <td>${escapeHtml(rev.mistake_pattern || '—')}</td>
+        <td class="caption" title="${escapeHtml(rev.ai_advice || '')}">${escapeHtml(rev.ai_advice || (rev.summary || '—').slice(0, 30))}</td>
+        <td>
+          <button class="btn-mini primary" onclick="_reviewRun(${t.id})">AI 复盘</button>
+          <button class="btn-mini danger"  onclick="_reviewDelete(${t.id})">删</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function _reviewRefreshFlows() {
+  const codes = [...new Set(_reviewState.trades.map(t => t.code))].filter(Boolean);
+  if (!codes.length) return;
+  try {
+    const r = await _fetchWithTimeout('/api/capital_flow?codes=' + codes.join(','));
+    if (!r.ok) return;
+    const j = await r.json();
+    (j.data?.flows || []).forEach(f => {
+      _reviewState.flows.set(f.code, f);
+    });
+    _reviewRender();
+  } catch (e) {
+    console.warn('capital_flow refresh failed', e);
+  }
+}
+
+function _reviewStartFlowsPolling() {
+  if (_reviewState.flowsTimer) clearInterval(_reviewState.flowsTimer);
+  _reviewState.flowsTimer = setInterval(_reviewRefreshFlows, 10000);
+}
+
+async function _reviewRun(tradeId) {
+  const btn = document.querySelector(`tr[data-trade-id="${tradeId}"] .btn-mini.primary`);
+  if (btn) { btn.disabled = true; btn.textContent = 'AI 复盘中…'; }
+  // 先开 toast 提示(后端 55s+ 跑)
+  showToast(`复盘 #${tradeId} AI 调用中…约需 1 分钟`, 'info');
+  // 直接走普通 POST(最稳,不走 SSE — SSE 30s timeout 不够,容易被代理切断)
+  try {
+    const r = await _fetchWithTimeout(`/api/review/trades/${tradeId}/review?force=true`, {
+      method: 'POST',
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (j.ok) {
+      showToast(`复盘完成: ${j.data?.verdict || '?'} ${j.data?.score || '?'}分`, 'success');
+      _reviewLoadList();
+    } else {
+      showToast(`复盘失败: ${j.error || '未知错误'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`复盘超时/失败: ${e.message}`, 'error');
+    console.error('review_trade failed', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 复盘'; }
+  }
+}
+
+// 简单 toast(用现成 alert 替代,避免再加组件)
+function showToast(msg, type) {
+  if (window.__toastBox) {
+    window.__toastBox.remove();
+  }
+  const colors = { info: '#d4a056', success: '#4fb074', error: '#d97a6c' };
+  const box = document.createElement('div');
+  box.textContent = msg;
+  box.style.cssText = `
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 12px 24px; background: rgba(20,18,14,0.95); color: ${colors[type] || colors.info};
+    border: 1px solid ${colors[type] || colors.info}; border-radius: 8px;
+    font-size: 14px; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    max-width: 80vw;
+  `;
+  document.body.appendChild(box);
+  window.__toastBox = box;
+  setTimeout(() => { if (box.parentNode) box.remove(); }, 6000);
+}
+
+async function _reviewDelete(tradeId) {
+  if (!confirm('确认删除这笔交易及其复盘?')) return;
+  try {
+    const r = await _fetchWithTimeout('/api/review/trades/' + tradeId, { method: 'DELETE' });
+    const j = await r.json();
+    if (j.ok) _reviewLoadList();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+async function _reviewLoadNextPicks() {
+  const list = $('#review-next-pick-list');
+  const meta = $('#review-next-meta');
+  if (!list) return;
+  list.innerHTML = '<li class="caption dim">加载中 (走 screen 候选 + AI 错模式预警)…</li>';
+  try {
+    const r = await _fetchWithTimeout('/api/review/next_picks');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const d = j.data || {};
+    if (!d.picks || !d.picks.length) {
+      list.innerHTML = '<li class="caption dim">无候选 (可能 screen 失败,或没有交易记录)</li>';
+      meta.textContent = '';
+      return;
+    }
+    if (d.user_patterns && d.user_patterns.length) {
+      meta.innerHTML = `⚠ <span style="color:var(--accent)">你的常见错模式:</span> ${d.user_patterns.slice(0, 4).map(p => `<span class="rule-pill fail">${escapeHtml(p)}</span>`).join(' ')}`;
+    } else {
+      meta.textContent = '✅ 暂无历史错模式(继续积累交易后会有更精准预警)';
+    }
+    list.innerHTML = d.picks.map((p, i) => {
+      const v = p.ai_verdict || '观望';
+      const score = p.ai_score != null ? p.ai_score : '?';
+      const risk = (p.risk_warnings || []).map(r => `<span class="rule-pill warn">${escapeHtml(r)}</span>`).join(' ');
+      return `<li>
+        <span class="np-idx">${i+1}</span>
+        <code class="np-code" onclick="loadStockDetail('${p.code}')">${escapeHtml(p.code)}</code>
+        <span class="np-name">${escapeHtml(p.name || '—')}</span>
+        <span class="np-sector caption dim">${escapeHtml(p.sector || '')}</span>
+        <span class="verdict-pill ${escapeHtml(v)}">${escapeHtml(v)} ${score}/100</span>
+        <span class="np-risk">${risk}</span>
+      </li>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<li class="caption dim">加载失败: ${escapeHtml(e.message)}</li>`;
+  }
+}
+
+async function _reviewLoadStats() {
+  try {
+    const r = await _fetchWithTimeout('/api/review/stats?since_days=90');
+    if (!r.ok) return;
+    const j = await r.json();
+    const d = j.data || {};
+    const tiles = [
+      { lbl: '已平仓', val: d.closed ?? 0 },
+      { lbl: '胜率',   val: d.win_rate != null ? d.win_rate.toFixed(1) + '%' : '—', cls: d.win_rate >= 50 ? 'cell-up' : 'cell-down' },
+      { lbl: '平均盈亏', val: d.avg_pnl != null ? (d.avg_pnl > 0 ? '+' : '') + d.avg_pnl.toFixed(2) + '%' : '—', cls: d.avg_pnl > 0 ? 'cell-up' : 'cell-down' },
+      { lbl: '最佳', val: d.best ? (d.best.pnl_pct > 0 ? '+' : '') + d.best.pnl_pct.toFixed(2) + '%' : '—', cls: 'cell-up' },
+      { lbl: '最差', val: d.worst ? d.worst.pnl_pct.toFixed(2) + '%' : '—', cls: 'cell-down' },
+    ];
+    $('#review-stats').innerHTML = tiles.map(t => `
+      <div class="stat-tile">
+        <div class="lbl">${t.lbl}</div>
+        <div class="val ${t.cls || ''}">${t.val}</div>
+      </div>
+    `).join('') + (d.by_pattern && d.by_pattern.length ? `
+      <div class="stat-tile" style="grid-column: span 2">
+        <div class="lbl">常见错误模式</div>
+        <div style="font-size:.85rem; margin-top:.3rem">
+          ${d.by_pattern.slice(0, 5).map(p => `<span class="rule-pill fail">${escapeHtml(p.pattern)} ×${p.count}</span>`).join(' ')}
+        </div>
+      </div>
+    ` : '');
+  } catch (e) { console.warn('stats load failed', e); }
+}
+
+// 录入表单
+function _reviewBindForm() {
+  const form = $('#review-form');
+  if (!form || form._bound) return;
+  form._bound = true;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = $('#rf-code').value.trim();
+    const nameInput = $('#rf-name');
+    const name = (nameInput.value || '').trim() || null;
+    const direction = $('#rf-direction').value;
+    const price = parseFloat($('#rf-price').value);
+    const shares = parseInt($('#rf-shares').value);
+    const memo = ($('#rf-memo').value || '').trim();
+    if (!code || !price || !shares) {
+      showToast('请填代码、价格、股数', 'error');
+      return;
+    }
+    showToast(`保存中…${code} ${direction} @ ${price}`, 'info');
+    try {
+      const r = await _fetchWithTimeout('/api/review/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, name, direction, price, shares, memo }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        $('#rf-code').value = '';
+        nameInput.value = ''; delete nameInput.dataset.autoFilled;
+        $('#rf-price').value = ''; $('#rf-shares').value = ''; $('#rf-memo').value = '';
+        showToast(`✓ 已记录 trade #${j.data.trade_id} · AI 复盘中…`, 'success');
+        _reviewLoadList();
+        // 自动跑复盘(后台,不阻塞)
+        if (j.data?.trade_id) {
+          setTimeout(() => _reviewRun(j.data.trade_id), 300);
+        }
+      } else {
+        showToast(`保存失败: ${j.error || '未知错误'}`, 'error');
+      }
+    } catch (err) {
+      showToast(`保存失败: ${err.message}`, 'error');
+      console.error('save trade failed', err);
+    }
+  });
+  // 股票代码联想 — 复用 /api/stock/search
+  const codeInput = $('#rf-code');
+  const nameInput = $('#rf-name');
+  if (codeInput && nameInput) {
+    let _searchBox = null;
+    let _searchTimer = null;
+
+    function _hideSuggest() {
+      if (_searchBox) { _searchBox.remove(); _searchBox = null; }
+    }
+
+    function _showSuggest(items) {
+      _hideSuggest();
+      if (!items || items.length === 0) return;
+      _searchBox = document.createElement('div');
+      _searchBox.className = 'review-suggest';
+      _searchBox.style.cssText = `
+        position: absolute; background: rgba(20,18,14,0.98);
+        border: 1px solid rgba(212,160,86,0.3); border-radius: 6px;
+        max-height: 280px; overflow-y: auto; z-index: 100;
+        min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      `;
+      items.slice(0, 10).forEach(item => {
+        const row = document.createElement('div');
+        row.style.cssText = 'padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid rgba(232,227,216,0.05);';
+        row.innerHTML = `<code style="color:#d4a056">${item.code}</code> <span style="color:#e8e3d8">${escapeHtml(item.name || '')}</span>`;
+        row.addEventListener('mouseenter', () => row.style.background = 'rgba(212,160,86,0.15)');
+        row.addEventListener('mouseleave', () => row.style.background = '');
+        row.addEventListener('click', () => {
+          codeInput.value = item.code;
+          nameInput.value = item.name || '';
+          _hideSuggest();
+          codeInput.focus();
+        });
+        _searchBox.appendChild(row);
+      });
+      // 定位到 codeInput 下方
+      const rect = codeInput.getBoundingClientRect();
+      _searchBox.style.left = rect.left + 'px';
+      _searchBox.style.top = (rect.bottom + 4) + 'px';
+      _searchBox.style.position = 'fixed';
+      document.body.appendChild(_searchBox);
+    }
+
+    codeInput.addEventListener('input', () => {
+      clearTimeout(_searchTimer);
+      const q = codeInput.value.trim();
+      if (!q) { _hideSuggest(); nameInput.value = ''; return; }
+      // 用户已填 name 时不打扰
+      if (nameInput.value && nameInput.dataset.autoFilled) {
+        // 如果继续改 code,清掉 autoFilled
+        delete nameInput.dataset.autoFilled;
+      }
+      _searchTimer = setTimeout(async () => {
+        try {
+          const r = await _fetchWithTimeout('/api/stock/search?q=' + encodeURIComponent(q));
+          if (!r.ok) return;
+          const j = await r.json();
+          const items = (j.data && j.data.results) || [];
+          if (items.length === 1 && items[0].code === q) {
+            // 精确匹配 — 直接填 name
+            nameInput.value = items[0].name;
+            nameInput.dataset.autoFilled = '1';
+            _hideSuggest();
+          } else {
+            _showSuggest(items);
+          }
+        } catch (e) { /* ignore */ }
+      }, 250);
+    });
+
+    codeInput.addEventListener('blur', () => {
+      // 延迟关闭,让 click 触发
+      setTimeout(_hideSuggest, 200);
+    });
+
+    // 也支持 name 输入反向查 code(可选)
+    nameInput.addEventListener('input', () => {
+      if (nameInput.dataset.autoFilled) delete nameInput.dataset.autoFilled;
+    });
+  }
+}
+
+// 切到 review view 时加载
+function _reviewOnViewEnter() {
+  if (document.querySelector('.view-review:not([hidden])')) {
+    _reviewBindForm();
+    _reviewLoadList();
+    _reviewStartFlowsPolling();
+    _reviewLoadNextPicks();
+    const btn = $('#review-next-pick-refresh');
+    if (btn && !btn._bound) {
+      btn._bound = true;
+      btn.addEventListener('click', () => _reviewLoadNextPicks());
+    }
+  }
+}
+
+// 切到 review view 时加载 (已通过 showView 钩子触发,这里不重复)
+// const _origJump = window.jumpTo; // 项目用 showView,不用 jumpTo — 之前的覆盖无效
+
+// 初始绑定(用户直接打开 review 时)
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(_reviewOnViewEnter, 200);
+  // 资金占比 10s 轮询
+  setInterval(() => {
+    if (document.querySelector('.view-review:not([hidden])')) {
+      _reviewRefreshFlows();
+    }
+  }, 10000);
 });

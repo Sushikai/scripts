@@ -39,7 +39,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS daily (
             code   TEXT NOT NULL,
-            date   TEXT NOT NULL,        -- YYYYMMDD
+            date   TEXT NOT NULL,
             open   REAL,
             high   REAL,
             low    REAL,
@@ -47,7 +47,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
             volume REAL,
             amount REAL,
             turnover REAL,
-            ts_updated REAL NOT NULL,    -- epoch seconds
+            ts_updated REAL NOT NULL,
             PRIMARY KEY (code, date)
         );
         CREATE INDEX IF NOT EXISTS idx_daily_code ON daily(code);
@@ -58,7 +58,98 @@ def _init_db(conn: sqlite3.Connection) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS ai_verdict (
+            date              TEXT NOT NULL,        -- YYYYMMDD; AGG = 综合榜
+            code              TEXT NOT NULL,        -- AGG 时存 '_aggregate_'
+            model             TEXT NOT NULL,
+            verdict           TEXT,
+            role              TEXT,                 -- 龙头/中军/杂毛(板块内角色定位)
+            conviction        INTEGER,
+            summary_md        TEXT,
+            layer_pass_json   TEXT,
+            rules_passed_json TEXT,
+            rules_failed_json TEXT,
+            key_risks_json    TEXT,
+            sector            TEXT,
+            payload_json      TEXT,                 -- 综合榜 / 原始 ai envelope
+            ts_updated        REAL NOT NULL,
+            PRIMARY KEY (date, code, model)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_verdict_date ON ai_verdict(date);
+        CREATE INDEX IF NOT EXISTS idx_ai_verdict_date_code ON ai_verdict(date, code);
+
+        -- 交易复盘 (2026-07-10)
+        CREATE TABLE IF NOT EXISTS trades (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            code         TEXT    NOT NULL,
+            name         TEXT,
+            direction    TEXT    NOT NULL,           -- 'buy' | 'sell'
+            price        REAL    NOT NULL,           -- 成交价
+            shares       INTEGER NOT NULL,           -- 股数(>=100)
+            occurred_at  TEXT    NOT NULL,           -- ISO8601 时间(自动填)
+            trade_date   TEXT    NOT NULL,           -- YYYYMMDD,索引查询用
+            mode         TEXT    DEFAULT 'manual',   -- manual / auto_import
+            memo         TEXT,                       -- 用户备注
+            tags         TEXT,                       -- JSON array 标签
+            created_at   REAL    DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_trades_code ON trades(code, trade_date);
+        CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(trade_date);
+        CREATE INDEX IF NOT EXISTS idx_trades_occurred ON trades(occurred_at);
+
+        -- AI 复盘 (每笔交易 1 条,关联 trades.id)
+        CREATE TABLE IF NOT EXISTS trade_reviews (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id       INTEGER NOT NULL,
+            model          TEXT    DEFAULT 'MiniMax-M3',
+            verdict        TEXT,                     -- 操作评级: 优/及格/失误/严重失误
+            score          INTEGER,                  -- 0-100
+            summary_md     TEXT,
+            rules_passed_json  TEXT,
+            rules_failed_json  TEXT,
+            mistake_pattern    TEXT,                  -- 错误模式: 追高/不止损/无主线/杂毛/情绪化...
+            improvement        TEXT,                  -- 改进建议 (markdown)
+            context_json       TEXT,                  -- 当时的盘面/铁律命中快照
+            ts_created    REAL    DEFAULT 0,
+            FOREIGN KEY (trade_id) REFERENCES trades(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_reviews_trade ON trade_reviews(trade_id);
+        CREATE INDEX IF NOT EXISTS idx_reviews_pattern ON trade_reviews(mistake_pattern);
+
+        -- 资金结构 (主力/散户/基金占比) - 2026-07-10
+        -- 每个 code 每 60s 一行;前端表格每 10s 拉取最新
+        CREATE TABLE IF NOT EXISTS capital_flow (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            code        TEXT    NOT NULL,
+            ts          INTEGER NOT NULL,         -- epoch 秒
+            main_pct    REAL    DEFAULT 0,        -- 主力净占比 %(+流入/-流出)
+            retail_pct  REAL    DEFAULT 0,        -- 散户净占比 %
+            fund_pct    REAL    DEFAULT 0,        -- 基金净占比 %
+            main_amount REAL    DEFAULT 0,        -- 主力净流入(元)
+            big_amount  REAL    DEFAULT 0,        -- 大单净流入
+            mid_amount  REAL    DEFAULT 0,        -- 中单净流入
+            sml_amount  REAL    DEFAULT 0,        -- 小单净流入
+            source      TEXT    DEFAULT 'eastmoney',  -- 数据源
+            created_at  INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_capflow_code_ts ON capital_flow(code, ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_capflow_ts ON capital_flow(ts DESC);
         """)
+    # 老库兼容:补 role 列(2026-07-09 加)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_verdict)").fetchall()}
+    if "role" not in cols:
+        try:
+            conn.execute("ALTER TABLE ai_verdict ADD COLUMN role TEXT")
+        except Exception:
+            pass
+    # 老库兼容:补 trade_reviews.key_risks_json(2026-07-10 加)
+    tr_cols = {row[1] for row in conn.execute("PRAGMA table_info(trade_reviews)").fetchall()}
+    if "key_risks_json" not in tr_cols:
+        try:
+            conn.execute("ALTER TABLE trade_reviews ADD COLUMN key_risks_json TEXT")
+        except Exception:
+            pass
     conn.commit()
 
 
@@ -182,3 +273,119 @@ def daily() -> DailyCache:
     if _default_daily is None:
         _default_daily = DailyCache()
     return _default_daily
+
+
+# ═══════════════════════════════════════════════════
+# AI Verdict 缓存 — screen 候选股 per-stock AI + 综合榜
+# 主键 (date, code, model),TTL = 当日 23:59
+# ═══════════════════════════════════════════════════
+import json as _json_ai
+
+
+def _tomorrow_midnight_epoch() -> float:
+    """下一个 0 点的 epoch 秒。同日内记录有效,跨日自动过期。"""
+    now = systime.time()
+    # 取本机本地时间的"明天 0 点";time.localtime 是本地时区
+    lt = systime.localtime(now)
+    midnight_today = systime.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, 0))
+    return midnight_today + 86400.0  # 明天 0 点
+
+
+def get_cached_ai(date: str, code: str, model: str) -> dict | None:
+    """命中且未跨日则返回 ai envelope (dict),否则 None。"""
+    conn = _thread_conn()
+    row = conn.execute(
+        "SELECT verdict, conviction, summary_md, layer_pass_json, rules_passed_json, "
+        "rules_failed_json, key_risks_json, sector, role, ts_updated "
+        "FROM ai_verdict WHERE date=? AND code=? AND model=?",
+        (date, code, model),
+    ).fetchone()
+    if not row:
+        return None
+    ts = row[9] or 0
+    if ts < _tomorrow_midnight_epoch() - 86400:  # 跨日 miss
+        return None
+    if ts < _tomorrow_midnight_epoch() - 86400 * 2:  # 太旧也 miss
+        return None
+    # 仅 ts 早于本轮 "今天午夜" 的还认(本日内任意时刻写的都有效)
+    return {
+        "verdict":        row[0] or "-",
+        "conviction":     int(row[1] or 0),
+        "summary":        row[2] or "",
+        "layer_pass":     _json_ai.loads(row[3]) if row[3] else {},
+        "rules_passed":   _json_ai.loads(row[4]) if row[4] else [],
+        "rules_failed":   _json_ai.loads(row[5]) if row[5] else [],
+        "key_risks":      _json_ai.loads(row[6]) if row[6] else [],
+        "sector":         row[7] or "",
+        "role":           row[8] or "中军",
+        "from_cache":     True,
+        "ts_updated":     ts,
+    }
+
+
+def upsert_ai(date: str, code: str, model: str, ai: dict, sector: str = "") -> None:
+    """写入 per-stock AI 结果(date='YYYYMMDD', code='600519', model='MiniMax-M3')。"""
+    now = systime.time()
+    conn = _thread_conn()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_verdict "
+            "(date, code, model, verdict, role, conviction, summary_md, layer_pass_json, "
+            " rules_passed_json, rules_failed_json, key_risks_json, sector, payload_json, ts_updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                date, code, model,
+                str(ai.get("verdict") or "-"),
+                str(ai.get("role") or "中军"),
+                int(ai.get("conviction") or 0),
+                str(ai.get("summary") or ""),
+                _json_ai.dumps(ai.get("layer_pass") or {}, ensure_ascii=False),
+                _json_ai.dumps(ai.get("rules_passed") or [], ensure_ascii=False),
+                _json_ai.dumps(ai.get("rules_failed") or [], ensure_ascii=False),
+                _json_ai.dumps(ai.get("key_risks") or [], ensure_ascii=False),
+                sector or "",
+                _json_ai.dumps(ai, ensure_ascii=False),
+                now,
+            ),
+        )
+
+
+def get_cached_aggregate(date: str, model: str) -> dict | None:
+    """综合榜缓存。code='_aggregate_'。"""
+    conn = _thread_conn()
+    row = conn.execute(
+        "SELECT payload_json, ts_updated FROM ai_verdict WHERE date=? AND code='_aggregate_' AND model=?",
+        (date, model),
+    ).fetchone()
+    if not row:
+        return None
+    ts = row[1] or 0
+    if ts < _tomorrow_midnight_epoch() - 86400 * 2:
+        return None
+    try:
+        return _json_ai.loads(row[0])
+    except Exception:
+        return None
+
+
+def upsert_aggregate(date: str, model: str, payload: dict) -> None:
+    """综合榜写入(date=YYYYMMDD, code='_aggregate_')。"""
+    now = systime.time()
+    conn = _thread_conn()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_verdict "
+            "(date, code, model, payload_json, ts_updated) "
+            "VALUES (?, '_aggregate_', ?, ?, ?)",
+            (date, model, _json_ai.dumps(payload, ensure_ascii=False), now),
+        )
+
+
+def ai_cache_stats() -> dict:
+    """诊断:ai_verdict 行数 / 覆盖交易日数 / 当日条数."""
+    try:
+        conn = _thread_conn()
+        n = conn.execute("SELECT COUNT(*) FROM ai_verdict").fetchone()[0]
+        return {"rows": n}
+    except Exception:
+        return {"rows": 0}

@@ -54,15 +54,6 @@
           <span>立即扫描</span><span class="btn-arrow">↗</span>
         </button>
       </article>
-
-      <article class="card card-cta" id="cta-bt">
-        <div class="card-eyebrow">BACKTEST · 历史回放</div>
-        <h2 class="card-title">策略<span class="accent">回测</span></h2>
-        <p class="card-text">按区间复盘最近 6-18 个月，给出胜率 / 月均 / 最大回撤 / 盈亏比。</p>
-        <button class="btn btn-primary" data-jump="backtest">
-          <span>开始回测</span><span class="btn-arrow">↗</span>
-        </button>
-      </article>
     </div>
 
     <div class="grid grid-3 mt-32">
@@ -149,63 +140,6 @@
     </article>
   </section>
 
-  <!-- ─── BACKTEST ─── -->
-  <section class="view view-backtest" data-view="backtest" hidden>
-    <header class="view-head">
-      <p class="caption">BACKTEST · 03</p>
-      <h1 class="display">历史<span class="accent">回放</span></h1>
-      <p class="lede">T 日选股 → T+1 开盘买入 → 持有 N 日 → 按规则卖出</p>
-    </header>
-
-    <div class="grid grid-2">
-      <article class="card">
-        <div class="card-eyebrow">PARAM · 参数</div>
-        <div class="form">
-          <label><span>起始</span><input id="bt-start" value="2025-01-01"/></label>
-          <label><span>截止</span><input id="bt-end" value="2026-06-30"/></label>
-          <label><span>每日买入</span><input id="bt-top" type="number" value="3" min="1" max="10"/></label>
-          <label><span>持有日</span><input id="bt-hold" type="number" value="5" min="1" max="20"/></label>
-          <label><span>采样</span><input id="bt-sample" type="number" value="200" min="20" max="1000"/></label>
-          <label><span>卖出</span><select id="bt-sell">
-            <option value="rule">rule（按规则）</option>
-            <option value="max">max（期内最高）</option>
-            <option value="close">close（到期收盘）</option>
-          </select></label>
-        </div>
-        <button class="btn btn-primary" id="run-bt" style="margin-top: 1rem">
-          <span>开始回测</span><span class="btn-arrow">↗</span>
-        </button>
-      </article>
-
-      <article class="card">
-        <div class="card-eyebrow">SUMMARY · 综合指标</div>
-        <div class="kpi-grid" id="bt-kpis"></div>
-      </article>
-    </div>
-
-    <article class="card mt-32">
-      <div class="card-eyebrow">RISK · 铁律三.4 回撤风控</div>
-      <div id="bt-risk-host" class="dim" style="padding: .6rem 0">回测完成后显示</div>
-    </article>
-
-    <article class="card mt-32">
-      <div class="card-eyebrow">EQUITY · 资金曲线</div>
-      <div id="equity-chart" style="height:280px"></div>
-    </article>
-
-    <div id="bt-risk-actions-host"></div>
-
-    <article class="card mt-32">
-      <div class="card-eyebrow">MONTHLY · 月度明细</div>
-      <div class="table-wrap">
-        <table id="bt-monthly" class="data-table">
-          <thead><tr><th>月份</th><th>笔数</th><th>胜率</th><th>平均%</th><th>月度%</th><th>最佳%</th><th>最差%</th></tr></thead>
-          <tbody><tr><td colspan="7" class="empty">未运行</td></tr></tbody>
-        </table>
-      </div>
-    </article>
-  </section>
-
   <!-- ─── STOCK DETAIL ─── -->
   <section class="view view-stock" data-view="stock" hidden>
     <header class="view-head">
@@ -221,6 +155,13 @@
         <button class="btn btn-primary" id="stock-go">查询 ↗</button>
       </div>
       <div id="stock-search-results" class="search-results"></div>
+      <div class="stock-history" id="stock-history" hidden>
+        <div class="sh-head">
+          <span class="caption dim">最近查询</span>
+          <button class="btn-mini" id="sh-clear">清空</button>
+        </div>
+        <div class="sh-list" id="sh-list"></div>
+      </div>
     </article>
 
     <!-- 主指标 8 卡 -->
@@ -602,6 +543,89 @@
     </article>
   </section>
 
+  <!-- ─── REVIEW (复盘·铁律冲突·资金占比) ─── -->
+  <section class="view view-review" data-view="review" hidden>
+    <header class="view-head">
+      <p class="caption">REVIEW · 07</p>
+      <h1 class="display">复盘 · <span class="accent">铁律冲突</span> · 资金占比</h1>
+      <p class="lede">每笔交易 · AI 逐条铁律 PASS/FAIL · 主力/散户/基金实时刷</p>
+    </header>
+
+    <!-- 录入区 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">RECORD · 录入新交易</div>
+      <h3 class="card-h">记一笔</h3>
+      <form id="review-form" class="review-form" autocomplete="off">
+        <div class="rf-row">
+          <label>代码<input id="rf-code" placeholder="603137" maxlength="6" required></label>
+          <label>名称<input id="rf-name" placeholder="自动"></label>
+          <label>方向
+            <select id="rf-direction">
+              <option value="buy">买</option>
+              <option value="sell">卖</option>
+            </select>
+          </label>
+          <label>价格<input id="rf-price" type="number" step="0.01" placeholder="25.20" required></label>
+          <label>股数<input id="rf-shares" type="number" step="100" placeholder="100" required></label>
+        </div>
+        <div class="rf-row">
+          <label class="rf-grow">备注<input id="rf-memo" placeholder="买入理由 / 当时盘面"></label>
+          <button type="submit" class="btn btn-primary">记一笔 →</button>
+        </div>
+      </form>
+    </article>
+
+    <!-- 表格 + 实时刷 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>TRADES · 交易明细 · 铁律冲突 + 资金占比</span>
+        <span class="caption dim" id="review-ts">—</span>
+      </div>
+      <div class="review-table-wrap">
+        <table class="data-table review-table" id="review-table">
+          <thead>
+            <tr>
+              <th>代码</th>
+              <th>名称</th>
+              <th>方向</th>
+              <th>价格</th>
+              <th>股数</th>
+              <th>时间</th>
+              <th>主力%</th>
+              <th>散户%</th>
+              <th>基金%</th>
+              <th>铁律通过</th>
+              <th>铁律违反</th>
+              <th>冲突</th>
+              <th>失误类型</th>
+              <th>AI 建议</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="review-tbody">
+            <tr><td colspan="15" class="dim center">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <!-- 统计 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">STATS · 90 天统计</div>
+      <div class="review-stats" id="review-stats">—</div>
+    </article>
+
+    <!-- 次日选股 + 用户错模式预警 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>NEXT DAY · 次日选股 · 错模式预警</span>
+        <button class="btn btn-mini" id="review-next-pick-refresh">↻ 重生成</button>
+      </div>
+      <p class="caption dim" id="review-next-meta" style="margin:.25rem 0 .5rem">—</p>
+      <ol class="next-pick-list" id="review-next-pick-list"></ol>
+    </article>
+  </section>
+
 </main>
 
 <!-- bottom tab bar (mobile) -->
@@ -609,10 +633,10 @@
   <button class="tabbar-item active" data-jump="dash"><span class="tabbar-glyph">◎</span><span>首页</span></button>
   <button class="tabbar-item" data-jump="screen"><span class="tabbar-glyph">▦</span><span>扫描</span></button>
   <button class="tabbar-item" data-jump="dragons"><span class="tabbar-glyph">★</span><span>龙头</span></button>
-  <button class="tabbar-item" data-jump="backtest"><span class="tabbar-glyph">◆</span><span>回测</span></button>
   <button class="tabbar-item" data-jump="stock"><span class="tabbar-glyph">◇</span><span>个股</span></button>
   <button class="tabbar-item" data-jump="optimize"><span class="tabbar-glyph">◈</span><span>调优</span></button>
   <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span>心法</span></button>
+  <button class="tabbar-item" data-jump="review"><span class="tabbar-glyph">⤓</span><span>复盘</span></button>
 </nav>
 
 <!-- top tab bar (desktop) -->
@@ -620,10 +644,10 @@
   <button class="toptab active" data-jump="dash">01 · 首页</button>
   <button class="toptab" data-jump="screen">02 · 扫描</button>
   <button class="toptab" data-jump="dragons">03 · 龙头</button>
-  <button class="toptab" data-jump="backtest">04 · 回测</button>
-  <button class="toptab" data-jump="stock">05 · 个股</button>
+  <button class="toptab" data-jump="stock">04 · 个股</button>
   <button class="toptab" data-jump="optimize">06 · 调优</button>
   <button class="toptab" data-jump="laws">07 · 心法</button>
+  <button class="toptab" data-jump="review">08 · 复盘</button>
 </nav>
 
 <!-- toast -->
