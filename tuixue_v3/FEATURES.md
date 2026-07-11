@@ -1,6 +1,6 @@
 # 退学 v3 控制台 · 功能清单
 
-最后更新: 2026-07-09
+最后更新: 2026-07-11
 
 ## 整体架构
 
@@ -115,10 +115,62 @@
 - JSON 文件缓存: 龙虎榜 (2 天) / 板块 (日内)
 - TTLCache (内存): 实时行情 5s / 日线 5min
 
+## 07 · 自选股池 (`watchlist`) — 2026-07-11 新增
+
+- 自选股增删 (按 code + name + tag + note)
+- 每只股票 AI 判定持久化 (verdict + 建议时间窗口 + 入场价/止损 + 5/10日涨跌)
+- 选股页直接读持久化结果,不重调 AI,毫秒级返回
+- 个股页加载完 AI 后自动同步写 watchlist_ai,选股页立即可见
+- 6 个 endpoint: GET/POST/DELETE/PATCH + /ai GET/POST
+
+## 08 · 4 层板块分类 (`sector_taxonomy`) — 2026-07-11 新增
+
+- Level1 集群 (6 大类): 大科技/高端制造/消费/医药/金融/周期资源
+- Level2 申万 (31 一级): 交易/研报通用基准
+- Level3 产业链 (31 → 50+ 三级): 主线识别最小单位
+- Level4 细分 (多标签): HBM/CPO/谐波减速器等
+- 主线判定: 同一 L3 当日涨停 ≥ 15 家 → 当日主线
+- 杂毛识别: 仅沾 L4 不沾 L3 → verdict 强制降级, conviction ≤ 50
+- AI 复盘 prompt 接入 4 层规则, 选股 verdict 受 taxonomy_role 约束
+
+## 09 · 席位 6 类分类 (`seat_classify`) — 2026-07-11 新增
+
+- 固定优先级 6 类: 北向 → 机构 → 拉萨散户 → 量化 → 一线游资 → 未知私有
+- 每只上榜股输出 categories / intraday / risks / tags 4 段
+- 服务于 /api/stock/{code}/seat_breakdown, 18s timeout
+
+## 10 · 当日涨停全景 (`limit_up_landscape`) — 2026-07-11 新增
+
+- 接入 AI 复盘 prompt 第一段: 先讲市场背景 → 再回溯我的操作
+- 输出字段 limit_up_recap (80-150 字, 盘后复盘口播风格)
+- 字段 main_mistake / taxonomy_role / is_mainline 落库 review 表
+
+## 11 · Service Worker 离线支持 (`sw.js`) — 2026-07-11 新增
+
+- precache / + /static/* 主壳, 断网时仍可打开 UI
+- /static/* cache-first (静态资源带指纹长 cache)
+- /api/* network-only (数据必须新鲜)
+- navigate 失败 fallback precached /
+
+## 12 · 隧道 fallback 升级 (`start_tunnel_only.sh`) — 2026-07-11 新增
+
+- server-safe 6 路 fallback (cloudflare QUIC/HTTP2/IPv4 → ngrok → localhost.run → serveo)
+- server.py /api/tunnel/start POST 触发 spawn, 不依赖外层 start_remote.sh
+- start_remote.sh self_check 升级: 3 路全验通 (health + static gzip + SSE 握手)
+
+## 13 · Redis 统一缓存层 — 2026-07-10 → 2026-07-11 完工
+
+- cache_store.py (de5f8c0 引入) + 业务模块全面切换:
+  - DailyCache 双写 Redis HSET + SQLite 兜底 (Redis 挂了 SQLite 接管)
+  - fetch_daily / sector / news / seat_aliases 全走 Redis 主用
+  - watchlist + watchlist_ai 表 (供选股页)
+- /api/health 加 redis_store/stats/status 字段, 实时可见命中率
+
 ---
 
 ## 待优化 / 已知问题
 
 - 龙虎榜资金流评分经常是 0 (EM `stock_lhb_detail_em` 接口挂)
-- EM `stock_sector_fund_flow_rank` 持续 RemoteDisconnected,需 THS 兜底
-- 龙头卡片的换手/封成比 等数据来自涨停池快照,收盘后才准确
+- EM `stock_sector_fund_flow_rank` 持续 RemoteDisconnected, 需 THS 兜底
+- 龙头卡片的换手/封成比 等数据来自涨停池快照, 收盘后才准确
+- `_patch_edit.py` (Patch 4 inline-edit) 锚点不再匹配 app.js, 暂跳过, 后续手动移植 inline-edit 逻辑
