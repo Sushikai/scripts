@@ -118,42 +118,6 @@
       <p class="lede">退学炒股四层流水线 · 远程触发 · 实时出结论</p>
     </header>
 
-    <div class="grid grid-2">
-      <article class="card card-cta" id="cta-tunnel">
-        <div class="card-eyebrow">ACCESS · 外网访问</div>
-        <h2 class="card-title">扫码<span class="accent">访问</span></h2>
-        <p class="card-text" id="tunnel-desc">启动 Cloudflare Quick Tunnel,把本机操作台暴露到公网。</p>
-        <div class="tunnel-row">
-          <div class="tunnel-status" id="tunnel-status">
-            <span class="dot" id="tunnel-dot"></span>
-            <span id="tunnel-text">检测中…</span>
-          </div>
-          <button class="btn btn-secondary" id="tunnel-btn">
-            <span id="tunnel-btn-label">启动隧道</span>
-          </button>
-          <button class="btn btn-secondary" id="tunnel-tg-btn" title="推到 Telegram（手机扫码后用）/ 复制到剪贴板 / 系统分享">📤 分享</button>
-        </div>
-        <div class="tunnel-url-row" id="tunnel-url-row" hidden>
-          <a id="tunnel-url" target="_blank" rel="noopener" class="tunnel-url">—</a>
-          <button class="btn-mini" id="tunnel-qr-btn">QR</button>
-        </div>
-        <div class="tunnel-qr" id="tunnel-qr-wrap" hidden>
-          <img id="tunnel-qr" alt="QR Code" />
-          <p class="caption dim">手机扫码 · 临时 URL · 重启会变</p>
-        </div>
-        <details class="tunnel-help">
-          <summary>如何换永久 URL？</summary>
-          <ol>
-            <li>在 Cloudflare 加一个域名 (免费)</li>
-            <li><code>cloudflared tunnel login</code></li>
-            <li><code>cloudflared tunnel create tuixue</code></li>
-            <li>DNS 加 CNAME 指向 <code>&lt;tunnel-id&gt;.cfargotunnel.com</code></li>
-            <li>改用 <code>cloudflared tunnel run tuixue</code></li>
-          </ol>
-        </details>
-      </article>
-    </div>
-
     <div class="signal-grid mt-32">
       <article class="card signal-col" data-market="a">
         <div class="signal-head">
@@ -212,6 +176,41 @@
         <button class="btn btn-ghost" id="dash-search-go">查询 →</button>
       </div>
     </article>
+
+    <!-- ACCESS · 外网访问 — 用户反馈移到最下面 (2026-07-11) -->
+    <article class="card card-cta mt-32" id="cta-tunnel">
+      <div class="card-eyebrow">ACCESS · 外网访问</div>
+      <h2 class="card-title">扫码<span class="accent">访问</span></h2>
+      <p class="card-text" id="tunnel-desc">启动 Cloudflare Quick Tunnel,把本机操作台暴露到公网。</p>
+      <div class="tunnel-row">
+        <div class="tunnel-status" id="tunnel-status">
+          <span class="dot" id="tunnel-dot"></span>
+          <span id="tunnel-text">检测中…</span>
+        </div>
+        <button class="btn btn-secondary" id="tunnel-btn">
+          <span id="tunnel-btn-label">启动隧道</span>
+        </button>
+        <button class="btn btn-secondary" id="tunnel-tg-btn" title="推到 Telegram（手机扫码后用）/ 复制到剪贴板 / 系统分享">📤 分享</button>
+      </div>
+      <div class="tunnel-url-row" id="tunnel-url-row" hidden>
+        <a id="tunnel-url" target="_blank" rel="noopener" class="tunnel-url">—</a>
+        <button class="btn-mini" id="tunnel-qr-btn">QR</button>
+      </div>
+      <div class="tunnel-qr" id="tunnel-qr-wrap" hidden>
+        <img id="tunnel-qr" alt="QR Code" />
+        <p class="caption dim">手机扫码 · 临时 URL · 重启会变</p>
+      </div>
+      <details class="tunnel-help">
+        <summary>如何换永久 URL？</summary>
+        <ol>
+          <li>在 Cloudflare 加一个域名 (免费)</li>
+          <li><code>cloudflared tunnel login</code></li>
+          <li><code>cloudflared tunnel create tuixue</code></li>
+          <li>DNS 加 CNAME 指向 <code>&lt;tunnel-id&gt;.cfargotunnel.com</code></li>
+          <li>改用 <code>cloudflared tunnel run tuixue</code></li>
+        </ol>
+      </details>
+    </article>
   </section>
 
   <!-- ─── STOCK DETAIL ─── -->
@@ -222,6 +221,23 @@
       <p class="lede" id="stock-sub">搜索 → 一只股票开始</p>
       <div class="view-actions" id="stock-tags-host"></div>
     </header>
+
+    <!-- 个股自查工具栏 — 日期选择 + 一键复盘 + 一键自选 + 一键跳转 (2026-07-11) -->
+    <article class="card mt-16" id="stock-quickbar">
+      <div class="quickbar-row">
+        <label class="qb-field">
+          <span class="qb-label">日期</span>
+          <input type="date" id="stock-date" class="qb-input" />
+          <button class="btn-mini" id="stock-date-today" title="回到今天">今天</button>
+          <button class="btn-mini" id="stock-date-prev" title="前一天">←</button>
+          <button class="btn-mini" id="stock-date-next" title="后一天">→</button>
+        </label>
+        <span class="qb-sep"></span>
+        <button class="btn btn-secondary" id="stock-review-btn" disabled title="跳转复盘页录入这笔交易 + 立即 AI 复盘">📝 一键复盘</button>
+        <button class="btn btn-secondary" id="stock-watch-btn" disabled title="加入自选股池">⭐ 一键自选</button>
+        <button class="btn btn-ghost" id="stock-jump-stock" disabled title="跳到个股深查页">↗ 个股</button>
+      </div>
+    </article>
 
     <article class="card mt-16" id="stock-mytrades-card" hidden>
       <div class="card-eyebrow" style="color:var(--accent)">📌 我的交易</div>

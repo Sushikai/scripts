@@ -430,11 +430,14 @@ async function loadHotSectors() {
       const flow = Number(t.net_inflow_yi) || 0;
       const flowStr = (flow > 0 ? '+' : '') + flow.toFixed(1) + ' 亿';
       const flowCls = flow > 0 ? 'up' : flow < 0 ? 'down' : '';
-      return `<div class="hs-tile" title="${escapeHtml(t.name)} · 资金净流入 ${flowStr}">
+      const ztN = Number(t.zt_count) || 0;
+      const ztBadge = ztN > 0 ? `<span class="hs-tile-zt" title="该板块涨停数">⚡${ztN}</span>` : '';
+      return `<div class="hs-tile" title="${escapeHtml(t.name)} · 涨停 ${ztN} · 资金净流入 ${flowStr}">
         <span class="hs-tile-rank">RANK ${t.rank_flow || ''}</span>
         <span class="hs-tile-name">${escapeHtml(t.name)}</span>
         <span class="hs-tile-pct ${cls}">${(pct > 0 ? '+' : '') + pct.toFixed(2)}%</span>
         <span class="hs-tile-flow ${flowCls}">资金 ${flowStr}</span>
+        ${ztBadge}
       </div>`;
     }).join('');
     if (sub) {
@@ -871,6 +874,8 @@ async function loadStockDetail(code) {
   toast(`加载 ${code} …`);
   // 切股:停旧轮询,新轮询在首次 render 后启动,避免抢数据
   _stopStockPoll();
+  // 启用快速工具栏 (一键复盘 / 一键自选 / 跳转) — 默认禁用,加载完启用
+  _setQuickbarEnabled(code);
   try {
     // 进页面 ?_fresh=1 — 强制失效 quote / fund_flow 缓存,保证拿到最新
     const data = await api(`/api/stock/${code}?_fresh=1`);
@@ -879,12 +884,109 @@ async function loadStockDetail(code) {
     // 记录到历史(从 stock 详情接口拿 name)
     const name = (data.quote && data.quote.name) || (data.name) || code;
     _addHist(code, name);
+    // 把 name 也喂给快速栏,方便复盘/自选用
+    _setQuickbarEnabled(code, name);
     // render 完再启轮询(避免和首次渲染撞车,patch 渲染前的 stale 值)
     _startStockPoll(code);
   } catch (e) {
     toast(`加载失败：${e.message}`, 'error');
   }
 }
+
+// ────────────────────────────────────────────
+// 个股快速工具栏: 日期 / 一键复盘 / 一键自选 / 跳转
+// ────────────────────────────────────────────
+let _currentStockName = '';
+function _setQuickbarEnabled(code, name) {
+  _currentStockName = name || code || '';
+  const isValid = /^\d{6}$/.test(code || '');
+  const dateInput = $('#stock-date');
+  if (dateInput && !dateInput.value) {
+    // 默认今天 (YYYY-MM-DD 本地时区)
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    dateInput.value = `${yyyy}-${mm}-${dd}`;
+    dateInput.max = `${yyyy}-${mm}-${dd}`;  // 未来日期禁用
+  }
+  $('#stock-review-btn').disabled = !isValid;
+  $('#stock-watch-btn').disabled  = !isValid;
+  $('#stock-jump-stock').disabled = !isValid;
+}
+function _shiftDate(days) {
+  const inp = $('#stock-date');
+  if (!inp.value) return;
+  const d = new Date(inp.value + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  inp.value = `${yyyy}-${mm}-${dd}`;
+  toast(`日期切到 ${inp.value} · 重新加载个股`, 'info', 1800);
+  if (currentStockCode) loadStockDetail(currentStockCode);
+}
+$('#stock-date-today')?.addEventListener('click', () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  $('#stock-date').value = `${yyyy}-${mm}-${dd}`;
+  toast('回到今天', 'info', 1200);
+  if (currentStockCode) loadStockDetail(currentStockCode);
+});
+$('#stock-date-prev')?.addEventListener('click', () => _shiftDate(-1));
+$('#stock-date-next')?.addEventListener('click', () => _shiftDate(+1));
+$('#stock-date')?.addEventListener('change', () => {
+  if (currentStockCode) loadStockDetail(currentStockCode);
+});
+
+// 一键复盘 → 跳到 review 视图,自动填入 code + 日期
+$('#stock-review-btn')?.addEventListener('click', () => {
+  if (!currentStockCode) return;
+  const date = $('#stock-date').value || new Date().toISOString().slice(0, 10);
+  // 直接走 review 视图 + 设置 URL hash 让 review.js 自动填
+  sessionStorage.setItem('tuixue_review_seed', JSON.stringify({
+    code: currentStockCode,
+    name: _currentStockName,
+    date,
+  }));
+  showView('review');
+  toast(`已跳到复盘页 · ${currentStockCode} · ${date}`, 'info', 2200);
+});
+
+// 一键自选 → POST /api/watchlist
+$('#stock-watch-btn')?.addEventListener('click', async () => {
+  if (!currentStockCode) return;
+  const btn = $('#stock-watch-btn');
+  btn.disabled = true;
+  btn.textContent = '⭐ 加入中…';
+  try {
+    const r = await _fetchWithTimeout('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: currentStockCode, name: _currentStockName, tag: '自查' }),
+    });
+    const j = await r.json();
+    if (j.ok || j.data?.ok) {
+      toast(`✓ ${currentStockCode} 已加入自选`, 'success', 2200);
+      btn.textContent = '✓ 已自选';
+    } else {
+      throw new Error(j.error || '加入失败');
+    }
+  } catch (e) {
+    toast(`加入失败:${e.message}`, 'error', 3000);
+    btn.textContent = '⭐ 一键自选';
+    btn.disabled = false;
+  }
+});
+
+// 一键跳转个股深查 (URL 锁定 code,方便分享)
+$('#stock-jump-stock')?.addEventListener('click', () => {
+  if (!currentStockCode) return;
+  history.replaceState(null, '', `?code=${currentStockCode}`);
+  toast(`URL 锁定 ${currentStockCode}`, 'info', 1500);
+});
 
 function renderStockDetail(code, data) {
   const q = data.quote || {};
@@ -1205,11 +1307,15 @@ function renderSeatBreakdown(d) {
         ? (s.amount_wan / totalAmt * 100) : null;
       const dushi = single != null && single > 10;
       const dirCls = s.direction === '买入' ? 'bd-buy' : 'bd-sell';
+      // 游资席位附 江湖名号 + 风格
+      const alias = s.alias ? `<span class="bd-seat-alias" title="${escapeHtml(s.style || '')}">🎭 ${escapeHtml(s.alias)}</span>` : '';
+      const styleTag = s.style ? `<span class="bd-seat-style">${escapeHtml(s.style)}</span>` : '';
       return `<div class="bd-seat-row${dushi ? ' bd-dushi' : ''}">
-        <span class="bd-seat-name">${escapeHtml(s.seat || '—')}${dushi ? '<span class="bd-dushi-badge">独食</span>' : ''}</span>
+        <span class="bd-seat-name">${escapeHtml(s.seat || '—')}${dushi ? '<span class="bd-dushi-badge">独食</span>' : ''} ${alias}</span>
         <span class="bd-seat-dir ${dirCls}">${escapeHtml(s.direction || '')}</span>
         <span class="bd-seat-amt">${s.amount_wan != null ? s.amount_wan.toFixed(0) + ' 万' : '—'}</span>
         <span class="bd-seat-pct">${single != null ? single.toFixed(2) + '%' : '—'}</span>
+        ${styleTag ? `<div class="bd-seat-style-row">${styleTag}</div>` : ''}
       </div>`;
     }).join('');
     const detailRow = `<tr class="bd-seat-detail" id="bd-detail-${idx}" hidden>
@@ -3414,6 +3520,7 @@ async function loadStockLimitUp(code, sectorName) {
     const today = res.today;
     const recent5 = res.recent_5d || [];
     const sectorZt = res.sector_today || [];
+    const relatedCon = res.related_concepts || [];
     const summary = res.summary || '';
 
     const todayHtml = today ? `
@@ -3454,10 +3561,25 @@ async function loadStockLimitUp(code, sectorName) {
       <p class="caption dim" style="margin:.5rem 0 0">点击名称 → 切换个股</p>
     ` : `<p class="caption dim" style="margin:.5rem 0 0">板块今日无涨停</p>`;
 
+    const relatedConHtml = relatedCon.length > 0 ? `
+      <div class="caption" style="margin:.75rem 0 .25rem;border-top:.5px solid var(--line);padding-top:.5rem">🧬 相关概念当日涨停 (按 L3 产业链 / L4 细分聚合)</div>
+      <div class="concepts-grid" style="display:flex;flex-wrap:wrap;gap:.4rem">
+        ${relatedCon.map(c => `
+          <span class="chip" style="cursor:default;border:1px solid ${c.zt_count >= 5 ? UP : c.zt_count >= 2 ? ACCENT : INK2};color:${c.zt_count >= 5 ? UP : c.zt_count >= 2 ? ACCENT : INK2}" title="${escapeHtml(c.concept)} (${c.level}) · ${c.zt_count} 只涨停 · 例: ${escapeHtml((c.samples || []).join(', '))}">
+            <span class="cap">${c.level}</span>
+            <b>${escapeHtml(c.concept)}</b>
+            <span class="up">⚡${c.zt_count}</span>
+          </span>
+        `).join('')}
+      </div>
+      <p class="caption dim" style="margin:.5rem 0 0">同一产业链或细分标签下的涨停总数 · 颜色: ≥5 主线(红) / ≥2 二线(琥珀) / 其他杂毛(灰)</p>
+    ` : '';
+
     host.innerHTML = `
       ${todayHtml}
       ${recentHtml}
       ${sectorHtml}
+      ${relatedConHtml}
       ${summary ? `<div class="kv-row mt-8" style="border-top:.5px solid var(--line);padding-top:.5rem"><span>总结</span><b>${escapeHtml(summary)}</b></div>` : ''}
     `;
   } catch (e) {
