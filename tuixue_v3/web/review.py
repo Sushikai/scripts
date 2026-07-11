@@ -145,7 +145,9 @@ def list_trades(limit: int = 50, code: str | None = None, since_days: int | None
         rp_n = [_n(x) for x in rp]
         rf_n = [_n(x) for x in rf]
         ctx_j = json.loads(rr[7]) if rr[7] else {}
-        advice = ctx_j.get("ai_advice", "") if isinstance(ctx_j, dict) else ""
+        if not isinstance(ctx_j, dict):
+            ctx_j = {}
+        advice = ctx_j.get("ai_advice", "")
         rev_map[rr[0]] = {
             "verdict": rr[1] or "—",
             "score": rr[2] or 0,
@@ -154,6 +156,8 @@ def list_trades(limit: int = 50, code: str | None = None, since_days: int | None
             "rules_failed": rf_n,
             "rules_conflict_count": len(rf_n),
             "ai_advice": advice,
+            "main_mistake": ctx_j.get("main_mistake", ""),
+            "limit_up_recap": ctx_j.get("limit_up_recap", ""),
             "summary": rr[6] or "",
         }
     for d in out:
@@ -293,6 +297,16 @@ def _build_context(trade: dict) -> dict:
             ctx["market_10d"] = idx.to_dict(orient="records")[-10:]
     except Exception:
         pass
+    # 9) 当日涨停全景(用于"先回溯今日涨停,再回溯我的操作")
+    try:
+        from . import limit_up_context as luc
+        sector_name = None
+        s = ctx.get("sector")
+        if isinstance(s, dict):
+            sector_name = s.get("name") or s.get("sector") or s.get("板块")
+        ctx["limit_up_landscape"] = luc.get_limit_up_context(code, sector_name)
+    except Exception as e:
+        log.debug(f"复盘 limit_up_landscape {code} 失败: {e}")
     return ctx
 
 
@@ -427,8 +441,38 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
     from .. import laws
     sys_p = laws.as_prompt() + "\n\n" + memory + """
 
+## 4 层板块分类规则 (2026-07-11 接入)
+每只股票已绑定 4 层定位,复盘时必须用这套维度判断主线/二线/杂毛:
+  Level1 集群 (6 选 1): 大科技 / 高端制造 / 消费 / 医药生物 / 金融 / 周期资源
+  Level2 申万 (31 选 1): 作为个股核心行业
+  Level3 产业链 (主线识别最小单位): 例如「人形机器人」「高速光互联」「HBM 存储」
+  Level4 细分 (多标签): 例如「谐波减速器」「800G 光模块」「HBM」「整机本体」
+
+主线判定标准:
+  - 同一 Level3 产业链**当日涨停 ≥ 15 家** → 「当日主线」→ 重点关注
+  - 标的所在 L3 不达主线标准 → 不应作为核心推荐
+
+杂毛识别:
+  - 个股虽然挂某个 L4 概念,但实质营收 / 主业不沾 L3 主线 → 标记为 noise (杂毛跟风)
+  - 杂毛标的复盘时必须在 `mistake_pattern` 中标为「杂毛」
+  - 杂毛标的 conviction (确信度) 强制 ≤ 50,即便其他维度看似合理
+
+角色(role)规则:
+  - main (主线龙头): L3 主线 + L4 细分纯正 → 可加仓决策
+  - second (二线弹性): L3 主线但 L4 非核心 → 谨慎
+  - noise (杂毛跟风): 仅概念沾边,主线外 → 应回避
+  - 空 / "—": 不属任何已识别主线 → 默认按主线行情一刀切
+
 你是用户的复盘教练,精通退学战法 64 条铁律(4 大类 + 龙头四步流水线)。
-对这次交易,**逐条铁律独立 PASS/FAIL 判定**,要求:
+复盘必须**分两段**(顺序不能反):
+
+【第一段:先回溯当日涨停全景】
+   利用 `limit_up_landscape` (当日涨停池 / 连板梯队 / 板块热度 / 该股连板数),
+   先讲清楚这只票操作当天,市场情绪什么档位、主线在哪、这只票在梯队里处于什么位置。
+   这段写进 `limit_up_recap` 字段(80~150 字,像盘后复盘口播)。
+
+【第二段:再回溯我的这笔操作】
+   在第一段的市场背景下,**逐条铁律独立 PASS/FAIL 判定**,要求:
 
 1. 铁律编号格式:"一.1"(第一类第1条)/"三.6"(第三类第6条)/"五.STEP3.资金"(第五类 STEP3 资金维度)
 2. **必须基于以下数据维度**做评判(用户重点要求):
@@ -443,20 +487,26 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
    - `holders` (散户/主力持股占比): `retail_proxy_pct` 与用户主线策略的匹配度
    - `sector` (板块): 判断用户是否在主线,不是追杂毛
    - `market_10d` (大盘环境): 解释是否逆势操作
+   - `limit_up_landscape` (当日涨停全景): 判断买点情绪位置(冰点/主升/高潮/退潮)
 3. 每条 fail 必须有量化理由(不是"主观感觉") — 引用以上数据作为依据
 4. rules_passed/failed 写编号 + 一句话说明
-5. 同时给出表格列用的简短建议(≤30 字)
-6. 严格 JSON(无 markdown 围栏):
+5. `main_mistake` 用一句话点破"铁律错在哪"(≤25 字,是表格/子页最醒目的一句)
+6. 同时给出表格列用的简短建议(≤30 字)
+7. 严格 JSON(无 markdown 围栏):
 {
+  "limit_up_recap": "当日涨停全景回溯(80~150字)",
   "verdict": "优"|"及格"|"失误"|"严重失误",
   "score": 0-100,
   "summary": "一句话总结这次操作(50字内)",
+  "main_mistake": "铁律错在哪(≤25字,如:三.1 亏损加仓 / 二.4 追高杂毛)",
   "rules_passed": [{"id": "一.5", "text": "不眼红他人收益"}, ...],   // 2-4 条
   "rules_failed": [{"id": "三.1", "text": "禁止加仓", "reason": "亏损时加仓 100 股"}],   // 1-4 条
   "mistake_pattern": "追高|不止损|无主线|杂毛|情绪化|早盘冲动|打板不成|其他",
   "improvement": "下次怎么改(2-3条具体动作)",
   "ai_advice": "表格里显示的简短建议(≤30字,如:明早冲高减半,跌破25.2止损)",
-  "key_risks": ["复盘当时没看到的风险点"]
+  "key_risks": ["复盘当时没看到的风险点"],
+  "taxonomy_role": "main|second|noise|—",   // 2026-07-11 新增 — 与该股 L3/L4 taxonomy 对齐
+  "is_mainline": true|false                   // 该股所在 L3 产业链是否当日主线
 }"""
     # 把 ctx 拆成"信号卡"逐项列出,确保 AI 一眼看到关键数字
     parts = [f"""交易快照:
@@ -523,11 +573,32 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
 - 散户代理占比: {h.get('retail_proxy_pct', 0):.2f}% | 主力代理占比: {h.get('main_proxy_pct', 0):.2f}%
 - 股东户数: {h.get('holder_total', 0):,} | 报告期: {h.get('report_date', '?')}""")
 
-    # 8) 板块
+    # 8) 板块 (4 层板块分类 — 2026-07-11 接入 sector_taxonomy)
     s = ctx.get('sector') or {}
     if s:
-        parts.append(f"""\n## 板块
-{json.dumps(s, ensure_ascii=False, default=str)[:300]}""")
+        from .sector_taxonomy import fmt_taxonomy_full, fmt_taxonomy_short, detect_mainline
+        tax = s.get("taxonomy") or {}
+        # 取当日涨停池(用于判断该股所在 L3 chain 是否主线)
+        mainline_brief = ""
+        try:
+            from .. import data_layer as dl
+            from .sector_classify import get_sector
+            zt = dl.fetch_limit_up_pool() or []
+            zt_codes = [str(z.get("code") or "").zfill(6) for z in zt]
+            ml = detect_mainline(zt_codes=zt_codes, sector_lookup=get_sector, threshold=15)
+            # 这只股票所在的 L3 chain 是否主线
+            l3 = (tax.get("level3_chain") or "").strip()
+            hit = next((m for m in ml if m["chain"] == l3), None)
+            if hit:
+                mainline_brief = (
+                    f"\n  ⚡ 主线判定: 该股所在 L3「{l3}」当日涨停 {hit['zt_count']} 家 → 当日主线")
+            elif l3:
+                mainline_brief = f"\n  主线判定: L3「{l3}」当日涨停 <15 家,非主线"
+        except Exception:
+            pass
+        parts.append(f"""\n## 板块（4 层标准分类）
+{fmt_taxonomy_full(tax)}
+  紧凑表达: {fmt_taxonomy_short(tax)}{mainline_brief}""")
 
     # 9) 大盘环境
     mkt = ctx.get('market_10d') or []
@@ -540,6 +611,15 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
     if news:
         parts.append(f"""\n## 相关新闻(可能影响决策的近期事件)
 {json.dumps(news[:5], ensure_ascii=False, default=str)[:1500]}""")
+
+    # 11) 当日涨停全景(第一段回溯用)
+    lul = ctx.get('limit_up_landscape') or {}
+    if lul:
+        parts.append(f"""\n## 当日涨停全景(先回溯这段)
+- 本股当日: {json.dumps(lul.get('today'), ensure_ascii=False, default=str)[:300]}
+- 近 5 日涨停记录: {json.dumps(lul.get('recent_5d', [])[:5], ensure_ascii=False, default=str)[:600]}
+- 板块当日涨停清单: {json.dumps(lul.get('sector_today', [])[:8], ensure_ascii=False, default=str)[:800]}
+- 一句话热度: {lul.get('summary', '—')}""")
 
     user_p = "\n".join(parts)
     return sys_p, user_p
@@ -656,6 +736,24 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
         verdict = "及格"
     improvement = _str(ai.get("improvement"))
     mistake = _str(ai.get("mistake_pattern"), "其他")
+    limit_up_recap = _str(ai.get("limit_up_recap"))
+    main_mistake = _str(ai.get("main_mistake"))
+    # 2026-07-11 新增 — taxonomy_role + is_mainline
+    taxonomy_role_raw = ai.get("taxonomy_role")
+    if taxonomy_role_raw in ("main", "second", "noise", "—", "-"):
+        taxonomy_role = "noise" if taxonomy_role_raw == "-" else taxonomy_role_raw
+    else:
+        taxonomy_role = ""
+    is_mainline = bool(ai.get("is_mainline"))
+    # 杂毛 → verdict 强制不优于"及格";即便 AI 给"优"也降级
+    if taxonomy_role == "noise" and verdict in ("优", "及格"):
+        verdict = "及格"
+    # 回填到返回 dict,子页面/表格直接用
+    ai["limit_up_recap"] = limit_up_recap
+    ai["main_mistake"] = main_mistake
+    ai["ai_advice"] = advice
+    ai["taxonomy_role"] = taxonomy_role
+    ai["is_mainline"] = is_mainline
     conn.execute(
         "INSERT INTO trade_reviews "
         "(trade_id, model, verdict, score, summary_md, rules_passed_json, rules_failed_json, "
@@ -670,7 +768,11 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
          improvement,
          json.dumps(ai.get("key_risks", []) or [], ensure_ascii=False, default=str),
          json.dumps({"ctx_size": len(json.dumps(ctx, default=str)),
-                     "ts_review": now, "ai_advice": advice}, ensure_ascii=False),
+                     "ts_review": now, "ai_advice": advice,
+                     "limit_up_recap": limit_up_recap,
+                     "main_mistake": main_mistake,
+                     "taxonomy_role": taxonomy_role,
+                     "is_mainline": is_mainline}, ensure_ascii=False),
          now),
     )
     conn.commit()
@@ -680,6 +782,20 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
 def _review_row_to_dict(row, trade: dict) -> dict:
     rules_passed = json.loads(row[4]) if row[4] else []
     rules_failed = json.loads(row[5]) if row[5] else []
+    # row 布局兼容:
+    #  11 列 = id,verdict,score,summary,rp,rf,mistake,improvement,key_risks,context_json,ts_created
+    #  10 列 = ...,key_risks,ts_created  (无 context_json)
+    context_json: dict = {}
+    if len(row) >= 11:
+        try:
+            context_json = json.loads(row[9]) if row[9] else {}
+        except Exception:
+            context_json = {}
+        ts_created = row[10]
+    else:
+        ts_created = row[9]
+    if not isinstance(context_json, dict):
+        context_json = {}
     # 兼容老格式:list[str] → list[{id, text}]
     def _normalize(items):
         out = []
@@ -691,12 +807,13 @@ def _review_row_to_dict(row, trade: dict) -> dict:
         return out
     rules_passed_n = _normalize(rules_passed)
     rules_failed_n = _normalize(rules_failed)
+    summary = row[3] or ""
     return {
         "id": row[0],
         "trade": trade,
         "verdict": row[1] or "及格",
         "score": row[2] or 60,
-        "summary": row[3] or "",
+        "summary": summary.split("\n[建议]")[0],
         "rules_passed": rules_passed_n,
         "rules_failed": rules_failed_n,
         "rules_passed_raw": rules_passed,
@@ -706,7 +823,12 @@ def _review_row_to_dict(row, trade: dict) -> dict:
         "mistake_pattern": row[6] or "其他",
         "improvement": row[7] or "",
         "key_risks": json.loads(row[8]) if row[8] else [],
-        "ts_created": row[9],
+        "ai_advice": context_json.get("ai_advice", ""),
+        "limit_up_recap": context_json.get("limit_up_recap", ""),
+        "main_mistake": context_json.get("main_mistake", ""),
+        "taxonomy_role": context_json.get("taxonomy_role", ""),
+        "is_mainline": bool(context_json.get("is_mainline", False)),
+        "ts_created": ts_created,
         "from_cache": True,
     }
 
@@ -890,3 +1012,296 @@ def next_day_picks() -> dict:
         "user_patterns": user_patterns,
         "ts": systime.time(),
     }
+
+
+# ═══════════════════════════════════════════════════
+# 设置 (meta 表) — 总资金等
+# ═══════════════════════════════════════════════════
+def get_setting(key: str, default=None):
+    conn = _conn()
+    r = conn.execute("SELECT value FROM meta WHERE key=?", (f"review.{key}",)).fetchone()
+    return r[0] if r and r[0] is not None else default
+
+
+def set_setting(key: str, value) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        (f"review.{key}", str(value)),
+    )
+    conn.commit()
+
+
+# ═══════════════════════════════════════════════════
+# 实时报价 (curl → 腾讯 qt.gtimg,一次拿多只) + FIFO 账本
+# ═══════════════════════════════════════════════════
+def _batch_quotes(codes: list[str]) -> dict:
+    """批量实时报价。返回 {code: {"price", "prev_close", "name"}}。
+    走 curl 子进程打腾讯 qt.gtimg(与资金流同一稳定通道,绕开 server 进程网络栈)。
+    """
+    out: dict[str, dict] = {}
+    codes = [str(c).strip().zfill(6) for c in codes if str(c).strip()]
+    if not codes:
+        return out
+    # 腾讯支持一次多只:q=sh600519,sz000001
+    qs = ",".join(
+        (("sh" if c.startswith(("6", "9")) else ("sh" if c.startswith("5") else "sz")) + c)
+        for c in codes
+    )
+    try:
+        import subprocess as _sp
+        r = _sp.run(
+            ["curl", "-s", "--max-time", "8",
+             "-H", "User-Agent: Mozilla/5.0",
+             "-H", "Referer: https://gu.qq.com/",
+             f"https://qt.gtimg.cn/q={qs}"],
+            capture_output=True, timeout=10,
+        )
+        text = (r.stdout or b"").decode("gbk", errors="ignore")
+        for line in text.splitlines():
+            if '="' not in line:
+                continue
+            body = line.split('="', 1)[1].rstrip().rstrip(";").rstrip('"')
+            fs = body.split("~")
+            if len(fs) < 5:
+                continue
+            code = fs[2].strip().zfill(6)
+            try:
+                price = float(fs[3] or 0)
+                prev = float(fs[4] or 0)
+            except Exception:
+                continue
+            if price <= 0:
+                continue
+            out[code] = {"name": fs[1], "price": price, "prev_close": prev}
+    except Exception as e:
+        log.warning(f"批量报价失败: {e}")
+    return out
+
+
+def _all_trades_asc(codes: list[str] | None = None) -> list[dict]:
+    """按时间升序取交易(FIFO 需要),可按 code 过滤。"""
+    conn = _conn()
+    sql = ("SELECT id, code, name, direction, price, shares, occurred_at, trade_date "
+           "FROM trades")
+    params: list = []
+    if codes:
+        ph = ",".join("?" for _ in codes)
+        sql += f" WHERE code IN ({ph})"
+        params.extend([str(c).zfill(6) for c in codes])
+    sql += " ORDER BY trade_date ASC, occurred_at ASC, id ASC"
+    rows = conn.execute(sql, params).fetchall()
+    return [
+        {"id": r[0], "code": r[1], "name": r[2], "direction": r[3],
+         "price": r[4], "shares": r[5], "occurred_at": r[6], "trade_date": r[7]}
+        for r in rows
+    ]
+
+
+def _fifo_book(trades_asc: list[dict], quotes: dict, today_str: str):
+    """FIFO 逐笔盈亏账本。
+    返回 (per_trade: {trade_id: metrics}, positions: {code: pos})。
+    每笔:
+      - buy  → 记录未卖出部分的浮动盈亏 / 今日盈亏
+      - sell → 记录该次卖出的已实现盈亏(对已卖出的买单不再重复计,避免双算)
+    """
+    per: dict[int, dict] = {}
+    for t in trades_asc:
+        per[t["id"]] = {
+            "today_pnl": 0.0, "cum_pnl": 0.0, "cum_pnl_pct": 0.0,
+            "held_shares": 0, "status": "-", "price_now": None, "realized": 0.0,
+        }
+    by_code: dict[str, list[dict]] = {}
+    for t in trades_asc:
+        by_code.setdefault(t["code"], []).append(t)
+    positions: dict[str, dict] = {}
+    for code, ts in by_code.items():
+        q = quotes.get(code) or {}
+        now = float(q.get("price") or 0)
+        prev = float(q.get("prev_close") or 0)
+        lots: list[dict] = []  # {tid, price, remaining}
+        for t in ts:
+            if t["direction"] == "buy":
+                lots.append({"tid": t["id"], "price": float(t["price"]), "remaining": int(t["shares"])})
+                per[t["id"]]["status"] = "open"
+            else:  # sell
+                to_sell = int(t["shares"]); realized = 0.0; cost = 0.0
+                while to_sell > 0 and lots:
+                    lot = lots[0]
+                    used = min(lot["remaining"], to_sell)
+                    realized += used * (float(t["price"]) - lot["price"])
+                    cost += used * lot["price"]
+                    lot["remaining"] -= used
+                    to_sell -= used
+                    if lot["remaining"] <= 0:
+                        lots.pop(0)
+                m = per[t["id"]]
+                m["realized"] = round(realized, 2)
+                m["cum_pnl"] = round(realized, 2)
+                m["cum_pnl_pct"] = round(realized / cost * 100, 2) if cost else 0.0
+                m["today_pnl"] = round(realized, 2) if t["trade_date"] == today_str else 0.0
+                m["status"] = "sold"
+                m["price_now"] = float(t["price"])
+        # 剩余未卖的买单 → 浮动盈亏归到该买单
+        pos_shares = 0; pos_cost = 0.0
+        held_buy_ids = set()
+        for lot in lots:
+            rem = lot["remaining"]
+            if rem <= 0:
+                continue
+            pos_shares += rem; pos_cost += rem * lot["price"]
+            held_buy_ids.add(lot["tid"])
+            m = per[lot["tid"]]
+            m["held_shares"] = rem
+            m["status"] = "holding"
+            m["price_now"] = now or None
+            if now > 0:
+                m["cum_pnl"] = round(rem * (now - lot["price"]), 2)
+                m["cum_pnl_pct"] = round((now - lot["price"]) / lot["price"] * 100, 2) if lot["price"] else 0.0
+                m["today_pnl"] = round(rem * (now - prev), 2) if prev > 0 else 0.0
+        # 已全部卖出的买单 → 标记清仓(盈亏已在卖单上体现,不再重复)
+        for t in ts:
+            if t["direction"] == "buy" and t["id"] not in held_buy_ids:
+                per[t["id"]]["status"] = "cleared"
+                per[t["id"]]["price_now"] = now or None
+        if pos_shares > 0 and now > 0:
+            positions[code] = {
+                "code": code, "name": ts[-1]["name"],
+                "shares": pos_shares, "avg_cost": round(pos_cost / pos_shares, 3),
+                "price": now, "prev_close": prev,
+                "market_value": round(pos_shares * now, 2),
+                "cost_value": round(pos_cost, 2),
+                "unrealized": round(pos_shares * now - pos_cost, 2),
+                "unrealized_pct": round((pos_shares * now - pos_cost) / pos_cost * 100, 2) if pos_cost else 0.0,
+                "today_pnl": round(pos_shares * (now - prev), 2) if prev > 0 else 0.0,
+            }
+    return per, positions
+
+
+def portfolio_overview(total_capital: float | None = None) -> dict:
+    """顶部资金栏:总资金 / 仓位 / 今日盈亏 / 总盈亏 / 盈亏比 + 当前持仓明细。"""
+    if total_capital is None:
+        try:
+            total_capital = float(get_setting("total_capital", 0) or 0)
+        except Exception:
+            total_capital = 0.0
+    trades = _all_trades_asc()
+    codes = sorted({t["code"] for t in trades})
+    quotes = _batch_quotes(codes)
+    today_str = datetime.now().strftime("%Y%m%d")
+    per, positions = _fifo_book(trades, quotes, today_str)
+    position_value = round(sum(p["market_value"] for p in positions.values()), 2)
+    unrealized = round(sum(p["unrealized"] for p in positions.values()), 2)
+    today_hold = round(sum(p["today_pnl"] for p in positions.values()), 2)
+    realized_total = 0.0; realized_today = 0.0
+    for t in trades:
+        if t["direction"] == "sell":
+            m = per[t["id"]]
+            realized_total += m["realized"]
+            if t["trade_date"] == today_str:
+                realized_today += m["realized"]
+    today_pnl = round(today_hold + realized_today, 2)
+    total_pnl = round(unrealized + realized_total, 2)
+    cap = float(total_capital or 0)
+    return {
+        "total_capital": cap,
+        "position_value": position_value,
+        "position_ratio": round(position_value / cap * 100, 2) if cap else None,
+        "cash": round(cap - position_value, 2) if cap else None,
+        "today_pnl": today_pnl,
+        "today_pnl_pct": round(today_pnl / cap * 100, 2) if cap else None,
+        "total_pnl": total_pnl,
+        "total_pnl_pct": round(total_pnl / cap * 100, 2) if cap else None,  # 盈亏比 = 总盈亏/总资金
+        "realized_pnl": round(realized_total, 2),
+        "unrealized_pnl": unrealized,
+        "positions": sorted(positions.values(), key=lambda p: -p["market_value"]),
+        "position_count": len(positions),
+        "quotes_ok": sum(1 for c in codes if c in quotes),
+        "codes": len(codes),
+        "ts": systime.time(),
+    }
+
+
+def live_trades(limit: int = 80, code: str | None = None, since_days: int | None = 180) -> list[dict]:
+    """list_trades + 逐笔实时盈亏(今日盈亏 / 累计盈亏 / 累计盈亏比)。"""
+    trades = list_trades(limit=limit, code=code, since_days=since_days)  # DESC + last_review
+    if not trades:
+        return trades
+    inv_codes = sorted({t["code"] for t in trades})
+    all_asc = _all_trades_asc(codes=inv_codes)  # 全历史保证 FIFO 归属正确
+    quotes = _batch_quotes(inv_codes)
+    today_str = datetime.now().strftime("%Y%m%d")
+    per, _ = _fifo_book(all_asc, quotes, today_str)
+    for t in trades:
+        m = per.get(t["id"]) or {}
+        q = quotes.get(t["code"]) or {}
+        t["live"] = {
+            "today_pnl": m.get("today_pnl", 0.0),
+            "cum_pnl": m.get("cum_pnl", 0.0),
+            "cum_pnl_pct": m.get("cum_pnl_pct", 0.0),
+            "held_shares": m.get("held_shares", 0),
+            "status": m.get("status", "-"),
+            "price_now": m.get("price_now") or q.get("price"),
+        }
+    return trades
+
+
+# ═══════════════════════════════════════════════════
+# 买入时刻点推算(按买入价从分时数据反推)
+# ═══════════════════════════════════════════════════
+def infer_time_points(code: str, date: str | None = None, price: float | None = None,
+                      tol: float = 0.015) -> dict:
+    """按买入价从当日分时(1分钟)反推可能的成交时刻。
+    - date: YYYYMMDD;None = 最近交易日
+    - price: 目标价;None = 返回全部分钟点
+    返回 {available, points:[{time,close,high,low,match}], reason}
+    分时源(akshare stock_zh_a_hist_min_em)通常只覆盖近 5 个交易日,更早日期取不到 → available=False。
+    """
+    code = str(code).strip().zfill(6)
+    try:
+        from .. import data_layer as dl
+        df = dl.fetch_intraday(code, date_str=date)
+    except Exception as e:
+        return {"available": False, "points": [], "reason": f"分时获取异常: {e}"}
+    if df is None or len(df) == 0:
+        return {"available": False, "points": [],
+                "reason": "分时数据不可用(可能非近 5 个交易日或该源无数据),请手动填时间"}
+    cols = list(df.columns)
+    def _col(*names):
+        for n in names:
+            if n in cols:
+                return n
+        return None
+    tcol = _col("时间", "datetime", "time") or cols[0]
+    ccol = _col("收盘", "close")
+    hcol = _col("最高", "high")
+    lcol = _col("最低", "low")
+    exact, allpts = [], []
+    for _, r in df.iterrows():
+        tval = str(r.get(tcol) or "")
+        d = tval[:10].replace("-", "")
+        if date and d and d != date:
+            continue
+        hhmm = tval[11:16] if len(tval) >= 16 else tval[-5:]
+        try:
+            cl = float(r.get(ccol) or 0) if ccol else 0
+            hi = float(r.get(hcol) or cl) if hcol else cl
+            lo = float(r.get(lcol) or cl) if lcol else cl
+        except Exception:
+            continue
+        item = {"time": hhmm, "close": round(cl, 3), "high": round(hi, 3), "low": round(lo, 3)}
+        allpts.append(item)
+        if price and lo and hi and (lo - tol) <= price <= (hi + tol):
+            item = dict(item); item["match"] = "exact"
+            exact.append(item)
+    if price and exact:
+        return {"available": True, "points": exact[:40], "reason": f"命中 {len(exact)} 个时刻"}
+    if price and not exact and allpts:
+        # 无精确命中 → 取最接近的 5 个
+        near = sorted(allpts, key=lambda x: abs(x["close"] - price))[:5]
+        for n in near:
+            n["match"] = "near"
+        near = sorted(near, key=lambda x: x["time"])
+        return {"available": True, "points": near,
+                "reason": "无精确命中,给出最接近的 5 个时刻(供参考)"}
+    return {"available": True, "points": allpts[:240], "reason": f"全日 {len(allpts)} 个分钟点"}
