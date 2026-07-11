@@ -1176,9 +1176,9 @@ async def api_dashboard_signal(force: bool = False):
         return envelope(data=_dashboard_cache["signal"])
 
     try:
-        sig = await asyncio.wait_for(to_thread(_build_dashboard_signal), timeout=15)
+        sig = await asyncio.wait_for(to_thread(_build_dashboard_signal), timeout=25)
     except asyncio.TimeoutError:
-        log.warning("dashboard signal 超时 15s")
+        log.warning("dashboard signal 超时 25s")
         # 兜底:返上一次缓存(可能 None)
         return envelope(error="信号计算超时", data=_dashboard_cache["signal"] or {
             "a_share": {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},

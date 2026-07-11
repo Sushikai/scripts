@@ -3,20 +3,82 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0a0908" />
+<meta name="theme-color" content="#0a0908" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)" />
+<script>
+  // 在样式加载前同步设好主题,避免深→浅闪烁
+  (function () {
+    try {
+      var saved = localStorage.getItem('tuixue-theme');
+      var theme = saved || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) { /* SSR / 私密模式 */ }
+  })();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>退学 v3 · 操作台</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/style.css" />
+<link rel="stylesheet" href="/static/style.css?v=__CSS_V__" />
 </head>
 <body>
 
 <!-- background mesh + noise -->
 <div class="bg-mesh" aria-hidden="true"></div>
 <div class="bg-noise" aria-hidden="true"></div>
+
+<!-- 桌面侧边栏 (替换 toptabs) -->
+<aside class="sidebar" id="sidebar" aria-label="主导航">
+  <div class="sidebar-head">
+    <span class="sidebar-eyebrow">TUIXUE · 操作台</span>
+    <div class="sidebar-brand">退学<span class="ver">v3</span></div>
+  </div>
+  <span class="sidebar-section">工作台</span>
+  <div class="sidebar-item" data-jump="dash">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></span>
+    <span>首页</span>
+    <span class="sb-num">01</span>
+  </div>
+  <div class="sidebar-item" data-jump="dragons">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 10l3-4 2 3 2-5 3 6"/><path d="M2 13h12"/></svg></span>
+    <span>龙头</span>
+    <span class="sb-num">03</span>
+  </div>
+  <div class="sidebar-item" data-jump="stock">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="13" width="3" height="2"/><rect x="6.5" y="9" width="3" height="6"/><rect x="11" y="5" width="3" height="10"/></svg></span>
+    <span>个股</span>
+    <span class="sb-num">04</span>
+  </div>
+  <div class="sidebar-item" data-jump="watchlist">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3.5 2.5h9v11l-4.5-2.5-4.5 2.5z"/></svg></span>
+    <span>自选</span>
+    <span class="sb-num">05</span>
+  </div>
+  <span class="sidebar-section">系统</span>
+  <div class="sidebar-item" data-jump="optimize">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="8" cy="8" r="6"/><path d="M8 4v4M5 6.5l3 1.5 3-1.5"/></svg></span>
+    <span>调优</span>
+    <span class="sb-num">06</span>
+  </div>
+  <div class="sidebar-item" data-jump="laws">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 2h8v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M6 5h4M6 8h4M6 11h2"/></svg></span>
+    <span>心法</span>
+    <span class="sb-num">07</span>
+  </div>
+  <div class="sidebar-item" data-jump="review">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 4h10M3 8h10M3 12h7"/><circle cx="13" cy="12" r="2"/></svg></span>
+    <span>复盘</span>
+    <span class="sb-num">08</span>
+  </div>
+  <div class="sidebar-footer">
+    <div class="sidebar-status" id="sidebar-status">
+      <span class="dot"></span>
+      <span>系统在线</span>
+    </div>
+  </div>
+</aside>
 
 <!-- top bar -->
 <header class="topbar">
@@ -25,7 +87,18 @@
       <span class="brand-mark">退学</span><span class="brand-mark-2">v3</span>
       <span class="brand-sub">TUIXUE · 操作台</span>
     </div>
+    <div class="net-pill" id="net-pill" data-state="ok" hidden>
+      <span class="dot"></span><span class="net-text" id="net-text">在线</span>
+    </div>
     <span class="ts-stamp" id="ts-stamp" aria-live="polite"></span>
+    <button class="iconbtn" id="theme-toggle" title="切换主题" aria-label="切换主题">
+      <svg class="icon-sun"  width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4"/>
+      </svg>
+      <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M13 9.5A5.5 5.5 0 1 1 6.5 3a4.5 4.5 0 0 0 6.5 6.5z"/>
+      </svg>
+    </button>
     <button class="iconbtn" id="refresh-ticker" title="刷新">
       <svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.5a6.5 6.5 0 0 0-5.7 3.4l-1.6-.5A8 8 0 0 1 8 0v1.5zm.3 5.2a.7.7 0 0 0-1 0L4.6 9.3a.7.7 0 0 0 1 1L7 9v3.5a.7.7 0 0 0 1.4 0V9l1.4 1.3a.7.7 0 0 0 1-1l-2.5-2.6z"/></svg>
     </button>
@@ -46,36 +119,90 @@
     </header>
 
     <div class="grid grid-2">
-      <article class="card card-cta" id="cta-scan">
-        <div class="card-eyebrow">SCREEN · 实时龙头股</div>
-        <h2 class="card-title">一键<span class="accent">扫描</span></h2>
-        <p class="card-text">跑完 L1 风控 → L2 周期闸门 → L3 形态 → L4 分时，按 L4→L1 优先级返回当日候选。</p>
-        <button class="btn btn-primary" data-jump="screen">
-          <span>立即扫描</span><span class="btn-arrow">↗</span>
-        </button>
+      <article class="card card-cta" id="cta-tunnel">
+        <div class="card-eyebrow">ACCESS · 外网访问</div>
+        <h2 class="card-title">扫码<span class="accent">访问</span></h2>
+        <p class="card-text" id="tunnel-desc">启动 Cloudflare Quick Tunnel,把本机操作台暴露到公网。</p>
+        <div class="tunnel-row">
+          <div class="tunnel-status" id="tunnel-status">
+            <span class="dot" id="tunnel-dot"></span>
+            <span id="tunnel-text">检测中…</span>
+          </div>
+          <button class="btn btn-secondary" id="tunnel-btn">
+            <span id="tunnel-btn-label">启动隧道</span>
+          </button>
+          <button class="btn btn-secondary" id="tunnel-tg-btn" title="推到 Telegram（手机扫码后用）/ 复制到剪贴板 / 系统分享">📤 分享</button>
+        </div>
+        <div class="tunnel-url-row" id="tunnel-url-row" hidden>
+          <a id="tunnel-url" target="_blank" rel="noopener" class="tunnel-url">—</a>
+          <button class="btn-mini" id="tunnel-qr-btn">QR</button>
+        </div>
+        <div class="tunnel-qr" id="tunnel-qr-wrap" hidden>
+          <img id="tunnel-qr" alt="QR Code" />
+          <p class="caption dim">手机扫码 · 临时 URL · 重启会变</p>
+        </div>
+        <details class="tunnel-help">
+          <summary>如何换永久 URL？</summary>
+          <ol>
+            <li>在 Cloudflare 加一个域名 (免费)</li>
+            <li><code>cloudflared tunnel login</code></li>
+            <li><code>cloudflared tunnel create tuixue</code></li>
+            <li>DNS 加 CNAME 指向 <code>&lt;tunnel-id&gt;.cfargotunnel.com</code></li>
+            <li>改用 <code>cloudflared tunnel run tuixue</code></li>
+          </ol>
+        </details>
       </article>
     </div>
 
-    <div class="grid grid-3 mt-32">
-      <article class="card">
-        <div class="card-eyebrow">SECTOR · 板块快照</div>
-        <h3 class="card-h">涨停池</h3>
-        <div class="metric" id="m-zt"><span class="m-num">—</span><span class="m-unit">只</span></div>
-        <p class="caption dim">今日连板家数 · 实时</p>
+    <div class="signal-grid mt-32">
+      <article class="card signal-col" data-market="a">
+        <div class="signal-head">
+          <span class="signal-flag">🇨🇳 A 股</span>
+          <span class="signal-verdict" id="sig-a-verdict">—</span>
+        </div>
+        <div class="signal-metric">
+          <span class="sig-pct" id="sig-a-pct">—</span>
+          <span class="sig-cap">上证 + 深证 + 创业</span>
+        </div>
+        <p class="caption dim" id="sig-a-head">加载中 …</p>
+        <ul class="signal-news" id="sig-a-news"></ul>
       </article>
-      <article class="card">
-        <div class="card-eyebrow">SECTOR · 板块快照</div>
-        <h3 class="card-h">沪深成交</h3>
-        <div class="metric"><span class="m-num" id="m-amt">—</span><span class="m-unit">亿</span></div>
-        <p class="caption dim">今日两市成交额（实时）</p>
+
+      <article class="card signal-col" data-market="kr">
+        <div class="signal-head">
+          <span class="signal-flag">🇰🇷 韩股</span>
+          <span class="signal-verdict" id="sig-kr-verdict">—</span>
+        </div>
+        <div class="signal-metric">
+          <span class="sig-pct" id="sig-kr-pct">—</span>
+          <span class="sig-cap">KOSPI</span>
+        </div>
+        <p class="caption dim" id="sig-kr-head">加载中 …</p>
+        <ul class="signal-news" id="sig-kr-news"></ul>
       </article>
-      <article class="card">
-        <div class="card-eyebrow">SECTOR · 系统状态</div>
-        <h3 class="card-h">缓存命中</h3>
-        <div class="metric"><span class="m-num" id="m-cache">—</span><span class="m-unit">%</span></div>
-        <p class="caption dim">最近一次扫描命中率</p>
+
+      <article class="card signal-col" data-market="us">
+        <div class="signal-head">
+          <span class="signal-flag">🇺🇸 美股</span>
+          <span class="signal-verdict" id="sig-us-verdict">—</span>
+        </div>
+        <div class="signal-metric">
+          <span class="sig-pct" id="sig-us-pct">—</span>
+          <span class="sig-cap">纳指 + 标普 + 道指</span>
+        </div>
+        <p class="caption dim" id="sig-us-head">加载中 …</p>
+        <ul class="signal-news" id="sig-us-news"></ul>
       </article>
     </div>
+
+    <article class="card mt-32" id="hot-sectors-card">
+      <div class="card-eyebrow">SECTOR · 今日热门板块 (按涨停数 + 资金净流入)</div>
+      <h3 class="card-h">主线 Top 5</h3>
+      <div class="hs-grid" id="hot-sectors-tiles">
+        <div class="hs-empty">加载中 …</div>
+      </div>
+      <p class="caption dim" id="hot-sectors-sub">—</p>
+    </article>
 
     <article class="card mt-32">
       <div class="card-eyebrow">QUICK · 快捷入口</div>
@@ -83,59 +210,6 @@
       <div class="searchbar">
         <input id="dash-search" class="search-input" placeholder="输入股票代码或名称（如 600519 / 茅台）"/>
         <button class="btn btn-ghost" id="dash-search-go">查询 →</button>
-      </div>
-    </article>
-  </section>
-
-  <!-- ─── SCREEN ─── -->
-  <section class="view view-screen" data-view="screen" hidden>
-    <header class="view-head">
-      <p class="caption">SCREEN · 02</p>
-      <h1 class="display">实时<span class="accent">龙头股</span></h1>
-      <p class="lede">按退学体系四层过筛 · 模式一致性优先</p>
-    </header>
-
-    <div class="grid grid-2">
-      <article class="card">
-        <div class="card-eyebrow">RUN · 触发</div>
-        <div class="runrow">
-          <input id="screen-date" class="search-input" placeholder="YYYYMMDD（留空=今日）"/>
-          <button class="btn btn-primary" id="run-screen">
-            <span>扫描</span><span class="btn-arrow">↗</span>
-          </button>
-        </div>
-        <p class="caption dim">默认 mode=live；mode=backtest 用于指定交易日回测。</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">GLOBAL · 美/韩 → A 股</div>
-        <div class="metric" id="global-sentiment-headline" style="margin-bottom:.5rem">
-          <span class="m-num" id="global-score">—</span><span class="m-unit">/100</span>
-        </div>
-        <div id="global-sentiment-pill" class="sentiment-pill sentiment-neutral" style="display:inline-block">加载中 …</div>
-        <div class="sentiment-stats" id="global-stats" style="margin-top:.6rem"></div>
-        <div id="global-sector-impact" class="mainline-grid" style="margin-top:.75rem"></div>
-        <p class="caption dim" id="global-meta" style="margin-top:.5rem">未拉取</p>
-      </article>
-    </div>
-
-    <article class="card mt-16" id="ai-aggregate-card" hidden>
-      <div class="card-eyebrow">🤖 AI 综合榜 · 板块整体点评</div>
-      <p class="lede" id="ai-aggregate-overall" style="margin: .25rem 0 .75rem 0; font-size: .9rem; line-height: 1.4"></p>
-      <ol id="ai-aggregate-list" class="ai-rank-list"></ol>
-    </article>
-
-    <article class="card mt-32">
-      <div class="card-eyebrow">CANDIDATES · 候选池</div>
-      <div class="table-wrap">
-        <table id="screen-table" class="data-table">
-          <thead>
-            <tr>
-              <th>代码</th><th>名称</th><th>板块</th><th>RR</th>
-              <th>换手</th><th>涨幅</th><th>流通</th><th>角色</th><th>AI</th><th>详情</th>
-            </tr>
-          </thead>
-          <tbody><tr><td colspan="10" class="empty">等待扫描 …</td></tr></tbody>
-        </table>
       </div>
     </article>
   </section>
@@ -148,6 +222,11 @@
       <p class="lede" id="stock-sub">搜索 → 一只股票开始</p>
       <div class="view-actions" id="stock-tags-host"></div>
     </header>
+
+    <article class="card mt-16" id="stock-mytrades-card" hidden>
+      <div class="card-eyebrow" style="color:var(--accent)">📌 我的交易</div>
+      <div id="stock-mytrades-list"></div>
+    </article>
 
     <article class="card">
       <div class="searchbar">
@@ -164,48 +243,108 @@
       </div>
     </article>
 
-    <!-- 主指标 8 卡 -->
-    <div class="grid grid-4 mt-24" id="stock-quote-grid">
-      <article class="card">
-        <div class="card-eyebrow">QUOTE · 实时价</div>
-        <div class="metric"><span class="m-num" id="q-price">—</span><span class="m-unit">元</span></div>
-        <p class="caption" id="q-change">—</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">FLOW · 主力净流</div>
-        <div class="metric"><span class="m-num" id="q-main">—</span><span class="m-unit">万</span></div>
-        <p class="caption dim" id="q-main-sub">今日 · 4 单合计</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">换手 · 量比</div>
-        <div class="metric"><span class="m-num" id="q-turnover">—</span><span class="m-unit">%</span></div>
-        <p class="caption dim" id="q-volratio">量比 —</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">振幅 · 5日涨跌</div>
-        <div class="metric"><span class="m-num" id="q-amp">—</span><span class="m-unit">%</span></div>
-        <p class="caption dim" id="q-5d">5日 —</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">市值 · 流通</div>
-        <div class="metric"><span class="m-num" id="q-mcap">—</span><span class="m-unit">亿</span></div>
-        <p class="caption dim" id="q-mcap-sub">流通 —</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">市盈率 · PE</div>
-        <div class="metric"><span class="m-num" id="q-pe">—</span><span class="m-unit">×</span></div>
-        <p class="caption dim" id="q-pe-sub">动 · 当前</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">当日 · 高/低</div>
-        <div class="metric"><span class="m-num" id="q-hl">—</span></div>
-        <p class="caption dim" id="q-hl-sub">开 / 昨收</p>
-      </article>
-      <article class="card">
-        <div class="card-eyebrow">SEATS · 游资</div>
-        <div class="metric"><span class="m-num" id="q-seats">0</span><span class="m-unit">条</span></div>
-        <p class="caption dim" id="q-seats-sub">近 10 日龙虎</p>
-      </article>
+    <!-- Hero 价格区 + 12 卡 Bento -->
+    <div class="quote-hero" id="stock-quote-grid">
+      <div>
+        <div class="qh-id">
+          <span class="qh-name" id="qh-name">—</span>
+          <span class="qh-code" id="qh-code">——</span>
+        </div>
+        <div class="qh-tags" id="qh-tags">
+          <span class="qh-tag" id="qh-source">数据源</span>
+        </div>
+      </div>
+      <div class="qh-price-wrap">
+        <div class="qh-price" id="q-price">—</div>
+        <div class="qh-chg-row flat" id="q-change-row">
+          <span class="chg-amt" id="q-change">—</span>
+          <span class="chg-pct" id="q-chg-pct">—</span>
+          <span class="qh-arrow" id="q-arrow"></span>
+        </div>
+        <div class="qh-time" id="q-time">—</div>
+      </div>
+    </div>
+
+    <div class="quote-bento mt-16">
+      <!-- 主格 2x2: 主力净流 + 当日明细 -->
+      <div class="quote-cell large">
+        <span class="qc-label">主力净流入 · 万</span>
+        <span class="qc-value large" id="q-main">—</span>
+        <span class="qc-sub" id="q-main-sub">今日 4 单合计</span>
+      </div>
+
+      <!-- 12 中格/小格 -->
+      <div class="quote-cell">
+        <span class="qc-label">换手率</span>
+        <span class="qc-value" id="q-turnover">—<span class="qc-unit">%</span></span>
+        <span class="qc-sub" id="q-turnover-sub">活跃度</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">量比</span>
+        <span class="qc-value" id="q-volratio">—</span>
+        <span class="qc-sub">vs 5 日均量</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">振幅</span>
+        <span class="qc-value" id="q-amp">—<span class="qc-unit">%</span></span>
+        <span class="qc-sub">日内波动</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">5 日涨跌</span>
+        <span class="qc-value" id="q-5d">—</span>
+        <span class="qc-sub">短期趋势</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">20 日涨跌</span>
+        <span class="qc-value" id="q-20d">—</span>
+        <span class="qc-sub">中期趋势</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">总市值</span>
+        <span class="qc-value" id="q-mcap">—<span class="qc-unit">亿</span></span>
+        <span class="qc-sub" id="q-mcap-sub">流通 —</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">市盈率 · PE</span>
+        <span class="qc-value" id="q-pe">—</span>
+        <span class="qc-sub" id="q-pe-sub">动 · 当前</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">当日 高 / 低</span>
+        <span class="qc-value" id="q-hl">—</span>
+        <span class="qc-sub" id="q-hl-sub">开 / 昨收</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">涨停价</span>
+        <span class="qc-value" id="q-lu">—</span>
+        <span class="qc-sub">今日 +10%</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">跌停价</span>
+        <span class="qc-value" id="q-ld">—</span>
+        <span class="qc-sub">今日 -10%</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">成交量</span>
+        <span class="qc-value" id="q-vol">—<span class="qc-unit">万手</span></span>
+        <span class="qc-sub" id="q-amt">成交额 —</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-label">龙虎席位</span>
+        <span class="qc-value" id="q-seats">0<span class="qc-unit">条</span></span>
+        <span class="qc-sub" id="q-seats-sub">近 10 日</span>
+      </div>
     </div>
 
     <!-- 当日明细 + 涨停/跌停价 + 连板历史 -->
@@ -224,11 +363,11 @@
           <div class="kv-row"><span>昨收</span><b id="q-prev">—</b></div>
           <div class="kv-row"><span>最高</span><b id="q-high">—</b></div>
           <div class="kv-row"><span>最低</span><b id="q-low">—</b></div>
-          <div class="kv-row"><span>涨停价</span><b id="q-lu">—</b></div>
-          <div class="kv-row"><span>跌停价</span><b id="q-ld">—</b></div>
-          <div class="kv-row"><span>成交量</span><b id="q-vol">—</b></div>
-          <div class="kv-row"><span>成交额</span><b id="q-amt">—</b></div>
-          <div class="kv-row"><span>20日涨跌</span><b id="q-20d">—</b></div>
+          <div class="kv-row"><span>涨停价</span><b id="q-lu-d">—</b></div>
+          <div class="kv-row"><span>跌停价</span><b id="q-ld-d">—</b></div>
+          <div class="kv-row"><span>成交量</span><b id="q-vol-d">—</b></div>
+          <div class="kv-row"><span>成交额</span><b id="q-amt-d">—</b></div>
+          <div class="kv-row"><span>20日涨跌</span><b id="q-20d-d">—</b></div>
           <div class="kv-row"><span>5日均量</span><b id="q-v5">—</b></div>
         </div>
       </article>
@@ -278,8 +417,37 @@
         </div>
       </div>
       <div data-tab-pane="kline" hidden>
+        <!-- K线工具栏 -->
+        <div class="kline-toolbar">
+          <div class="kt-group">
+            <span class="kt-label">周期</span>
+            <div class="kt-pills" id="kline-period">
+              <button class="kt-pill" data-days="22">1M</button>
+              <button class="kt-pill active" data-days="66">3M</button>
+              <button class="kt-pill" data-days="132">6M</button>
+              <button class="kt-pill" data-days="250">1Y</button>
+              <button class="kt-pill" data-days="400">2Y</button>
+            </div>
+          </div>
+          <div class="kt-group">
+            <span class="kt-label">指标</span>
+            <div class="kt-chips" id="kline-indicators">
+              <button class="kt-chip active" data-ind="ma">MA</button>
+              <button class="kt-chip" data-ind="macd">MACD</button>
+              <button class="kt-chip" data-ind="kdj">KDJ</button>
+              <button class="kt-chip" data-ind="boll">BOLL</button>
+            </div>
+          </div>
+          <div class="kt-group kt-right">
+            <span class="kt-readout" id="kline-readout">
+              <span class="kr-date">—</span>
+              <span class="kr-ohlc">—</span>
+            </span>
+          </div>
+        </div>
+
         <div class="kpi-grid" id="kline-kpi"></div>
-        <div id="kline-chart" style="height:380px; margin-top:1rem"></div>
+        <div id="kline-chart" class="kline-chart-area"></div>
       </div>
       <div data-tab-pane="intraday5d" hidden>
         <p class="caption dim" style="margin: 0 0 .75rem">5 日日线 + 当日分时 tick · 封成比=封单金额/成交额</p>
@@ -312,6 +480,65 @@
       </div>
       <div data-tab-pane="seats" hidden>
         <div class="kpi-grid" id="seats-kpi"></div>
+
+        <!-- 资金成分: 6 类席位 + 占比 + 风险 -->
+        <section class="seat-breakdown" id="seat-breakdown" hidden>
+          <header class="bd-head">
+            <h3 class="bd-title">💰 资金成分</h3>
+            <div class="bd-meta">
+              <span class="bd-sub" id="bd-last-date">—</span>
+              <span class="bd-sub" id="bd-total-amt">—</span>
+            </div>
+          </header>
+
+          <div class="bd-tags" id="bd-tags"></div>
+          <div class="bd-risks" id="bd-risks"></div>
+
+          <div class="bd-intraday" id="bd-intraday">
+            <div class="bd-ir-block">
+              <div class="bd-ir-label">主力</div>
+              <div class="bd-ir-bar"><span class="bd-ir-buy" id="bd-mb-bar"></span></div>
+              <div class="bd-ir-nums">
+                <span class="bd-buy" id="bd-mb-pct">—</span> /
+                <span class="bd-sell" id="bd-ms-pct">—</span>
+              </div>
+            </div>
+            <div class="bd-ir-block">
+              <div class="bd-ir-label">散户</div>
+              <div class="bd-ir-bar"><span class="bd-ir-buy" id="bd-rb-bar"></span></div>
+              <div class="bd-ir-nums">
+                <span class="bd-buy" id="bd-rb-pct">—</span> /
+                <span class="bd-sell" id="bd-rs-pct">—</span>
+              </div>
+            </div>
+            <div class="bd-ir-block bd-ir-main-net">
+              <div class="bd-ir-label">主力净额</div>
+              <div class="bd-ir-net" id="bd-mn-pct">—</div>
+            </div>
+          </div>
+          <p class="caption dim" style="margin:.25rem 0 0">主力/散户实时买卖为净额拆分近似(akshare 未提供逐笔买卖分时)</p>
+
+          <table class="bd-cats" id="bd-cats">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>买入 (万)</th>
+                <th>卖出 (万)</th>
+                <th>净额</th>
+                <th>买占</th>
+                <th>卖占</th>
+                <th>总占</th>
+                <th>净额占</th>
+                <th>席位数</th>
+              </tr>
+            </thead>
+            <tbody id="bd-cats-body">
+              <tr><td colspan="9" class="empty">查询后显示</td></tr>
+            </tbody>
+          </table>
+          <p class="caption dim" style="margin-top:.5rem">占比 = 类别金额 ÷ 个股当日总成交额 (万)</p>
+        </section>
+
         <div class="table-wrap mt-16">
           <table id="seats-table" class="data-table">
             <thead><tr><th>日期</th><th>席位</th><th>方向</th><th>买/卖(万)</th><th>质量组</th><th>标签</th></tr></thead>
@@ -368,10 +595,77 @@
     </article>
   </section>
 
+  <!-- ─── WATCHLIST · 自选股池 ─── -->
+  <section class="view view-watchlist" data-view="watchlist" hidden>
+    <header class="view-head">
+      <p class="caption">WATCHLIST · 05</p>
+      <h1 class="display">自选<span class="accent">股池</span></h1>
+      <p class="lede">手动增减股票 · AI 建议结合退学铁律 + 近 7 日个股信息 · 跨页联动</p>
+    </header>
+
+    <!-- 添加区 -->
+    <article class="card">
+      <div class="card-eyebrow">ADD · 添加到自选</div>
+      <div class="wl-addbar">
+        <input id="wl-add-code" class="search-input" placeholder="代码 / 名称（如 600519 / 茅台）" maxlength="20" />
+        <button class="btn btn-primary" id="wl-add-go">+ 添加 ↗</button>
+        <span class="caption dim" id="wl-add-hint">支持 6 位代码 / 中文名 / 拼音</span>
+      </div>
+      <div id="wl-add-results" class="search-results"></div>
+    </article>
+
+    <!-- 主表格 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>WATCHLIST · 自选股表 · <span id="wl-count">0</span> 只</span>
+        <div class="wl-toolbar">
+          <button class="btn btn-mini" id="wl-refresh-quote">↻ 刷新行情</button>
+          <button class="btn btn-mini" id="wl-batch-ai">✨ 批量 AI 建议</button>
+          <span class="caption dim" id="wl-ts">—</span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="wl-table" class="data-table">
+          <thead>
+            <tr>
+              <th>代码</th>
+              <th>名称</th>
+              <th>最新价</th>
+              <th>涨幅</th>
+              <th>换手</th>
+              <th>主力%</th>
+              <th>5 日</th>
+              <th>10 日</th>
+              <th>板块联动</th>
+              <th>AI 建议</th>
+              <th>时间窗口</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="wl-tbody">
+            <tr><td colspan="12" class="empty">加载中 …</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption dim" style="margin-top:.5rem">
+        💡 添加股票 → 切到个股页触发 AI → 选股页表格自动从个股页提取关键信息填充。<br/>
+        AI 建议严格结合:退学铁律 · 5/10 日涨跌 · 主力/散户/中单占比 · 龙虎席位 · 板块联动 · 新闻情绪。
+      </p>
+    </article>
+
+    <!-- 批量 AI 进度 -->
+    <article class="card mt-16" id="wl-batch-card" hidden>
+      <div class="card-eyebrow">BATCH AI · 批量建议进度</div>
+      <p class="caption" id="wl-batch-status">就绪</p>
+      <div class="wl-batch-bar"><div class="wl-batch-fill" id="wl-batch-fill"></div></div>
+      <ol id="wl-batch-log" class="wl-batch-log"></ol>
+    </article>
+  </section>
+
   <!-- ─── OPTIMIZE ─── -->
   <section class="view view-optimize" data-view="optimize" hidden>
     <header class="view-head">
-      <p class="caption">OPTIMIZE · 05</p>
+      <p class="caption">OPTIMIZE · 06</p>
       <h1 class="display">参数<span class="accent">调优</span></h1>
       <p class="lede">10 次迭代网格扫描 · 自动恢复最佳参数</p>
     </header>
@@ -394,12 +688,43 @@
         </table>
       </div>
     </article>
+
+    <article class="card mt-32">
+      <div class="card-eyebrow">BACKTEST · 历史回测</div>
+      <p class="lede">用过去一段时间的真实数据回放流水线 · 验证参数稳健性</p>
+      <div class="bt-toolbar">
+        <label>起<input id="bt-start" type="date" value="2025-01-01"></label>
+        <label>止<input id="bt-end" type="date" value="2026-06-30"></label>
+        <label>Top N<input id="bt-top" type="number" value="3" min="1" max="10"></label>
+        <label>持仓(天)<input id="bt-hold" type="number" value="5" min="1" max="20"></label>
+        <label>采样<input id="bt-sample" type="number" value="200" min="20" max="2000"></label>
+        <label>卖出
+          <select id="bt-sell">
+            <option value="rule">规则止盈/止损</option>
+            <option value="hold">持有到期</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" id="run-bt">
+          <span>开始回测</span><span class="btn-arrow">↗</span>
+        </button>
+      </div>
+      <div class="kpi-grid mt-16" id="bt-kpis"></div>
+      <div id="bt-risk-host" class="mt-16"></div>
+      <div id="equity-chart" style="height:280px; margin-top:1rem"></div>
+      <div class="table-wrap mt-16">
+        <table id="bt-monthly" class="data-table">
+          <thead><tr><th>月份</th><th>笔数</th><th>胜率</th><th>月均收益</th><th>月收益</th><th>最佳</th><th>最差</th></tr></thead>
+          <tbody><tr><td colspan="7" class="empty">回测后显示</td></tr></tbody>
+        </table>
+      </div>
+      <div id="bt-risk-actions-host" class="mt-16"></div>
+    </article>
   </section>
 
   <!-- ─── DRAGONS · 龙头战法 ─── -->
   <section class="view view-dragons" data-view="dragons" hidden>
     <header class="view-head">
-      <p class="caption">DRAGONS · 07</p>
+      <p class="caption">DRAGONS · 03</p>
       <h1 class="display">龙头<span class="accent">战法</span></h1>
       <p class="lede">四步流水线 · 情绪 → 主线 → 龙头 → 决策 · 6 维评分</p>
       <div class="view-actions">
@@ -488,7 +813,7 @@
   <!-- ─── LAWS · 心法铁律 ─── -->
   <section class="view view-laws" data-view="laws" hidden>
     <header class="view-head">
-      <p class="caption">DISCIPLINE · 06</p>
+      <p class="caption">DISCIPLINE · 07</p>
       <h1 class="display">退学心法 · <span class="accent">铁律</span></h1>
       <p class="lede">《我和小明》原文 · 浓缩成 46 条 · 作为每日下单前的铁闸</p>
     </header>
@@ -543,13 +868,28 @@
     </article>
   </section>
 
-  <!-- ─── REVIEW (复盘·铁律冲突·资金占比) ─── -->
+  <!-- ─── REVIEW (复盘·账户总览·逐笔盈亏) ─── -->
   <section class="view view-review" data-view="review" hidden>
     <header class="view-head">
-      <p class="caption">REVIEW · 07</p>
-      <h1 class="display">复盘 · <span class="accent">铁律冲突</span> · 资金占比</h1>
-      <p class="lede">每笔交易 · AI 逐条铁律 PASS/FAIL · 主力/散户/基金实时刷</p>
+      <p class="caption">REVIEW · 08</p>
+      <h1 class="display">复盘 · <span class="accent">账户总览</span> · 逐笔盈亏</h1>
+      <p class="lede">总资金 / 仓位 / 今日盈亏 / 总盈亏 / 盈亏比 · 每笔交易 AI 逐条铁律回溯</p>
     </header>
+
+    <!-- 顶部资金栏 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>BOOK · 账户总览 · 实时价</span>
+        <span class="caption dim" id="pf-ts">—</span>
+      </div>
+      <div class="review-capbar" id="review-capbar"><span class="dim">加载中…</span></div>
+      <div class="cap-setting">
+        <label>总资金(满仓)<input id="cap-total" type="number" step="1000" placeholder="如 500000" inputmode="decimal"></label>
+        <button class="btn btn-mini primary" id="cap-save">保存</button>
+        <span class="caption dim">仓位%、盈亏比按此计算 · 其余据每笔买卖 + 实时价推算</span>
+      </div>
+      <div class="review-positions" id="review-positions"></div>
+    </article>
 
     <!-- 录入区 -->
     <article class="card mt-16">
@@ -569,41 +909,45 @@
           <label>股数<input id="rf-shares" type="number" step="100" placeholder="100" required></label>
         </div>
         <div class="rf-row">
+          <label>日期<input id="rf-date" type="date"></label>
+          <label>成交时刻
+            <span class="rf-time-wrap">
+              <select id="rf-time"><option value="">自动/手填</option></select>
+              <button type="button" class="btn btn-mini" id="rf-infer" title="按买入价从分时反推可能时刻">↻ 推算时刻</button>
+            </span>
+          </label>
           <label class="rf-grow">备注<input id="rf-memo" placeholder="买入理由 / 当时盘面"></label>
           <button type="submit" class="btn btn-primary">记一笔 →</button>
         </div>
+        <p class="caption dim" id="rf-infer-hint" style="margin:.2rem 0 0"></p>
       </form>
     </article>
 
-    <!-- 表格 + 实时刷 -->
+    <!-- 表格 -->
     <article class="card mt-16">
       <div class="card-eyebrow flex-between">
-        <span>TRADES · 交易明细 · 铁律冲突 + 资金占比</span>
+        <span>TRADES · 交易明细 · 逐笔实时盈亏</span>
         <span class="caption dim" id="review-ts">—</span>
       </div>
       <div class="review-table-wrap">
         <table class="data-table review-table" id="review-table">
           <thead>
             <tr>
-              <th>代码</th>
-              <th>名称</th>
+              <th>代码 · 名称</th>
               <th>方向</th>
-              <th>价格</th>
+              <th>买入日期</th>
+              <th>买入价</th>
+              <th>成交时刻</th>
               <th>股数</th>
-              <th>时间</th>
-              <th>主力%</th>
-              <th>散户%</th>
-              <th>基金%</th>
-              <th>铁律通过</th>
-              <th>铁律违反</th>
-              <th>冲突</th>
-              <th>失误类型</th>
-              <th>AI 建议</th>
-              <th>操作</th>
+              <th>今日盈亏</th>
+              <th>累计盈亏</th>
+              <th>累计盈亏比</th>
+              <th>铁律错在哪</th>
+              <th>AI 复盘</th>
             </tr>
           </thead>
           <tbody id="review-tbody">
-            <tr><td colspan="15" class="dim center">加载中…</td></tr>
+            <tr><td colspan="11" class="dim center">加载中…</td></tr>
           </tbody>
         </table>
       </div>
@@ -626,14 +970,27 @@
     </article>
   </section>
 
+  <!-- ─── AI 复盘子页面 (复盘主页 → 点 AI 复盘进入,左上角返回) ─── -->
+  <section class="view view-ai-review" data-view="ai-review" hidden>
+    <header class="view-head airv-head">
+      <button class="airv-back" id="airv-back" aria-label="返回复盘">‹ 返回复盘</button>
+      <p class="caption">AI REVIEW · 铁律回溯</p>
+      <h1 class="display" id="airv-title">AI 复盘</h1>
+      <p class="lede" id="airv-sub">先回溯当日涨停 · 再回溯我的操作</p>
+    </header>
+    <div id="airv-body">
+      <article class="card mt-16"><div class="dim center" style="padding:2rem">加载中…</div></article>
+    </div>
+  </section>
+
 </main>
 
 <!-- bottom tab bar (mobile) -->
 <nav class="tabbar" id="tabbar">
   <button class="tabbar-item active" data-jump="dash"><span class="tabbar-glyph">◎</span><span>首页</span></button>
-  <button class="tabbar-item" data-jump="screen"><span class="tabbar-glyph">▦</span><span>扫描</span></button>
   <button class="tabbar-item" data-jump="dragons"><span class="tabbar-glyph">★</span><span>龙头</span></button>
   <button class="tabbar-item" data-jump="stock"><span class="tabbar-glyph">◇</span><span>个股</span></button>
+  <button class="tabbar-item" data-jump="watchlist"><span class="tabbar-glyph">☆</span><span>自选</span></button>
   <button class="tabbar-item" data-jump="optimize"><span class="tabbar-glyph">◈</span><span>调优</span></button>
   <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span>心法</span></button>
   <button class="tabbar-item" data-jump="review"><span class="tabbar-glyph">⤓</span><span>复盘</span></button>
@@ -642,18 +999,18 @@
 <!-- top tab bar (desktop) -->
 <nav class="toptabs" id="toptabs">
   <button class="toptab active" data-jump="dash">01 · 首页</button>
-  <button class="toptab" data-jump="screen">02 · 扫描</button>
-  <button class="toptab" data-jump="dragons">03 · 龙头</button>
-  <button class="toptab" data-jump="stock">04 · 个股</button>
-  <button class="toptab" data-jump="optimize">06 · 调优</button>
-  <button class="toptab" data-jump="laws">07 · 心法</button>
-  <button class="toptab" data-jump="review">08 · 复盘</button>
+  <button class="toptab" data-jump="dragons">02 · 龙头</button>
+  <button class="toptab" data-jump="stock">03 · 个股</button>
+  <button class="toptab" data-jump="watchlist">04 · 自选</button>
+  <button class="toptab" data-jump="optimize">05 · 调优</button>
+  <button class="toptab" data-jump="laws">06 · 心法</button>
+  <button class="toptab" data-jump="review">07 · 复盘</button>
 </nav>
 
 <!-- toast -->
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-<script src="/static/app.js" defer></script>
+<script src="/static/app.js?v=__JS_V__" defer></script>
 </body>
 </html>
