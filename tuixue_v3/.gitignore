@@ -12,7 +12,16 @@ __pycache__/
 cache/
 logs/
 reports/
+data/news_cache.json
+data/sector_cache.json
 
-# Local env overrides
-.env
-.env_*
+# Debug screenshots / playwright traces
+*.png
+.playwright-mcp/
+dash-*.png
+homepage-*.png
+watchlist*.png
+stock-*.png
+theme-*.png
+screen-page-*.png
+review-page.png
