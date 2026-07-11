@@ -181,7 +181,57 @@ def get_limit_up_context(code: str, sector_name: str = None) -> Dict[str, Any]:
     if sector_name:
         sector_zt = _fetch_sector_zt_today(sector_name)
 
-    # 4. 总结人话
+    # 4. 相关概念涨停聚合 (4 层 taxonomy: L3 产业链 / L4 细分)
+    #    例: 半导体股 → L3 "存储"/"设备" / L4 "HBM"/"光刻机" 各自涨停多少只
+    related_concepts: List[Dict[str, Any]] = []
+    try:
+        from .sector_taxonomy import classify_taxonomy
+        tax = classify_taxonomy(code) or {}
+        target_concepts = set()
+        for lv in (tax.get("l3_chain") or []):
+            target_concepts.add(lv)
+        for lv in (tax.get("l4_tags") or []):
+            target_concepts.add(lv)
+        if target_concepts:
+            pool_today = zt_today_rows  # 复用
+            cnt: Dict[str, int] = {}
+            samples: Dict[str, List[str]] = {}
+            for row in pool_today:
+                code_r = str(row.get("代码", "")).zfill(6)
+                if not code_r:
+                    continue
+                try:
+                    tax_r = classify_taxonomy(code_r) or {}
+                except Exception:
+                    continue
+                tags = set()
+                for lv in (tax_r.get("l3_chain") or []):
+                    tags.add(lv)
+                for lv in (tax_r.get("l4_tags") or []):
+                    tags.add(lv)
+                if not tags:
+                    continue
+                matched = tags & target_concepts
+                if code_r == code:
+                    matched = target_concepts  # 当前股自身也算入每个概念
+                for c in matched:
+                    cnt[c] = cnt.get(c, 0) + 1
+                    samples.setdefault(c, [])
+                    if len(samples[c]) < 3:
+                        samples[c].append(f"{code_r} {row.get('名称', '')}".strip())
+            # 当前股本身的概念都按 1 计 (上面已经处理)
+            for c, n in cnt.items():
+                related_concepts.append({
+                    "concept": c,
+                    "level": "L3" if c in (tax.get("l3_chain") or []) else "L4",
+                    "zt_count": n,
+                    "samples": samples.get(c, []),
+                })
+            related_concepts.sort(key=lambda x: -x["zt_count"])
+    except Exception as e:
+        log.debug(f"related_concepts 聚合失败 {code}: {e}")
+
+    # 5. 总结人话
     summary = _summarize(code, today_info, recent_5d, sector_zt)
 
     return {
@@ -189,6 +239,7 @@ def get_limit_up_context(code: str, sector_name: str = None) -> Dict[str, Any]:
         "today": today_info,
         "recent_5d": recent_5d[:5],
         "sector_today": sector_zt[:10],  # 最多返回 10 条避免过大
+        "related_concepts": related_concepts[:8],  # 最多 8 个相关概念
         "sector_name_used": sector_name,
         "summary": summary,
     }

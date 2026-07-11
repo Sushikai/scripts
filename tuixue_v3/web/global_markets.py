@@ -145,7 +145,7 @@ def _fetch_tencent(code: str, market: str) -> dict | None:
         return None
 
     try:
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"})
         with urlopen(req, timeout=4) as r:
             text = r.read().decode("gbk", errors="ignore").strip()
         # 解析 'v_usQHK.NVDA="200.00|...|...";'
@@ -195,10 +195,10 @@ def _fetch_sina(code: str, market: str) -> dict | None:
         return None
     try:
         req = Request(url, headers={
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
             "Referer":    "https://finance.sina.com.cn/",
         })
-        with urlopen(req, timeout=3.5) as r:
+        with urlopen(req, timeout=4) as r:
             text = r.read().decode("gbk", errors="ignore").strip()
         if '="' not in text or '=""' in text:
             return None
@@ -243,7 +243,7 @@ def _fetch_eastmoney(code: str, market: str) -> dict | None:
     url = (f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}"
            f"&fields=f43,f44,f45,f46,f60,f169,f170")
     try:
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"})
         with urlopen(req, timeout=4) as r:
             j = json.loads(r.read().decode())
         d = j.get("data") or {}
@@ -282,8 +282,10 @@ def _fetch_yahoo(code: str, market: str) -> dict | None:
         "KS11":    "^KS11",  "KQ11": "^KQ11",
     }
     if market == "kr":
-        # 5 位 code 转 yahoo symbol (005930.Samsung → 005930.KS)
-        if code.isdigit() and len(code) == 6:
+        # 5 位 code 转 yahoo symbol (005930.Samsung → 005930.KS); 指数(KS11/KQ11)走 sym_map
+        if code in sym_map:
+            sym = sym_map[code]
+        elif code.isdigit() and len(code) == 6:
             sym = f"{code}.KS"
         else:
             sym = code
@@ -293,8 +295,13 @@ def _fetch_yahoo(code: str, market: str) -> dict | None:
             sym = sym  # US ticker as-is
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=5d"
     try:
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
-        with urlopen(req, timeout=3.5) as r:
+        # 用 Googlebot UA — 沙箱里默认 "Mozilla/5.0" 经常被 Yahoo 429/Rate-Limited,
+        # 而 Yahoo 对 Googlebot 身份无限流 (实测 KS11/KQ11 都拿得到)
+        req = Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Accept":     "application/json, text/plain, */*",
+        })
+        with urlopen(req, timeout=5) as r:
             j = json.loads(r.read().decode())
         meta = (j.get("chart") or {}).get("result", [{}])[0].get("meta") or {}
         price = meta.get("regularMarketPrice")

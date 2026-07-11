@@ -1123,21 +1123,22 @@ def _build_dashboard_signal() -> dict:
             pass
     us_headline = f"风险偏好 {us_sent} · 综合 {us_idx_pct:+.2f}%"
 
-    # 4) 韩股 — KOSPI (KS11)
+    # 4) 韩股 — KOSPI (KS11) — 走 global_markets._fetch_one 多源兜底链 (yahoo → eastmoney)
+    #    旧版 _index_realtime_em/qq 不支持 KS11 (secid 前缀只有 sh/sz), 永远 0.00%
     kr_pct = 0.0
     kr_verdict = "cautious"
+    kr_source = ""
     try:
-        kr_data = {}
-        if hasattr(lc, "_index_realtime_em"):
-            kr_data = lc._index_realtime_em("KS11") or {}
-        if not kr_data and hasattr(lc, "_index_realtime_qq"):
-            kr_data = lc._index_realtime_qq("KS11") or {}
-        if kr_data:
-            kr_pct = _safe_float(kr_data.get("涨跌幅") or kr_data.get("change_pct"))
-            kr_verdict = _verdict_from_pct(kr_pct, allow=0.5, block=-0.5)
+        from . import global_markets as gm
+        if hasattr(gm, "_fetch_one"):
+            kr_data = gm._fetch_one("KS11", "kr") or {}
+            if kr_data:
+                kr_pct = _safe_float(kr_data.get("change_pct") or kr_data.get("涨跌幅"))
+                kr_verdict = _verdict_from_pct(kr_pct, allow=0.5, block=-0.5)
+                kr_source = kr_data.get("source", "")
     except Exception as e:
         log.warning(f"dashboard KOSPI 拉取失败: {e}")
-    kr_headline = f"KOSPI {kr_pct:+.2f}%"
+    kr_headline = f"KOSPI {kr_pct:+.2f}%" + (f" · {kr_source}" if kr_source else "")
 
     # 5) 不利新闻 — sector_impact 板块跌 ≥ 3% 且驱动数 ≥ 2 → A股警告;n ≥ 3 → 也提醒美股
     sec_impact = gm_data.get("sector_impact") or {}
@@ -2658,25 +2659,23 @@ def _call_minimax(api_key: str, code: str, ctx: dict) -> dict:
             {"role": "system", "content": AI_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        # MiniMax-M3 会先输出 reasoning_content 再输出 JSON,
-        # 800 tokens 在 46 铁律 + 长上下文下不够,已实测 content 被截断 (finish=length)
-        "max_tokens": 700,
+        # MiniMax-M3 reasoning_content 极长 → 首次 700 容易被截断,失败用 1500
+        "max_tokens": 1200,
         "temperature": 0.3,
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    # M3 模型: max_tokens>700 会因长 reasoning 超时
-    # 实测: 500/600 都能 10s 内完成, content_len 300-420 足够
+    # M3 reasoning 慢: 单次 read timeout 必须 ≥ 25s, 否则 reasoning 还没完就 ReadTimeout
+    # 2 次调用: 第一次 1200 tokens / 25s, 第二次 1500 / 30s 兜底
     last_err = None
     text = ""
-    # 2 次调用: 第一次试 700 tokens, 若 finish=length content 截断, 第二次补 1500 tokens
-    for attempt, max_t in [(1, 700), (2, 1500)]:
+    for attempt, max_t, t_out in [(1, 1200, 25), (2, 1500, 30)]:
         body_local = dict(body)
         body_local["max_tokens"] = max_t
         try:
-            r = _requests.post(url, json=body_local, headers=headers, timeout=15)
+            r = _requests.post(url, json=body_local, headers=headers, timeout=t_out)
             if r.status_code != 200:
                 last_err = f"HTTP {r.status_code}: {r.text[:200]}"
                 continue
@@ -2685,7 +2684,6 @@ def _call_minimax(api_key: str, code: str, ctx: dict) -> dict:
             finish = j.get("choices", [{}])[0].get("finish_reason", "?")
             if text:
                 return _parse_ai_json(text)
-            # content 为空, 可能是 finish=length 截断, 给 retry 机会
             reasoning = j.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")[:200]
             last_err = f"empty content (finish={finish}, reasoning={reasoning})"
             log.warning(f"AI attempt {attempt} content 为空 (finish={finish})")
@@ -2896,8 +2894,10 @@ async def stock_ai_analysis(code: str):
 
     try:
         # AI 调用 35s 硬闸 (_call_minimax 内部 2 次调用 × 15s, 留 5s 缓冲)
+        # ⚠ 不要用 to_thread: 它吞异常返 None,这里会误判为"AI 返回空"
+        loop = asyncio.get_event_loop()
         result = await asyncio.wait_for(
-            to_thread(_call_minimax, api_key, code, ctx),
+            loop.run_in_executor(_EXECUTOR, functools.partial(_call_minimax, api_key, code, ctx)),
             timeout=35,
         )
     except asyncio.TimeoutError:
@@ -2906,7 +2906,7 @@ async def stock_ai_analysis(code: str):
             "verdict": "-", "role": "中军", "conviction": 0,
             "layer_pass": {"L1_风控": None, "L2_周期主线": None, "L3_形态": None, "L4_分时": None},
             "rules_passed": [], "rules_failed": [], "key_risks": [],
-            "summary": "AI 调用超时(12s)- 数据源或模型连接慢,建议稍后重试",
+            "summary": "AI 调用超时(35s)- 数据源或模型连接慢,建议稍后重试",
         })
     except Exception as e:
         log.warning(f"AI 调用失败: {e}")
@@ -2914,7 +2914,7 @@ async def stock_ai_analysis(code: str):
             "verdict": "-", "role": "中军", "conviction": 0,
             "layer_pass": {"L1_风控": None, "L2_周期主线": None, "L3_形态": None, "L4_分时": None},
             "rules_passed": [], "rules_failed": [], "key_risks": [],
-            "summary": f"AI 调用失败: {e}",
+            "summary": f"AI 调用失败: {type(e).__name__}: {str(e)[:120]}",
         })
 
     if not result:
