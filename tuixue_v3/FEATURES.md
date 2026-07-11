@@ -138,6 +138,22 @@
 - 固定优先级 6 类: 北向 → 机构 → 拉萨散户 → 量化 → 一线游资 → 未知私有
 - 每只上榜股输出 categories / intraday / risks / tags 4 段
 - 服务于 /api/stock/{code}/seat_breakdown, 18s timeout
+- **13 大顶级游资 江湖名号 + 风格** (`HOT_MONEY_ALIAS`, 18 条):
+  - 赵老哥 (中国银河绍兴 / 银河绍兴解放大道) · 格局派·龙头接力
+  - 作手新一 (国泰君安南京太平南路) · 高位接力·人气总龙
+  - 章盟主 (国泰君安上海江苏路) · 格局派·大资金波段
+  - 佛山系 (光大佛山绿景路 / 湘财佛山季华五路) · 一日游·核按钮
+  - 炒股养家 (华鑫上海宛平南路 / 华鑫上海茅台路) · 通道派·隔夜排板
+  - 宁波解放南 (光大宁波解放南路) · 短线连板抱团
+  - 桑田路 (国盛宁波桑田路) · 高低切换·首板挖掘
+  - 陈小群 (中信建投上海大连路) · 纯情绪高标
+  - 苏南帮 (东吴无锡梁清路 / 东吴无锡湖滨路) · 多席位联动·滚动 T
+  - 上塘路 (财通杭州上塘路) · 一日游·次日砸盘
+  - 劳动路 (华鑫杭州劳动路) · 通道派·量化混合
+  - 溧阳路 (中信上海溧阳路) · 格局派·大资金波段
+  - 刺客 (中信上海源深路) · 埋伏派·低位冷门
+- 单席位独食判定: 金额 / 当日总成交 > 10% → 前端显示"独食" badge
+- 兜底: `seat_aliases.json` 中标记为顶级/中生代的马甲席位,在 5 类未命中时升级为 `hot_money`
 
 ## 10 · 当日涨停全景 (`limit_up_landscape`) — 2026-07-11 新增
 
@@ -165,6 +181,72 @@
   - fetch_daily / sector / news / seat_aliases 全走 Redis 主用
   - watchlist + watchlist_ai 表 (供选股页)
 - /api/health 加 redis_store/stats/status 字段, 实时可见命中率
+
+---
+
+## 14 · KOSPI/KOSDAQ 全球指数 — 2026-07-11 修复
+
+- **bug**: 首页三市场信号面板韩股永远 `KOSPI +0.00% · 无不利信号`,verdict=cautious (错误地把"无数据"显示成"无风险")
+- **根因**: 旧版 `_index_realtime_em/_index_realtime_qq` 的 secid 前缀只有 `sh/sz`,KS11/KQ11 永远拿不到
+- **修复**:
+  - `global_markets._fetch_yahoo`: 改用 Googlebot UA (沙箱里默认 `Mozilla/5.0` 触发 429 Rate-Limited)
+  - KR 指数路径: 先查 `sym_map["KS11"] = "^KS11"`,而不是把 `"KS11"` 字面当 symbol 传给 Yahoo
+  - `global_markets._fetch_one` 完整兜底链: yahoo (^KS11) → eastmoney (secid=106.KS11)
+  - server.py dashboard 不再回退到 `_index_realtime_em/qq` (前缀只有 sh/sz)
+- **效果**: 首页韩股 verdict=pct-based (≥+0.5% allow / ≤-0.5% block),headline 显示 `KOSPI ±x.xx% · yahoo` 真实数据
+
+## 15 · 个股快速工具栏 (`stock-quickbar`) — 2026-07-11 新增
+
+个股页顶部 ribbon,4 个动作合 1 行:
+
+### 日期选择
+- 默认今天 (本地时区 YYYY-MM-DD),`max` 限制未来日期禁用
+- 提供 **今天** / **← / →** 按钮 (← 上一天 → 下一天),快速回看历史分时/K线
+- 选历史日期自动重拉个股 (quote/kline/fund_flow/seats 全重新计算)
+
+### 一键复盘
+- 直接跳到 `review` 视图,sessionStorage 注入 `{code, name, date}`
+- review 表自动填入,用户直接点 "AI 复盘" 即可 (免去手动输入)
+
+### 一键自选
+- POST `/api/watchlist {code, name, tag:"自查"}`
+- 按钮态: 空 → 加入中… → ✓ 已自选 (成功) / ⭐ 一键自选 (失败回退)
+- 失败 toast 提示,不静默
+
+### 一键跳转 · URL 锁定
+- `history.replaceState(?code=xxx)`,方便分享与刷新保留
+
+### 历史搜索 (localStorage)
+- `_STOCK_HIST_KEY = tuixue_stock_history_v1` 持久 10 条
+- 顶部 pill 列表: 点击重查, × 单删, 全部清空
+- 同 code 重复时上提到第 1 位
+
+## 16 · ACCESS · 公网入口 — 位置调整 — 2026-07-11
+
+- 从首页顶部 (第 2 位) 移到最下面 (作为辅助 ribbon)
+- 加一键 **TG 推送** (调 `/api/tunnel/push`) + **二维码扫描** (qrserver API)
+- TG 推送失败时降级:
+  1. `navigator.share()` (移动端系统分享面板,含 Telegram 选项)
+  2. `navigator.clipboard.writeText` 复制 URL
+  3. 兜底 `prompt()` 手动复制
+
+## 17 · 板块联动 · 相关概念涨停数 — 2026-07-11 新增
+
+`/api/stock/{code}/limit_up_context` 输出新增字段:
+
+- `related_concepts`: 聚合该股所属 L3 产业链 + L4 细分标签的当日涨停数
+- 例: 个股 → 工业母机 (L3) → 五轴机床 (L4) → 当日 L3 内 8 家涨停 / L4 内 3 家
+- 前端 chips 显示:
+  - **≥5 主线**: 红色边框 + 红色文字
+  - **≥2 二线**: 琥珀色边框 + 琥珀色文字
+  - 其他杂毛: 灰色边框 + 灰色文字
+- 配色规则让"杂毛"与"主线龙头"一眼区分
+
+## 18 · 自选股池升级 (watchlist_ai + 二维码) — 2026-07-11
+
+- 个股页加载完 AI 后自动同步写 `watchlist_ai` 表,选股页立即可见 (秒级)
+- 选股页批量 AI 按钮 (`#wl-batch-ai`): 一次给所有未评分股票触发 AI 判定
+- 进度条 + 实时日志,失败单独列出
 
 ---
 
