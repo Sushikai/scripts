@@ -25,3 +25,13 @@ stock-*.png
 theme-*.png
 screen-page-*.png
 review-page.png
+
+# Secrets — never commit real keys/tokens
+.env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+cookies/
+.bilibili_cookies.json

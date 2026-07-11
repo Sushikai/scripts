@@ -25,6 +25,23 @@ mkdir -p "$TUNNELS_DIR"
 # ─── 加载环境变量 ───
 [ -f "$HOME/.hermes/env.sh" ] && source "$HOME/.hermes/env.sh"
 
+# ─── API key 守门 ───
+# 缺 key 时 UI 上 AI 模块会全部降级 (server.py:2798, 1905 等),
+# 在此显式告警,避免用户卡在 "AI 未配置" 找不到原因。
+# 真要硬阻断请把 exit 1 取消注释。
+if [ -z "${MINIMAX_API_KEY:-}" ]; then
+    echo ""
+    echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  ⚠  MINIMAX_API_KEY 未配置"
+    echo "     • server 会启动, 但 AI 复盘/选股/对话 全程降级"
+    echo "     • 修复:  把 key 写入 ~/.hermes/env.sh  (参考 .env.example)"
+    echo "            或 export MINIMAX_API_KEY=sk-cp-...  后再 bash $0"
+    echo "     • ⚠ 如果之前把 key 明文写进了代码,先在 MiniMax 控制台 revoke 重发"
+    echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    # exit 1   # 取消注释可硬阻断启动
+fi
+
 # ─── 工具 ───
 note()  { echo -e "  $*"; }
 ok()    { echo -e "  ✓ $*"; }
