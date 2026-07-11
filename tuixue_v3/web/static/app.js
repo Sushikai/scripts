@@ -897,48 +897,136 @@ async function loadStockDetail(code) {
 // 个股快速工具栏: 日期 / 一键复盘 / 一键自选 / 跳转
 // ────────────────────────────────────────────
 let _currentStockName = '';
-function _setQuickbarEnabled(code, name) {
+let _tradeDates = [];        // ['YYYY-MM-DD', ...] 按时间倒序 (限 60 条)
+let _tradeDatesSet = null;   // Set 加快 lookup
+let _tradeDatesLoaded = false;
+let _tradeDatesLoading = null;
+let _lastTradeDate = null;   // 服务端给的"今日不是交易日时"的回退日
+
+function _fmtYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function _ensureTradeDates() {
+  if (_tradeDatesLoaded) return _tradeDates;
+  if (_tradeDatesLoading) return _tradeDatesLoading;
+  _tradeDatesLoading = (async () => {
+    try {
+      const env = await api('/api/trade_dates?limit=60');
+      _tradeDates = env?.dates || [];
+      _tradeDatesSet = new Set(_tradeDates);
+      if (env?.last_trade_date) _lastTradeDate = env.last_trade_date;
+      _tradeDatesLoaded = true;
+    } catch (e) {
+      console.warn('[quickbar] trade_dates 拉取失败,降级为工作日近似', e);
+      _tradeDates = [];
+      _tradeDatesSet = new Set();
+      _tradeDatesLoaded = true;
+    }
+    return _tradeDates;
+  })();
+  return _tradeDatesLoading;
+}
+
+// 给定 YYYY-MM-DD → 若在交易日历里直接返回;否则向前找最近的交易日
+function _snapToTradeDate(yyyy_mm_dd) {
+  if (!_tradeDatesSet || _tradeDatesSet.size === 0) {
+    // 兜底:工作日近似(去除周六日)
+    const d = new Date(yyyy_mm_dd + 'T00:00:00');
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    return _fmtYmd(d);
+  }
+  if (_tradeDatesSet.has(yyyy_mm_dd)) return yyyy_mm_dd;
+  // _tradeDates 已排序倒序,从前往后第一个 <= 入参的就是最近的过去交易日
+  for (const d of _tradeDates) {
+    if (d <= yyyy_mm_dd) return d;
+  }
+  return _lastTradeDate || yyyy_mm_dd;
+}
+
+// 给定 YYYY-MM-DD → 找它之前/之后最近交易日 (←/→ 按钮用)
+function _shiftByTradeDate(yyyy_mm_dd, direction) {
+  if (!_tradeDates || _tradeDates.length === 0) {
+    const d = new Date(yyyy_mm_dd + 'T00:00:00');
+    d.setDate(d.getDate() + direction);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + direction);
+    return _fmtYmd(d);
+  }
+  if (direction < 0) {
+    for (const d of _tradeDates) {
+      if (d < yyyy_mm_dd) return d;
+    }
+    return _tradeDates[_tradeDates.length - 1];
+  } else {
+    for (let i = _tradeDates.length - 1; i >= 0; i--) {
+      if (_tradeDates[i] > yyyy_mm_dd) return _tradeDates[i];
+    }
+    return _tradeDates[0];
+  }
+}
+
+async function _setQuickbarEnabled(code, name) {
   _currentStockName = name || code || '';
   const isValid = /^\d{6}$/.test(code || '');
   const dateInput = $('#stock-date');
   if (dateInput && !dateInput.value) {
-    // 默认今天 (YYYY-MM-DD 本地时区)
+    // 默认今天 (本地时区),然后做交易日对齐
     const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    dateInput.value = `${yyyy}-${mm}-${dd}`;
-    dateInput.max = `${yyyy}-${mm}-${dd}`;  // 未来日期禁用
+    const todayStr = _fmtYmd(d);
+    await _ensureTradeDates();
+    const snapped = _snapToTradeDate(todayStr);
+    dateInput.value = snapped;
+    dateInput.max = todayStr;  // 未来日期禁用
+    if (snapped !== todayStr) {
+      toast(`今天 ${todayStr} 是非交易日,已切到最近交易日 ${snapped}`, 'info', 2200);
+    }
   }
   $('#stock-review-btn').disabled = !isValid;
   $('#stock-watch-btn').disabled  = !isValid;
   $('#stock-jump-stock').disabled = !isValid;
 }
-function _shiftDate(days) {
+
+async function _shiftDate(days) {
   const inp = $('#stock-date');
   if (!inp.value) return;
-  const d = new Date(inp.value + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  inp.value = `${yyyy}-${mm}-${dd}`;
-  toast(`日期切到 ${inp.value} · 重新加载个股`, 'info', 1800);
+  await _ensureTradeDates();
+  // direction 永远是 ±1 交易日,跳过周末/节假日
+  const target = _shiftByTradeDate(inp.value, days);
+  inp.value = target;
+  const dir = days > 0 ? '下' : '上';
+  toast(`日期 → ${target} (跳到${dir}一交易日)`, 'info', 1400);
   if (currentStockCode) loadStockDetail(currentStockCode);
 }
-$('#stock-date-today')?.addEventListener('click', () => {
+
+$('#stock-date-today')?.addEventListener('click', async () => {
   const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  $('#stock-date').value = `${yyyy}-${mm}-${dd}`;
-  toast('回到今天', 'info', 1200);
+  const todayStr = _fmtYmd(d);
+  await _ensureTradeDates();
+  const snapped = _snapToTradeDate(todayStr);
+  $('#stock-date').value = snapped;
+  if (snapped === todayStr) {
+    toast('回到今天', 'info', 1200);
+  } else {
+    toast(`今天 ${todayStr} 非交易日,已回到最近交易日 ${snapped}`, 'info', 2200);
+  }
   if (currentStockCode) loadStockDetail(currentStockCode);
 });
 $('#stock-date-prev')?.addEventListener('click', () => _shiftDate(-1));
 $('#stock-date-next')?.addEventListener('click', () => _shiftDate(+1));
-$('#stock-date')?.addEventListener('change', () => {
-  if (currentStockCode) loadStockDetail(currentStockCode);
+// 日期选择器直接改日期:同样做交易日对齐(若选了周六/节假日)
+$('#stock-date')?.addEventListener('change', async () => {
+  if (!currentStockCode) return;
+  await _ensureTradeDates();
+  const picked = $('#stock-date').value;
+  const snapped = _snapToTradeDate(picked);
+  if (snapped !== picked) {
+    $('#stock-date').value = snapped;
+    toast(`${picked} 非交易日,已回退到最近交易日 ${snapped}`, 'warn', 2400);
+  }
+  loadStockDetail(currentStockCode);
 });
 
 // 一键复盘 → 跳到 review 视图,自动填入 code + 日期
@@ -2820,6 +2908,37 @@ function _sortDragonsAll(list, key, dir) {
     return dir === 'asc' ? av - bv : bv - av;
   });
   return sorted;
+}
+
+// 龙虎榜 STEP 4 行内 AI 评分明细(6 维卡片) — 2026-07-11 找回 (之前提交丢失了定义)
+function _renderAIAnalysisCards(bd, s) {
+  if (!bd) bd = {};
+  const labels = ['连板强度', '资金认可', '封成比', '市值匹配', '技术形态', '题材纯度'];
+  const cards = labels.map(k => {
+    const v = bd[k] || { pts: 0, max: 0, note: '' };
+    const max = v.max || 0;
+    const pct = max > 0 ? Math.round((v.pts || 0) / max * 100) : 0;
+    const cls = pct >= 70 ? 'high' : pct >= 40 ? 'mid' : 'low';
+    const ptsStr = `<span class="adc-pts">${v.pts || 0}<span class="max">/${max}</span></span>`;
+    return `<div class="ai-detail-card">
+      <div class="adc-label">${k}</div>
+      <div class="adc-bar"><div class="adc-bar-fill ${cls}" style="width:${pct}%"></div></div>
+      ${ptsStr}
+      <div class="adc-note">${escapeHtml(v.note || '—')}</div>
+    </div>`;
+  }).join('');
+  const aliases = (s.seat_aliases || []).slice(0, 4);
+  const aliasLine = aliases.length
+    ? ` · 江湖: ${aliases.map(a => '「' + escapeHtml(a) + '」').join(' · ')}`
+    : '';
+  const warnLine = (s.warnings || []).length
+    ? ` · ⚠ ${s.warnings.length} 项警告`
+    : '';
+  return `<div class="ai-detail-grid">${cards}</div>
+    <div class="ai-detail-footer">
+      <span class="meta">${s.code} · ${s.name} · ${s.sector || '—'} · ${s.streak}板 · 评分 <b>${s.score_total || 0}</b>${aliasLine}${warnLine}</span>
+      <button class="btn btn-mini" data-goto="${s.code}">→ 查看完整个股分析</button>
+    </div>`;
 }
 
 function renderDragons(data) {

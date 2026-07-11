@@ -2213,6 +2213,118 @@ async def sectors_mainlines():
     })
 
 
+@app.get("/api/sector/{name}")
+async def api_sector(name: str):
+    """板块详情 — 今日涨停 + 角色分布 + 近 5 日高发 zt
+    接受板块名 (URL-encoded Chinese)，模糊匹配 hot_sectors 返回的那条。"""
+    from .sector_classify import get_sector
+    from .. import multi_source_fetchers as msf
+    from .. import data_layer as _dl
+    import urllib.parse
+    import time as _t
+
+    needle = urllib.parse.unquote(name).strip()
+    if not needle:
+        return envelope(error="empty sector name", data={"info": None})
+
+    def _match(n):
+        a = n.get("name", "")
+        return a == needle or a in needle or needle in a
+
+    def _load():
+        try:
+            hot = msf.fetch_hot_sectors(top_n_flow=40, top_n_pct=40) or []
+        except Exception as e:
+            log.warning(f"sector 拉 hot_sectors 失败: {e}")
+            hot = []
+        info = next((s for s in hot if _match(s)), None)
+        if not info:
+            return {"info": None, "need": needle}
+
+        matched = info["name"]
+
+        # 1) 今日 zt pool → 按 taxonomy.level2_sw / level3_chain 匹配
+        try:
+            zt = _dl.fetch_limit_up_pool() or []
+        except Exception as e:
+            log.warning(f"sector 拉 zt_pool 失败: {e}")
+            zt = []
+
+        today_zt = []
+        for z in zt:
+            code = str(z.get("code") or "").zfill(6)
+            sec = get_sector(code) or {}
+            tax = sec.get("taxonomy", {}) or {}
+            chain = tax.get("level3_chain", "") or ""
+            sw = tax.get("level2_sw", "") or ""
+            if matched in chain or chain in matched or matched in sw or sw in matched:
+                today_zt.append({
+                    "code":      code,
+                    "name":      z.get("name", "") or sec.get("name", ""),
+                    "time":      z.get("first_zt_time") or z.get("zt_time") or z.get("time", ""),
+                    "streak":    int(z.get("streak") or z.get("limit_count") or 0),
+                    "seal_pct":  z.get("seal_ratio_pct") or z.get("seal_pct"),
+                    "sub_chain": chain,
+                    "sw":        sw,
+                })
+
+        # 2) 角色分布 (基于今日 zt + 连板)
+        role = {"main": 0, "second": 0, "noise": 0}
+        for z in today_zt:
+            streak = z["streak"]
+            if streak >= 3:
+                role["main"] += 1
+            elif streak >= 2:
+                role["second"] += 1
+            else:
+                role["noise"] += 1
+
+        # 3) 近 5 日高发 zt (按 code 聚合, 过滤同 sector)
+        try:
+            recent = msf.fetch_recent_zt_pool(days=5) or {}
+        except Exception as e:
+            log.warning(f"sector 拉 recent_zt 失败: {e}")
+            recent = {}
+        hot_5d = []
+        for code, info_r in recent.items():
+            sec_name = info_r.get("sector", "")
+            if sec_name and (matched in sec_name or sec_name in matched):
+                hot_5d.append({
+                    "code":         code,
+                    "name":         info_r.get("name", ""),
+                    "zt_count":     info_r.get("zt_count", 0),
+                    "total_streak": info_r.get("total_streak", 0),
+                    "last_date":    info_r.get("last_date", ""),
+                })
+        hot_5d.sort(key=lambda x: (x["zt_count"], x["total_streak"]), reverse=True)
+
+        return {
+            "info": {
+                "code":         info.get("code", ""),
+                "name":         matched,
+                "change_pct":   info.get("change_pct", 0),
+                "net_inflow_yi":info.get("net_inflow", 0),
+                "rank_flow":    info.get("rank_flow"),
+                "rank_pct":     info.get("rank_pct"),
+                "zt_count":     len(today_zt),
+            },
+            "today_zt":    today_zt,
+            "role_dist":   role,
+            "hot_5d":      hot_5d[:20],
+            "ts":          _t.time(),
+        }
+
+    try:
+        result = await asyncio.wait_for(to_thread(_load), timeout=15)
+        if not result.get("info"):
+            return envelope(error=f"未匹配板块: {result.get('need', needle)}", data={"info": None})
+        return envelope(data=result)
+    except asyncio.TimeoutError:
+        return envelope(error="sector 加载超时", data={"info": None})
+    except Exception as e:
+        return envelope(error=f"sector 失败: {e}", data={"info": None})
+
+
 @app.get("/api/stock/{code}")
 async def stock_overview(code: str, fresh: int = Query(0, ge=0, le=1)):
     """个股综合数据:4 个上游并行 + 单源失败不阻塞其他。
@@ -2405,14 +2517,23 @@ def stock_kline_loader(code: str, days: int = 120) -> list[dict]:
 def _build_ai_system_prompt() -> str:
     """精简版 system prompt, 让 M3 更快出 JSON (原版太长, max_tokens 600 不够)"""
     return """你是退学炒股 AI 助手。任务:基于行情/资金/席位,给"买/观望/回避"判定。
+⚠ 直接输出 JSON,不要 reasoning/思考过程。
 
-【核心铁律】
+【默认铁律·不可破】
 - 庄股/跟风/杂股 → 回避
 - 拉萨天团主导 → 回避
 - 九连阳后放量跌停 → 回避
 - 4 层(风控/周期/形态/分时)全过 + 风险可控 → 买
 - 任一层不过 → 观望
 - 主力层失败 → 回避
+
+【三市场环境·2026-07-11 新增】
+三市场环境必须同时给出,一个不好就不买。verdict 必须在三市场都未触发风险警示时才允许"买"。
+- 美股环境: 纳指/标普 5 日涨跌幅 ≥ -2% 为正常;<-3% 或单日暴跌 -2% 触发风控 → 警戒
+- 韩股环境: KOSPI/KOSDAQ 5 日 ≥ -2% 正常;<-3% 或单日 -2% 触发风控 → 警戒
+- A 股环境: 上证/深证/创业板 5 日 ≥ -3% 正常;<-5% 或单日 -2% 触发风控 → 警戒
+任一市场触发警戒 → verdict 强制 ≤ "观望",conviction ≤ 50。
+三市场全正常才解锁"买"判定。
 
 【连板 & 板块联动加成规则】
 - 该股连板 ≥ 3 且板块当日有 ≥ 5 只涨停 + ≥ 2 只连板 → 主线龙头, conviction 80+
@@ -2421,41 +2542,31 @@ def _build_ai_system_prompt() -> str:
 - 该股 ≥ 2 连板 + 板块当日同板块连板 ≥ 3 只 → 板块联动强, conviction +10
 - 该股今日未涨停 + 近 5 日无涨停 + 板块有涨停 → 杂毛, conviction ≤ 30
 
-【AI 概念标加成规则(2026-07 主战场 = 机器人/AI)】
-- 该股 ai_tag.is_main_field = false(如"传统行业"或"未分类"),与机器人/AI 无关 → conviction ≤ 30, 不参与主线
-- 该股 ai_tag ∈ {机器人本体, 机器人零部件, 机器视觉, AI 算力, AI 芯片, AI 软件, 半导体} → 主战场, conviction ≥ 50 起
-- 该股 ai_tag = 智能驾驶 → 主战场外延, conviction 40-60 视乎资金流强弱
-- 该股 ai_tag = 新能源车 → 主战场外溢, conviction ≤ 40(除非其他指标强烈支持)
+【AI 概念标加成规则(2026-07 主战场 = 机器人/AI/半导体)】
+- 该股 ai_tag.is_main_field = false → conviction ≤ 30, 不参与主线
+- 该股 ai_tag ∈ {机器人本体, 机器人零部件, 机器视觉, AI 算力, AI 芯片, AI 软件, 半导体, 高速光互联, HBM 存储, CPO, 先进封装} → 主战场, conviction ≥ 50 起
+- 该股 ai_tag = 智能驾驶 → 主战场外延, conviction 40-60
+- 该股 ai_tag = 新能源车 → 主战场外溢, conviction ≤ 40
 
-【板块内角色定位(龙头 / 中军 / 杂毛)· 必填 role 字段】
-- 龙头:该股连板 ≥ 3,且板块当日涨停 ≥ 5 只,或属于资金/席位/题材三维共振的核心标的(板块内辨识度第一梯队,涨跌幅/封单/连板领跑)
-- 中军:板块内中等涨幅/中等连板(< 3 连板),市值偏中大盘,资金参与健康(非跟风拉抬、但跟随主线),是板块"中坚力量"
-- 杂毛:今日未涨停 + 近 5 日无涨停 + 板块当日有涨停 / 拉萨天团主导 / 跟风无辨识度 / 不属于板块主战场 → 杂毛,verdict 倾向"回避"
-- 默认:无法明确归类时回退"中军",避免错杀
+【板块内角色(龙头/中军/杂毛)·必填】
+- 龙头:连板 ≥ 3 且板块涨停 ≥ 5 只 / 三维共振核心标的
+- 中军:中等涨幅/中等连板,跟随主线
+- 杂毛:未涨停 + 无题材联动 / 拉萨天团 / 跟风 / 非主战场 → 倾向"回避"
+- 默认"中军"
 
-【4 层板块定位 (2026-07-11) — 必读】
-每只股票会拿到 4 层 + role 字段:
-  cluster (6 大类): 大科技/高端制造/消费/医药/金融/周期资源
-  chain (产业链): 主线识别最小单位,例如「人形机器人」「高速光互联」「HBM 存储」
-  sub (细分多标签): 例如「谐波减速器」「800G 光模块」
-  role (个股标签): main(主战场龙头)/second(二线弹性)/noise(杂毛跟风)
-主线判定:同 chain 当日涨停 ≥ 15 家 → 主线,该股可重点关注;否则仅作参考。
-杂股规则 (硬约束):
-  - taxonomy.role = noise → verdict 强制 ≤ "观望",conviction ≤ 50
-  - taxonomy.role = noise 且 ai_tag.is_main_field = false → verdict = "回避"
-  - taxonomy.role = main 且 所在 chain 是当日主线 → 可加 "龙头" role, conviction 上限解锁至 90
+【4 层板块定位(必读)】
+  cluster: 大科技/高端制造/消费/医药/金融/周期资源
+  chain: 主线最小单位,例「人形机器人」「HBM 存储」
+  sub: 细分多标签,例「谐波减速器」「800G 光模块」
+  role: main(主战场龙头)/second(二线弹性)/noise(杂毛跟风)
+- 同 chain 当日涨停 ≥ 15 家 → 主线,可重点关注
+- taxonomy.role = noise → verdict 强制 ≤ "观望"
+- taxonomy.role = noise 且 ai_tag.is_main_field = false → verdict = "回避"
 
-【严格 JSON 输出 · 不许额外文字】
-{
-  "verdict": "买/观望/回避",
-  "role": "龙头/中军/杂毛",
-  "conviction": 0-100整数,
-  "layer_pass": {"L1_风控": true/false, "L2_周期主线": true/false, "L3_形态": true/false, "L4_分时": true/false},
-  "rules_passed": ["通过的规则名"],
-  "rules_failed": ["失败的规则名"],
-  "key_risks": ["关键风险点"],
-  "summary": "一句话总结(60字内)"
-}"""
+【严格 JSON 输出·不许额外文字】
+{"verdict":"买/观望/回避","role":"龙头/中军/杂毛","conviction":0-100,
+ "layer_pass":{"L1_风控":bool,"L2_周期主线":bool,"L3_形态":bool,"L4_分时":bool},
+ "rules_passed":["规则"],"rules_failed":["规则"],"key_risks":["风险"],"summary":"60字内"}"""
 
 
 # 兼容旧引用 (启动时初始化)
@@ -2628,30 +2739,19 @@ def _call_minimax(api_key: str, code: str, ctx: dict) -> dict:
     except Exception:
         pass
 
-    user_content = f"""分析 {code}。行情={json.dumps(quote, ensure_ascii=False)[:200]}; K线(5日)={json.dumps(last5, ensure_ascii=False)[:300]}; 资金(5日)={json.dumps(fund_hist, ensure_ascii=False)[:300]}; 席位={json.dumps(seats, ensure_ascii=False)[:200]}; 连板={json.dumps({
-        'today_lianban': (limit_up.get('today') or {}).get('连板数', 0),
-        'recent_5d_count': len(limit_up.get('recent_5d', [])),
-        'recent_5d_dates': [r.get('date') for r in limit_up.get('recent_5d', [])[:5]],
-        'sector_zt_count': len(limit_up.get('sector_today', [])),
-        'sector_consecutive_count': sum(1 for x in limit_up.get('sector_today', []) if (x.get('连板数') or 0) >= 2),
-        'sector_top': limit_up.get('sector_today', [])[:3],
-        'summary': limit_up.get('summary', '')
-    }, ensure_ascii=False)[:400]}; 行业={json.dumps({
-        'sw': sector.get('sw'),
-        'csrc': sector.get('csrc'),
-        'ai_tags': ai_tags.get('labels', []),
-        'is_main_field': ai_tags.get('is_main_field', False),
-        'cluster': tax.get('level1_cluster'),
-        'chain': tax.get('level3_chain'),
-        'sub': tax.get('level4_subconcept'),
-        'role': tax.get('role'),
-        'noise_reason': tax.get('noise_reason', ''),
-    }, ensure_ascii=False)[:300]}{is_mainline_brief}。按 JSON 格式返回。"""
+    # 极简 user prompt — M3 reasoning_content 长,user 越短越好,留 token 给 content
+    user_content = f"""{code} 行情:{quote.get('最新价','-')} 涨跌%:{quote.get('涨跌幅','-')} 成交额:{quote.get('成交额','-')}
+K线(近5日收盘):{[k.get('收盘') for k in last5]}
+资金5日(主力/超大/大):{[(h.get('主力净'),h.get('超大单净'),h.get('大单净')) for h in fund_hist]}
+席位组:{','.join(seats.get('known_groups',[])) or '-'} 黑名单:{seats.get('blacklisted',False)} 连板:{seats.get('lianban_count','-')}
+连板摘要:{limit_up.get('summary','')}
+行业:{sector.get('sw')}/{tax.get('level1_cluster')}/{tax.get('level3_chain')}/{tax.get('level4_subconcept')} role={tax.get('role')}{is_mainline_brief}
+输出 JSON:verdict/role/conviction/layer_pass/rules_passed/rules_failed/key_risks/summary"""
 
     # 可选:全局(美/韩)情绪上下文(由 ai_scoring.score_batch 注入,key="_global_text")
     global_text = ctx.get("_global_text") or ""
     if global_text:
-        user_content = f"{global_text}\n\n--- 个股具体数据 ---\n{user_content}"
+        user_content = f"{global_text}\n\n--- 个股 ---\n{user_content}"
 
     body = {
         "model": model,
@@ -2659,19 +2759,19 @@ def _call_minimax(api_key: str, code: str, ctx: dict) -> dict:
             {"role": "system", "content": AI_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        # MiniMax-M3 reasoning_content 极长 → 首次 700 容易被截断,失败用 1500
-        "max_tokens": 1200,
+        # M3 reasoning_content 占用大量 token → max_tokens 必须够大
+        "max_tokens": 3500,
         "temperature": 0.3,
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    # M3 reasoning 慢: 单次 read timeout 必须 ≥ 25s, 否则 reasoning 还没完就 ReadTimeout
-    # 2 次调用: 第一次 1200 tokens / 25s, 第二次 1500 / 30s 兜底
+    # M3 reasoning 慢: 单次 read timeout 必须 ≥ 30s, 否则 reasoning 还没完就 ReadTimeout
+    # 2 次调用: 第一次 3500 / 35s, 第二次 4000 / 35s 兜底
     last_err = None
     text = ""
-    for attempt, max_t, t_out in [(1, 1200, 25), (2, 1500, 30)]:
+    for attempt, max_t, t_out in [(1, 3500, 35), (2, 4000, 35)]:
         body_local = dict(body)
         body_local["max_tokens"] = max_t
         try:
@@ -2726,20 +2826,42 @@ def _parse_ai_json(text: str) -> dict:
             except:
                 pass
         log.warning(f"AI JSON parse failed: {e}; raw={text[:200]}")
-        # 4. 最后兜底: 尝试用正则从截断文本中提取 verdict / role / conviction / summary
-        v_m = re.search(r'"verdict"\s*:\s*"([^"]+)"', text)
-        r_m = re.search(r'"role"\s*:\s*"([^"]+)"', text)
-        c_m = re.search(r'"conviction"\s*:\s*(\d+)', text)
-        s_m = re.search(r'"summary"\s*:\s*"([^"]+)"', text)
+        # 4. 最后兜底: 用正则从截断文本里抢救 verdict/role/conviction/layer/rules/summary
+        def _find_str(field):
+            m = re.search(rf'"{field}"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+            return m.group(1) if m else None
+        def _find_int(field):
+            m = re.search(rf'"{field}"\s*:\s*(\d+)', text)
+            return int(m.group(1)) if m else None
+        def _find_arr(field):
+            m = re.search(rf'"{field}"\s*:\s*\[([\s\S]*?)\]', text)
+            if not m:
+                return []
+            return re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))[:8]
+        def _find_layers():
+            m = re.search(r'"layer_pass"\s*:\s*\{([\s\S]+?)\}', text)
+            if not m:
+                return {"L1_风控": None, "L2_周期主线": None, "L3_形态": None, "L4_分时": None}
+            block = m.group(1)
+            out = {}
+            for name in ["L1_风控", "L2_周期主线", "L3_形态", "L4_分时"]:
+                nm = re.search(rf'"{re.escape(name)}"\s*:\s*(true|false|null|"true"|"false")', block, re.IGNORECASE)
+                if nm:
+                    v = nm.group(1).lower()
+                    out[name] = None if v == "null" else (v == "true")
+                else:
+                    out[name] = None
+            return out
+        summary_val = _find_str("summary")
         return {
-            "verdict": v_m.group(1) if v_m else "观望",
-            "role":    r_m.group(1) if r_m else "中军",
-            "conviction": int(c_m.group(1)) if c_m else 30,
-            "layer_pass": {"L1_风控": None, "L2_周期主线": None, "L3_形态": None, "L4_分时": None},
-            "rules_passed": [],
-            "rules_failed": [],
-            "key_risks": ["AI 返回被截断,部分数据已尽力恢复"],
-            "summary": s_m.group(1) if s_m else text[:200],
+            "verdict":       _find_str("verdict") or "观望",
+            "role":          _find_str("role") or "中军",
+            "conviction":    _find_int("conviction") if _find_int("conviction") is not None else 30,
+            "layer_pass":    _find_layers(),
+            "rules_passed":  _find_arr("rules_passed"),
+            "rules_failed":  _find_arr("rules_failed"),
+            "key_risks":     _find_arr("key_risks") or ["AI 返回被截断,部分数据已尽力恢复"],
+            "summary":       summary_val if summary_val else text[:200],
         }
 
 
@@ -2780,15 +2902,168 @@ async def stock_limit_up_context(code: str, sector: str | None = None):
         })
 
 
+@app.get("/api/stock/{code}/related_stocks")
+async def stock_related_stocks(code: str, limit: int = 24):
+    """相关个股推荐 — 同 L3 产业链 / 同 L4 细分标签 / 同 sw。
+    返回按相关性排序的个股清单(<=limit),含实时价/涨跌幅。
+
+    优化: 一次性从 Redis 加载全 A 股 sector 缓存(避免逐只 get_sector 反复拿锁),
+          再单次拉全市场实时价, in-process 匹配。
+    """
+    from . import sector_classify as _sc
+    from .concept_taxonomy import (
+        CONCEPT_L3, CONCEPT_L4, L3_TO_CLUSTER, match_concepts, concept_signature,
+    )
+    from .sector_taxonomy import classify_taxonomy as _classify_taxonomy
+
+    code = code.strip().zfill(6)
+    limit = max(6, min(50, limit))
+
+    def _scan():
+        # 1) 拿目标股的完整 sector(走缓存,s ≤ 50ms)
+        sec = _sc.get_sector(code) or {}
+        sw = sec.get("sw")
+        sw_raw = sec.get("sw_raw") or ""
+        csrc = sec.get("csrc") or ""
+        tax = sec.get("taxonomy") or {}
+        target_l3 = tax.get("level3_chain") or ""
+        target_l4 = set(tax.get("level4_subconcept") or [])
+        sig = concept_signature(f"{sw_raw} {csrc}")
+        target_clusters = set(sig.get("by_cluster", {}).keys())
+
+        # 2) 一次性加载全 sector 缓存(Redis 单 key,~50ms)
+        all_cache = _sc._load_cache() or {}
+        stocks_map = all_cache.get("stocks") or {}
+
+        # 3) 名称表(从 stock_list_all 取) + realtime quote 缓存
+        from .. import data_layer as _dl
+        all_names = dict(_dl.fetch_stock_list_all() or [])
+
+        # 4) in-process 扫描
+        same_l3, same_l4, same_cluster, same_sw = [], [], [], []
+        for c, info in stocks_map.items():
+            if c == code:
+                continue
+            csw = info.get("sw") or ""
+            csw_raw = info.get("sw_raw") or ""
+            ccsrc_raw = info.get("csrc_raw") or ""
+            tax2 = _classify_taxonomy(c, csw, sw_raw=csw_raw, csrc_raw=ccsrc_raw)
+            l3_2 = tax2.get("level3_chain") or ""
+            l4_2 = set(tax2.get("level4_subconcept") or [])
+
+            # 优先:realtime quote 缓存(5s TTL)
+            row = _cache_quote.get(("quote", c)) or {}
+            item = {
+                "code":   c,
+                "name":   all_names.get(c) or c,
+                "price":  _safe_float(row.get("最新价") or row.get("price")),
+                "pct":    _safe_float(row.get("涨跌幅") or row.get("pct")),
+                "volume": _safe_float(row.get("成交量") or row.get("volume")),
+                "amount": _safe_float(row.get("成交额") or row.get("amount")),
+            }
+
+            if target_l3 and l3_2 == target_l3:
+                same_l3.append(item)
+            if target_l4 & l4_2:
+                same_l4.append(item)
+            if sw and csw == sw:
+                same_sw.append(item)
+            sig2 = concept_signature(f"{csw_raw} {ccsrc_raw}")
+            clu2 = set(sig2.get("by_cluster", {}).keys())
+            if target_clusters & clu2:
+                same_cluster.append(item)
+
+        # 5) 排序:按相关性优先级 + 涨跌幅
+        def _sort_pct(arr):
+            arr.sort(key=lambda x: -(x.get("pct") if x.get("pct") is not None else -999))
+        for arr in (same_l3, same_l4, same_cluster, same_sw):
+            _sort_pct(arr)
+
+        result = []
+        seen = {code}
+
+        def _take(arr, label, max_n):
+            cnt = 0
+            for it in arr:
+                if it["code"] in seen:
+                    continue
+                if cnt >= max_n:
+                    break
+                it2 = dict(it)
+                it2["rel_type"] = label
+                result.append(it2)
+                seen.add(it["code"])
+                cnt += 1
+            return cnt
+
+        _take(same_l3, "同L3产业链", max(8, limit // 3))
+        _take(same_l4, "同L4细分", max(4, limit // 6))
+        _take(same_cluster, "同大集群", max(4, limit // 6))
+        _take(same_sw, "同申万行业", max(4, limit // 6))
+
+        return {
+            "code": code,
+            "target": {
+                "sw":      sw,
+                "sw_raw":  sw_raw,
+                "l3":      target_l3,
+                "l4":      list(target_l4),
+                "clusters": list(target_clusters),
+                "concept_matched": sig.get("matched", []),
+            },
+            "groups": {
+                "same_l3":      [it for it in result if it["rel_type"] == "同L3产业链"],
+                "same_l4":      [it for it in result if it["rel_type"] == "同L4细分"],
+                "same_cluster": [it for it in result if it["rel_type"] == "同大集群"],
+                "same_sw":      [it for it in result if it["rel_type"] == "同申万行业"],
+            },
+            "count": len(result),
+        }
+
+    try:
+        # ⚠ 不用 to_thread — 它吞异常返 None
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_EXECUTOR, _scan),
+            timeout=20,
+        )
+        return envelope(data=result)
+    except asyncio.TimeoutError:
+        log.warning(f"related_stocks 超时 (code={code})")
+        return envelope(error="相关个股推荐超时", data={"code": code, "groups": {}, "count": 0})
+    except Exception as e:
+        log.exception(f"related_stocks 失败: {e}")
+        return envelope(error=str(e), data={"code": code, "groups": {}, "count": 0})
+
+
+def _safe_float(v, default=None):
+    try:
+        if v is None or v == "" or (isinstance(v, float) and (v != v)):
+            return default
+        return float(v)
+    except Exception:
+        return default
+
+
 @app.get("/api/stock/{code}/ai_analysis")
-async def stock_ai_analysis(code: str):
-    """基于铁律的 AI 买入判断. 需配置 MINIMAX_API_KEY 环境变量."""
+async def stock_ai_analysis(code: str, date: str | None = Query(None, description="YYYYMMDD;空=今日")):
+    """基于铁律的 AI 买入判断. 需配置 MINIMAX_API_KEY 环境变量.
+
+    2026-07-11: 加 date 参数支持历史 verdict 回看(供 AI 面板历史对比条用)。
+    """
     code = code.strip().zfill(6)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
 
     # 1) 先查 SQLite 日内缓存 — 命中直接返(避免每次都打 25-35s LLM)
     from .. import cache_db as _cdb
-    today_str = datetime.datetime.now().strftime("%Y%m%d")
+    # date 可能是 Query 对象 (内部调用时) 或 str;统一提取
+    if hasattr(date, "default"):  # Query 对象
+        date = None
+    elif isinstance(date, str) and date.strip():
+        date = date.strip()
+    else:
+        date = None
+    today_str = date or datetime.datetime.now().strftime("%Y%m%d")
     hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3")
     if hit:
         # 即使命中缓存, 也同步写一份 watchlist_ai (首次访问 + 已在 watchlist 中)
@@ -2844,6 +3119,14 @@ async def stock_ai_analysis(code: str):
 
     limit_up_t = to_thread(_limit_up_load, code)
     sector_t = to_thread(_sector_load, code)
+    # 三市场环境(美/韩/A股) — 给 AI 注入"一不好就不买"判断依据
+    from . import global_markets as _gm
+    def _global_load():
+        try:
+            return _gm.fetch_global_sentiment()
+        except Exception:
+            return None
+    global_t = to_thread(_global_load)
 
     async def _wt(coro, sec):
         try:
@@ -2851,9 +3134,9 @@ async def stock_ai_analysis(code: str):
         except Exception:
             return None
 
-    # 硬超时总闸 10 秒:避免某个数据源 hang 把 AI 接口挂死
+    # 硬超时总闸 14 秒:避免某个数据源 hang 把 AI 接口挂死
     try:
-        quote, flow, seats, kline, limit_up, sector = await asyncio.wait_for(
+        quote, flow, seats, kline, limit_up, sector, global_ctx = await asyncio.wait_for(
             asyncio.gather(
                 _wt(quote_t, 4),
                 _wt(flow_t, 6),
@@ -2861,6 +3144,7 @@ async def stock_ai_analysis(code: str):
                 _wt(kline_t, 6),
                 _wt(limit_up_t, 6),
                 _wt(sector_t, 5),
+                _wt(global_t, 5),
             ),
             timeout=14,
         )
@@ -2882,8 +3166,16 @@ async def stock_ai_analysis(code: str):
     kline = _ok(kline, [])
     limit_up = _ok(limit_up, {"code": code, "today": None, "recent_5d": [], "sector_today": [], "summary": "限仓数据拉取失败"})
     sector = _ok(sector, {"code": code, "sw": None, "ai_tags": {"labels": [], "is_main_field": False}})
+    global_ctx = _ok(global_ctx, None)
 
     ctx = {"quote": quote, "fund_flow": flow, "seats": seats, "kline": kline, "limit_up": limit_up, "sector": sector}
+    # 三市场环境文本(美/韩/A股指数) — 让 AI 拿到"一不好就不买"判断依据
+    if global_ctx:
+        try:
+            from . import global_markets as _gm2
+            ctx["_global_text"] = _gm2.render_for_prompt(global_ctx, max_chars=600)
+        except Exception:
+            pass
 
     # 如果 K线 和 quote 都空, 才放弃 (允许 fund_flow/seats 空 - 它们有时拉不到)
     if (not kline) and (not quote):
@@ -2952,9 +3244,799 @@ async def stock_ai_analysis(code: str):
     return envelope(data=result)
 
 
-# ───────────────────────────────────────────────────────────
-# 实时选股 / 回测 - 异步任务跑同步函数,SSE 推进度
-# ───────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# AI · 量化砸盘风险检测 (2026-07-11)
+#   - GET /api/stock/{code}/ai_crash_risk
+#   检测量化砸盘信号:盘面形态 / 虚假流动性 / 尾盘异动 /
+#                   量化席位对倒 / 主力资金背离 / 融券异动
+#   与铁律联动 → 输出"砸盘风险评级 + 应对建议"
+# ═══════════════════════════════════════════════════════════════
+
+# 业内已知量化席位关键词(部分代表名单,命中即算量化风险加分)
+_QUANT_SEAT_KEYWORDS = [
+    "华泰证券总部", "华泰证券上海", "华泰证券深圳", "华泰证券北京",
+    "中金公司上海", "中金公司北京", "中金上海", "中金北京",
+    "中信证券杭州", "中信证券上海", "中信证券深圳", "中信证券北京",
+    "海通证券上海", "海通证券北京",
+    "国泰君安上海", "国泰君安深圳",
+    "招商证券上海", "招商证券深圳",
+    "申万宏源上海", "申万宏源北京",
+    "广发证券上海", "广发证券北京",
+    "中国国际金融",
+    "华泰柏瑞", "华泰证券资管",
+    "高盛高华", "摩根士丹利华鑫",
+    "瑞银证券上海", "瑞银证券北京",
+    "JPMorgan", "Morgan Stanley", "Goldman Sachs",
+]
+
+
+def _detect_quant_seats(seats: dict) -> list[dict]:
+    """扫描 seats.rows, 命中量化席位 → 返回 [{date,seat,amount_wan,direction,matched_kw}, ...]"""
+    out = []
+    for r in (seats.get("rows") or []):
+        seat = r.get("seat") or ""
+        for kw in _QUANT_SEAT_KEYWORDS:
+            if kw in seat:
+                out.append({
+                    "date": r.get("date"),
+                    "seat": seat,
+                    "amount_wan": r.get("amount_wan"),
+                    "direction": r.get("direction"),
+                    "matched_kw": kw,
+                })
+                break
+    return out
+
+
+def _detect_pair_trade(seats: dict) -> list[dict]:
+    """检测同席位既买又卖(对倒信号):返回 [{date,seat,buy_wan,sell_wan}, ...]"""
+    if not seats.get("rows"):
+        return []
+    by_seat_date: dict[tuple, dict] = {}
+    for r in seats["rows"]:
+        seat = r.get("seat") or ""
+        date = r.get("date") or ""
+        k = (date, seat)
+        if k not in by_seat_date:
+            by_seat_date[k] = {"date": date, "seat": seat, "buy_wan": 0.0, "sell_wan": 0.0}
+        amt = float(r.get("amount_wan") or 0)
+        if r.get("direction") == "买入":
+            by_seat_date[k]["buy_wan"] += amt
+        elif r.get("direction") == "卖出":
+            by_seat_date[k]["sell_wan"] += amt
+    out = []
+    for v in by_seat_date.values():
+        if v["buy_wan"] > 0 and v["sell_wan"] > 0:
+            # 双向都有:对倒特征
+            out.append({
+                "date": v["date"], "seat": v["seat"],
+                "buy_wan": round(v["buy_wan"], 1), "sell_wan": round(v["sell_wan"], 1),
+                "ratio": round(min(v["buy_wan"], v["sell_wan"]) / max(v["buy_wan"], v["sell_wan"]), 2),
+            })
+    return out
+
+
+def _detect_fake_liquidity(kline: list[dict]) -> list[dict]:
+    """检测「成交量 3 倍↑ + 涨跌幅 ≤ 3%」的虚假流动性信号(近 10 个交易日内)"""
+    signals = []
+    if not kline:
+        return signals
+    last10 = kline[-10:]
+    for i in range(1, len(last10)):
+        prev = last10[i - 1]
+        cur = last10[i]
+        v_prev = float(prev.get("成交量") or 0)
+        v_cur = float(cur.get("成交量") or 0)
+        pct = float(cur.get("涨跌幅") or cur.get("change_pct") or 0)
+        if v_prev <= 0 or v_cur <= 0:
+            continue
+        v_ratio = v_cur / v_prev
+        if v_ratio >= 3.0 and abs(pct) <= 3.0:
+            signals.append({
+                "date": cur.get("日期") or cur.get("date"),
+                "volume_ratio": round(v_ratio, 2),
+                "change_pct": round(pct, 2),
+            })
+    return signals
+
+
+def _detect_late_session(intraday_today: dict | None) -> dict | None:
+    """检测尾盘异动:14:30 后拉升/砸盘超过 2%"""
+    if not intraday_today or not intraday_today.get("points"):
+        return None
+    pts = intraday_today["points"]
+    # 找到 14:30 之后的数据
+    late = [p for p in pts if str(p.get("time", "")) >= "14:30"]
+    if len(late) < 3:
+        return None
+    open_price = late[0].get("price")
+    close_price = late[-1].get("price")
+    if not open_price or not close_price:
+        return None
+    pct = (close_price - open_price) / open_price * 100
+    if abs(pct) >= 2.0:
+        return {
+            "window": "14:30 至收盘",
+            "pct": round(pct, 2),
+            "direction": "砸盘" if pct < 0 else "拉升",
+        }
+    return None
+
+
+def _build_crash_risk_system_prompt() -> str:
+    """量化砸盘检测 system prompt - 2026-07-11 用户指定
+
+    框架:
+    一、盘面特征(分时锯齿 / 虚假流动性 / 尾盘异动)
+    二、龙虎榜席位(量化席位识别 / 对倒特征)
+    三、资金流向(主力净流入背离 / 大单小单背离 / 融资融券异动)
+    四、综合判定(≥3 个信号 = 高度警惕 + 退神式操作建议)
+    + 必须与"系统铁律"联动(任意铁律违反 + 砸盘信号 = 强制回避)
+    """
+    return """你是 A 股短线量化风险分析师。任务:基于【分时/龙虎榜/资金/融资融券】四大维度,识别【量化砸盘】风险,结合系统【铁律】给出综合判定。
+
+⚠ 直接输出 JSON,不要 reasoning/思考过程。
+
+【系统铁律(必须联动)】
+- 庄股/跟风/杂股 → 回避
+- 拉萨天团主导 → 回避
+- 九连阳后放量跌停 → 回避
+- 量化席位对倒 → 回避(铁律 § 砸盘风险 = 回避)
+- 虚假流动性(放量滞涨) → 观望
+- 砸盘信号 ≥ 3 个 + 任一铁律违反 → 强制 verdict="回避"
+
+【一、盘面特征分析(近 5-10 个交易日)】
+1. 分时形态:是否「锯齿状」?日内波动是否机械化(频繁小跳动 ±0.3% 以内但密度极高)?
+2. 成交量特征:是否有「成交量 3 倍↑ + 涨跌幅 ≤ 3%」的虚假流动性?
+3. 尾盘异动:14:30 后或集合竞价是否无端拉升/砸盘 ≥ 2%?
+
+【二、龙虎榜席位分析】
+1. 买卖前五是否出现量化席位关键词(华泰证券总部/中金上海/中信证券杭州/海通证券上海 等)?
+2. 同席位既买又卖(对倒)?呈现「买 1 亿 / 卖 1.2 亿」的对倒特征?
+3. 各席位买卖金额接近(无领头羊)?
+
+【三、资金流向与指标分析】
+1. 主力资金净流入 + 股价滞涨 → 可能量化对倒
+2. 大单净流出 + 小单净流入背离 → 散户接盘 / 量化出货
+3. 融资融券:融券余额单周 +30%↑ + 融资买入占比高 → 量化对冲
+4. 主力/超大单/大单/中单/小单 5 层资金流向是否同步?
+
+【四、综合判定标准】
+- 信号命中数 ≥ 4 → crash_risk="高", verdict="回避"
+- 信号命中数 = 3 → crash_risk="中高", verdict="回避"
+- 信号命中数 = 2 → crash_risk="中", verdict="观望"
+- 信号命中数 = 1 → crash_risk="低", verdict="观望"
+- 信号命中数 = 0 → crash_risk="无", verdict="正常"
+- 若叠加铁律违反(庄股/拉萨/九连阳后放量跌停等),crash_risk 直接升级 1 级
+
+【建议策略】
+- 高 / 中高 → 立即减仓或清仓,等待砸盘结束
+- 中 → 减半仓 + 止损下移 5%
+- 低 → 持仓观察,不再加仓
+- 无 → 正常持有,但提醒「砸盘随时可能发生,止损单必须挂好」
+
+【输出严格 JSON·不许额外文字】
+{
+  "crash_risk":"高/中高/中/低/无",
+  "verdict":"回避/观望/正常",
+  "conviction": 0-100 (砸盘确信度, 越高越需警惕),
+  "signals": [
+    {"category":"盘面/席位/资金","name":"信号名","detail":"具体描述","weight":"高/中/低"}
+  ],
+  "signal_count": 信号命中数,
+  "rule_violations": ["违反的铁律条目"],
+  "funding_skew": {"main": 主力净额%, "super": 超大单%, "large": 大单%, "mid": 中单%, "small": 小单%},
+  "summary": "≤80 字结论+操作建议"
+}"""
+
+
+def _call_minimax_crash_risk(api_key: str, code: str, ctx: dict) -> dict:
+    """同步调用 MiniMax(M3) - 量化砸盘检测"""
+    url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
+    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+
+    quant_seats = ctx.get("quant_seats") or []
+    pair_trades = ctx.get("pair_trades") or []
+    fake_liq = ctx.get("fake_liquidity") or []
+    late_session = ctx.get("late_session")
+    kline = ctx.get("kline") or []
+    flow = ctx.get("fund_flow") or {}
+    flow_today = flow.get("today") or {}
+    flow_hist = flow.get("history") or []
+    seats = ctx.get("seats") or {}
+    quote = ctx.get("quote") or {}
+    sector = ctx.get("sector") or {}
+
+    # 近 10 日 K线
+    kline_10 = kline[-10:] if kline else []
+    # 近 5 日资金
+    fund_5 = flow_hist[-5:] if flow_hist else []
+
+    # 拼接 user content
+    parts = [f"【个股】{code} {quote.get('名称','')} | 价 {quote.get('最新价','-')} 涨跌 {quote.get('涨跌幅','-')}% 成交额 {quote.get('成交额','-')}"]
+    parts.append(f"行业: {sector.get('sw') or sector.get('name') or '-'}")
+
+    parts.append("\n【一、盘面特征】")
+    parts.append(f"近 10 日 K线: {[(k.get('日期'),k.get('收盘'),k.get('成交量'),k.get('涨跌幅')) for k in kline_10]}")
+    if fake_liq:
+        parts.append(f"⚠ 虚假流动性信号: {fake_liq}")
+    if late_session:
+        parts.append(f"⚠ 尾盘异动: {late_session}")
+    if not fake_liq and not late_session:
+        parts.append("(盘面信号无异常)")
+
+    parts.append("\n【二、龙虎榜席位】")
+    seats_rows = seats.get("rows") or []
+    if seats_rows:
+        # 量化席位
+        if quant_seats:
+            parts.append(f"⚠ 量化席位命中 {len(quant_seats)} 次:")
+            for s in quant_seats[:8]:
+                parts.append(f"  - {s['date']} | {s['direction']} | {s['seat']} | {s['amount_wan']} 万 | 关键词={s['matched_kw']}")
+        else:
+            parts.append("(无已知量化席位)")
+        # 对倒
+        if pair_trades:
+            parts.append(f"⚠ 同席位对倒 {len(pair_trades)} 次:")
+            for p in pair_trades[:6]:
+                parts.append(f"  - {p['date']} | {p['seat']} | 买 {p['buy_wan']} 万 / 卖 {p['sell_wan']} 万 | 比例 {p['ratio']}")
+    else:
+        parts.append("(无近 30 日龙虎榜数据)")
+
+    parts.append("\n【三、资金流向】")
+    if flow_today:
+        parts.append(f"今日资金(主力/超大/大/中/小): {flow_today.get('主力净')}/{flow_today.get('超大单净')}/{flow_today.get('大单净')}/{flow_today.get('中单净')}/{flow_today.get('小单净')}")
+    if fund_5:
+        parts.append(f"近 5 日资金净额(主力/超大/大): {[(h.get('主力净'),h.get('超大单净'),h.get('大单净')) for h in fund_5]}")
+    if not flow_today and not fund_5:
+        parts.append("(资金流数据暂无)")
+
+    # 5 层资金 skew
+    if flow_today:
+        parts.append(f"\n5 层资金: 主力 {flow_today.get('主力净','-')}% | 超大单 {flow_today.get('超大单净','-')}% | 大单 {flow_today.get('大单净','-')}% | 中单 {flow_today.get('中单净','-')}% | 小单 {flow_today.get('小单净','-')}%")
+
+    parts.append("\n【请输出 JSON】crash_risk / verdict / conviction / signals / signal_count / rule_violations / funding_skew / summary")
+    user_content = "\n".join(parts)
+
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _build_crash_risk_system_prompt()},
+            {"role": "user", "content": user_content},
+        ],
+        "max_tokens": 3500,
+        "temperature": 0.2,
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    last_err = None
+    for attempt, max_t, t_out in [(1, 3500, 35), (2, 4000, 35)]:
+        body_local = dict(body)
+        body_local["max_tokens"] = max_t
+        try:
+            r = _requests.post(url, json=body_local, headers=headers, timeout=t_out)
+            if r.status_code != 200:
+                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
+                continue
+            j = r.json()
+            text = j.get("choices", [{}])[0].get("message", {}).get("content", "")
+            finish = j.get("choices", [{}])[0].get("finish_reason", "?")
+            if text:
+                return _parse_crash_risk_json(text)
+            reasoning = j.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")[:200]
+            last_err = f"empty content (finish={finish}, reasoning={reasoning})"
+            log.warning(f"crash_risk AI attempt {attempt} content 为空 (finish={finish})")
+        except _requests.exceptions.ReadTimeout as e:
+            last_err = f"timeout (attempt {attempt}): {e}"
+            log.warning(f"crash_risk AI attempt {attempt} 超时")
+            continue
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            log.warning(f"crash_risk AI attempt {attempt} 异常: {e}")
+            continue
+    raise RuntimeError(f"crash_risk AI 调用失败 ({last_err})")
+
+
+def _parse_crash_risk_json(text: str) -> dict:
+    """宽松解析 crash_risk JSON"""
+    import re
+    text = text.strip()
+    if text.startswith("```"):
+        m = re.search(r"```(?:json)?\s*([\s\S]+?)(?:```|$)", text)
+        if m:
+            text = m.group(1).strip()
+    if not text.startswith("{"):
+        m = re.search(r"\{[\s\S]+\}", text)
+        if m:
+            text = m.group(0)
+    try:
+        return json.loads(text)
+    except Exception:
+        idx = text.rfind("}")
+        if idx > 0:
+            try:
+                return json.loads(text[:idx+1])
+            except Exception:
+                pass
+        log.warning(f"crash_risk JSON parse failed; raw={text[:200]}")
+        return {
+            "crash_risk": "中",
+            "verdict": "观望",
+            "conviction": 50,
+            "signals": [{"category": "系统", "name": "AI 返回被截断", "detail": text[:120], "weight": "中"}],
+            "signal_count": 0,
+            "rule_violations": [],
+            "funding_skew": {},
+            "summary": "AI 返回被截断, 已尽力恢复结构。请重试或检查日志。"
+        }
+
+
+@app.get("/api/stock/{code}/ai_crash_risk")
+async def stock_ai_crash_risk(code: str, force: bool = False):
+    """量化砸盘风险检测 — 复用铁律, 同时跑盘面/席位/资金三路信号预扫描,
+    把"机器能算的"全部算好再喂给 LLM, 让 LLM 只做最终综合判定。
+    """
+    code = code.strip().zfill(6)
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+
+    # SQLite 缓存 key: crash_risk:{date}:{code}
+    from .. import cache_db as _cdb
+    today_str = datetime.datetime.now().strftime("%Y%m%d")
+    cache_key = f"crash_risk:{today_str}:{code}"
+
+    if not force:
+        hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3-crash")
+        if hit and hit.get("crash_risk") is not None:
+            return envelope(data=hit)
+
+    if not api_key:
+        return envelope(error="MINIMAX_API_KEY 未配置", data={
+            "crash_risk": "未知", "verdict": "观望", "conviction": 0,
+            "signals": [], "signal_count": 0, "rule_violations": [],
+            "funding_skew": {}, "summary": "AI 模块未配置"
+        })
+
+    # ── 1) 并行拉所有上下文 ──
+    from .. import lib_common as lc
+    @cached(_cache_quote, key_fn=lambda c: ("quote", c))
+    def _quote(code_):
+        return lc.fetch_realtime(code_)
+    quote_t = to_thread(_quote, code)
+    flow_t  = to_thread(fund_flow.get_combined, code, 30)
+    seats_t = to_thread(seat_lookup.get_stock_seats, code, 30)
+    kline_t = to_thread(stock_kline_loader, code, 30)
+
+    from .sector_classify import get_sector as _get_sector
+    sector_t = to_thread(_get_sector, code)
+
+    # 今日分时 (尽量拿, 拿不到不影响主流程)
+    async def _intraday_load(c):
+        try:
+            r = await asyncio.wait_for(stock_intraday_5d(c), timeout=8)
+            return (r.get("data") or {}).get("intraday_today")
+        except Exception:
+            return None
+
+    async def _wt(coro, sec):
+        try:
+            return await asyncio.wait_for(coro, timeout=sec)
+        except Exception:
+            return None
+
+    try:
+        quote, flow, seats, kline, sector, intraday_today = await asyncio.wait_for(
+            asyncio.gather(
+                _wt(quote_t, 4),
+                _wt(flow_t, 6),
+                _wt(seats_t, 8),
+                _wt(kline_t, 6),
+                _wt(sector_t, 4),
+                _intraday_load(code),
+            ),
+            timeout=20,
+        )
+    except asyncio.TimeoutError:
+        log.warning(f"crash_risk 上游超时 (code={code})")
+        return envelope(error="crash_risk 上游数据拉取超时", data={
+            "crash_risk": "未知", "verdict": "观望", "conviction": 0,
+            "signals": [], "signal_count": 0, "rule_violations": [],
+            "funding_skew": {}, "summary": "数据源拉取超时,请稍后重试"
+        })
+
+    def _ok(v, default):
+        return default if isinstance(v, BaseException) or v is None else v
+    quote = _ok(quote, {})
+    flow  = _ok(flow, {"code": code, "today": None, "history": []})
+    seats = _ok(seats, {"code": code, "rows": [], "blacklisted": False, "known_groups": []})
+    kline = _ok(kline, [])
+    sector = _ok(sector, {"code": code, "sw": None, "ai_tags": {}})
+
+    # ── 2) 机器预扫描:量化席位 / 对倒 / 虚假流动性 / 尾盘异动 ──
+    quant_seats = _detect_quant_seats(seats)
+    pair_trades = _detect_pair_trade(seats)
+    fake_liq = _detect_fake_liquidity(kline)
+    late_session = _detect_late_session(intraday_today)
+
+    # 铁律快查:黑名单
+    rule_violations = []
+    if seats.get("blacklisted"):
+        rule_violations.append("§ 该股在龙虎榜黑名单中(历史有拉萨天团/砸盘前科)")
+
+    pre_signals = []
+    if quant_seats:
+        pre_signals.append(f"§ 量化席位命中 {len(quant_seats)} 次")
+    if pair_trades:
+        pre_signals.append(f"§ 同席位对倒 {len(pair_trades)} 次")
+    if fake_liq:
+        pre_signals.append(f"§ 虚假流动性信号 {len(fake_liq)} 次")
+    if late_session:
+        pre_signals.append(f"§ 尾盘{late_session.get('direction','异动')} {late_session.get('pct')}%")
+
+    ctx = {
+        "code": code,
+        "quote": quote,
+        "fund_flow": flow,
+        "seats": seats,
+        "kline": kline,
+        "sector": sector,
+        "quant_seats": quant_seats,
+        "pair_trades": pair_trades,
+        "fake_liquidity": fake_liq,
+        "late_session": late_session,
+    }
+
+    # ── 3) 调 LLM ──
+    try:
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_EXECUTOR, functools.partial(_call_minimax_crash_risk, api_key, code, ctx)),
+            timeout=35,
+        )
+    except asyncio.TimeoutError:
+        return envelope(error="crash_risk AI 调用超时", data={
+            "crash_risk": "未知", "verdict": "观望", "conviction": 0,
+            "signals": [{"category":"系统","name":"AI 超时","detail":"35s 超时","weight":"高"}],
+            "signal_count": 0, "rule_violations": rule_violations or pre_signals,
+            "funding_skew": {}, "summary": "AI 调用超时,建议重试"
+        })
+    except Exception as e:
+        log.warning(f"crash_risk AI 失败: {e}")
+        return envelope(error=f"crash_risk AI 调用失败: {e}", data={
+            "crash_risk": "未知", "verdict": "观望", "conviction": 0,
+            "signals": [{"category":"系统","name":"AI 异常","detail":str(e)[:80],"weight":"高"}],
+            "signal_count": 0, "rule_violations": rule_violations or pre_signals,
+            "funding_skew": {}, "summary": f"AI 调用失败: {type(e).__name__}"
+        })
+
+    if not result:
+        return envelope(error="crash_risk AI 返回空", data={
+            "crash_risk": "未知", "verdict": "观望", "conviction": 0,
+            "signals": [], "signal_count": 0, "rule_violations": rule_violations or pre_signals,
+            "funding_skew": {}, "summary": "AI 返回空"
+        })
+
+    # ── 4) 注入机器预扫描信号到 signals (LLM 不一定扫得全) ──
+    if quant_seats and not any(s.get("name") == "量化席位" for s in result.get("signals", [])):
+        result.setdefault("signals", []).append({
+            "category": "席位", "name": "量化席位", "weight": "高",
+            "detail": f"命中 {len(quant_seats)} 次, 代表席位: {quant_seats[0]['seat']}"
+        })
+    if pair_trades and not any(s.get("name") == "对倒" for s in result.get("signals", [])):
+        result.setdefault("signals", []).append({
+            "category": "席位", "name": "对倒", "weight": "高",
+            "detail": f"{len(pair_trades)} 次同席位双向成交, 最大比例 {max((p['ratio'] for p in pair_trades), default=0):.2f}"
+        })
+    if fake_liq and not any(s.get("name") == "虚假流动性" for s in result.get("signals", [])):
+        result.setdefault("signals", []).append({
+            "category": "盘面", "name": "虚假流动性", "weight": "中",
+            "detail": f"{len(fake_liq)} 次放量滞涨, 最大量比 {max((s['volume_ratio'] for s in fake_liq), default=0):.1f}x"
+        })
+    if late_session and not any(s.get("name") == "尾盘异动" for s in result.get("signals", [])):
+        result.setdefault("signals", []).append({
+            "category": "盘面", "name": "尾盘异动", "weight": "高",
+            "detail": f"14:30 后{late_session['direction']} {late_session['pct']}%"
+        })
+
+    # 注入预扫描 metadata 供前端展示
+    result["pre_scan"] = {
+        "quant_seats": quant_seats[:5],
+        "pair_trades": pair_trades[:5],
+        "fake_liquidity": fake_liq[:5],
+        "late_session": late_session,
+        "pre_signal_count": len(pre_signals),
+    }
+    # 注入铁律违反(若 LLM 漏)
+    if rule_violations:
+        for v in rule_violations:
+            if not any(r.get("name") in v or v in r.get("name", "") for r in result.get("rule_violations", [])):
+                result.setdefault("rule_violations", []).append(v)
+
+    # ── 5) 写缓存 ──
+    try:
+        sector_name = (sector or {}).get("sw") or (sector or {}).get("name") or ""
+        _cdb.upsert_ai(today_str, code, "MiniMax-M3-crash", result, sector=sector_name)
+    except Exception as e:
+        log.debug(f"crash_risk cache write fail: {e}")
+
+    return envelope(data=result)
+
+
+# ═══════════════════════════════════════════════════════════════
+# AI 面板 · 交互增强 (2026-07-11)
+#   - GET /api/stock/{code}/ai_history     过去 N 日 verdict 演变
+#   - GET /api/stock/{code}/ai_layer_detail 各层数据 popover
+#   - POST /api/stock/{code}/ai_refresh    强制重跑 (失效缓存 + 重调 LLM)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/stock/{code}/ai_history")
+async def api_stock_ai_history(code: str, days: int = Query(7, ge=1, le=30)):
+    """过去 N 日 AI 判定历史 — 给前端「历史对比条」用。
+
+    数据源: ai_verdict 表 (SQLite 兜底 + Redis 主用,cache_db.get_cached_ai)。
+    跨日的 cache_db 不会自动返回,所以这里直接走 SQL 查近 N 日,避免缓存 TTL 干扰。
+    """
+    code = code.strip().zfill(6)
+    from .. import cache_db as _cdb
+    def _load():
+        try:
+            conn = _cdb._thread_conn()
+            rows = conn.execute(
+                "SELECT date, verdict, role, conviction, sector, ts_updated "
+                "FROM ai_verdict WHERE code=? AND model=? "
+                "ORDER BY date DESC LIMIT ?",
+                (code, "MiniMax-M3", days),
+            ).fetchall()
+        except Exception as e:
+            log.debug(f"ai_history SQL 失败 {code}: {e}")
+            return []
+        out = []
+        for r in rows:
+            out.append({
+                "date":       r[0] or "",
+                "verdict":    r[1] or "-",
+                "role":       r[2] or "中军",
+                "conviction": int(r[1] and r[2] and 0) or int(r[3] or 0),
+                "sector":     r[4] or "",
+                "ts_updated": r[5] or 0,
+            })
+        return out
+    try:
+        history = await asyncio.wait_for(to_thread(_load), timeout=4)
+    except Exception:
+        history = []
+    return envelope(data={"code": code, "history": history, "count": len(history)})
+
+
+@app.get("/api/stock/{code}/ai_layer_detail")
+async def api_stock_ai_layer_detail(code: str):
+    """返回 AI 4 层各自依赖的底层数据 — 给前端 popover 用。
+
+    L1 风控: 黑名单席位 / 拉萨天团 / 9 连阳 / 主力层失败 等信号
+    L2 周期主线: 三市场 verdict + 主线 chain + 当日涨停数
+    L3 形态: 5/10/20 日涨跌 + 连板 + 涨停池归属 + 资金 5 日累计
+    L4 分时: 今日 tick 量价 + 5 日分时形态 + 异动
+    """
+    code = code.strip().zfill(6)
+
+    def _load():
+        from .. import lib_common as lc
+        from . import fund_flow as _ff
+        from . import limit_up_context as _luc
+        from .sector_classify import get_sector as _gs
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        out = {"code": code, "layers": {}}
+
+        # 5 路并行 (4-6s 总耗时 vs 串行 10-15s)
+        def _q():
+            try: return lc.fetch_realtime(code) or {}
+            except Exception: return {}
+        def _f():
+            try: return _ff.get_combined(code, 60) or {}
+            except Exception: return {}
+        def _s():
+            try: return _gs(code) or {}
+            except Exception: return {}
+        def _l():
+            try: return _luc.get_limit_up_context(code, sector_name=None) or {}
+            except Exception: return {"today": None, "recent_5d": [], "sector_today": []}
+        def _gm():
+            try:
+                from . import global_markets as _gm_mod
+                return _gm_mod.fetch_global_sentiment() or {}
+            except Exception: return {}
+
+        results: dict = {"q": {}, "f": {}, "s": {}, "l": {}, "gm": {}}
+        try:
+            with _TPE(max_workers=5) as _pool:
+                futs = {"q": _pool.submit(_q), "f": _pool.submit(_f),
+                        "s": _pool.submit(_s), "l": _pool.submit(_l),
+                        "gm": _pool.submit(_gm)}
+                for k, f in futs.items():
+                    try:
+                        results[k] = f.result(timeout=6)
+                    except Exception as e:
+                        log.debug(f"ai_layer_detail {k} 失败: {e}")
+        except Exception as e:
+            log.warning(f"ai_layer_detail 并行拉取异常: {e}")
+
+        quote = results.get("q") or {}
+        seats = results.get("f") or {}
+        today_ff = (seats or {}).get("today") or {}
+        flow_hist = (seats or {}).get("history") or []
+        sec = results.get("s") or {}
+        sw = sec.get("sw") or "-"
+        ai_tags = (sec.get("ai_tags") or {})
+        tax = (sec.get("taxonomy") or {})
+        l3 = tax.get("level3_chain") or ""
+        luc = results.get("l") or {}
+        today_lu = luc.get("today") or {}
+        recent_5d_lu = luc.get("recent_5d") or []
+        sector_today = luc.get("sector_today") or []
+        gm = results.get("gm") or {}
+
+        # 主线判定 (单步 1s 内,串行 OK)
+        mainline_msg = ""
+        mainline_cnt = 0
+        try:
+            from .. import data_layer as _dl
+            from .sector_taxonomy import count_zt_by_chain
+            _zt = _dl.fetch_limit_up_pool() or []
+            _codes = [str(z.get("code") or "").zfill(6) for z in _zt]
+            mainline_cnt = count_zt_by_chain(_codes, _gs).get(l3, 0) if l3 else 0
+            mainline_msg = f"{l3 or '-'} 当日涨停 {mainline_cnt} 家"
+        except Exception:
+            mainline_msg = f"{l3 or '-'} (主线判定异常)"
+
+        # === L1 风控 — 黑名单 / 拉萨天团 / 主力层失败 ===
+        l1_rows = []
+        known = (seats or {}).get("known_groups") or []
+        is_black = bool((seats or {}).get("blacklisted"))
+        l1_rows.append({"k": "黑名单席位", "v": "⚠ 是" if is_black else "✓ 否",
+                        "ok": not is_black})
+        lhasa_hit = [g for g in known if "拉萨" in g or "东财拉萨" in g]
+        l1_rows.append({"k": "拉萨天团", "v": "⚠ 出现" if lhasa_hit else "✓ 无",
+                        "ok": not lhasa_hit, "detail": lhasa_hit})
+        # 9 连阳
+        streak_lu = sum(1 for r in recent_5d_lu if r) or 0
+        l1_rows.append({"k": "近 5 日涨停次数", "v": f"{streak_lu}",
+                        "ok": streak_lu < 4})
+        # 主力层
+        main_net = float(today_ff.get("main_net") or 0)
+        l1_rows.append({"k": "今日主力净额", "v": f"{main_net:+.0f} 万",
+                        "ok": main_net >= 0, "detail": "主力层失败 → 整体回避"})
+
+        out["layers"]["L1_风控"] = {"rows": l1_rows, "verdict": "通过" if all(r["ok"] for r in l1_rows) else "失败"}
+
+        # === L2 周期主线 ===
+        l2_rows = []
+        gm_sent = (gm.get("sentiment") or "neutral").lower()
+        us_pct = float(gm.get("sentiment_score") or 0)
+        l2_rows.append({"k": "美股风险偏好", "v": f"{gm_sent} ({us_pct:+.2f}%)",
+                        "ok": gm_sent != "risk_off"})
+        kr_data = (gm.get("kr") or {})
+        kr_pct = float(kr_data.get("change_pct") or 0) if isinstance(kr_data, dict) else 0
+        l2_rows.append({"k": "韩股 KOSPI", "v": f"{kr_pct:+.2f}%",
+                        "ok": kr_pct > -0.5,
+                        "detail": "≤-0.5% 触发风控" if kr_pct <= -0.5 else ""})
+        a_avg = float((gm.get("a_share") or {}).get("change_pct") or 0)
+        l2_rows.append({"k": "A 股 6 指数均值", "v": f"{a_avg:+.2f}%",
+                        "ok": a_avg > -0.5})
+        l2_rows.append({"k": "所属主线 (L3)", "v": mainline_msg,
+                        "ok": mainline_cnt >= 15,
+                        "detail": f"threshold ≥ 15 家涨停"})
+        l2_rows.append({"k": "行业归属", "v": f"{sw} · cluster={tax.get('level1_cluster', '-')}",
+                        "ok": True})
+        l2_rows.append({"k": "AI 概念标", "v": f"{ai_tags.get('labels') or '-'} (主战场={ai_tags.get('is_main_field', False)})",
+                        "ok": bool(ai_tags.get("is_main_field"))})
+
+        out["layers"]["L2_周期主线"] = {"rows": l2_rows, "verdict": "通过" if all(r["ok"] for r in l2_rows) else "失败"}
+
+        # === L3 形态 — 5/10 日涨跌 + 连板 + 资金 5 日累计 ===
+        l3_rows = []
+        try:
+            kline = stock_kline_loader(code, 30) or []
+        except Exception:
+            kline = []
+        closes = [float(k.get("close") or 0) for k in kline if k.get("close")]
+        if len(closes) >= 6:
+            pct_5d = round((closes[-1] / closes[-6] - 1) * 100, 2)
+        else:
+            pct_5d = None
+        if len(closes) >= 11:
+            pct_10d = round((closes[-1] / closes[-11] - 1) * 100, 2)
+        else:
+            pct_10d = None
+        l3_rows.append({"k": "5 日涨跌", "v": f"{pct_5d:+.2f}%" if pct_5d is not None else "—",
+                        "ok": pct_5d is None or pct_5d <= 25,
+                        "warn": pct_5d is not None and pct_5d > 15})
+        l3_rows.append({"k": "10 日涨跌", "v": f"{pct_10d:+.2f}%" if pct_10d is not None else "—",
+                        "ok": pct_10d is None or pct_10d <= 50,
+                        "warn": pct_10d is not None and pct_10d > 30})
+        streak = today_lu.get("连板数") or 0
+        l3_rows.append({"k": "今日连板", "v": f"{streak} 板",
+                        "ok": streak <= 5,
+                        "warn": streak >= 4})
+        l3_rows.append({"k": "板块当日涨停", "v": f"{len(sector_today)} 只 / 行业 {sw}",
+                        "ok": len(sector_today) >= 3 if (streak >= 1) else True,
+                        "detail": "连板龙头需板块 ≥ 3 家涨停共振"})
+        # 资金 5 日累计
+        net5 = sum(float(h.get("main_net") or 0) for h in flow_hist[-5:])
+        l3_rows.append({"k": "主力 5 日累计净额", "v": f"{net5:+.0f} 万",
+                        "ok": net5 >= 0})
+
+        out["layers"]["L3_形态"] = {"rows": l3_rows, "verdict": "通过" if all(r["ok"] for r in l3_rows) else "失败"}
+
+        # === L4 分时 — 今日 tick 量价 + 异动 ===
+        l4_rows = []
+        price = float(quote.get("最新价") or 0)
+        op = float(quote.get("今开") or 0)
+        hi = float(quote.get("最高") or 0)
+        lo = float(quote.get("最低") or 0)
+        prev_close = float(quote.get("昨收") or 0)
+        if price and prev_close:
+            chg = (price / prev_close - 1) * 100
+        else:
+            chg = 0
+        l4_rows.append({"k": "当日涨跌幅", "v": f"{chg:+.2f}%",
+                        "ok": abs(chg) < 9.5})
+        l4_rows.append({"k": "换手率", "v": f"{quote.get('换手率') or '-'}%",
+                        "ok": float(quote.get('换手率') or 0) < 10,
+                        "warn": float(quote.get('换手率') or 0) > 10})
+        l4_rows.append({"k": "振幅", "v": f"{((hi-lo)/prev_close*100 if prev_close else 0):+.2f}%",
+                        "ok": True})
+        l4_rows.append({"k": "量比", "v": f"{quote.get('量比') or '-'}",
+                        "ok": float(quote.get('量比') or 0) < 5,
+                        "warn": float(quote.get('量比') or 0) >= 5})
+        l4_rows.append({"k": "流通市值", "v": f"{quote.get('流通市值') or '-'} 亿",
+                        "ok": True})
+
+        out["layers"]["L4_分时"] = {"rows": l4_rows, "verdict": "通过" if all(r["ok"] for r in l4_rows) else "失败"}
+
+        out["_meta"] = {
+            "quote_keys": list(quote.keys())[:8],
+            "sector_keys": list(sec.keys())[:8],
+            "ts": time.time(),
+        }
+        return out
+
+    try:
+        data = await asyncio.wait_for(to_thread(_load), timeout=18)
+    except asyncio.TimeoutError:
+        log.warning(f"ai_layer_detail {code} 18s 超时")
+        return envelope(error="层详情拉取超时", data={"code": code, "layers": {}})
+    except Exception as e:
+        log.warning(f"ai_layer_detail {code} 异常: {e}")
+        return envelope(error=str(e), data={"code": code, "layers": {}})
+    return envelope(data=data)
+
+
+@app.post("/api/stock/{code}/ai_refresh")
+async def api_stock_ai_refresh(code: str):
+    """强制重跑 AI (失效 Redis + SQLite 缓存),不传 force,直接清缓存然后走原始调用链。"""
+    code = code.strip().zfill(6)
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if not api_key:
+        return envelope(error="MINIMAX_API_KEY 未配置", data={"code": code})
+    from .. import cache_db as _cdb
+    today_str = datetime.datetime.now().strftime("%Y%m%d")
+
+    # 1) 失效缓存 (Redis + SQLite 都清)
+    try:
+        from .. import cache_store
+        k = cache_store.K.AI.format(date=today_str, code=code)
+        cache_store.get_store().delete(k)
+    except Exception as e:
+        log.debug(f"ai_refresh Redis delete 失败 {code}: {e}")
+    try:
+        conn = _cdb._thread_conn()
+        conn.execute("DELETE FROM ai_verdict WHERE date=? AND code=? AND model=?",
+                     (today_str, code, "MiniMax-M3"))
+        conn.commit()
+    except Exception as e:
+        log.debug(f"ai_refresh SQLite delete 失败 {code}: {e}")
+
+    # 2) 走 stock_ai_analysis 主路径 (cache 已清 → 重新调 LLM)
+    return await stock_ai_analysis(code)
 class ScreenRequest(BaseModel):
     date: str | None = Field(None, description="YYYYMMDD;None=今日")
     mode: str = Field("live", pattern="^(live|backtest)$")
@@ -3187,6 +4269,44 @@ async def api_watchlist_list():
     except Exception as e:
         log.exception("watchlist list")
         return envelope(error=str(e), status_code=500)
+
+
+@app.get("/api/trade_dates")
+async def api_trade_dates(limit: int = 60):
+    """返回最近 N 个交易日的 YYYY-MM-DD 列表 + 最临近交易日。
+
+    服务于个股页日期切换:用户选非交易日(周末/节假日) → 自动回退到最近交易日。
+    """
+    try:
+        from .. import multi_source_fetchers as msf
+        all_dates = await asyncio.to_thread(msf.fetch_trade_dates)
+        if not all_dates:
+            return envelope(error="交易日历不可用", data={"dates": [], "today": None, "last_trade_date": None})
+
+        sorted_dates = sorted(all_dates, reverse=True)
+        recent = sorted_dates[:limit]
+
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        # 最临近且 <= 今日的交易日 (今日非交易时回退用)
+        # 全表里倒序找,这样即便 recent 截断的是未来日期也能正确找到
+        last_trade = None
+        for d in sorted_dates:
+            if d <= today:
+                last_trade = d
+                break
+        # 兜底:万一日历全是未来日期 (罕见,缓存错位)
+        if last_trade is None and sorted_dates:
+            last_trade = sorted_dates[-1]
+
+        return envelope(data={
+            "dates": recent,
+            "today": today,
+            "last_trade_date": last_trade,
+            "is_today_trade_day": today in all_dates,
+        })
+    except Exception as e:
+        log.exception("trade_dates")
+        return envelope(error=str(e), data={"dates": [], "today": None, "last_trade_date": None})
 
 
 @app.post("/api/watchlist")
