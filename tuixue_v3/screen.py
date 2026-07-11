@@ -234,19 +234,37 @@ def run_stock_screen(date_str: str | None = None, mode: str = "live",
         return _finalize(date_str, [], {"prefilter": pre_stats, "l1": l1_stats}, health, t0, reason="l1_empty")
 
     # 3) Layer 2
-    l2_passed, l2_stats = l2.screen(l1_passed, date_str)
+    try:
+        l2_passed, l2_stats = l2.screen(l1_passed, date_str)
+    except RecursionError:
+        import traceback as _tb
+        log.error(f"[{date_str}] Layer2 RecursionError 完整栈:\n"
+                  + "".join(_tb.format_exc()))
+        raise
     log.info(f"Layer2: {l2_stats.get('passed')} 只通过")
     if not l2_passed:
         return _finalize(date_str, [], {"prefilter": pre_stats, "l1": l1_stats, "l2": l2_stats}, health, t0, reason="l2_empty")
 
     # 4) Layer 3
-    l3_passed, l3_stats = l3.screen(l2_passed, date_str)
+    try:
+        l3_passed, l3_stats = l3.screen(l2_passed, date_str)
+    except RecursionError:
+        import traceback as _tb
+        log.error(f"[{date_str}] Layer3 RecursionError 完整栈:\n"
+                  + "".join(_tb.format_exc()))
+        raise
     log.info(f"Layer3: {l3_stats.get('passed')} 只通过")
     if not l3_passed:
         return _finalize(date_str, [], {"prefilter": pre_stats, "l1": l1_stats, "l2": l2_stats, "l3": l3_stats}, health, t0, reason="l3_empty")
 
     # 5) Layer 4
-    l4_passed, l4_stats = l4.screen(l3_passed, date_str, mode=mode)
+    try:
+        l4_passed, l4_stats = l4.screen(l3_passed, date_str, mode=mode)
+    except RecursionError:
+        import traceback as _tb
+        log.error(f"[{date_str}] Layer4 RecursionError 完整栈:\n"
+                  + "".join(_tb.format_exc()))
+        raise
     log.info(f"Layer4: {l4_stats.get('passed')} 只通过")
 
     # 6) 排序 + 截取

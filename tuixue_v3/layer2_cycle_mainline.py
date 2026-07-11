@@ -135,7 +135,7 @@ def identify_mainline(date_str: str | None = None, calendar: dict | None = None)
         return [{"name": n, "code": "", "rise_count": 0, "fund_flow_yi": 0, "ratio": 0,
                  "source": "calendar"} for n in names][:cfg.L2_MAINLINE_FUND_FLOW_TOPN]
 
-    cache_key = f"mainline_{date_str or 'latest'}"
+    cache_key = f"mainline:{date_str or 'latest'}"
     cached = dl._cache_load(cache_key, cfg.CACHE_TTL_FUNDAMENTAL)
     if cached:
         return cached

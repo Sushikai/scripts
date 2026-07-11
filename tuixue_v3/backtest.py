@@ -184,13 +184,22 @@ def run_backtest(start: str = "2025-01-01", end: str = "2026-06-30",
         DD_RECOVER   =  5.0            # 恢复阈值（死区，避免反复切）
 
         for di, d in enumerate(dates):
-            if di + hold_days >= len(dates):
+            if di + hold_days + 1 >= len(dates):
                 continue
             buy_d = dates[di + 1]
             sell_d = dates[di + 1 + hold_days]
 
             try:
                 r = _screen_for_date(d, stocks_all)
+            except RecursionError as e:
+                # 仅在第一次捕获时打完整栈,避免日志被刷爆
+                import traceback as _tb
+                if not getattr(log, "_recursion_trace_done", False):
+                    log.error(f"{d} 选股 RecursionError 完整栈:\n"
+                              + "".join(_tb.format_exc()))
+                    log._recursion_trace_done = True
+                log.warning(f"{d} 选股异常: {e}")
+                continue
             except Exception as e:
                 log.warning(f"{d} 选股异常: {e}")
                 continue

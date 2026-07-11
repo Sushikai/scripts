@@ -105,7 +105,7 @@ def _quick_bt(params: dict) -> dict:
 # ═══════════════════════════════════════════════════
 # 主优化器（10 次迭代）
 # ═══════════════════════════════════════════════════
-def run_optimize(iterations: int = None) -> dict:
+def run_optimize(iterations: int = None, progress_cb=None) -> dict:
     """
     10 次迭代调优：
       iter 1: 基线（默认参数）
@@ -122,8 +122,16 @@ def run_optimize(iterations: int = None) -> dict:
     best_score = -float("inf")
     best_result = None
 
+    def _progress(phase, **kw):
+        if progress_cb:
+            try:
+                progress_cb({"phase": phase, "elapsed_sec": round(systime.time() - t0, 1), **kw})
+            except Exception:
+                pass
+
     # Iter 1：基线
     log.info(f"\n>>> Iter 1/10: 基线")
+    _progress("iter_start", iter=1, total=iterations)
     r = _quick_bt(best_params)
     sc = _score(r)
     history.append({"iter": 1, "params": best_params, "score": sc, "summary": r.get("summary", {})})
@@ -131,11 +139,13 @@ def run_optimize(iterations: int = None) -> dict:
         best_score = sc
         best_params = best_params.copy()
         best_result = r
+    _progress("iter_done", iter=1, total=iterations, score=sc, trials=len(history), best_score=best_score)
     log.info(f"  得分={sc} | 笔数={r['summary'].get('trades', 0)} | 月均={r['summary'].get('monthly_avg_return_pct', 0)}%")
 
     # Iter 2-4：单维度扰动（贪心）
     for it in range(2, 5):
         log.info(f"\n>>> Iter {it}/10: 单维度扰动")
+        _progress("iter_start", iter=it, total=iterations)
         improved = False
         for key, choices in PARAM_SPACE.items():
             for v in choices:
@@ -154,7 +164,9 @@ def run_optimize(iterations: int = None) -> dict:
                     best_params = p.copy()
                     best_result = r
                     improved = True
+                    _progress("new_best", iter=it, key=key, value=v, score=sc)
                     log.info(f"    ⭐ 新最佳 score={sc} ({key}={v}) | 月均={r['summary'].get('monthly_avg_return_pct', 0)}% 笔数={r['summary'].get('trades', 0)}")
+            _progress("iter_done", iter=it, total=iterations, trials=len(history), best_score=best_score)
         if not improved:
             log.info(f"  Iter {it} 无改进")
 
@@ -183,13 +195,16 @@ def run_optimize(iterations: int = None) -> dict:
                 best_params = p.copy()
                 best_result = r
                 improved = True
+                _progress("new_best", iter=it, key=k, value=v, score=sc)
                 log.info(f"    ⭐ 新最佳 score={sc} ({k}={v})")
+        _progress("iter_done", iter=it, total=iterations, trials=len(history), best_score=best_score)
         if not improved:
             log.info(f"  Iter {it} 无改进")
 
     # Iter 8-10：局部微调（围绕 best 上下浮动）
     for it in range(8, 11):
         log.info(f"\n>>> Iter {it}/10: 局部微调")
+        _progress("iter_start", iter=it, total=iterations)
         improved = False
         for key in list(best_params.keys()):
             if key not in PARAM_SPACE:
@@ -212,12 +227,15 @@ def run_optimize(iterations: int = None) -> dict:
                     best_params = p.copy()
                     best_result = r
                     improved = True
+                    _progress("new_best", iter=it, key=key, value=v, score=sc)
                     log.info(f"    ⭐ 新最佳 score={sc} ({key}={v})")
+        _progress("iter_done", iter=it, total=iterations, trials=len(history), best_score=best_score)
         if not improved:
             log.info(f"  Iter {it} 无改进")
 
     # 还原最佳参数
     _apply_params(best_params)
+    _progress("done", total_trials=len(history), best_score=best_score)
 
     # 保存优化报告
     report = {
