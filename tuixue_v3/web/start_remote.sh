@@ -95,26 +95,26 @@ self_check() {
             fi
         fi
 
-        # 2) /static/app.js 200 + gzip 体返回
+        # 2) /static/app.js 验 gzip: 必须用 GET,不能 curl -sI —— hypercorn 对 HEAD 一律 405
+        #    (app.js 54KB,丢弃 body 用 -o /dev/null,只留 -D - 的响应头;tunnel 加 ms 可忽略)
         if [ "$ok_static" = "0" ]; then
             local hdr
-            hdr=$(curl -s -I --max-time 6 -H "Accept-Encoding: gzip" "$url/static/app.js" 2>/dev/null)
+            hdr=$(curl -s -o /dev/null -D - --max-time 6 -H "Accept-Encoding: gzip" \
+                "$url/static/app.js" 2>/dev/null)
             if echo "$hdr" | grep -qiE "^HTTP/[0-9.]+ 200" && echo "$hdr" | grep -qiE "content-encoding:.*gzip"; then
                 ok_static=1
             fi
         fi
 
-        # 3) HEAD /api/stream/backtest 看响应头 ≤ 4s 返 → SSE 握手没被隧道中间截断
-        #    (不要拉到底,真跑回测会很慢;只看握手)
+        # 3) SSE 握手 /api/stream/review/0: 这是 GET 单 path param,无 body。
+        #    原 /api/stream/backtest 用 -X GET --data-urlencode 把 body 塞进 GET,FastAPI 422,握手永远过不去。
+        #    SSE 端点立刻返 200 + text/event-stream 并开始流;max-time 4s 截断时已读到握手头。
         if [ "$ok_sse" = "0" ]; then
-            local sse_code
-            sse_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 \
-                -X GET --data-urlencode "start=2025-01-01" --data-urlencode "end=2025-01-31" \
-                --data-urlencode "top_n=5" --data-urlencode "hold_days=5" \
-                "$url/api/stream/backtest" 2>&1) || true
-            # SSE 端点会立刻返回 200 + text/event-stream 流起来;curl 没读到就被 SIGTERM 在 max-time 时截断
-            # 这里 200 表示握手成功;0 表示连接没建上;非 200 表示被代理拦截(例如 cloudfront challenge 页)
-            if [ "$sse_code" = "200" ]; then
+            local sse_hdr
+            sse_hdr=$(curl -s --max-time 4 -D - -o /dev/null \
+                "$url/api/stream/review/0" 2>/dev/null)
+            if echo "$sse_hdr" | grep -qiE "^HTTP/[0-9.]+ 200" \
+               && echo "$sse_hdr" | grep -qiE "content-type:.*event-stream"; then
                 ok_sse=1
             fi
         fi
