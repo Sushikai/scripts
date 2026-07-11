@@ -34,11 +34,23 @@ def get_main_flow(code: str) -> dict | None:
     except Exception as e:
         log.warning(f"东财 push2his {code} 失败: {e}")
 
-    # ─── 备 1: akshare ───
+    # ─── 备 1: akshare (5s 硬超时,东财限频时 RemoteDisconnected 会 hang 数十秒) ───
     try:
-        import akshare as ak
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
         market = "sh" if code.startswith(("6", "5", "9")) else "sz"
-        df = ak.stock_individual_fund_flow(stock=code, market=market)
+
+        def _ak_today():
+            import akshare as ak
+            return ak.stock_individual_fund_flow(stock=code, market=market)
+
+        ex = ThreadPoolExecutor(max_workers=1)
+        try:
+            df = ex.submit(_ak_today).result(timeout=5)
+        except FutTimeout:
+            log.warning(f"akshare 今日资金流 {code} 5s 超时")
+            df = None
+        finally:
+            ex.shutdown(wait=False)
         if df is not None and not df.empty:
             latest = df.iloc[-1]
             out = {
@@ -105,6 +117,29 @@ def get_history_flow(code: str, days: int = 60) -> list[dict]:
 
 
 def _try_ak_individual(code: str, market: str, days: int) -> list[dict]:
+    """
+    2026-07-11 加固：akshare stock_individual_fund_flow 在东财限频窗口经常
+    RemoteDisconnected / 卡死（默认 akshare session timeout 是 None,
+    可以 hang 数分钟）。外面包 5s ThreadPool 硬超时，超时返 [] 让上层走
+    daily_proxy（本地 SQLite, 0.01s 出）。
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+    ex = ThreadPoolExecutor(max_workers=1)
+    try:
+        try:
+            future = ex.submit(_ak_individual_inner, code, market, days)
+            return future.result(timeout=5)
+        except FutTimeout:
+            log.warning(f"akshare_individual {code} 5s 超时,降级 daily_proxy")
+            return []
+    except Exception as e:
+        log.warning(f"akshare_individual {code} 失败: {e}")
+        return []
+    finally:
+        ex.shutdown(wait=False)
+
+
+def _ak_individual_inner(code: str, market: str, days: int) -> list[dict]:
     try:
         import akshare as ak
         df = ak.stock_individual_fund_flow(stock=code, market=market)
@@ -144,7 +179,7 @@ def _try_ak_individual(code: str, market: str, days: int) -> list[dict]:
                 continue
         return rows
     except Exception as e:
-        log.warning(f"akshare_individual {code} 失败: {e}")
+        log.warning(f"akshare_individual_inner {code} 失败: {e}")
         return []
 
 

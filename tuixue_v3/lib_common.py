@@ -234,29 +234,41 @@ def reset_source_health():
 
 
 def _is_disabled(src: str) -> bool:
-    return time.time() < _source_health[src]["disabled_until"]
+    with _source_lock:
+        return time.time() < _source_health[src]["disabled_until"]
 
 
 def _report_fail(src: str, err: str = ""):
-    h = _source_health[src]
-    h["fails"] += 1
-    h["oks"] = 0
-    if h["fails"] >= SOURCE_HEALTHY_THRESHOLD and h["disabled_until"] == 0.0:
-        h["disabled_until"] = time.time() + SOURCE_COOLDOWN_SEC
-        logging.warning(
-            f"⚠️ 数据源[{h['name']}]连续{h['fails']}次失败，"
-            f"冷却 {SOURCE_COOLDOWN_SEC}s，后续请求自动切备选源"
-            + (f" | err={err}" if err else "")
-        )
+    with _source_lock:
+        h = _source_health[src]
+        h["fails"] += 1
+        h["oks"] = 0
+        if h["fails"] >= SOURCE_HEALTHY_THRESHOLD and h["disabled_until"] == 0.0:
+            h["disabled_until"] = time.time() + SOURCE_COOLDOWN_SEC
+            cooldown = SOURCE_COOLDOWN_SEC
+            name = h["name"]
+            fails = h["fails"]
+        else:
+            return
+    logging.warning(
+        f"⚠️ 数据源[{name}]连续{fails}次失败，"
+        f"冷却 {cooldown}s，后续请求自动切备选源"
+        + (f" | err={err}" if err else "")
+    )
 
 
 def _report_ok(src: str):
-    h = _source_health[src]
-    h["oks"] += 1
-    h["fails"] = 0
-    if h["disabled_until"] > 0 and h["oks"] >= SOURCE_RECOVER_THRESHOLD:
-        logging.info(f"✅ 数据源[{h['name']}]已恢复（连续{h['oks']}次成功）")
-        h["disabled_until"] = 0.0
+    with _source_lock:
+        h = _source_health[src]
+        h["oks"] += 1
+        h["fails"] = 0
+        if h["disabled_until"] > 0 and h["oks"] >= SOURCE_RECOVER_THRESHOLD:
+            h["disabled_until"] = 0.0
+            oks = h["oks"]
+            name = h["name"]
+        else:
+            return
+    logging.info(f"✅ 数据源[{name}]已恢复（连续{oks}次成功）")
 
 
 def _health_snapshot() -> str:
@@ -710,31 +722,62 @@ _DAILY_SOURCES = [
 ]
 
 
+# 日线多源总闸：10 个 source 串联可能 30s+，端点层 wait_for 必须 < 这个值
+FETCH_DAILY_HARD_TIMEOUT = 12
+
+
 def fetch_daily(code: str, days: int = 120):
     """
     多源获取日线：按顺序尝试，主源失败自动切备选。
     每个源内部 3 次重试（0.5/1/2s 退避）；连续 5 次失败冷却 5 分钟。
     返回 DataFrame 或 None。
+
+    2026-07-11 加固：10 个 source 串联极限可能 30s+，外面包一层
+    `ThreadPoolExecutor.submit().result(timeout=FETCH_DAILY_HARD_TIMEOUT)`，
+    超时立刻返 None 让端点走降级。`_source_lock` 仍在内部并发安全。
     """
-    with _source_lock:
-        last_err = ""
-        tried = []
-        for src_name, fn in _DAILY_SOURCES:
-            if _is_disabled(src_name):
-                tried.append(f"{src_name}=跳过")
-                continue
-            # 用 lambda 把 days 绑定到源函数上
-            ok, data, err = _fetch_with_retry(lambda c: fn(c, days), code, src_name, max_retry=3)
-            tried.append(f"{src_name}={'ok' if ok else 'fail'}")
-            if ok and data is not None and len(data) > 0:
-                _report_ok(src_name)
-                return data
-            _report_fail(src_name, err)
-            last_err = err
-        logging.warning(f"日线 {code} 全部源失败 | 尝试链={' -> '.join(tried)} | 最后err={last_err}")
-        if random.random() < 0.1:
-            logging.warning(f"📊 数据源健康: {_health_snapshot()}")
-        return None
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+    ex = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = ex.submit(_fetch_daily_inner, code, days)
+        try:
+            return future.result(timeout=FETCH_DAILY_HARD_TIMEOUT)
+        except FutTimeout:
+            logging.warning(f"日线 {code} 总闸 {FETCH_DAILY_HARD_TIMEOUT}s 超时,返 None")
+            return None
+        except Exception as e:
+            logging.warning(f"日线 {code} 总闸异常: {e}")
+            return None
+    finally:
+        ex.shutdown(wait=False)
+
+
+def _fetch_daily_inner(code: str, days: int) -> "pd.DataFrame | None":
+    """原 fetch_daily 的 source 循环逻辑（无总闸版），由 fetch_daily 在线程池调用。
+
+    2026-07-11 加固: 移除全局 _source_lock 包裹整条 source 链。
+    原逻辑让 screen 3000+ 只循环里连续 fetch_daily 时,所有 kline/fund 端点
+    都被排到 1 个全局锁后面等 — 12s 闸一到就返 None,造成端点层 18% 失败。
+    现在只在 _report_ok / _report_fail 内细粒度锁 _source_health dict,
+    多线程并发 fetch_daily (不同 code) 各自走自己的 source 链。
+    """
+    last_err = ""
+    tried = []
+    for src_name, fn in _DAILY_SOURCES:
+        if _is_disabled(src_name):
+            tried.append(f"{src_name}=跳过")
+            continue
+        ok, data, err = _fetch_with_retry(lambda c: fn(c, days), code, src_name, max_retry=3)
+        tried.append(f"{src_name}={'ok' if ok else 'fail'}")
+        if ok and data is not None and len(data) > 0:
+            _report_ok(src_name)
+            return data
+        _report_fail(src_name, err)
+        last_err = err
+    logging.warning(f"日线 {code} 全部源失败 | 尝试链={' -> '.join(tried)} | 最后err={last_err}")
+    if random.random() < 0.1:
+        logging.warning(f"📊 数据源健康: {_health_snapshot()}")
+    return None
 
 
 # ═══════════════════════════════════════════════════════
@@ -1330,25 +1373,24 @@ def fetch_realtime(code: str) -> dict | None:
                 rt["_fetch_time"] = time.strftime("%H:%M:%S")
                 return rt
         # 指数专用源都失败 → 继续走下面的个股多源循环（含 sina/akshare）
-    with _source_lock:
-        last_err = ""
-        tried = []
-        for src_name, fn in _REALTIME_SOURCES:
-            if _is_disabled(src_name):
-                tried.append(f"{src_name}=跳过")
-                continue
-            ok, data, err = _fetch_with_retry(fn, code, src_name, max_retry=3)
-            tried.append(f"{src_name}={'ok' if ok else 'fail'}")
-            if ok and data is not None:
-                _report_ok(src_name)
-                # 加个时间标记：调用方用 data["数据时段"] 判断"实时/上午收盘/午休"
-                data["_source"] = src_name
-                data["_fetch_time"] = time.strftime("%H:%M:%S")
-                return data
-            _report_fail(src_name, err)
-            last_err = err
-        logging.warning(f"实时 {code} 全部源失败 | 尝试链={' -> '.join(tried)} | err={last_err}")
-        return None
+    # 2026-07-11: 移除 _source_lock 整链包裹,与 _fetch_daily_inner 同样的修复。
+    last_err = ""
+    tried = []
+    for src_name, fn in _REALTIME_SOURCES:
+        if _is_disabled(src_name):
+            tried.append(f"{src_name}=跳过")
+            continue
+        ok, data, err = _fetch_with_retry(fn, code, src_name, max_retry=3)
+        tried.append(f"{src_name}={'ok' if ok else 'fail'}")
+        if ok and data is not None:
+            _report_ok(src_name)
+            data["_source"] = src_name
+            data["_fetch_time"] = time.strftime("%H:%M:%S")
+            return data
+        _report_fail(src_name, err)
+        last_err = err
+    logging.warning(f"实时 {code} 全部源失败 | 尝试链={' -> '.join(tried)} | err={last_err}")
+    return None
 
 
 def fetch_realtime_change(code: str) -> float:
@@ -1402,7 +1444,7 @@ def fetch_main_fund_flow(code: str) -> dict | None:
             "User-Agent": "Mozilla/5.0",
             "Referer": "https://quote.eastmoney.com/",
         }
-        r = requests.get(url, params=params, headers=headers, timeout=8)
+        r = requests.get(url, params=params, headers=headers, timeout=5)
         if r.status_code != 200:
             return None
         d = r.json().get("data") or {}

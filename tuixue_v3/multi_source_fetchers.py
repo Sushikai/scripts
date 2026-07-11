@@ -51,10 +51,12 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_TTL = timedelta(days=7)
 
 
-def _http_get(url: str, params: dict | None = None, retries: int = 3,
-              timeout: int = 10, sleep_base: float = 1.5,
-              max_sleep: float = 15.0) -> Any:
-    """带指数退避 + gzip 解压的 HTTP GET。失败返 None。"""
+def _http_get(url: str, params: dict | None = None, retries: int = 2,
+              timeout: int = 6, sleep_base: float = 1.0,
+              max_sleep: float = 6.0) -> Any:
+    """带指数退避 + gzip 解压的 HTTP GET。失败返 None。
+    2026-07-11: 默认 retries 3→2,timeout 10→6,sleep 收紧,
+    避免单源挂 30s+ 拖死端点。已显式传参的调用方不受影响。"""
     if requests is None:
         return None
     last_err = ""
