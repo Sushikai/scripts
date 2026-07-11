@@ -75,18 +75,57 @@ TUNNEL_PID=""
 
 self_check() {
     local url="$1"
-    # 隧道自检：最长 30s，每 2s curl 一次 /api/health，
-    # 命中 200 即通过；返回 HTML/控制台/connect-page 都视为假阳性
+    # 隧道自检：3 路全验通才算通过
+    #   1) /api/health           — 控制面入口 (200 + ok=true)
+    #   2) /static/app.js        — 大资源能完整传 (200 + content-encoding=gzip 或 ok 大小)
+    #   3) HEAD /api/stream/backtest?start=... — SSE 长连接握手能开 (响应 ≤ 5s 内,server 会被预热拉过缓存)
+    # 全部满足 → 真可用,过。否则失败切下一路。
+    local ok_health=0 ok_static=0 ok_sse=0
+
     for w in $(seq 1 15); do
         sleep 2
-        local body
-        body=$(curl -s --max-time 5 "$url/api/health" 2>/dev/null)
-        local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url/api/health" 2>&1)
-        if [ "$code" = "200" ] && echo "$body" | grep -qE '"ok":\s*true|"status":\s*"ok"|"code":\s*"ok"'; then
+
+        # 1) health 200 + ok=true
+        if [ "$ok_health" = "0" ]; then
+            local body code
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url/api/health" 2>&1)
+            body=$(curl -s --max-time 5 "$url/api/health" 2>/dev/null)
+            if [ "$code" = "200" ] && echo "$body" | grep -qE '"ok":\s*true|"status":\s*"ok"|"code":\s*"ok"'; then
+                ok_health=1
+            fi
+        fi
+
+        # 2) /static/app.js 200 + gzip 体返回
+        if [ "$ok_static" = "0" ]; then
+            local hdr
+            hdr=$(curl -s -I --max-time 6 -H "Accept-Encoding: gzip" "$url/static/app.js" 2>/dev/null)
+            if echo "$hdr" | grep -qiE "^HTTP/[0-9.]+ 200" && echo "$hdr" | grep -qiE "content-encoding:.*gzip"; then
+                ok_static=1
+            fi
+        fi
+
+        # 3) HEAD /api/stream/backtest 看响应头 ≤ 4s 返 → SSE 握手没被隧道中间截断
+        #    (不要拉到底,真跑回测会很慢;只看握手)
+        if [ "$ok_sse" = "0" ]; then
+            local sse_code
+            sse_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 \
+                -X GET --data-urlencode "start=2025-01-01" --data-urlencode "end=2025-01-31" \
+                --data-urlencode "top_n=5" --data-urlencode "hold_days=5" \
+                "$url/api/stream/backtest" 2>&1) || true
+            # SSE 端点会立刻返回 200 + text/event-stream 流起来;curl 没读到就被 SIGTERM 在 max-time 时截断
+            # 这里 200 表示握手成功;0 表示连接没建上;非 200 表示被代理拦截(例如 cloudfront challenge 页)
+            if [ "$sse_code" = "200" ]; then
+                ok_sse=1
+            fi
+        fi
+
+        if [ "$ok_health" = "1" ] && [ "$ok_static" = "1" ] && [ "$ok_sse" = "1" ]; then
+            note "  self_check: health ✓ static ✓ sse-handshake ✓"
             return 0
         fi
+        note "  self_check round $w: health=$ok_health static=$ok_static sse=$ok_sse"
     done
+    note "  self_check failed: health=$ok_health static=$ok_static sse=$ok_sse"
     return 1
 }
 
