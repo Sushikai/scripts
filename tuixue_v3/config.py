@@ -15,6 +15,13 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
+# ═══════════════════════════════════════════════════
+# Redis 统一存储 (2026-07-11)
+# ═══════════════════════════════════════════════════
+import os as _os
+REDIS_URL = _os.environ.get("TUIXUE_REDIS_URL", "redis://127.0.0.1:6379/0")
+USE_REDIS = _os.environ.get("TUIXUE_USE_REDIS", "1") == "1"
+
 # ═══════════════════════════════════════════
 # 数据源（三级热备）
 # ═══════════════════════════════════════════

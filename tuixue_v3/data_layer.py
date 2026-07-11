@@ -1,9 +1,12 @@
 """
 tuixue_v3/data_layer.py
-三级热备数据层（akshare / 东财 / 同花顺 / 腾讯）+ 本地 JSON 缓存
+三级热备数据层（akshare / 东财 / 同花顺 / 腾讯）+ Redis 统一缓存
 - 单源超时 5s 自动切下一级
 - 单源重试 3 次
-- 本地缓存：日线 4h / 分时 30min / 基本面 24h
+- 缓存:Redis (cache_store) — 日线 4h / 分时 30min / 基本面 24h
+- 降级:Redis 挂了自动走 SQLite (cache_store 内置 fallback)
+
+v3.0 (2026-07-11): 所有 _cache_* 调用统一走 cache_store
 """
 from __future__ import annotations
 
@@ -19,53 +22,44 @@ import pandas as pd
 from . import config as cfg
 from . import lib_common as lc
 from . import multi_source_fetchers as msf
+from . import cache_store as cs
+from .cache_store import get_store, K
 
 log = logging.getLogger("tuixue_v3.data")
 
 # ═══════════════════════════════════════════════════
-# 缓存工具
+# 缓存工具 — 统一走 cache_store (Redis 主用 + SQLite fallback)
 # ═══════════════════════════════════════════════════
-def _cache_path(name: str) -> Path:
-    return cfg.CACHE_DIR / f"{name}.json"
+_store = get_store()  # 模块级单例
 
 
 def _cache_load(name: str, ttl_sec: int) -> Any | None:
-    p = _cache_path(name)
-    if not p.exists():
-        return None
-    age = systime.time() - p.stat().st_mtime
-    if age > ttl_sec:
-        return None
-    try:
-        return json.loads(p.read_text())
-    except Exception:
-        return None
+    """通用 KV 缓存读取 (TTL 校验在 cache_store 内做,这里 ttl_sec 仅用于 store.set 时回填)。"""
+    return _store.get(name)
 
 
-def _cache_save(name: str, data: Any) -> None:
-    try:
-        _cache_path(name).write_text(json.dumps(data, ensure_ascii=False, default=str))
-    except Exception as e:
-        log.warning(f"缓存保存失败 {name}: {e}")
+def _cache_save(name: str, data: Any, ttl: int | None = None) -> None:
+    """通用 KV 缓存写入。ttl=None 时用 24h 默认。"""
+    _store.set(name, data, ttl=ttl if ttl is not None else 24 * 3600)
 
 
-def _cache_save_df(name: str, df: pd.DataFrame) -> None:
-    """DataFrame 缓存：日期转字符串后存 dict-of-list"""
+def _cache_save_df(name: str, df: pd.DataFrame, ttl: int = 4 * 3600) -> None:
+    """DataFrame 缓存: list-of-dict 形式写入 Redis。"""
     if df is None or df.empty:
         return
     try:
         d = df.copy()
         if "日期" in d.columns:
             d["日期"] = d["日期"].astype(str)
-        # 转 list-of-dict（更紧凑）
         records = d.to_dict(orient="records")
-        _cache_save(name, records)
+        _store.set(name, records, ttl=ttl)
     except Exception as e:
         log.warning(f"DataFrame 缓存失败 {name}: {e}")
 
 
 def _cache_load_df(name: str, ttl_sec: int) -> pd.DataFrame | None:
-    raw = _cache_load(name, ttl_sec)
+    """DataFrame 缓存读取。"""
+    raw = _store.get(name)
     if raw is None:
         return None
     try:
@@ -85,9 +79,9 @@ def fetch_stock_list() -> list[tuple[str, str]]:
     """返回 [(code, name), ...]，剔除创业板/科创板/北交所/ST
     2026-07-09: 改用 akshare.stock_info_a_code_name() 全量（稳定 5500+ 只）
     然后本地过滤，避开 msf.fetch_spot_a 实时接口被 ban / 数据不全的问题
+    2026-07-11: 走 Redis K.STOCKLIST_FILTERED
     """
-    cache_key = "stock_list_filtered"
-    cached = _cache_load(cache_key, cfg.CACHE_TTL_FUNDAMENTAL)
+    cached = _store.get(K.STOCKLIST_FILTERED)
     if cached:
         return [(c, n) for c, n in cached]
 
@@ -104,7 +98,6 @@ def fetch_stock_list() -> list[tuple[str, str]]:
                     raw.append((c, n))
     except Exception as e:
         log.warning(f"fetch_stock_list akshare 失败,降级 msf: {e}")
-        # 备：实时接口（数据常常不全）
         try:
             raw = msf.fetch_spot_a(exclude_bjs=True, exclude_st=True) or []
         except Exception as e2:
@@ -121,22 +114,20 @@ def fetch_stock_list() -> list[tuple[str, str]]:
             continue
         if not (code.startswith(("60", "601", "603", "605", "000", "001", "002"))):
             continue
-        # ST 已在 exclude_st 阶段剔除
         if "ST" in (name or "") or "*ST" in (name or ""):
             continue
         filtered.append((code, name))
 
-    _cache_save(cache_key, filtered)
+    _store.set(K.STOCKLIST_FILTERED, filtered, ttl=24 * 3600)
     log.info(f"股票池过滤后: {len(filtered)} 只")
     return filtered
 
 
 def fetch_stock_list_all() -> list[tuple[str, str]]:
     """返回全 A 股 [(code, name), ...]，不过滤 (用于个股名称查询)
-    2026-07-08: fetch_spot_a 默认过滤创业板/科创板/北交所,改用 akshare.stock_info_a_code_name() 全量
+    2026-07-11: 走 Redis K.STOCKLIST_ALL
     """
-    cache_key = "stock_list_all"
-    cached = _cache_load(cache_key, cfg.CACHE_TTL_FUNDAMENTAL)
+    cached = _store.get(K.STOCKLIST_ALL)
     if cached:
         return [(c, n) for c, n in cached]
 
@@ -152,12 +143,11 @@ def fetch_stock_list_all() -> list[tuple[str, str]]:
                     out.append((code, name))
     except Exception as e:
         log.warning(f"fetch_stock_list_all akshare 失败: {e}")
-    # 兜底: 主源 + 创业板/科创板/北交所字典
     if not out:
         raw = msf.fetch_spot_a(exclude_bjs=False, exclude_st=True) or []
         out = [(c, n) for c, n in raw if c]
 
-    _cache_save(cache_key, out)
+    _store.set(K.STOCKLIST_ALL, out, ttl=24 * 3600)
     log.info(f"全 A 股票池: {len(out)} 只")
     return out
 
@@ -166,7 +156,9 @@ def fetch_stock_list_all() -> list[tuple[str, str]]:
 # 日 K 线（带三级热备 + 缓存）
 # ═══════════════════════════════════════════════════
 def fetch_daily(code: str, days: int = 120, force: bool = False) -> pd.DataFrame | None:
-    """优先 SQLite 索引缓存(共享) → 拉三级热备 → 双写 JSON/SQLite"""
+    """优先 Redis (cache_store) → 降级 SQLite (cache_db.daily) → 拉三级热备 → 双写
+    v3.0 (2026-07-11): 不再写散文件 JSON
+    """
     if not force:
         try:
             from . import cache_db
@@ -174,18 +166,7 @@ def fetch_daily(code: str, days: int = 120, force: bool = False) -> pd.DataFrame
             if cached is not None and len(cached) >= days * 0.7:
                 return cached
         except Exception as e:
-            log.debug(f"sqlite cache 读失败 {code}: {e}")
-
-        # 兼容老 JSON 缓存
-        cache_key = f"daily_{code}_{days}"
-        cached = _cache_load_df(cache_key, cfg.CACHE_TTL_DAILY)
-        if cached is not None and len(cached) >= days * 0.7:
-            try:
-                from . import cache_db
-                cache_db.daily().set(code, cached)
-            except Exception:
-                pass
-            return cached
+            log.debug(f"cache_db.daily 读失败 {code}: {e}")
 
     t0 = systime.time()
     df = lc.fetch_daily(code, days=days)
@@ -202,8 +183,7 @@ def fetch_daily(code: str, days: int = 120, force: bool = False) -> pd.DataFrame
         from . import cache_db
         cache_db.daily().set(code, df)
     except Exception as e:
-        log.debug(f"sqlite cache 写失败 {code}: {e}")
-    _cache_save_df(f"daily_{code}_{days}", df)
+        log.debug(f"cache_db.daily 写失败 {code}: {e}")
     return df
 
 
@@ -212,13 +192,9 @@ def fetch_daily(code: str, days: int = 120, force: bool = False) -> pd.DataFrame
 # ═══════════════════════════════════════════════════
 def fetch_intraday(code: str, date_str: str | None = None, force: bool = False) -> pd.DataFrame | None:
     """分时 1 分钟 K。date_str: YYYYMMDD；None 为最近一个交易日。
-
-    3 种逃生:
-      1) lib_common.fetch_intraday_min   — 主（如不存在则跳过）
-      2) akshare.stock_zh_a_hist_min_em  — 备 1
-      3) None                              — 兜底（让上层标"分时不可用"）
+    2026-07-11: 走 Redis K.INTRADAY (TTL 30min)
     """
-    cache_key = f"intraday_{code}_{date_str or 'latest'}"
+    cache_key = f"intraday:{code}:{date_str or 'latest'}"
     if not force:
         cached = _cache_load_df(cache_key, cfg.CACHE_TTL_INTRADAY)
         if cached is not None:
@@ -246,7 +222,7 @@ def fetch_intraday(code: str, date_str: str | None = None, force: bool = False) 
         log.warning(f"[{code}] 分时获取失败（{elapsed:.1f}s）")
         return None
 
-    _cache_save_df(cache_key, df)
+    _cache_save_df(cache_key, df, ttl=cfg.CACHE_TTL_INTRADAY)
     return df
 
 
@@ -254,15 +230,17 @@ def fetch_intraday(code: str, date_str: str | None = None, force: bool = False) 
 # 实时行情（用于当日实时选股）
 # ═══════════════════════════════════════════════════
 def fetch_realtime_snapshot(code: str) -> dict | None:
-    """单只实时：最新价 / 涨跌幅 / 换手 / 成交额 / 总市值 / 流通市值"""
-    cache_key = f"realtime_{code}"
-    cached = _cache_load(cache_key, cfg.CACHE_TTL_INTRADAY)
+    """单只实时：最新价 / 涨跌幅 / 换手 / 成交额 / 总市值 / 流通市值
+    2026-07-11: 走 Redis K.QUOTE (TTL 5s)
+    """
+    cache_key = f"quote:{code}"
+    cached = _store.get(cache_key)
     if cached:
         return cached
     rt = lc.fetch_realtime(code)
     if not rt:
         return None
-    _cache_save(cache_key, rt)
+    _store.set(cache_key, rt, ttl=5)
     return rt
 
 
@@ -332,11 +310,13 @@ def fetch_limit_up_pool(date_str: str | None = None) -> list[dict]:
 # 交易日历
 # ═══════════════════════════════════════════════════
 def fetch_trade_dates(start: str, end: str) -> list[str]:
-    """返回 [YYYYMMDD, ...] 升序
+    """返回 [YYYYMMDD, ...] 升序（过滤 start/end 范围内 + ≤今日）
 
     2 种逃生:
       1) 同包 multi_source_fetchers.fetch_trade_dates
       2) akshare 工具交易日工具
+
+    注：msf 返回 YYYY-MM-DD 格式，本函数统一转 YYYYMMDD 输出。
     """
     try:
         from . import multi_source_fetchers as msf
@@ -351,7 +331,19 @@ def fetch_trade_dates(start: str, end: str) -> list[str]:
         dates = sorted(dates)
     elif isinstance(dates, list):
         dates = sorted(set(dates))
-    return [d for d in dates if start.replace("-", "") <= d <= end.replace("-", "")]
+
+    norm = []
+    for d in dates:
+        s = str(d).replace("-", "")[:8]
+        if len(s) == 8 and s.isdigit():
+            norm.append(s)
+    norm = sorted(set(norm))
+
+    s_start = start.replace("-", "")[:8]
+    s_end = end.replace("-", "")[:8]
+    today = datetime.now().strftime("%Y%m%d")
+    upper = min(s_end, today)
+    return [d for d in norm if s_start <= d <= upper]
 
 
 # ═══════════════════════════════════════════════════

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from . import fund_flow, seat_lookup
+from .. import cache_store
 
 log = logging.getLogger("tuixue_v3.web")
 
@@ -451,6 +452,8 @@ async def health():
     health 也跟着排队 3s 超时。改成尽量不抢 worker。
     """
     db_stats = {"rows": 0, "codes": 0, "size_kb": 0}
+    store_stats: dict = {}
+    store_status: dict = {}
 
     def _db():
         from .. import cache_db
@@ -463,6 +466,13 @@ async def health():
     except Exception:
         pass  # DB 慢/锁 → 返空 stats
 
+    try:
+        _store = cache_store.get_store()
+        store_stats = _store.stats()
+        store_status = _store.status()
+    except Exception as e:
+        store_stats = {"error": str(e)[:120]}
+
     return {
         "ok": True,
         "ts": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -474,6 +484,8 @@ async def health():
             "fund": _cache_fund.stats(),
             "overview": _cache_overview.stats(),
             "sqlite": db_stats,
+            "redis_store": store_stats,
+            "redis_status": store_status,
         },
         "realtime": {
             "recent_count": len(_recent_codes),
@@ -1894,7 +1906,7 @@ async def news_analyze():
     base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
 
     def _run():
-        cache = news_lookup._load_cache()
+        cache = news_lookup.load_cache()
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
         # 增量:跳过已有评分的
@@ -1975,7 +1987,7 @@ async def stock_related_news(code: str):
     def _load():
         sec = get_sector(code)
         sw = sec.get("sw")
-        cache = news_lookup._load_cache()
+        cache = news_lookup.load_cache()
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
         matched = []
@@ -2072,7 +2084,7 @@ async def sectors_sw_overview():
     """
     from .sector_classify import SW_31
     def _load():
-        cache = news_lookup._load_cache()
+        cache = news_lookup.load_cache()
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
         agg = {sw: {"sw": sw, "news_count": 0, "bull_count": 0, "bear_count": 0,

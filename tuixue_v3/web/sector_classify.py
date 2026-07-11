@@ -2,7 +2,8 @@
 股票板块分类 — 交易所市场板块 + 4 套权威行业分类
 - 交易所板块：按代码前缀判定（无需外部依赖）
 - 行业分类：4 套官方标准的"标准名集合" + 静态映射表 + akshare 兜底
-- 全部缓存到 data/sector_cache.json（股票→行业映射）
+- 缓存 → cache_store (Redis 主用 + SQLite fallback) TTL 24h
+- 启动时若 Redis 没数据,从 data/sector_cache.json 灌入一次(老用户兼容)
 """
 from __future__ import annotations
 
@@ -16,11 +17,28 @@ from typing import Any
 
 import requests as _requests
 
+from .. import cache_store as _cs
+from ..cache_store import get_store
+
 log = logging.getLogger("tuixue_v3.web.sector")
 
+# 兼容旧逻辑:启动时若 Redis 没数据,从老 sector_cache.json 灌入一次
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-CACHE_FILE = DATA_DIR / "sector_cache.json"
+_LEGACY_CACHE_FILE = DATA_DIR / "sector_cache.json"
 CACHE_TTL = 24 * 3600  # 行业映射 1 天刷新一次（变化极少）
+_store = get_store()
+_SECTOR_KEY = "sector:map"
+
+
+def _legacy_bootstrap() -> dict:
+    """从老 sector_cache.json 一次性灌入 Redis。"""
+    if not _LEGACY_CACHE_FILE.exists():
+        return {"_meta": {"built_at": 0, "source": ""}, "stocks": {}}
+    try:
+        return json.loads(_LEGACY_CACHE_FILE.read_text())
+    except Exception as e:
+        log.warning(f"老 sector_cache.json 读取失败: {e}")
+        return {"_meta": {"built_at": 0, "source": ""}, "stocks": {}}
 
 
 # ── 1) 交易所市场板块（4 个）───────────────────────────────────
@@ -137,20 +155,19 @@ _lock = threading.Lock()
 
 
 def _load_cache() -> dict:
-    if not CACHE_FILE.exists():
-        return {"_meta": {"built_at": 0, "source": ""}, "stocks": {}}
-    try:
-        return json.loads(CACHE_FILE.read_text())
-    except Exception as e:
-        log.warning(f"sector_cache 读取失败: {e}")
-        return {"_meta": {"built_at": 0, "source": ""}, "stocks": {}}
+    """从 Redis 读;若空则从老 sector_cache.json 灌入一次。"""
+    data = _store.get(_SECTOR_KEY)
+    if data and isinstance(data, dict):
+        return data
+    legacy = _legacy_bootstrap()
+    if legacy.get("stocks"):
+        _store.set(_SECTOR_KEY, legacy, ttl=CACHE_TTL)
+        log.info(f"已从老 sector_cache.json 灌入 {len(legacy['stocks'])} 只行业映射")
+    return legacy or {"_meta": {"built_at": 0, "source": ""}, "stocks": {}}
 
 
 def _save_cache(cache: dict) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = CACHE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(cache, ensure_ascii=False, indent=2))
-    tmp.replace(CACHE_FILE)
+    _store.set(_SECTOR_KEY, cache, ttl=CACHE_TTL)
 
 
 def _fetch_industry_em(code: str) -> dict | None:
@@ -358,14 +375,13 @@ def normalize_to_sw(raw: str) -> str | None:
 
 def get_sector(code: str, force_refresh: bool = False) -> dict:
     """
-    返回某只股票的完整板块分类。
+    返回某只股票的完整板块分类(2026-07-11 起含 4 层 taxonomy)。
     {
       code, board: {...},
-      sw: "申万31之一",
-      sw_industry: 同上,
-      csrc, cics, gics: 派生,
-      source: "akshare|cache|manual|unknown",
-      fresh: bool
+      sw, sw_raw, csrc, cics, gics: 旧字段 (保留兼容)
+      ai_tags: 旧 AI 概念标
+      taxonomy: {level1_cluster, level2_sw, level3_chain, level4_subconcept, role, source, ...}  ← 新
+      source, fresh
     }
     """
     code = code.strip().zfill(6)
@@ -378,7 +394,10 @@ def get_sector(code: str, force_refresh: bool = False) -> dict:
 
         if not force_refresh and hit and (time.time() - (cache.get("_meta", {}).get("built_at") or 0) < CACHE_TTL):
             sw = hit.get("sw")
-            return _format_sector(code, board, sw, hit.get("source") or "cache", fresh=False)
+            sw_raw = hit.get("sw_raw") or ""
+            csrc_raw = hit.get("csrc_raw") or ""
+            return _format_sector(code, board, sw, hit.get("source") or "cache",
+                                 fresh=False, sw_raw=sw_raw, csrc_raw=csrc_raw)
 
         # 主：eastmoney f10（沙箱可达）；兜底 akshare
         sw = None
@@ -408,19 +427,34 @@ def get_sector(code: str, force_refresh: bool = False) -> dict:
         }
         cache["_meta"] = {"built_at": int(time.time()), "source": source}
         _save_cache(cache)
-        return _format_sector(code, board, sw, source, fresh=True)
+        return _format_sector(code, board, sw, source, fresh=True, sw_raw=raw_sw, csrc_raw=raw_csrc)
 
 
-def _format_sector(code: str, board: dict, sw: str | None, source: str, fresh: bool) -> dict:
+def _format_sector(code: str, board: dict, sw: str | None, source: str, fresh: bool,
+                   sw_raw: str = "", csrc_raw: str = "") -> dict:
     others = SW_TO_OTHER.get(sw, {}) if sw else {}
+    # 4 层板块分类 (2026-07-11) — Level1 集群 / Level2 申万 / Level3 产业链 / Level4 细分
+    # 失败/缺失时所有 taxonomy 字段也照样返回,前端按 source=default 判断弱化样式
+    try:
+        from .sector_taxonomy import classify_taxonomy
+        taxonomy = classify_taxonomy(code, sw, sw_raw=sw_raw, csrc_raw=csrc_raw)
+    except Exception as e:
+        log.debug(f"taxonomy classify 失败 {code}: {e}")
+        taxonomy = {
+            "level1_cluster": "", "level2_sw": "", "level3_chain": "",
+            "level4_subconcept": [], "role": "", "source": "default",
+            "noise_reason": "", "cluster_color": "#888",
+        }
     return {
         "code":   code,
         "board":  board,
         "sw":     sw or None,
+        "sw_raw": sw_raw or None,       # 2026-07-11 — 上游取具体 sw 二级 / 三级 (如"半导体-集成电路")
         "csrc":   others.get("csrc"),
         "cics":   others.get("cics"),
         "gics":   others.get("gics"),
-        "ai_tags": classify_ai_tag(code, sw, others.get("csrc")),  # AI 概念标
+        "ai_tags": classify_ai_tag(code, sw, others.get("csrc")),  # 旧 AI 概念标
+        "taxonomy": taxonomy,           # 4 层分类 (新增)
         "source": source,
         "fresh":  fresh,
     }

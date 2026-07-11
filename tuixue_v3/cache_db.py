@@ -12,6 +12,12 @@ v2.0 性能:
 - 全 A 股日线 ~250K 行,一次写入 ~50ms
 - 按 code 查询 ~0.5ms(索引命中)
 - 替代原 per-(code,days) JSON 文件方案,5000+ 文件 → 1 文件
+
+v3.0 (2026-07-11):
+- daily / ai_verdict 热数据走 Redis (cache_store.py),毫秒级响应
+- trades / trade_reviews / watchlist / watchlist_ai 保留 SQLite (冷数据/双写)
+- capflow 走 Redis SortedSet (时序)
+- 老 daily 表保留做冷归档 + 降级 fallback
 """
 from __future__ import annotations
 
@@ -135,6 +141,41 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_capflow_code_ts ON capital_flow(code, ts DESC);
         CREATE INDEX IF NOT EXISTS idx_capflow_ts ON capital_flow(ts DESC);
+
+        -- 自选股池 (2026-07-11)
+        -- 用户手动添加 / 删除,持久化
+        CREATE TABLE IF NOT EXISTS watchlist (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            code        TEXT    NOT NULL UNIQUE,
+            name        TEXT,
+            tag         TEXT    DEFAULT '自选',
+            sort_order  INTEGER DEFAULT 0,
+            added_at    REAL    NOT NULL,
+            note        TEXT    DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist(sort_order, id);
+
+        -- 自选股 AI 建议 (2026-07-11)
+        -- 触发时机: 个股页加载 AI 完成后 / 用户主动刷新
+        -- 选股页表格直接从这里拿,不用再调 AI
+        CREATE TABLE IF NOT EXISTS watchlist_ai (
+            code              TEXT PRIMARY KEY,
+            trade_date        TEXT NOT NULL,
+            verdict           TEXT,
+            role              TEXT,
+            conviction        INTEGER,
+            suggested_window  TEXT,            -- "今早竞价 / 9:35-10:00 / 10:30 后 / 14:00 后 / 收盘前 / 暂观望"
+            entry_price_range TEXT,            -- "25.20-25.50"  (逗号分隔)
+            stop_loss         TEXT,            -- "24.50"
+            time_horizon      TEXT,            -- "1-3 天 / 5-10 天 / 中长期"
+            summary           TEXT,
+            rules_passed_json TEXT,
+            rules_failed_json TEXT,
+            key_risks_json    TEXT,
+            extras_json       TEXT,            -- {pct_5d, pct_10d, main_pct, retail_pct, sector_zt, ...}
+            ts_updated        REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_watchlist_ai_date ON watchlist_ai(trade_date);
         """)
     # 老库兼容:补 role 列(2026-07-09 加)
     cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_verdict)").fetchall()}
@@ -178,16 +219,30 @@ def _thread_conn() -> sqlite3.Connection:
 
 
 # ═══════════════════════════════════════════════════
-# 日线缓存 API
+# 日线缓存 API — 走 Redis (cache_store) + SQLite 冷归档
+# 读:Redis hgetall("tx3:daily:{code}") → 内存 dict
+# 写:Redis hset + SQLite INSERT (双写,SQLite 冷归档)
+# 降级:Redis 挂了 → 自动走 SQLite
 # ═══════════════════════════════════════════════════
+from . import cache_store
+from .cache_store import get_store, K
+
+
 class DailyCache:
-    """按 (code, days) 拉日线 + 写回。"""
+    """按 (code, days) 拉日线 + 写回。Redis 主用,SQLite 兜底 + 冷归档。"""
 
     def __init__(self, ttl_sec: int = 4 * 3600):
         self.ttl = ttl_sec
+        self._store = get_store()
 
     def is_fresh(self, code: str, days: int) -> bool:
-        """最近一天的数据是否在 TTL 内(且行数够)。"""
+        """最近数据是否足够(>= days*0.7 行)+ TTL 内。"""
+        # 优先 Redis:key 存在即 fresh
+        k = K.DAILY.format(code=code)
+        if self._store.exists(k):
+            mp = self._store.hgetall(k)
+            return len(mp) >= days * 0.7
+        # 降级 SQLite
         conn = _thread_conn()
         row = conn.execute(
             "SELECT MAX(ts_updated), COUNT(*) FROM daily WHERE code=?",
@@ -198,12 +253,39 @@ class DailyCache:
         ts_updated, cnt = row
         if systime.time() - (ts_updated or 0) > self.ttl:
             return False
-        return cnt >= days * 0.7  # 至少 70% 行数
+        return cnt >= days * 0.7
 
     def get(self, code: str, days: int) -> pd.DataFrame | None:
-        """返回最近 days 行的 DataFrame(无缓存或过期 → None)。"""
-        if not self.is_fresh(code, days):
+        """返回最近 days 行的 DataFrame。"""
+        k = K.DAILY.format(code=code)
+        mp = self._store.hgetall(k)
+        if not mp:
+            # Redis miss → 尝试 SQLite
+            return self._get_from_sqlite(code, days)
+        # Redis hit:mp 是 {date_str: {open, high, ...}}
+        rows = []
+        for date_str, payload in mp.items():
+            if not isinstance(payload, dict):
+                continue
+            rows.append({
+                "日期": str(date_str),
+                "开盘": float(payload.get("open", 0) or 0),
+                "最高": float(payload.get("high", 0) or 0),
+                "最低": float(payload.get("low", 0) or 0),
+                "收盘": float(payload.get("close", 0) or 0),
+                "成交量": float(payload.get("volume", 0) or 0),
+                "成交额": float(payload.get("amount", 0) or 0),
+                "换手率": float(payload.get("turnover", 0) or 0),
+            })
+        if not rows:
             return None
+        df = pd.DataFrame(rows)
+        # 取最近 days 行
+        df = df.sort_values("日期", ascending=False).head(days).sort_values("日期").reset_index(drop=True)
+        return df
+
+    def _get_from_sqlite(self, code: str, days: int) -> pd.DataFrame | None:
+        """SQLite 兜底读,同时回填 Redis。"""
         conn = _thread_conn()
         rows = conn.execute(
             "SELECT date, open, high, low, close, volume, amount, turnover "
@@ -215,55 +297,96 @@ class DailyCache:
             return None
         df = pd.DataFrame(rows, columns=["日期", "开盘", "最高", "最低", "收盘", "成交量", "成交额", "换手率"])
         df["日期"] = df["日期"].astype(str)
-        return df.sort_values("日期").reset_index(drop=True)
+        df = df.sort_values("日期").reset_index(drop=True)
+        # 回填 Redis
+        try:
+            self.set(code, df)
+        except Exception:
+            pass
+        return df
 
     def set(self, code: str, df: pd.DataFrame) -> None:
-        """upsert 全表 -> daily."""
+        """双写:Redis + SQLite。"""
         if df is None or df.empty:
             return
         now = systime.time()
-        records = []
+        # 1) Redis HSET (Hash field = date, value = json row)
+        k = K.DAILY.format(code=code)
         for _, row in df.iterrows():
             d = str(row.get("日期", ""))[:10].replace("-", "")
             if not d or len(d) != 8:
                 continue
-            records.append((
-                code, d,
-                float(row.get("开盘", 0) or 0),
-                float(row.get("最高", 0) or 0),
-                float(row.get("最低", 0) or 0),
-                float(row.get("收盘", 0) or 0),
-                float(row.get("成交量", 0) or 0),
-                float(row.get("成交额", 0) or 0),
-                float(row.get("换手率", 0) or 0),
-                now,
-            ))
-        if not records:
-            return
-        conn = _thread_conn()
-        with conn:
-            conn.executemany(
-                "INSERT OR REPLACE INTO daily "
-                "(code, date, open, high, low, close, volume, amount, turnover, ts_updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                records,
-            )
+            payload = {
+                "open": float(row.get("开盘", 0) or 0),
+                "high": float(row.get("最高", 0) or 0),
+                "low": float(row.get("最低", 0) or 0),
+                "close": float(row.get("收盘", 0) or 0),
+                "volume": float(row.get("成交量", 0) or 0),
+                "amount": float(row.get("成交额", 0) or 0),
+                "turnover": float(row.get("换手率", 0) or 0),
+                "ts_updated": now,
+            }
+            self._store.hset(k, d, payload, ttl=self.ttl)
+        # 2) SQLite 冷归档 (best-effort)
+        try:
+            records = []
+            for _, row in df.iterrows():
+                d = str(row.get("日期", ""))[:10].replace("-", "")
+                if not d or len(d) != 8:
+                    continue
+                records.append((
+                    code, d,
+                    float(row.get("开盘", 0) or 0),
+                    float(row.get("最高", 0) or 0),
+                    float(row.get("最低", 0) or 0),
+                    float(row.get("收盘", 0) or 0),
+                    float(row.get("成交量", 0) or 0),
+                    float(row.get("成交额", 0) or 0),
+                    float(row.get("换手率", 0) or 0),
+                    now,
+                ))
+            if records:
+                conn = _thread_conn()
+                with conn:
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO daily "
+                        "(code, date, open, high, low, close, volume, amount, turnover, ts_updated) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        records,
+                    )
+        except Exception as e:
+            log.debug(f"daily 双写 SQLite 失败 {code}: {e}")
 
     def invalidate(self, code: str) -> None:
-        conn = _thread_conn()
-        with conn:
-            conn.execute("DELETE FROM daily WHERE code=?", (code,))
-
-    def stats(self) -> dict:
-        """诊断:行数 / 唯一 code 数 / 文件大小."""
+        # Redis
+        self._store.delete(K.DAILY.format(code=code))
+        # SQLite
         try:
             conn = _thread_conn()
-            n_rows = conn.execute("SELECT COUNT(*) FROM daily").fetchone()[0]
-            n_codes = conn.execute("SELECT COUNT(DISTINCT code) FROM daily").fetchone()[0]
-            size_kb = round(_DB_PATH.stat().st_size / 1024, 1)
-            return {"rows": n_rows, "codes": n_codes, "size_kb": size_kb}
+            with conn:
+                conn.execute("DELETE FROM daily WHERE code=?", (code,))
         except Exception:
-            return {"rows": 0, "codes": 0, "size_kb": 0}
+            pass
+
+    def stats(self) -> dict:
+        """诊断:Redis 日线 code 数 + SQLite 行数 + 文件大小。"""
+        try:
+            # Redis
+            daily_keys = [k for k in self._store.scan("daily:*") if k.startswith("daily:")]
+            n_codes_redis = len(daily_keys)
+            # SQLite (冷归档)
+            conn = _thread_conn()
+            n_rows = conn.execute("SELECT COUNT(*) FROM daily").fetchone()[0]
+            n_codes_sqlite = conn.execute("SELECT COUNT(DISTINCT code) FROM daily").fetchone()[0]
+            size_kb = round(_DB_PATH.stat().st_size / 1024, 1)
+            return {
+                "rows_sqlite": n_rows,
+                "codes_sqlite": n_codes_sqlite,
+                "codes_redis": n_codes_redis,
+                "size_kb": size_kb,
+            }
+        except Exception:
+            return {"rows_sqlite": 0, "codes_sqlite": 0, "codes_redis": 0, "size_kb": 0}
 
 
 # 单例
@@ -278,8 +401,18 @@ def daily() -> DailyCache:
 # ═══════════════════════════════════════════════════
 # AI Verdict 缓存 — screen 候选股 per-stock AI + 综合榜
 # 主键 (date, code, model),TTL = 当日 23:59
+# 走 Redis Hash + SQLite 冷归档
 # ═══════════════════════════════════════════════════
 import json as _json_ai
+
+# cache_store 单例 (延迟初始化避免循环 import)
+_ai_store = None
+def _get_ai_store():
+    global _ai_store
+    if _ai_store is None:
+        from . import cache_store as _cs
+        _ai_store = _cs.get_store()
+    return _ai_store
 
 
 def _tomorrow_midnight_epoch() -> float:
@@ -292,7 +425,18 @@ def _tomorrow_midnight_epoch() -> float:
 
 
 def get_cached_ai(date: str, code: str, model: str) -> dict | None:
-    """命中且未跨日则返回 ai envelope (dict),否则 None。"""
+    """命中且未跨日则返回 ai envelope (dict),否则 None。
+    v3.0 (2026-07-11): 优先 Redis,降级 SQLite。
+    """
+    # 1) Redis 主用
+    k = K.AI.format(date=date, code=code)
+    payload = _get_ai_store().hget(k, model)
+    if payload and isinstance(payload, dict):
+        payload = dict(payload)
+        payload["from_cache"] = True
+        return payload
+
+    # 2) SQLite 兜底
     conn = _thread_conn()
     row = conn.execute(
         "SELECT verdict, conviction, summary_md, layer_pass_json, rules_passed_json, "
@@ -307,7 +451,6 @@ def get_cached_ai(date: str, code: str, model: str) -> dict | None:
         return None
     if ts < _tomorrow_midnight_epoch() - 86400 * 2:  # 太旧也 miss
         return None
-    # 仅 ts 早于本轮 "今天午夜" 的还认(本日内任意时刻写的都有效)
     return {
         "verdict":        row[0] or "-",
         "conviction":     int(row[1] or 0),
@@ -324,34 +467,57 @@ def get_cached_ai(date: str, code: str, model: str) -> dict | None:
 
 
 def upsert_ai(date: str, code: str, model: str, ai: dict, sector: str = "") -> None:
-    """写入 per-stock AI 结果(date='YYYYMMDD', code='600519', model='MiniMax-M3')。"""
+    """双写:Redis + SQLite。"""
     now = systime.time()
-    conn = _thread_conn()
-    with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO ai_verdict "
-            "(date, code, model, verdict, role, conviction, summary_md, layer_pass_json, "
-            " rules_passed_json, rules_failed_json, key_risks_json, sector, payload_json, ts_updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                date, code, model,
-                str(ai.get("verdict") or "-"),
-                str(ai.get("role") or "中军"),
-                int(ai.get("conviction") or 0),
-                str(ai.get("summary") or ""),
-                _json_ai.dumps(ai.get("layer_pass") or {}, ensure_ascii=False),
-                _json_ai.dumps(ai.get("rules_passed") or [], ensure_ascii=False),
-                _json_ai.dumps(ai.get("rules_failed") or [], ensure_ascii=False),
-                _json_ai.dumps(ai.get("key_risks") or [], ensure_ascii=False),
-                sector or "",
-                _json_ai.dumps(ai, ensure_ascii=False),
-                now,
-            ),
-        )
+    ai_with_meta = dict(ai)
+    ai_with_meta["ts_updated"] = now
+    ai_with_meta["sector"] = sector
+
+    # 1) Redis 主用 (TTL 至 23:59)
+    try:
+        k = K.AI.format(date=date, code=code)
+        _get_ai_store().hset(k, model, ai_with_meta, ttl=cache_store.ttl_until_midnight())
+    except Exception as e:
+        log.debug(f"AI 双写 Redis 失败 {date}/{code}: {e}")
+
+    # 2) SQLite 冷归档
+    try:
+        conn = _thread_conn()
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ai_verdict "
+                "(date, code, model, verdict, role, conviction, summary_md, layer_pass_json, "
+                " rules_passed_json, rules_failed_json, key_risks_json, sector, payload_json, ts_updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    date, code, model,
+                    str(ai.get("verdict") or "-"),
+                    str(ai.get("role") or "中军"),
+                    int(ai.get("conviction") or 0),
+                    str(ai.get("summary") or ""),
+                    _json_ai.dumps(ai.get("layer_pass") or {}, ensure_ascii=False),
+                    _json_ai.dumps(ai.get("rules_passed") or [], ensure_ascii=False),
+                    _json_ai.dumps(ai.get("rules_failed") or [], ensure_ascii=False),
+                    _json_ai.dumps(ai.get("key_risks") or [], ensure_ascii=False),
+                    sector or "",
+                    _json_ai.dumps(ai, ensure_ascii=False),
+                    now,
+                ),
+            )
+    except Exception as e:
+        log.debug(f"AI 双写 SQLite 失败 {date}/{code}: {e}")
 
 
 def get_cached_aggregate(date: str, model: str) -> dict | None:
-    """综合榜缓存。code='_aggregate_'。"""
+    """综合榜缓存。code='_aggregate_'。
+    v3.0: 优先 Redis String,降级 SQLite。
+    """
+    # 1) Redis 主用:tx3:ai:{date}:_aggregate_ field={model}
+    k = K.AI.format(date=date, code="_aggregate_")
+    payload = _get_ai_store().hget(k, model)
+    if payload and isinstance(payload, dict):
+        return payload
+    # 2) SQLite 兜底
     conn = _thread_conn()
     row = conn.execute(
         "SELECT payload_json, ts_updated FROM ai_verdict WHERE date=? AND code='_aggregate_' AND model=?",
@@ -369,16 +535,28 @@ def get_cached_aggregate(date: str, model: str) -> dict | None:
 
 
 def upsert_aggregate(date: str, model: str, payload: dict) -> None:
-    """综合榜写入(date=YYYYMMDD, code='_aggregate_')。"""
+    """综合榜写入(双写:Redis + SQLite)。"""
     now = systime.time()
-    conn = _thread_conn()
-    with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO ai_verdict "
-            "(date, code, model, payload_json, ts_updated) "
-            "VALUES (?, '_aggregate_', ?, ?, ?)",
-            (date, model, _json_ai.dumps(payload, ensure_ascii=False), now),
-        )
+    payload_with_ts = dict(payload)
+    payload_with_ts["ts_updated"] = now
+    # 1) Redis
+    try:
+        k = K.AI.format(date=date, code="_aggregate_")
+        _get_ai_store().hset(k, model, payload_with_ts, ttl=cache_store.ttl_until_midnight())
+    except Exception as e:
+        log.debug(f"aggregate 双写 Redis 失败 {date}: {e}")
+    # 2) SQLite
+    try:
+        conn = _thread_conn()
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ai_verdict "
+                "(date, code, model, payload_json, ts_updated) "
+                "VALUES (?, '_aggregate_', ?, ?, ?)",
+                (date, model, _json_ai.dumps(payload, ensure_ascii=False), now),
+            )
+    except Exception as e:
+        log.debug(f"aggregate 双写 SQLite 失败 {date}: {e}")
 
 
 def ai_cache_stats() -> dict:

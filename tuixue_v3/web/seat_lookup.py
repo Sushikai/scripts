@@ -1,6 +1,6 @@
 """
 游资席位查询：
-- 读取 data/known_seats.json（你手动维护的 P1-P6 席位质量评分）
+- 读取 seat_aliases/known_seats — 走 cache_store (Redis 永久,跨进程共享)
 - 拉龙虎榜（akshare），在结果里匹配 known_seats 标记
 """
 from __future__ import annotations
@@ -9,25 +9,39 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .. import cache_store as _cs
+from ..cache_store import get_store, K
+
 log = logging.getLogger("tuixue_v3.web.seats")
 
+# 兼容旧逻辑:首次启动若 Redis 没数据,从 data/*.json 灌入一次
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_LEGACY_ALIASES_FILE = DATA_DIR / "seat_aliases.json"
+_LEGACY_KNOWN_FILE = DATA_DIR / "known_seats.json"
+_store = get_store()
 
 
 _ALIASES_CACHE: dict | None = None
 
 
 def _load_aliases() -> dict:
-    """加载 seat_aliases.json — 完整别名映射(顶级+中生代+席位型+机构/北向)"""
+    """加载 seat_aliases — 优先 Redis,首次 fallback 到 JSON 灌入。"""
     global _ALIASES_CACHE
     if _ALIASES_CACHE is not None:
         return _ALIASES_CACHE
-    p = DATA_DIR / "seat_aliases.json"
-    if not p.exists():
+
+    # 1) Redis 命中 → 解包后回填进程内缓存
+    cached = _store.get(K.SEAT_ALIASES)
+    if cached and isinstance(cached, dict) and cached.get("_flat") and cached.get("_by_key"):
+        _ALIASES_CACHE = {"flat": cached["_flat"], "by_key": cached["_by_key"]}
+        return _ALIASES_CACHE
+
+    # 2) 老 JSON 灌入
+    if not _LEGACY_ALIASES_FILE.exists():
         _ALIASES_CACHE = {}
         return _ALIASES_CACHE
     try:
-        raw = json.loads(p.read_text())
+        raw = json.loads(_LEGACY_ALIASES_FILE.read_text())
         # 展平 _top / _mid / _seat / _fund → 一张 aliases 表 (alias_name → group_key)
         flat: dict[str, str] = {}  # primary_alias → group_key
         by_key: dict[str, dict] = {}  # group_key → 完整 info(含 keywords)
@@ -42,6 +56,12 @@ def _load_aliases() -> dict:
                 for a in info.get("aliases", []) or []:
                     flat[a] = store_key
         _ALIASES_CACHE = {"flat": flat, "by_key": by_key}
+        # 异步写回 Redis (永久) — 下一进程 / 重启后直接命中
+        try:
+            _store.set(K.SEAT_ALIASES, {"_flat": flat, "_by_key": by_key, "_built_at": time.time()}, ttl=0)
+        except Exception:
+            pass
+        log.info(f"seat_aliases 已从 JSON 灌入 Redis: {len(flat)} 别名 → {len(by_key)} 组")
         return _ALIASES_CACHE
     except Exception as e:
         log.warning(f"seat_aliases.json 读取失败: {e}")
@@ -49,13 +69,24 @@ def _load_aliases() -> dict:
         return _ALIASES_CACHE
 
 
+import time  # noqa: E402  # 用于 _built_at
+
+
 def _load_known() -> dict:
-    """保留兼容 — 新代码走 _load_aliases()"""
-    p = DATA_DIR / "known_seats.json"
-    if not p.exists():
+    """优先 Redis,首次从 known_seats.json 灌入。保留兼容 — 新代码走 _load_aliases()。"""
+    cached = _store.get(K.SEAT_KNOWN)
+    if cached and isinstance(cached, dict) and (cached.get("_slots") or cached.get("黑名单")):
+        return cached
+    if not _LEGACY_KNOWN_FILE.exists():
         return {"_slots": {}, "黑名单": {}}
     try:
-        return json.loads(p.read_text())
+        raw = json.loads(_LEGACY_KNOWN_FILE.read_text())
+        try:
+            _store.set(K.SEAT_KNOWN, raw, ttl=0)
+        except Exception:
+            pass
+        log.info("known_seats 已从 JSON 灌入 Redis")
+        return raw
     except Exception as e:
         log.warning(f"known_seats.json 读取失败: {e}")
         return {"_slots": {}, "黑名单": {}}
