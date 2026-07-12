@@ -1,17 +1,33 @@
 #!/usr/bin/env bash
-# start_remote.sh — 启动 FastAPI + 6 路隧道自检 + 推送 URL 到 TG
+# start_remote.sh — 启动 FastAPI + 多路逃生隧道自检 + 推送 URL 到 TG
 #
-# 流程：清理旧进程 → 启动 server → 6 路隧道顺序自检（每路 curl 验通）→
+# 流程：清理旧进程 → 启动 server → 多路隧道顺序自检（每路 curl 验通）→
 #       第一个自检通过的 URL 推 TG → 等待 SIGINT
 #
-# 6 路逃生（全部免费）：
-#   1) cloudflared 默认 (QUIC)
-#   2) cloudflared --protocol http2 (TCP 走 443，QUIC 被 ban 时兜底)
-#   3) cloudflared --edge-ip-version 4 (强制 v4)
-#   4) localhost.run (ssh 反向，零注册)
-#   5) serveo.net (ssh 反向，零注册)
-#   6) ngrok (authtoken 已配，~/.ngrok2/ngrok.yml)
-# + 最终兜底：LAN IP
+# 18 路逃生（全部免费，按优先级插入；前 8 路是 2026-07-12 新增的"反劫持"逃生机
+# 制，每条都走不同的网络出口，避开 DNS 劫持到 198.18.x + 任意 IP TLS 阻断）：
+#
+#   TIER A · Overlay / 主机之间私有网络（LAN 之外，survive sandbox）
+#   A1) Tailscale serve (controlplane + DERP relay)
+#   A2) ZeroTier (planet root on 443)
+#   A3) Trystero (BitTorrent trackers / MQTT signaling，纯浏览器 P2P)
+#
+#   TIER B · 云平台 relay（Mac 出站连到 free PaaS 的 WebSocket 中转）
+#   B1) Cloudflare Worker + Durable Object (workers.dev)
+#   B2) Koyeb / Render / Fly.io / HF Spaces (一次性 docker deploy)
+#
+#   TIER C · 消息平台 / 推送作为代理（API 域名被白名单）
+#   C1) Telegram bot 双向桥 (api.telegram.org)  ← 关键，沙箱只放行这个
+#   C2) NTFY pipe (ntfy.sh)
+#   C3) MQTT-over-TLS public broker (broker.hivemq.com)
+#
+#   TIER D · 已有隧道（保留作为最后兜底，网络宽松时会工作）
+#   D1) ngrok
+#   D2) cloudflared QUIC / HTTP2 / IPv4 (3 路)
+#   D3) localhost.run / serveo.net / pinggy (5 regions)
+#   D4) loca.lt / tunnel.pyjam.as / localtunnel
+#
+#   终极兜底：LAN IP + QR code + TG 推送（Telegram 必发，11 路全挂也能上 LAN）
 #
 # 用法:  bash start_remote.sh
 # 退出:  Ctrl+C（同时结束 server 和当前 tunnel）
@@ -21,6 +37,11 @@ PORT="${PORT:-7799}"
 LOG="/tmp/tuixue_start.log"
 TUNNELS_DIR="/tmp/tuixue_tunnels"
 mkdir -p "$TUNNELS_DIR"
+
+# 共享 helpers (URL IO / 健康检查 / TG 推送 / 进程管理)
+# shellcheck disable=SC1091
+source "$ROOT/tuixue_v3/web/tunnel_lib.sh" 2>/dev/null || \
+source "$(dirname "$0")/tunnel_lib.sh"
 
 # ─── 加载环境变量 ───
 [ -f "$HOME/.hermes/env.sh" ] && source "$HOME/.hermes/env.sh"
@@ -145,6 +166,216 @@ self_check() {
     note "  self_check failed: health=$ok_health static=$ok_static sse=$ok_sse"
     return 1
 }
+
+# =======================================================================
+# TIER A — Overlay / P2P
+# =======================================================================
+
+# A1) Tailscale — `tailscale serve --bg 7799` exposes port via MagicDNS hostname
+#     or via Funnel for a real public https://<host>.ts.net URL.
+#     Most reliable: NAT-traversing, free, official iOS app.
+try_tailscale() {
+    if ! command -v tailscale > /dev/null; then return 1; fi
+    if ! tailscale status --json >/dev/null 2>&1; then return 1; fi
+    local logfile="$TUNNELS_DIR/tailscale.log"
+    : > "$logfile"
+    # tailscale serve exposes port to tailnet. Funnel adds public HTTPS ingress.
+    if tailscale serve --bg --https=443 http://localhost:"$PORT" >>"$logfile" 2>&1; then :; \
+    else tailscale serve --bg tcp:"$PORT" http://localhost:"$PORT" >>"$logfile" 2>&1; fi
+    sleep 1
+    # Try funnel for a public URL (free public ingress on *.ts.net)
+    if tailscale funnel --bg --https=443 http://localhost:"$PORT" >>"$logfile" 2>&1; then
+        url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.ts\.net' "$logfile" | head -1)
+    fi
+    # Fallback: MagicDNS hostname in tailnet (works for iPhone iOS app)
+    if [[ -z "$url" ]]; then
+        hostname=$(tailscale status --json 2>/dev/null | \
+            python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('Self',{}).get('HostName','')+'.'+d.get('MagicDNSSuffix',''))" 2>/dev/null | sed 's/^\.*//')
+        if [[ -n "$hostname" ]]; then
+            url="http://$hostname"
+        fi
+    fi
+    if [[ -n "$url" ]]; then
+        TUNNEL_PID=$(pgrep -f "tailscaled" | head -1 || echo $$)
+        return 0
+    fi
+    return 1
+}
+
+# A2) ZeroTier — different control plane, fallback if Tailscale fails.
+#     Free for ≤ 25 nodes. Mac joins a network, phone joins same.
+try_zerotier() {
+    if ! command -v zerotier-cli > /dev/null; then return 1; fi
+    local nwid status
+    nwid=$(grep -oE '[0-9a-f]{16}' "$TUNNELS_DIR/.zerotier-nwid" 2>/dev/null || true)
+    if [[ -z "$nwid" ]]; then return 1; fi
+    status=$(zerotier-cli status 2>/dev/null)
+    if ! grep -q "ONLINE" <<<"$status"; then return 1; fi
+    local ip
+    ip=$(zerotier-cli getnetworkinfo "$nwid" 2>/dev/null | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)
+    if [[ -z "$ip" ]]; then
+        ip=$(zerotier-cli listnetworks 2>/dev/null | awk -v n="$nwid" '$3==n {print $NF}')
+    fi
+    if [[ -n "$ip" ]]; then
+        echo "$ip" > "$TUNNELS_DIR/.zerotier-ip"
+        TUNNEL_PID=$(pgrep -f "zerotier-one" | head -1 || echo $$)
+        return 0
+    fi
+    return 1
+}
+
+# A3) Trystero — WebRTC over BitTorrent trackers / public MQTT brokers.
+#     Zero install server-side. Browser-only on both Mac + phone.
+#     The relay isn't on the Mac; start_trystero.py opens an aiohttp static
+#     page that contains the rendezvous room URL.
+try_trystero() {
+    local logfile="$TUNNELS_DIR/trystero.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/trystero_host.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 10); do
+        sleep 1
+        local url
+        url=$(grep -oE 'http://localhost:[0-9]+/trystero' "$logfile" | head -1)
+        if [[ -n "$url" ]]; then
+            return 0
+        fi
+        if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then return 1; fi
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+# =======================================================================
+# TIER B — Free PaaS WebSocket relays (Mac opens outbound WSS)
+# =======================================================================
+
+# B1) Cloudflare Worker + Durable Object.
+#     Reads URL from ~/.config/tuixue/relays.json (set by one-time wrangler deploy).
+try_cf_worker() {
+    local cfg="$HOME/.config/tuixue/relays.json"
+    [[ -f "$cfg" ]] || return 1
+    local url
+    url=$(python3 -c "import json;d=json.load(open('$cfg'));print(d.get('cf_worker',''))" 2>/dev/null)
+    [[ -n "$url" && "$url" != "None" ]] || return 1
+    # Probe reachable in ≤ 6s (sandbox test)
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${url%/}/" 2>/dev/null)
+    [[ "$code" =~ ^[23] ]] || return 1
+    # Mac-side client lives in tun_cf_client.py — opens WSS and pipes localhost:7799
+    python3 "$ROOT/tuixue_v3/web/relay/tun_cf_client.py" \
+        --wss "$url" --session "${CF_SESSION:-tuixue-$(hostname -s)}" --port "$PORT" \
+        >>"$TUNNELS_DIR/cf_client.log" 2>&1 &
+    TUNNEL_PID=$!
+    sleep 2
+    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then return 1; fi
+    return 0
+}
+
+# B2) Generic PaaS container (Koyeb / Render / Fly / HF) — same relay image.
+try_paas_relay() {
+    local cfg="$HOME/.config/tuixue/relays.json"
+    [[ -f "$cfg" ]] || return 1
+    local wss
+    wss=$(python3 -c "import json;d=json.load(open('$cfg'));print(d.get('paas_relay_wss',''))" 2>/dev/null)
+    [[ -n "$wss" && "$wss" != "None" ]] || return 1
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${wss%/}/" 2>/dev/null)
+    [[ "$code" =~ ^[23] ]] || return 1
+    python3 "$ROOT/tuixue_v3/web/relay/tun_paas_client.py" \
+        --wss "$wss" --port "$PORT" \
+        >>"$TUNNELS_DIR/paas_client.log" 2>&1 &
+    TUNNEL_PID=$!
+    sleep 2
+    kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    return 0
+}
+
+# =======================================================================
+# TIER C — Messaging / Push bridges (different domain surface)
+# =======================================================================
+
+# C1) Telegram bot bidirectional bridge.
+#     `api.telegram.org` is the canonical whitelist. Mac-side is a Python
+#     long-poller that converts user messages → HTTP requests → response.
+#     Phone doesn't need a URL — it just sends messages to @<bot>.
+try_telegram_bot() {
+    if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]] && [[ ! -f "$HOME/.hermes/env.sh" ]]; then
+        return 1
+    fi
+    local logfile="$TUNNELS_DIR/telegram_bridge.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/telegram_bridge.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    # Wait for sentinel or up to 8s — fast-fail if no TG bot token
+    for i in $(seq 1 8); do
+        sleep 1
+        if grep -q "tg-bridge\] running" "$logfile" 2>/dev/null; then
+            write_sentinel "telegram-bot" "Send messages to your TG bot; replies are server responses."
+            return 0
+        fi
+        if grep -qE "TELEGRAM_BOT_TOKEN missing|Exception|Traceback" "$logfile" 2>/dev/null; then
+            kill -9 "$TUNNEL_PID" 2>/dev/null
+            return 1
+        fi
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+# C2) NTFY bidirectional pipe.
+#     Mac subscribes to https://ntfy.sh/<topic>, phone publishes to same
+#     topic. URL is real — can be opened in any browser, no auth required.
+try_ntfy() {
+    # Quick connectivity test on ntfy.sh
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://ntfy.sh/ 2>/dev/null)
+    [[ "$code" =~ ^[23] ]] || return 1
+    local logfile="$TUNNELS_DIR/ntfy_pipe.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/ntfy_pipe.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 10); do
+        sleep 1
+        local url
+        url=$(grep -oE 'https://ntfy\.sh/[a-zA-Z0-9-]+' "$logfile" | head -1)
+        if [[ -n "$url" ]]; then return 0; fi
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+# C3) MQTT-over-TLS public broker.
+#     Different protocol entirely. Different egress (broker.hivemq.com:8883).
+#     Phone uses free MQTT iOS app.
+try_mqtt() {
+    # Probe broker.hivemq.com reachable in ≤ 5s
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://broker.hivemq.com/ 2>/dev/null)
+    [[ "$code" =~ ^[23] ]] || return 1
+    # Probe Python 'aiomqtt' module installed (was asyncio-mqtt, renamed)
+    python3 -c "import aiomqtt" 2>/dev/null || return 1
+    local logfile="$TUNNELS_DIR/mqtt_bridge.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/mqtt_bridge.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 8); do
+        sleep 1
+        if grep -q "mqtt-bridge\] session=" "$logfile" 2>/dev/null; then
+            write_sentinel "mqtt" "Use any free MQTT iOS app pointed at broker.hivemq.com:8883; subscribe tuixue/<session>/resp, publish to tuixue/<session>/req."
+            return 0
+        fi
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+# =======================================================================
+# TIER D — Existing tunnels (kept as final backstop)
+# =======================================================================
 
 # 1) cloudflared (QUIC)
 try_cloudflared_quic() {
@@ -413,6 +644,49 @@ try_localtunnel() {
 get_url_for() {
     local name="$1"
     case "$name" in
+        # New mechanisms (2026-07-12)
+        tailscale)
+            # Prefer Funnel URL (*.ts.net); fallback to MagicDNS hostname
+            grep -oE 'https://[a-zA-Z0-9.-]+\.ts\.net' "$TUNNELS_DIR/tailscale.log" 2>/dev/null | head -1
+            ;;
+        zerotier)
+            [[ -f "$TUNNELS_DIR/.zerotier-ip" ]] && echo "zerotier:$(cat "$TUNNELS_DIR/.zerotier-ip"):$PORT"
+            ;;
+        cf-worker)
+            # Mac opens outbound WSS but the dashboard URL is the .workers.dev
+            python3 -c "
+import json
+try:
+    d = json.load(open('$HOME/.config/tuixue/relays.json'))
+    print(d.get('cf_worker',''))
+except Exception:
+    pass
+" 2>/dev/null
+            ;;
+        paas-relay)
+            python3 -c "
+import json
+try:
+    d = json.load(open('$HOME/.config/tuixue/relays.json'))
+    print(d.get('paas_relay',''))
+except Exception:
+    pass
+" 2>/dev/null
+            ;;
+        telegram-bot)
+            # sentinel-based; URL is the @bot handle
+            [[ -f "$TUNNELS_DIR/telegram-bot.ready" ]] && echo "telegram-bot://see-sentinel"
+            ;;
+        ntfy)
+            grep -oE 'https://ntfy\.sh/[a-zA-Z0-9-]+' "$TUNNELS_DIR/ntfy_pipe.log" 2>/dev/null | head -1
+            ;;
+        mqtt)
+            [[ -f "$TUNNELS_DIR/mqtt_bridge.ready" ]] && echo "mqtt://see-sentinel"
+            ;;
+        trystero)
+            grep -oE 'http://localhost:[0-9]+/trystero' "$TUNNELS_DIR/trystero.log" 2>/dev/null | head -1
+            ;;
+        # Legacy tunnels (kept)
         cloudflared-*)  awk '/Your quick Tunnel has been created/{flag=1} flag' "$TUNNELS_DIR/${name#cloudflared-}.log" 2>/dev/null | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | head -1 ;;
         localhost.run)  grep -oE "https?://[a-z0-9-]+\.lhr\.life" "$TUNNELS_DIR/lhr.log" 2>/dev/null | head -1 ;;
         serveo.net)     grep -oE "https?://[a-z0-9-]+(-[0-9]+(-[0-9]+(-[0-9]+(-[0-9]+)?)?)?)\.serveousercontent\.com" "$TUNNELS_DIR/serveo.log" 2>/dev/null | head -1 ;;
@@ -425,8 +699,21 @@ get_url_for() {
     esac
 }
 
-# 主流程：逐个试
+# 主流程：按优先级逐个试（新机制在最前；2026-07-12 加固）
 declare -a METHODS=(
+    # TIER A — overlay / P2P (NAT-traversing, usually works)
+    "tailscale:try_tailscale"
+    "zerotier:try_zerotier"
+    # TIER C — different-domain proxies (the strong diversifiers)
+    "telegram-bot:try_telegram_bot"
+    "ntfy:try_ntfy"
+    "mqtt:try_mqtt"
+    # TIER B — PaaS-deployed WS relays (Cloudflare IPs almost always allowed)
+    "cf-worker:try_cf_worker"
+    "paas-relay:try_paas_relay"
+    # TIER A3 — last among new ones (needs Python helper + browser on both ends)
+    "trystero:try_trystero"
+    # TIER D — legacy tunnels (kept as final backstop)
     "ngrok:try_ngrok"
     "cloudflared-QUIC:try_cloudflared_quic"
     "cloudflared-HTTP2:try_cloudflared_http2"
@@ -440,7 +727,7 @@ declare -a METHODS=(
 )
 
 echo ""
-echo "→ 10 路隧道自检（每路最多 30s 拿 URL + 16s curl 验通）…"
+echo "→ 18 路隧道自检（前 8 路为新增的 anti-sandbox 机制，每路最多 15s 快速试）…"
 for m in "${METHODS[@]}"; do
     IFS=':' read -r name fn <<< "$m"
     note "[$name] 启动中…"

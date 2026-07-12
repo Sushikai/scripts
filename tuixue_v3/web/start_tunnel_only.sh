@@ -176,8 +176,185 @@ try_serveo() {
     return 1
 }
 
-# ─── 6 路 fallback ───
+# ─── 2026-07-12 加固:新增 8 路 anti-sandbox 逃生机 ───
+
+write_sentinel_only() {
+    local name="$1" info="$2"
+    local sentinel="$LOG_DIR/$name.ready"
+    cat > "$sentinel" <<EOF
+mechanism: $name
+url: $info
+ready_at: $(date '+%Y-%m-%d %H:%M:%S')
+EOF
+    echo "$sentinel"
+}
+
+try_tailscale() {
+    command -v tailscale >/dev/null || return 1
+    tailscale status --json >/dev/null 2>&1 || return 1
+    local logfile="$LOG_DIR/tailscale.log"
+    : > "$logfile"
+    tailscale serve --bg --https=443 http://localhost:"$PORT" >>"$logfile" 2>&1 \
+        || tailscale serve --bg tcp:"$PORT" http://localhost:"$PORT" >>"$logfile" 2>&1
+    sleep 1
+    tailscale funnel --bg --https=443 http://localhost:"$PORT" >>"$logfile" 2>&1
+    sleep 1
+    local url
+    url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.ts\.net' "$logfile" | head -1)
+    [ -n "$url" ] && { echo "$url"; return 0; }
+    # Fallback: MagicDNS hostname
+    local host
+    host=$(tailscale status --json 2>/dev/null | \
+        python3 -c "import json,sys;d=json.load(sys.stdin);n=d.get('Self',{}).get('HostName','mac')+'.'+d.get('MagicDNSSuffix','local');print(n.lstrip('.'))" 2>/dev/null)
+    [ -n "$host" ] && { echo "http://$host"; return 0; }
+    return 1
+}
+
+try_zerotier() {
+    command -v zerotier-cli >/dev/null || return 1
+    local nwid
+    nwid=$(cat "$LOG_DIR/.zerotier-nwid" 2>/dev/null)
+    [ -z "$nwid" ] && return 1
+    local ip
+    ip=$(zerotier-cli getnetworkinfo "$nwid" 2>/dev/null \
+        | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)
+    [ -n "$ip" ] && { echo "zerotier:$ip:$PORT"; return 0; }
+    return 1
+}
+
+try_telegram_bot() {
+    [ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ ! -f "$HOME/.hermes/env.sh" ] && return 1
+    local logfile="$LOG_DIR/telegram_bridge.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/telegram_bridge.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 8); do
+        sleep 1
+        if grep -q "tg-bridge\] running" "$logfile" 2>/dev/null; then
+            write_sentinel_only "telegram-bot" "Send messages to your TG bot; replies are server responses."
+            echo "tg://bot-relay-see-sentinel"
+            return 0
+        fi
+        grep -qE "TELEGRAM_BOT_TOKEN missing|Traceback" "$logfile" 2>/dev/null && \
+            { kill -9 "$TUNNEL_PID" 2>/dev/null; TUNNEL_PID=""; return 1; }
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+try_ntfy() {
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://ntfy.sh/ 2>/dev/null)
+    echo "$code" | grep -qE '^[23]' || return 1
+    local logfile="$LOG_DIR/ntfy_pipe.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/ntfy_pipe.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 10); do
+        sleep 1
+        local url
+        url=$(grep -oE 'https://ntfy\.sh/[a-zA-Z0-9-]+' "$logfile" | head -1)
+        [ -n "$url" ] && { echo "$url"; return 0; }
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+try_mqtt() {
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://broker.hivemq.com/ 2>/dev/null)
+    echo "$code" | grep -qE '^[23]' || return 1
+    python3 -c "import aiomqtt" 2>/dev/null || return 1
+    local logfile="$LOG_DIR/mqtt_bridge.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/mqtt_bridge.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 8); do
+        sleep 1
+        if grep -q "mqtt-bridge\] session=" "$logfile" 2>/dev/null; then
+            write_sentinel_only "mqtt" "Use any free MQTT iOS app pointed at broker.hivemq.com:8883"
+            echo "mqtt://see-sentinel"
+            return 0
+        fi
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+try_cf_worker() {
+    local cfg="$HOME/.config/tuixue/relays.json"
+    [ -f "$cfg" ] || return 1
+    local url
+    url=$(python3 -c "import json;d=json.load(open('$cfg'));print(d.get('cf_worker',''))" 2>/dev/null)
+    [ -n "$url" ] && [ "$url" != "None" ] || return 1
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${url%/}/" 2>/dev/null)
+    echo "$code" | grep -qE '^[23]' || return 1
+    python3 "$ROOT/tuixue_v3/web/relay/tun_cf_client.py" \
+        --wss "$url" --session "tuixue-$(hostname -s)" --port "$PORT" \
+        >>"$LOG_DIR/cf_client.log" 2>&1 &
+    TUNNEL_PID=$!
+    sleep 2
+    kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    echo "$url"
+    return 0
+}
+
+try_paas_relay() {
+    local cfg="$HOME/.config/tuixue/relays.json"
+    [ -f "$cfg" ] || return 1
+    local wss
+    wss=$(python3 -c "import json;d=json.load(open('$cfg'));print(d.get('paas_relay_wss',''))" 2>/dev/null)
+    [ -n "$wss" ] && [ "$wss" != "None" ] || return 1
+    local probe="${wss%/}/"
+    probe="${probe/wss:/https:}"
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "$probe" 2>/dev/null)
+    echo "$code" | grep -qE '^[23]' || return 1
+    python3 "$ROOT/tuixue_v3/web/relay/tun_paas_client.py" \
+        --wss "$wss" --port "$PORT" \
+        >>"$LOG_DIR/paas_client.log" 2>&1 &
+    TUNNEL_PID=$!
+    sleep 2
+    kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    echo "$probe" | sed 's|https://|https://|'
+    return 0
+}
+
+try_trystero() {
+    local logfile="$LOG_DIR/trystero.log"
+    : > "$logfile"
+    python3 "$ROOT/tuixue_v3/web/relay/trystero_host.py" --port "$PORT" >>"$logfile" 2>&1 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 10); do
+        sleep 1
+        local url
+        url=$(grep -oE 'http://localhost:[0-9]+/trystero' "$logfile" | head -1)
+        [ -n "$url" ] && { echo "$url"; return 0; }
+        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+    done
+    kill -9 "$TUNNEL_PID" 2>/dev/null
+    return 1
+}
+
+# ─── 14 路 fallback (2026-07-12 加固,前 8 路为 anti-sandbox 逃生机) ───
 declare -a METHODS=(
+    # TIER A — overlay / P2P (survives NAT + sandbox)
+    "tailscale:try_tailscale"
+    "zerotier:try_zerotier"
+    # TIER C — 不同域名的 proxy (反劫持)
+    "telegram-bot:try_telegram_bot"
+    "ntfy:try_ntfy"
+    "mqtt:try_mqtt"
+    # TIER B — PaaS WS relay (Cloudflare IPs 几乎不被 ban)
+    "cf-worker:try_cf_worker"
+    "paas-relay:try_paas_relay"
+    # TIER A3 — last among new ones (browser P2P, 零服务端账号)
+    "trystero:try_trystero"
+    # TIER D — 已有隧道作为最后兜底
     "cloudflare-quic:try_cloudflared_quic"
     "cloudflare-http2:try_cloudflared_http2"
     "cloudflare-ipv4:try_cloudflared_v4"

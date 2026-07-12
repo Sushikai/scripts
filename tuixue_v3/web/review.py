@@ -28,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time as systime
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -207,6 +208,21 @@ def delete_trade(trade_id: int) -> bool:
     conn.execute("DELETE FROM trade_reviews WHERE trade_id=?", (trade_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+def delete_trades_by_code(code: str) -> int:
+    """删除某只股票的全部交易 + 复盘记录。返回删除的 trades 行数。"""
+    code = str(code).strip().zfill(6)
+    conn = _conn()
+    ids = [r[0] for r in conn.execute("SELECT id FROM trades WHERE code=?", (code,)).fetchall()]
+    if not ids:
+        return 0
+    cur = conn.execute("DELETE FROM trades WHERE code=?", (code,))
+    # 删 reviews (按 trade_id in ...)
+    placeholders = ",".join("?" for _ in ids)
+    conn.execute(f"DELETE FROM trade_reviews WHERE trade_id IN ({placeholders})", ids)
+    conn.commit()
+    return cur.rowcount
 
 
 # ═══════════════════════════════════════════════════
@@ -625,8 +641,37 @@ def _format_ctx_for_ai(trade: dict, ctx: dict, memory: str) -> tuple[str, str]:
     return sys_p, user_p
 
 
+def _ensure_ai_env() -> None:
+    """把 ~/.hermes/env.sh 的 MINIMAX_API_KEY 等注入到当前进程 (服务端 shell 不一定 source 过)."""
+    if os.environ.get("MINIMAX_API_KEY"):
+        return
+    env_sh = Path.home() / ".hermes" / "env.sh"
+    if not env_sh.exists():
+        return
+    try:
+        import subprocess as _sp
+        r = _sp.run(["bash", "-c", f"source {env_sh} && env -0"],
+                    capture_output=True, timeout=5, text=True)
+        for line in (r.stdout or "").split("\x00"):
+            if "=" in line and not line.startswith("_"):
+                k, _, v = line.partition("=")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception as e:
+        log.debug(f"_ensure_ai_env 失败: {e}")
+
+
 def review_trade(trade_id: int, *, force: bool = False) -> dict:
-    """AI 复盘:返回 review dict,自动写入 trade_reviews。"""
+    """AI 复盘:返回 review dict,自动写入 trade_reviews。
+
+    R1+R3+R5+R7+R8 升级 (2026-07-12):
+      - 走 web.ai_client.call (重试/熔断/指标/全局 inflight 节流)
+      - 走 ai_client.parse_json_loose 兜底解析
+      - 多 section 按预算截断 (R8 上下文治理)
+      - ai_advice/main_mistake 等字段白名单校验 (R7)
+    """
+    from . import ai_client
+    _ensure_ai_env()
     trade = get_trade(trade_id)
     if not trade:
         raise ValueError(f"trade_id {trade_id} 不存在")
@@ -645,72 +690,38 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
     ctx = _build_context(trade)
     memory = _memory_context(limit=30)
     sys_p, user_p = _format_ctx_for_ai(trade, ctx, memory)
-    # 调 AI (用 subprocess 绕开 server 进程网络限制 — 2026-07-10)
+
+    # R8 上下文治理 — 总 user_p 控制在 ~2500 tokens
+    user_p = ai_client.truncate_to_tokens(user_p, max_tokens=2500)
+
     api_key = os.environ.get("MINIMAX_API_KEY", "")
     if not api_key:
         log.warning("复盘: MINIMAX_API_KEY 未配置,降级为基础评分")
         ai = _fallback_review(trade, ctx)
     else:
-        url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
-        model = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
-        body = {
-            "model": model,
-            "messages": [{"role": "system", "content": sys_p},
-                         {"role": "user", "content": user_p}],
-            "max_tokens": 4000,
-            "temperature": 0.3,
-        }
-        # 用独立子进程调 MiniMax API (子进程网络栈独立,绕开 server 进程问题)
-        helper = (
-            "import sys, json, os\n"
-            f"sys.path.insert(0, '/Users/kaikai/scripts')\n"
-            "from pathlib import Path\n"
-            "_env_sh = Path.home() / '.hermes' / 'env.sh'\n"
-            "import subprocess as _sp\n"
-            "r = _sp.run(['bash', '-c', f'source {_env_sh} && env -0'], capture_output=True, timeout=5, text=True)\n"
-            "for line in (r.stdout or '').split('\\x00'):\n"
-            "    if '=' in line and not line.startswith('_'):\n"
-            "        k, _, v = line.partition('=')\n"
-            "        if k and k not in os.environ:\n"
-            "            os.environ[k] = v\n"
-            "import requests\n"
-            f"api_key = os.environ.get('MINIMAX_API_KEY','')\n"
-            f"url = os.environ.get('MINIMAX_BASE_URL', 'https://api.minimaxi.com/v1/text/chatcompletion_v2')\n"
-            f"body = json.loads({json.dumps(json.dumps(body))})\n"
-            "try:\n"
-            "    r = requests.post(url, json=body,\n"
-            "                      headers={'Authorization': f'Bearer {api_key}',\n"
-            "                               'Content-Type': 'application/json'},\n"
-            "                      timeout=120)\n"
-            "    if r.status_code != 200:\n"
-            f"        print(json.dumps({{'err': f'HTTP {{r.status_code}}: {{r.text[:200]}}'}})); sys.exit(1)\n"
-            "    j = r.json()\n"
-            "    msg = (j.get('choices', [{}])[0].get('message', {}) or {})\n"
-            "    text = msg.get('content') or msg.get('reasoning_content') or ''\n"
-            "    if not text:\n"
-            "        print(json.dumps({'err': 'content empty'})); sys.exit(1)\n"
-            "    print(json.dumps({'text': text, 'usage': j.get('usage', {})}))\n"
-            "except Exception as e:\n"
-            f"    print(json.dumps({{'err': str(e)[:300]}})); sys.exit(1)\n"
+        # R2 prompt 注入防御:把 user_p 包 boundary
+        user_p_safe = ai_client.wrap_prompt("ctx", user_p)
+        spec = ai_client.CallSpec(
+            url=ai_client.default_url(),
+            headers=ai_client.headers(api_key),
+            body={
+                "model": ai_client.default_model(),
+                "messages": [
+                    {"role": "system", "content": sys_p},
+                    {"role": "user",   "content": user_p_safe},
+                ],
+                "temperature": 0.3,
+            },
+            name="review",
+            model=ai_client.default_model(),
+            timeout=75.0,                   # 复盘耗时放宽到 75s
+            attempts=(1, 2),
+            max_tokens_alts=(4000, 5500),
         )
         try:
-            import subprocess as _sp
-            r = _sp.run(
-                [sys.executable, "-c", helper],
-                capture_output=True, timeout=75, text=True,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                # 取最后一行 JSON
-                last_line = [l for l in r.stdout.strip().splitlines() if l.strip()][-1]
-                ai_resp = json.loads(last_line)
-                if "err" in ai_resp:
-                    raise RuntimeError(ai_resp["err"])
-                text = ai_resp.get("text", "")
-                ai = _parse_ai_text(text)
-                log.info(f"复盘 AI 调用成功,文本 {len(text)} 字符,usage={ai_resp.get('usage', {})}")
-            else:
-                raise RuntimeError(f"helper rc={r.returncode} stderr={r.stderr[:200]}")
-        except Exception as e:
+            _text, _parsed, _info = ai_client.call(spec)
+            ai = _parse_ai_text(_text) if _text else {}
+        except ai_client.AICallError as e:
             log.warning(f"复盘 AI 失败,降级: {e}")
             ai = _fallback_review(trade, ctx)
     # 写入
@@ -727,17 +738,18 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
         if isinstance(v, dict):
             return "; ".join(f"{k}: {vv}" for k, vv in v.items())
         return str(v)
-    summary_md = _str(ai.get("summary"))
-    advice = _str(ai.get("ai_advice"))
+    # R7 白名单 + 截短
+    summary_md  = ai_client.cap_text(_str(ai.get("summary")), 1000)
+    advice      = ai_client.cap_text(_str(ai.get("ai_advice")), 200)
     if advice:
         summary_md = f"{summary_md}\n[建议]{advice}"
     verdict = _str(ai.get("verdict"), "及格")
     if verdict not in ("优", "及格", "失误", "严重失误"):
         verdict = "及格"
-    improvement = _str(ai.get("improvement"))
+    improvement = ai_client.cap_text(_str(ai.get("improvement")), 500)
     mistake = _str(ai.get("mistake_pattern"), "其他")
-    limit_up_recap = _str(ai.get("limit_up_recap"))
-    main_mistake = _str(ai.get("main_mistake"))
+    limit_up_recap = ai_client.cap_text(_str(ai.get("limit_up_recap")), 400)
+    main_mistake = ai_client.cap_text(_str(ai.get("main_mistake")), 50)
     # 2026-07-11 新增 — taxonomy_role + is_mainline
     taxonomy_role_raw = ai.get("taxonomy_role")
     if taxonomy_role_raw in ("main", "second", "noise", "—", "-"):
@@ -970,13 +982,22 @@ def next_day_picks() -> dict:
     """
     from .. import screen as scr_mod
     from . import holder_lookup
-    # 1) 拉候选 (sign: run_stock_screen(date_str, mode, stocks))
+    # 1) 拉候选 — 沙箱里 run_stock_screen 可能 hang 在 eastmoney/akshare (DNS 劫持见 feedback_network_dns_hijack),
+    #    所以用线程 + 超时保护,失败回退空 picks (用户至少能看到 user_patterns 提示)
     picks: list[dict] = []
     try:
-        result = scr_mod.run_stock_screen(date_str=None, mode="live")
-        picks = (result.get("candidates") or [])[:5]
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTE
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(scr_mod.run_stock_screen, None, "live")
+            try:
+                result = fut.result(timeout=8)
+                picks = (result.get("candidates") or [])[:5]
+            except _FutTE:
+                log.warning("次日选股 超时(8s) → 空 picks(数据源可能在沙箱里 hang)")
+            except Exception as e:
+                log.warning(f"次日选股 失败: {e}")
     except Exception as e:
-        log.warning(f"次日选股 失败: {e}")
+        log.warning(f"次日选股 executor 失败: {e}")
     # 2) 常见错模式
     conn = _conn()
     pat_rows = conn.execute(

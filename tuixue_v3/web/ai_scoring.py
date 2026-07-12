@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 from .. import cache_db
 from .. import lib_common as lc
+from . import ai_client
 
 log = logging.getLogger("tuixue_v3.web.ai_scoring")
 
@@ -149,8 +150,16 @@ async def score_one(code: str, *, sector: str = "", force_refresh: bool = False,
     if not force_refresh:
         cached = cache_db.get_cached_ai(date, code, model)
         if cached:
-            cached["sector"] = sector or cached.get("sector", "")
-            return cached
+            # R4 缓存污染防护: 校验历史缓存合法性
+            if not ai_client.is_valid_cached_verdict(cached):
+                log.warning(f"score_one 缓存污染 ({code}), 重算")
+                try:
+                    cache_db.remove_stock_history(code)  # 兜底: 反正是 upsert,无效就覆盖
+                except Exception:
+                    pass
+            else:
+                cached["sector"] = sector or cached.get("sector", "")
+                return cached
 
     ctx = await _fetch_stock_context(code)
     if not ctx or (not ctx.get("quote") and not ctx.get("kline")):
@@ -305,6 +314,12 @@ async def score_aggregate(scored: list[dict], *,
 
     # 缓存命中则省一次
     cached_agg = cache_db.get_cached_aggregate(date, model)
+    if cached_agg:
+        # R4 缓存污染防护: 校验历史 aggregate 合法性
+        if not (isinstance(cached_agg.get("ranking"), list)
+                and isinstance(cached_agg.get("overall_view"), str)):
+            log.warning("score_aggregate 缓存 schema 损坏, 重算")
+            cached_agg = None
     if cached_agg and valid[-1].get("ai", {}).get("ts_updated", 0) <= cached_agg.get("ts", 0):
         # 仅当所有 scored 都来自缓存才复用
         if all(s.get("ai", {}).get("from_cache") for s in valid):
@@ -348,36 +363,34 @@ async def score_aggregate(scored: list[dict], *,
     )
 
     # 直接走 MiniMax,不复用 _call_minimax(避免循环);失败返 None
-    url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": user_content},
-        ],
-        "max_tokens": 1500,
-        "temperature": 0.3,
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type":  "application/json",
-    }
+    from . import ai_client
+    # R2 prompt 注入防御:把 user_content 用 boundary 包住
+    user_content_safe = ai_client.wrap_prompt("ctx", user_content)
+    # R5 token governance
+    user_content_safe = ai_client.truncate_to_tokens(user_content_safe, max_tokens=900)
 
+    spec = ai_client.CallSpec(
+        url=ai_client.default_url(),
+        headers=ai_client.headers(api_key),
+        body={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content_safe},
+            ],
+            "temperature": 0.3,
+        },
+        name="screen_aggregate",
+        model=model,
+        timeout=25.0,
+        attempts=(1, 2),
+        max_tokens_alts=(1500, 2200),
+    )
     try:
-        import requests as _req
-        def _do_call():
-            r = _req.post(url, json=body, headers=headers, timeout=20)
-            if r.status_code != 200:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:120]}")
-            j = r.json()
-            text = (j.get("choices") or [{}])[0].get("message", {}).get("content", "")
-            return _parse(text) if text else {}
-
-        parsed = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(_SCORING_EXECUTOR, _do_call),
-            timeout=25,
+        _text, parsed, _info = await asyncio.shield(
+            asyncio.get_event_loop().run_in_executor(_SCORING_EXECUTOR, ai_client.call, spec)
         )
-    except Exception as e:
+    except (ai_client.AICallError, asyncio.TimeoutError) as e:
         log.warning(f"score_aggregate AI 失败: {e}")
         return None
 

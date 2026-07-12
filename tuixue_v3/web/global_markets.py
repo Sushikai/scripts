@@ -244,7 +244,7 @@ def _fetch_eastmoney(code: str, market: str) -> dict | None:
            f"&fields=f43,f44,f45,f46,f60,f169,f170")
     try:
         req = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"})
-        with urlopen(req, timeout=4) as r:
+        with urlopen(req, timeout=8) as r:
             j = json.loads(r.read().decode())
         d = j.get("data") or {}
         # f43=现价(÷100), f44=最高, f45=最低, f46=今开, f60=昨收, f169=涨跌额, f170=涨跌幅(%)
@@ -297,11 +297,12 @@ def _fetch_yahoo(code: str, market: str) -> dict | None:
     try:
         # 用 Googlebot UA — 沙箱里默认 "Mozilla/5.0" 经常被 Yahoo 429/Rate-Limited,
         # 而 Yahoo 对 Googlebot 身份无限流 (实测 KS11/KQ11 都拿得到)
+        # timeout 必须 ≥ 10s: Yahoo SSL 握手在沙箱里有时 5s 内不完
         req = Request(url, headers={
             "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
             "Accept":     "application/json, text/plain, */*",
         })
-        with urlopen(req, timeout=5) as r:
+        with urlopen(req, timeout=12) as r:
             j = json.loads(r.read().decode())
         meta = (j.get("chart") or {}).get("result", [{}])[0].get("meta") or {}
         price = meta.get("regularMarketPrice")

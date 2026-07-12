@@ -119,3 +119,49 @@ OPT_ITERATIONS = 10
 OPT_START = "2025-12-01"   # 7 个月窗口
 OPT_END = "2026-06-30"
 OPT_SAMPLE = 50             # 调优时股票池采样，加快迭代
+
+# ═══════════════════════════════════════════
+# 板块资金轮动 (2026-07-12 新增)
+# ═══════════════════════════════════════════
+ROTATION_WINDOW_DAYS = 5               # N 日轮动窗口(主连日线)
+ROTATION_INTRADAY_PERIODS = (1, 5)     # 分时周期(min)
+ROTATION_DAILY_PERIODS = (1, 3, 5)     # 日线周期
+ROTATION_FUND_FETCH_TIMEOUT = 6        # akshare 单次拉取硬超时(秒)
+ROTATION_LHB_FETCH_TIMEOUT = 8
+ROTATION_CACHE_TTL = 60                # 板块轮动内存缓存 60s
+
+# 资金动量 / 轮动阈值
+ROTATION_MOMENTUM_MIN_YI = 0.5         # 板块日净流入 ≥ 0.5 亿才计入
+ROTATION_OUTFLOW_MIN_YI = 1.0          # 旧热点资金流出 ≥ 1 亿才视为"退潮"
+ROTATION_INFLOW_MIN_YI = 1.0           # 新板块资金流入 ≥ 1 亿才视为"承接"
+ROTATION_STRENGTH_WEAK = 30.0          # 强度分
+ROTATION_STRENGTH_MID = 60.0
+ROTATION_STRENGTH_STRONG = 80.0
+ROTATION_PULSE_MAX_DAYS = 1            # 脉冲=持续期 ≤ 1 天
+ROTATION_PERSISTENCE_DAYS = 3          # 主线持续性 ≥ 3 天
+
+# 热点打分权重(资金/游资/行情)
+HOTSPOT_FUND_WEIGHT = 0.40
+HOTSPOT_SEAT_WEIGHT = 0.35             # 顶级游资 > 二线 > 散户
+HOTSPOT_MOMENTUM_WEIGHT = 0.25
+
+HOTSPOT_TOP_N = 20                     # 热点卡片前 N
+HOTSPOT_LHB_LOOKBACK_DAYS = 30         # 龙虎榜回看 N 天
+HOTSPOT_MIN_LHB_AMOUNT_WAN = 100.0     # 上榜游资净额最小 100 万
+
+# 资金类型 → 配色(供前端用,这里只导出常量)
+ROTATION_TYPE_COLORS = {
+    "institution":   "#165DFF",
+    "northbound":    "#F5319D",
+    "quant":         "#868686",
+    "hot_tier1":     "#F53F3F",
+    "hot_tier2":     "#FF7D00",
+    "retail_lhasa":  "#C9CDD4",
+}
+
+# 轮动类型 → 配色
+ROTATION_LINE_COLORS = {
+    "main_switch":   "#F53F3F",   # 主线切换(红粗)
+    "themed_in":     "#F0C075",   # 题材内(黄细)
+    "pulse":         "#8A8A8A",   # 脉冲(灰)
+}

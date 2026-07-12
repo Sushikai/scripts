@@ -1,6 +1,6 @@
 # 退学 v3 控制台 · 功能清单
 
-最后更新: 2026-07-11 (日期切换非交易日回退)
+最后更新: 2026-07-12 (资金轮动桑基图 + 热点龙头判定)
 
 ## 整体架构
 
@@ -258,6 +258,28 @@
 - 选股页批量 AI 按钮 (`#wl-batch-ai`): 一次给所有未评分股票触发 AI 判定
 - 进度条 + 实时日志,失败单独列出
 
+## 19 · 板块资金流向看板 (`/sector_funds`) — 2026-07-12 新增
+
+ECharts 双图联动看板,深色金融面板,6 类资金分层。
+
+- **页面**: `/sector_funds` (新 Tab 打开)
+- **侧栏入口**: 首页 sidebar 第 5a 项「板块资金」(点开跳新窗口)
+- **数据流**:
+  - `GET /api/sector_funds/industries` — 行业板块名 (EM 拉不全则 THS)
+  - `GET /api/sector_funds/concepts` — 题材概念名 (EM/THS)
+  - `GET /api/sector_funds/ranking?period=&start=&end=&threshold_wan=` — 排名
+  - `GET /api/sector_funds/timeseries?board=&board_type=&period=&start=&end=` — 时序
+  - 90s TTL 缓存 (`_cache_sector_funds`)
+  - 5s 硬超时 + mock 兜底 (akshare 限频期仍可正常浏览)
+- **6 类资金** (固定配色):
+  - 机构专用 `#165DFF` · 北向资金 `#F5319D` · 量化 `#868686`
+  - 顶级一线游资 `#F53F3F` (加粗 + 边框突出) · 二线 `#FF7D00` · 散户·拉萨 `#C9CDD4`
+- **双图联动**: 分时折线 + 日线堆叠柱 + 板块指数 (右 Y,绿) + 龙虎榜 ★ 标记
+- **筛选**: 行业/题材多选、周期 Tab (min1/min5/d1/d3/d5)、日期区间、阈值万为单位
+- **导出**: PNG (`getDataURL`),明细 CSV (中文 BOM 兼容 Excel)
+- **后端模块**: `web/sector_funds.py` (`FUND_KEYS`、`DEFAULT_WEIGHTS`、LHB 留后续接入)
+- **failover 注释**: EM 接口持续 RemoteDisconnected 时,真实数据可降级 THS,全失败 → mock UI 占位
+
 ---
 
 ## 待优化 / 已知问题
@@ -266,3 +288,32 @@
 - EM `stock_sector_fund_flow_rank` 持续 RemoteDisconnected, 需 THS 兜底
 - 龙头卡片的换手/封成比 等数据来自涨停池快照, 收盘后才准确
 - `_patch_edit.py` (Patch 4 inline-edit) 锚点不再匹配 app.js, 暂跳过, 后续手动移植 inline-edit 逻辑
+
+---
+
+## 19 · 资金轮动桑基图 (`/sector_rotation`) — 2026-07-12
+
+- **数据源**: `web/rotation.py:detect_rotation()` — 资金动量 + 板块分流系数 + 强度公式 (主线切换 ≥ X / 题材内轮动 / 脉冲套利 三级分类)
+- **后端**: `GET /api/rotation?period=1d|3d|5d&refresh=0|1` (cached 60s)
+  - `outflow` / `inflow` / `migrations` / `sankey:{nodes,links}` / `briefing` 文字简报
+- **前端**: ECharts 5.5.1 Sankey, 左=流出板块 / 右=流入板块, 线条粗细=迁徙体量(亿)
+  - 悬浮展示轮动明细 + 类型徽章 (主线切换 #F53F3F / 题材内轮动 #F0C075 / 脉冲套利 #8A8A8A)
+  - 顶部 1/3/5 日切换 + 强制刷新 + 简报文字
+- **静态页 endpoint**: `GET /sector_rotation` (统一 `_static_page_handler` 模式, 带 ETag 协商)
+- **侧边栏**: 工作台 → `资金轮动` (05b) · 新标签页打开
+- **压测 (50 轮, 6 并发)**: `med 2.2ms · p90 49ms · p99 49ms · 0 错误` (首次冷启 49ms 后稳定 <3ms)
+
+## 20 · 热点龙头板块判定 (`/sector_hotspot`) — 2026-07-12
+
+- **算法**: `web/rotation.py:score_hotspot()` 多维加权
+  - **资金 40%** + **顶级游资 35%** + **行情 25%** (api 返回 `weights: {fund:0.4, seat:0.35, momentum:0.25}`)
+  - 游资分细化: 顶级一线 0.55 / 二线区域 0.30 / 散户反向 -0.15
+  - 4 级分级: 核心主线龙头 (≥75) / 次级跟风热点 (≥55) / 脉冲短期题材 (≥35) / 冷门弱势 (<35)
+- **后端**: `GET /api/hotspot?refresh=0|1` (cached 60s)
+  - 拉前 30 候选板块 → 拉每板块前 8 成份股 → 拉近 N 日龙虎榜 → 席位分类 (seat_classify) → 加权打分
+  - 返回 `boards:[{name, score, fund_score, seat_score, momentum_score, tier, tier_label, leader_*, seat_struct_pct:{6 类}, top_seats:[{code, name, seat, alias, amount_wan}]}]`
+- **前端**: ECharts 5.5.1 横向条形图 (按 tier 着色) + 板块卡片列表 + 选中后 6 类资金占比饼图 + 顶级游资列表 (带江湖别名)
+  - 点击条形 ↔ 卡片 双向联动
+- **静态页 endpoint**: `GET /sector_hotspot`
+- **侧边栏**: 工作台 → `热点龙头` (05c) · 新标签页打开
+- **压测 (50 轮, 6 并发)**: `med 1.9ms · p90 2.3ms · p99 2.4ms · 49/50 成功` (1 次瞬时网络抖动, 复测 20/20 稳定)

@@ -45,10 +45,12 @@ fi
 
 echo "[tunnel] starting on port $PORT, log=$LOG"
 
-# nohup + setsid 让 tunnel 独立于父进程
-nohup setsid cloudflared tunnel --no-autoupdate --url "http://localhost:$PORT" \
+# nohup + disown 让 tunnel 独立于父进程
+# macOS 没 setsid,纯 background + disown 已足够
+nohup cloudflared tunnel --no-autoupdate --url "http://localhost:$PORT" \
   > "$LOG" 2>&1 &
 echo $! > "$PID_FILE"
+disown 2>/dev/null || true
 
 # 等 URL 出现 (最多 30s)
 for i in {1..30}; do

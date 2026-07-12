@@ -176,6 +176,18 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ts_updated        REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_watchlist_ai_date ON watchlist_ai(trade_date);
+
+        -- 个股查询历史 (2026-07-11 用户反馈 #)
+        -- 服务端永久持久化(跨设备/跨浏览器),不再是浏览器 localStorage
+        -- 去重:同 code 后查的提到最前,记录 hit_count 与 last_query_ts
+        CREATE TABLE IF NOT EXISTS stock_history (
+            code            TEXT PRIMARY KEY,
+            name            TEXT,
+            hit_count       INTEGER DEFAULT 1,
+            first_query_ts  REAL NOT NULL,
+            last_query_ts   REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_stock_history_recent ON stock_history(last_query_ts DESC);
         """)
     # 老库兼容:补 role 列(2026-07-09 加)
     cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_verdict)").fetchall()}
@@ -567,3 +579,83 @@ def ai_cache_stats() -> dict:
         return {"rows": n}
     except Exception:
         return {"rows": 0}
+
+
+# ═══════════════════════════════════════════════════
+# 个股查询历史 (2026-07-11) — 服务端永久化,跨浏览器/跨设备
+# 之前用 localStorage 浏览器清数据就丢;现在 SQLite 跨端同步
+# ═══════════════════════════════════════════════════
+def record_stock_query(code: str, name: str | None = None) -> None:
+    """记录一次个股查询:同 code 提到最前+hit_count++,time=now。"""
+    code = (code or "").strip().zfill(6)
+    if not code.isdigit() or len(code) != 6:
+        return
+    name = (name or "").strip() or code
+    now = systime.time()
+    try:
+        conn = _thread_conn()
+        conn.execute(
+            """
+            INSERT INTO stock_history (code, name, hit_count, first_query_ts, last_query_ts)
+            VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(code) DO UPDATE SET
+                name = excluded.name,
+                hit_count = hit_count + 1,
+                last_query_ts = excluded.last_query_ts
+            """,
+            (code, name[:32], now, now),
+        )
+        conn.commit()
+    except Exception as e:
+        log.debug(f"record_stock_query {code} 失败: {e}")
+
+
+def list_stock_history(limit: int = 50) -> list[dict]:
+    """最近查询过的个股(按 last_query_ts DESC)。"""
+    try:
+        conn = _thread_conn()
+        rows = conn.execute(
+            "SELECT code, name, hit_count, first_query_ts, last_query_ts "
+            "FROM stock_history ORDER BY last_query_ts DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "code":        r[0],
+                "name":        r[1] or r[0],
+                "hit_count":   r[2],
+                "first_query_ts": r[3],
+                "last_query_ts":  r[4],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        log.debug(f"list_stock_history 失败: {e}")
+        return []
+
+
+def remove_stock_history(code: str) -> bool:
+    """单条删除。返回是否真的删了一行。"""
+    code = (code or "").strip().zfill(6)
+    if not code.isdigit() or len(code) != 6:
+        return False
+    try:
+        conn = _thread_conn()
+        cur = conn.execute("DELETE FROM stock_history WHERE code=?", (code,))
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        log.debug(f"remove_stock_history {code} 失败: {e}")
+        return False
+
+
+def clear_stock_history() -> int:
+    """清空全部。返回删除的行数。"""
+    try:
+        conn = _thread_conn()
+        cur = conn.execute("DELETE FROM stock_history")
+        conn.commit()
+        return cur.rowcount
+    except Exception as e:
+        log.debug(f"clear_stock_history 失败: {e}")
+        return 0
