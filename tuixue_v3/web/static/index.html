@@ -15,6 +15,7 @@
     } catch (e) { /* SSR / 私密模式 */ }
   })();
 </script>
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>退学 v3 · 操作台</title>
@@ -28,6 +29,11 @@
 <!-- background mesh + noise -->
 <div class="bg-mesh" aria-hidden="true"></div>
 <div class="bg-noise" aria-hidden="true"></div>
+
+<!-- 全局加载条 (2026-07-12) — 长操作顶部进度条 -->
+<div class="top-loading" id="top-loading" aria-hidden="true">
+  <div class="top-loading-bar"></div>
+</div>
 
 <!-- 桌面侧边栏 (替换 toptabs) -->
 <aside class="sidebar" id="sidebar" aria-label="主导航">
@@ -55,6 +61,21 @@
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3.5 2.5h9v11l-4.5-2.5-4.5 2.5z"/></svg></span>
     <span>自选</span>
     <span class="sb-num">05</span>
+  </div>
+  <div class="sidebar-item" data-jump="sector_funds">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 12l3-3 3 2 5-6"/><path d="M10 5h3v3"/></svg></span>
+    <span>板块资金</span>
+    <span class="sb-num">05a</span>
+  </div>
+  <div class="sidebar-item" data-jump="sector_rotation">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 4h7M9 2l2 2-2 2"/><path d="M14 12H7M7 14l-2-2 2-2"/></svg></span>
+    <span>资金轮动</span>
+    <span class="sb-num">05b</span>
+  </div>
+  <div class="sidebar-item" data-jump="sector_hotspot">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M8 1.5l1.8 4 4.2.4-3.2 2.8 1 4.3L8 10.6 4.2 13l1-4.3L2 5.9l4.2-.4z"/></svg></span>
+    <span>热点龙头</span>
+    <span class="sb-num">05c</span>
   </div>
   <span class="sidebar-section">系统</span>
   <div class="sidebar-item" data-jump="optimize">
@@ -119,7 +140,7 @@
     </header>
 
     <div class="signal-grid mt-32">
-      <article class="card signal-col" data-market="a">
+      <article class="card signal-col fade-up fade-up-1" data-market="a">
         <div class="signal-head">
           <span class="signal-flag">🇨🇳 A 股</span>
           <span class="signal-verdict" id="sig-a-verdict">—</span>
@@ -132,7 +153,7 @@
         <ul class="signal-news" id="sig-a-news"></ul>
       </article>
 
-      <article class="card signal-col" data-market="kr">
+      <article class="card signal-col fade-up fade-up-2" data-market="kr">
         <div class="signal-head">
           <span class="signal-flag">🇰🇷 韩股</span>
           <span class="signal-verdict" id="sig-kr-verdict">—</span>
@@ -145,7 +166,7 @@
         <ul class="signal-news" id="sig-kr-news"></ul>
       </article>
 
-      <article class="card signal-col" data-market="us">
+      <article class="card signal-col fade-up fade-up-3" data-market="us">
         <div class="signal-head">
           <span class="signal-flag">🇺🇸 美股</span>
           <span class="signal-verdict" id="sig-us-verdict">—</span>
@@ -200,6 +221,27 @@
         <img id="tunnel-qr" alt="QR Code" />
         <p class="caption dim">手机扫码 · 临时 URL · 重启会变</p>
       </div>
+      <!-- LAN 入口 (默认一直显示) — 同一 WiFi 下手机扫码直接访问 -->
+      <div id="tunnel-lan-card" class="mt-8">
+        <div class="caption dim" style="margin-bottom:.35rem">📶 局域网入口（同一 WiFi 即开即用，无需公网）</div>
+        <div class="tunnel-row" style="margin-top:0">
+          <a id="tunnel-lan-url" target="_blank" rel="noopener" class="tunnel-url dim">—</a>
+          <button class="btn-mini" id="tunnel-lan-qr-btn" title="LAN QR 码">QR</button>
+        </div>
+        <div class="tunnel-qr" id="tunnel-lan-qr-wrap" hidden>
+          <img id="tunnel-lan-qr-img" alt="LAN QR" />
+          <p class="caption dim">手机连同一 WiFi → 扫码直进</p>
+        </div>
+      </div>
+      <!-- Tunnel 启动失败诊断 (默认隐藏,失败时弹出) -->
+      <div id="tunnel-diag" class="mt-8" hidden>
+        <details>
+          <summary style="color:var(--down);cursor:pointer">⚠ 公网 18 路 tunnel 启动失败 — 查看诊断</summary>
+          <div class="caption" style="margin-top:.35rem;line-height:1.5" id="tunnel-diag-body"></div>
+        </details>
+      </div>
+      <!-- 2026-07-12: sentinel-based 后端的指示 (TG bot / MQTT) -->
+      <div id="tunnel-sentinel-hint" class="caption mt-8" hidden></div>
       <details class="tunnel-help">
         <summary>如何换永久 URL？</summary>
         <ol>
@@ -333,6 +375,12 @@
       </div>
 
       <div class="quote-cell">
+        <span class="qc-label">市净率 · PB</span>
+        <span class="qc-value" id="q-pb">—</span>
+        <span class="qc-sub" id="q-pb-sub">净资产倍数</span>
+      </div>
+
+      <div class="quote-cell">
         <span class="qc-label">当日 高 / 低</span>
         <span class="qc-value" id="q-hl">—</span>
         <span class="qc-sub" id="q-hl-sub">开 / 昨收</span>
@@ -416,7 +464,9 @@
       <button class="tab" data-tab="news">📰 新闻</button>
       <button class="tab" data-tab="sectors">📊 板块</button>
       <button class="tab" data-tab="holders">👥 散户/主力</button>
-      <button class="tab" data-tab="ai">AI 复盘 · 铁律</button>
+      <button class="tab" data-tab="ai">AI 分析 · 铁律</button>
+      <button class="tab" data-tab="crash">🚨 砸盘风险</button>
+      <button class="tab" data-tab="related">🔗 相关个股</button>
     </div>
 
     <article class="card mt-16">
@@ -573,10 +623,16 @@
         </div>
       </div>
       <div data-tab-pane="ai" hidden>
+        <!-- 三市场环境(A股/美股/韩股) — 任一不佳→verdict 强制 ≤ 观望 -->
+        <div id="ai-mkts" class="ai-mkts">
+          <div class="mkt-card" id="mkt-cn"><div class="mkt-cap">A股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
+          <div class="mkt-card" id="mkt-us"><div class="mkt-cap">美股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
+          <div class="mkt-card" id="mkt-kr"><div class="mkt-cap">韩股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
+        </div>
         <div id="ai-panel" hidden>
           <div class="ai-head">
             <div class="ai-verdict-block">
-              <span class="ai-verdict-label">判定</span>
+              <span class="ai-verdict-label">AI 判定</span>
               <span class="ai-verdict" id="ai-verdict">…</span>
               <span class="ai-status" id="ai-status">调用中</span>
             </div>
@@ -585,10 +641,59 @@
               <span class="ai-conviction-num" id="ai-conviction">— / 100</span>
               <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="ai-conviction-bar" style="width:0%"></div></div>
             </div>
+            <div class="ai-actions">
+              <button class="btn-mini ai-btn" id="ai-btn-refresh" title="失效缓存强制重跑,约 30-60s">🔄 重新评估</button>
+              <button class="btn-mini ai-btn" id="ai-btn-history" title="查看近 N 日 verdict 演变">📜 历史</button>
+              <span class="ai-btn-hint" id="ai-btn-hint"></span>
+            </div>
           </div>
           <p class="ai-summary" id="ai-summary"></p>
           <div class="ai-detail" id="ai-detail"></div>
+          <div class="ai-history-bar" id="ai-history-bar" hidden>
+            <span class="ahb-label">历史判定 →</span>
+            <div class="ahb-pills" id="ai-history-pills"></div>
+          </div>
         </div>
+      </div>
+
+      <!-- 砸盘风险检测 (量化席位 + 对倒 + 虚假流动性 + 尾盘异动 + 5 层资金背离) -->
+      <div data-tab-pane="crash" hidden>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+          <span class="caption dim" style="margin:0">🚨 量化砸盘风险检测 — 盘面 / 席位 / 资金 三路信号 + 铁律联动</span>
+          <button class="btn btn-mini" id="crash-refresh-btn" title="失效缓存强制重跑,约 30-60s">🔄 重新检测</button>
+          <span class="ai-btn-hint" id="crash-btn-hint"></span>
+          <span class="dim" id="crash-meta" style="font-size:.8rem; margin-left:.25rem"></span>
+        </div>
+        <div id="crash-panel">
+          <div class="ai-head">
+            <div class="ai-verdict-block">
+              <span class="ai-verdict-label">砸盘风险</span>
+              <span class="ai-verdict" id="crash-risk">…</span>
+              <span class="ai-status" id="crash-status">检测中</span>
+            </div>
+            <div class="ai-conviction-block">
+              <span class="ai-conviction-label">确信度</span>
+              <span class="ai-conviction-num" id="crash-conviction">— / 100</span>
+              <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="crash-conviction-bar" style="width:0%"></div></div>
+            </div>
+            <div class="ai-actions">
+              <span class="ai-btn-hint" id="crash-verdict-tag"></span>
+            </div>
+          </div>
+          <p class="ai-summary" id="crash-summary"></p>
+          <div class="ai-detail" id="crash-detail"></div>
+          <div id="crash-pre-scan"></div>
+        </div>
+      </div>
+
+      <!-- 相关个股推荐 — 同概念/同板块/同 chain -->
+      <div data-tab-pane="related" hidden>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+          <span class="caption dim" style="margin:0">🔗 同概念/同 chain 个股 — 按板块/产业链维度拉相关标的</span>
+          <button class="btn btn-mini" id="related-refresh-btn" title="刷新">🔄</button>
+          <span class="dim" id="related-meta" style="font-size:.8rem; margin-left:.25rem"></span>
+        </div>
+        <div id="related-by-concept"></div>
       </div>
 
       <div data-tab-pane="news" hidden>
@@ -675,6 +780,16 @@
       <p class="caption" id="wl-batch-status">就绪</p>
       <div class="wl-batch-bar"><div class="wl-batch-fill" id="wl-batch-fill"></div></div>
       <ol id="wl-batch-log" class="wl-batch-log"></ol>
+    </article>
+
+    <!-- 次日选股 + 用户错模式预警 · 复用 review 端 next_picks -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>NEXT DAY · 次日选股 · 错模式预警</span>
+        <button class="btn btn-mini" id="wl-next-pick-refresh">↻ 重生成</button>
+      </div>
+      <p class="caption dim" id="wl-next-meta" style="margin:.25rem 0 .5rem">—</p>
+      <ol class="next-pick-list" id="wl-next-pick-list"></ol>
     </article>
   </section>
 
@@ -826,6 +941,58 @@
     <p class="caption dim" id="dragons-status" style="margin-top: 1rem">未加载</p>
   </section>
 
+  <!-- ─── SECTOR · 板块详情 (从 STEP 2 进入) ─── -->
+  <section class="view view-sector" data-view="sector" hidden>
+    <header class="view-head">
+      <p class="caption"><a href="#" id="sector-back" data-jump="dragons">← 龙头战法</a> · SECTOR · DETAIL</p>
+      <h1 class="display"><span id="sector-name">—</span></h1>
+      <p class="lede">
+        <span id="sector-change" class="dim">—</span> ·
+        资金净流入 <span id="sector-flow">—</span> ·
+        今日涨停 <span id="sector-zt-count">—</span> 只
+      </p>
+    </header>
+
+    <!-- 角色分布: 龙头 / 中军 / 杂毛 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">板块角色分布</div>
+      <div id="sector-roles" class="role-row">
+        <p class="empty">加载中 …</p>
+      </div>
+    </article>
+
+    <!-- 今日板块内涨停 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">今日板块内涨停 (<span id="sector-zt-rows-count">0</span>)</div>
+      <div class="table-wrap">
+        <table id="sector-zt-table" class="data-table">
+          <thead><tr>
+            <th>代码</th><th>名称</th><th>连板</th><th>首板时间</th><th>封单</th><th>所属子板块</th>
+          </tr></thead>
+          <tbody><tr><td colspan="6" class="empty">加载中 …</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+
+    <!-- 近 5 日高发 zt 股 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">近 5 日高发涨停 (<span id="sector-5d-count">0</span>)</div>
+      <p class="caption dim" style="margin: .25rem 0 .75rem">
+        5 日内涨停天数 ≥ 1 + 总连板数排序 · 点击跳个股详情
+      </p>
+      <div class="table-wrap">
+        <table id="sector-5d-table" class="data-table">
+          <thead><tr>
+            <th>代码</th><th>名称</th><th>涨停天数</th><th>累计连板</th><th>最后涨停日</th>
+          </tr></thead>
+          <tbody><tr><td colspan="5" class="empty">加载中 …</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+
+    <p class="caption dim" id="sector-status" style="margin-top: 1rem">未加载</p>
+  </section>
+
   <!-- ─── LAWS · 心法铁律 ─── -->
   <section class="view view-laws" data-view="laws" hidden>
     <header class="view-head">
@@ -905,6 +1072,73 @@
         <span class="caption dim">仓位%、盈亏比按此计算 · 其余据每笔买卖 + 实时价推算</span>
       </div>
       <div class="review-positions" id="review-positions"></div>
+    </article>
+
+    <!-- 截图自动录入 (AI vision 优先,OCR 兜底) — 支持批量 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>📷 SCREENSHOT · 截图 / 批量文本 AI 自动录入</span>
+        <span class="caption dim" id="snap-source-tag" hidden></span>
+      </div>
+      <div class="snap-tabs">
+        <button type="button" class="snap-tab" id="snap-tab-img">🖼️ 图片(可多张)</button>
+        <button type="button" class="snap-tab active" id="snap-tab-text">📝 批量文本(推荐)</button>
+      </div>
+
+      <!-- 图片模式 -->
+      <div class="snap-pane" id="snap-pane-img" hidden>
+        <div class="snap-drop" id="snap-drop">
+          <input type="file" id="snap-file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+          <div class="snap-hint">
+            <span class="snap-icon">📎</span>
+            <span>点此选多张 / 拖入图片 / 粘贴(Cmd+V)· 一图可含多笔</span>
+            <span class="caption dim">支持 PNG / JPG · 上限 6MB/张 · 自动调 AI vision,失败降级 OCR</span>
+          </div>
+          <div class="snap-thumbs" id="snap-thumbs"></div>
+        </div>
+      </div>
+
+      <!-- 文本模式 -->
+      <div class="snap-pane" id="snap-pane-text">
+        <div class="snap-text-warn">
+          💡 <b>推荐用文本模式</b>:把券商 App「历史成交」列表整段复制粘贴即可,精准度比图片 OCR 高一个量级。
+          <button type="button" class="btn-link" id="snap-text-example">📋 一键粘贴示例</button>
+        </div>
+        <textarea id="snap-text" class="snap-text" rows="8" placeholder="每行一笔,Tab / 空格 / 逗号 分隔都行。字段顺序智能识别:
+
+600519  贵州茅台  buy   1820.50  100  2026-07-11  09:35
+002747  埃斯顿   buy    42.00  100  2026-07-11  10:00
+300750  宁德时代 sell  320.00  100  2026-07-11  14:30
+
+支持的方向:buy/买/买入 / sell/卖/卖出 — 可省略,默认 buy
+日期/时间 缺省时自动 = 今天/当前"></textarea>
+        <div class="snap-text-acts">
+          <button type="button" class="btn btn-mini primary" id="snap-text-parse">🔍 解析 → 预览</button>
+          <span class="caption dim">不传时间时自动 = 当前;不传日期时自动 = 今天</span>
+        </div>
+      </div>
+
+      <div class="snap-status" id="snap-status"></div>
+
+      <!-- 批量预览表 (所有解析出的交易集中显示) -->
+      <div class="snap-preview-box" id="snap-preview-box" hidden>
+        <div class="snap-preview-hd">
+          <span>🧾 解析结果预览 · <b id="snap-count">0</b> 笔</span>
+          <div>
+            <button type="button" class="btn btn-mini" id="snap-clear">清空</button>
+            <button type="button" class="btn btn-primary" id="snap-batch-save">📥 全部录入</button>
+          </div>
+        </div>
+        <table class="data-table snap-tbl">
+          <thead>
+            <tr>
+              <th>#</th><th>方向</th><th>代码</th><th>名称</th><th>价格</th><th>股数</th><th>日期</th><th>时刻</th><th>备注</th><th>来源</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="snap-tbody"></tbody>
+        </table>
+        <p class="caption dim" id="snap-meta">—</p>
+      </div>
     </article>
 
     <!-- 录入区 -->
