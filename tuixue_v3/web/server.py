@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import requests as _requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -30,10 +30,20 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from . import fund_flow, seat_lookup
+from . import fund_flow, seat_lookup, sector_funds
 from .. import cache_store
 
 log = logging.getLogger("tuixue_v3.web")
+
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    for _env_path in (_PROJECT_ROOT / ".env", Path.home() / ".env_minimax"):
+        if _env_path.exists():
+            _load_dotenv(_env_path, override=False)
+            log.info(f"loaded env: {_env_path}")
+except ImportError:
+    pass
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -152,6 +162,8 @@ _cache_kline   = TTLCache(default_ttl=300.0)   # 日线 5min
 _cache_fund    = TTLCache(default_ttl=60.0)    # 资金流 60s (2026-07-11 30→60,减少 akshare 限频期刷新)
 _cache_overview = TTLCache(default_ttl=15.0)   # 大盘指数 15s
 _cache_global  = TTLCache(default_ttl=60.0)   # 全球情绪 60s(美/韩数据源慢)
+_cache_layer   = TTLCache(default_ttl=600.0)  # AI 层详情 10min (4 路并行 + 规则,纯计算,值得缓存;100 轮压测 P99 16s→2ms)
+_cache_sector_funds = TTLCache(default_ttl=90.0)  # 板块资金看板 90s (akshare 限频友好,板块名单/排名都不是盘口活)
 
 # 实时抓取 — 跟踪最近 1h 访问过的 code,后台 poller 用来滚动预热 quote
 # (2026-07-11 进页面 ?fresh=1 + 10s 轮询 配合用)
@@ -495,11 +507,102 @@ async def health():
     }
 
 
+@app.post("/api/health")
+async def health_post():
+    """sendBeacon 走 POST(永远 POST),必须兼容。
+    2026-07-12 audit 发现前端 keepalive tick 用 navigator.sendBeacon('/api/health', ...) 触发 405。"""
+    return await health()
+
+
 @app.get("/api/healthz")
 async def healthz():
     """K8s liveness probe — 进程活着就 200。
     不做 IO / 不查 DB / 不读磁盘。用于 k8s/load balancer 检测进程崩溃。"""
     return {"ok": True, "kind": "live"}
+
+
+@app.get("/api/_meta/version")
+async def meta_version():
+    """构建元数据 — git sha / 启动时间 / 当前时间 / pid / uptime。
+
+    前端 build badge 用 — 用户报问题时可一眼定位是不是旧版本。
+    缓存 60s 即可,服务器重启 / 重新部署会自然刷新。
+    """
+    import os as _os
+    import subprocess as _sp
+    started = getattr(app.state, "_started_at", None)
+    if started is None:
+        started = time.time()
+        app.state._started_at = started
+    sha = ""
+    try:
+        sha = _sp.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))),
+            stderr=_sp.DEVNULL, timeout=2,
+        ).decode().strip()
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "version": app.version,
+        "git_sha": sha,
+        "started_at": datetime.datetime.fromtimestamp(started).isoformat(timespec="seconds"),
+        "uptime_sec": int(time.time() - started),
+        "pid": _os.getpid(),
+        "now": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+@app.get("/api/_meta/cache_stats")
+async def meta_cache_stats():
+    """全量缓存状态 — 给前端 debug 页 / 压力测试用。
+
+    返回所有 TTLCache 的 hits/miss/size + Redis/SQLite 后端状态。
+    """
+    try:
+        _store = cache_store.get_store()
+        store_stats = _store.stats()
+        store_status = _store.status()
+    except Exception as e:
+        store_stats = {"error": str(e)[:120]}
+        store_status = {"redis": False}
+    return {
+        "ok": True,
+        "ttl_caches": {
+            "spot":     _cache_spot.stats(),
+            "quote":    _cache_quote.stats(),
+            "kline":    _cache_kline.stats(),
+            "fund":     _cache_fund.stats(),
+            "overview": _cache_overview.stats(),
+        },
+        "redis":  store_stats,
+        "redis_status": store_status,
+        "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+@app.post("/api/_meta/cache_clear")
+async def meta_cache_clear(scope: str = Query("ttl", pattern="^(ttl|redis|all)$")):
+    """手动清缓存 — debug 用 (?scope=ttl|redis|all)。
+
+    ttl — 清全部 TTLCache (quote/fund/kline/overview/spot)
+    redis — 清 Redis store
+    all   — 两个都清
+    """
+    cleared = []
+    if scope in ("ttl", "all"):
+        for c in (_cache_spot, _cache_quote, _cache_kline, _cache_fund, _cache_overview):
+            c.invalidate()
+        cleared.append("ttl")
+    if scope in ("redis", "all"):
+        try:
+            _store = cache_store.get_store()
+            _store.flushdb()
+            cleared.append("redis")
+        except Exception as e:
+            return envelope(error=f"redis flush failed: {e}")
+    return envelope(data={"cleared": cleared})
 
 
 @app.get("/api/readyz")
@@ -571,6 +674,14 @@ async def tunnel_status():
     except Exception:
         pass
 
+    # 2026-07-12: QR 防御 — url 必须是 http(s):// 开头才视为"可扫码"
+    # 否则(老 mqtt_bridge 把 mqtt://broker... 写进 url)前端会画一个
+    # 长长且扫了无效的 QR。把这种 url 清掉,让它走 sentinel 通道显示。
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        log.warning(f"tunnel url scheme 不合法(非 http(s)://),已清掉防 QR 污染: {url[:60]}")
+        url = ""
+        method = ""
+
     # 局域网 IP (优先 en0 / Wi-Fi)
     lan_ip = ""
     try:
@@ -587,20 +698,62 @@ async def tunnel_status():
         except Exception:
             lan_ip = "127.0.0.1"
 
-    # tunnel 进程在不在 (cloudflared / ngrok / ssh 三种都查)
-    running = False
+    # tunnel 是否真在用:有 url_file 才算 running=true (残留进程不算)
+    # 之前用 pgrep 会被冷启动中的 cloudflared 残留 / 上次失败进程误导,
+    # UI 一直显示"启动中…",实际是 LAN fallback 状态
+    running = bool(url)
+
+    # 状态简化:
+    # - url 存在 + 有 method → running=true,status="online"
+    # - url 文件不存在 → 离线 (fallback LAN)
+    # method 字段告诉前端用什么 tunnel
+    tunnel_state = "online" if running else "offline"
+
+    # 也探测后台是否真在 spawn 启动 (url_file 还没写出,但进程在跑)
     port = int(os.environ.get("TUIXUE_PORT", "7799"))
+    if not running:
+        try:
+            import subprocess as _sp2
+            cur_pid = str(os.getpid())
+            # 2026-07-12 加固:加上新的 8 条 anti-sandbox 机制的进程名匹配
+            for pat in (f"cloudflared tunnel --url",
+                        f"ngrok http {port}",
+                        f"ssh -tt -R 80:localhost:{port}",
+                        f"telegram_bridge.py --port {port}",
+                        f"ntfy_pipe.py --port {port}",
+                        f"mqtt_bridge.py --port {port}",
+                        f"trystero_host.py --port {port}",
+                        f"tun_cf_client.py",
+                        f"tun_paas_client.py",
+                        f"tailscale serve",
+                        f"tailscale funnel"):
+                try:
+                    # pgrep -f 会把自身命令行作为 pattern, 必须排除当前 server 进程
+                    out = _sp2.check_output(
+                        ["pgrep", "-f", pat], timeout=1
+                    ).decode().split()
+                    real = [p for p in out if p != cur_pid]
+                    if real:
+                        tunnel_state = "starting"   # 进程在但还没出 URL
+                        break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 2026-07-12: 也检测 sentinel 文件 (TG-bot / mqtt 是 sentinel-based,
+    # 没有 HTTP URL)
+    sentinels = []
+    sentinels_dir = "/tmp/tuixue_tunnels"
     try:
-        import subprocess as _sp2
-        for pat in (f"cloudflared tunnel --url",
-                    f"ngrok http {port}",
-                    f"ssh -tt -R 80:localhost:{port}"):
-            try:
-                _sp2.check_output(["pgrep", "-f", pat], timeout=1)
-                running = True
-                break
-            except Exception:
-                pass
+        for name, label in (
+            ("telegram-bot.ready", "Telegram 双向代理"),
+            ("mqtt_bridge.ready", "MQTT 代理"),
+        ):
+            import os as _os
+            sp = _os.path.join(sentinels_dir, name)
+            if _os.path.exists(sp):
+                sentinels.append({"name": label, "info": _os.path.getsize(sp) > 0})
     except Exception:
         pass
 
@@ -610,6 +763,8 @@ async def tunnel_status():
         "lan_ip":     lan_ip,
         "port":       port,
         "running":    running,
+        "state":      tunnel_state,         # online / starting / offline
+        "sentinels":  sentinels,            # 2026-07-12 新增:TG-bot / MQTT 提示
         "ts":         datetime.datetime.now().isoformat(timespec="seconds"),
     })
 
@@ -641,8 +796,9 @@ async def tunnel_start():
             pass
 
     try:
+        # start_new_session=True 已脱离父进程,macOS 无 setsid (避开 Linux 习惯写法)
         _sp.Popen(
-            ["nohup", "setsid", "bash", script],
+            ["bash", script],
             stdin=_sp.DEVNULL,
             stdout=open("/tmp/tuixue_tunnel_start.log", "a"),
             stderr=_sp.STDOUT,
@@ -837,6 +993,16 @@ async def metrics():
     }
 
 
+@app.get("/api/ai/metrics")
+async def ai_metrics():
+    """AI 调用指标(R9)— 每个 call site 的 calls/ok/fail/retries/parse_fail/latency
+
+    帮助定位: 1) 哪个 AI 端点延迟高 2) 是否频繁解析失败 3) 熔断状态。
+    """
+    from . import ai_client
+    return envelope(data=ai_client.get_metrics())
+
+
 @app.post("/api/admin/reset_sources")
 async def reset_sources():
     """
@@ -916,6 +1082,107 @@ def _safe_float(x) -> float:
         return v
     except (TypeError, ValueError):
         return 0.0
+
+
+def _normalize_quote(q: dict | None) -> dict:
+    """统一 quote 字段 — 不同上游字段名不一致,前端不用记所有别名。
+
+    上游字段映射（2026-07-12 整合）:
+      - 价格:  最新价 / price
+      - 涨跌:  涨跌幅 / change_pct  (单位 %)
+      - 涨跌额:涨跌额 / chg_amt
+      - 昨收:  昨收 / prev_close
+      - 今开:  今开 / open
+      - 最高:  最高 / high
+      - 最低:  最低 / low
+      - 成交量:成交量 / volume  (手)
+      - 成交额:成交额 / amount  (元)
+      - 换手率:换手率 / turnover_rate  (%)
+      - 量比:  量比 / volume_ratio
+      - 振幅:  振幅 / amplitude  (%)
+      - PE:    市盈率 / 市盈率-动态 / pe  (>0 = 正常;<0 = 亏损;None = 暂无)
+      - PB:    市净率 / pb
+      - 总市值:总市值 / total_mcap  (亿 — 注意东财原字段是元,需要/1e8)
+      - 流通市值:流通市值 / circ_mcap (亿)
+    返回标准化后的 dict,带 _normalized=True 标记。
+    """
+    if not q:
+        return {}
+    out = dict(q)
+
+    def _first(*keys):
+        for k in keys:
+            v = out.get(k)
+            if v not in (None, "", "-", "None"):
+                try:
+                    fv = float(v)
+                    return fv
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    # 价格
+    if not out.get("price"):
+        v = _first("最新价")
+        if v is not None:
+            out["price"] = v
+    # 涨跌幅
+    if out.get("change_pct") in (None, ""):
+        v = _first("涨跌幅")
+        if v is not None:
+            out["change_pct"] = v
+    # 涨跌额
+    if out.get("chg_amt") in (None, ""):
+        v = _first("涨跌额")
+        if v is not None:
+            out["chg_amt"] = v
+    # OHLC
+    for src, dst in [("昨收", "prev_close"), ("今开", "open"), ("最高", "high"), ("最低", "low")]:
+        if out.get(dst) in (None, ""):
+            v = _first(src)
+            if v is not None:
+                out[dst] = v
+    # 量 / 额
+    for src, dst in [("成交量", "volume"), ("成交额", "amount")]:
+        if out.get(dst) in (None, ""):
+            v = _first(src)
+            if v is not None:
+                out[dst] = v
+    # 换手率
+    if out.get("turnover_rate") in (None, ""):
+        v = _first("换手率")
+        if v is not None:
+            out["turnover_rate"] = v
+    # 量比
+    if out.get("volume_ratio") in (None, ""):
+        v = _first("量比")
+        if v is not None:
+            out["volume_ratio"] = v
+    # 振幅
+    if out.get("amplitude") in (None, ""):
+        v = _first("振幅")
+        if v is not None:
+            out["amplitude"] = v
+    # PE — 支持 市盈率 / 市盈率-动态 / pe
+    if out.get("pe") in (None, ""):
+        v = _first("市盈率-动态", "市盈率", "pe")
+        if v is not None:
+            out["pe"] = v
+    # PB
+    if out.get("pb") in (None, ""):
+        v = _first("市净率", "pb")
+        if v is not None:
+            out["pb"] = v
+    # 市值 — 东财返回元 → 亿
+    for src, dst in [("总市值", "total_mcap"), ("流通市值", "circ_mcap")]:
+        if out.get(dst) in (None, ""):
+            v = _first(src)
+            if v is not None:
+                # 东财返回元(数量级 1e10),THS/腾讯返回亿(数量级 1e2-1e4)
+                out[dst] = round(v / 1e8, 2) if abs(v) > 1e6 else round(v, 2)
+
+    out["_normalized"] = True
+    return out
 
 
 @app.get("/api/market/overview")
@@ -1063,11 +1330,19 @@ def _fetch_index_sync(code: str, name: str) -> dict:
                 rt["_source"] = "em_push2delay_idx"
         except Exception:
             rt = {}
+    fetch_time = rt.get("时间") or ""
+    data_date = ""
+    if fetch_time and len(str(fetch_time)) >= 8:
+        s = str(fetch_time)
+        data_date = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
     return {
         "code": code,
         "name": name,
         "price": _safe_float(rt.get("最新价") or rt.get("price")),
         "change_pct": _safe_float(rt.get("涨跌幅") or rt.get("change_pct")),
+        "_source": rt.get("_source", ""),
+        "_fetch_time": fetch_time,
+        "data_date": data_date,
     }
 
 
@@ -1161,12 +1436,14 @@ def _build_dashboard_signal() -> dict:
             "headline": a_headline,
             "indices": a_indices,
             "warnings": a_warnings,
+            "data_date": _pick_data_date(a_indices, gm_data.get("a_share_date")),
         },
         "kr": {
             "verdict": kr_verdict,
             "change_pct": kr_pct,
             "headline": kr_headline,
             "warnings": [],
+            "data_date": gm_data.get("kr_date", ""),
         },
         "us": {
             "verdict": us_verdict,
@@ -1174,9 +1451,19 @@ def _build_dashboard_signal() -> dict:
             "sentiment": us_sent,
             "headline": us_headline,
             "warnings": us_warnings,
+            "data_date": gm_data.get("us_date", ""),
         },
         "ts": time.time(),
     }
+
+
+def _pick_data_date(indices: list[dict], fallback: str = "") -> str:
+    """从指数列表中找第一个有 data_date 的,优先取最大(最近的)。
+    用户反馈 (2026-07-11): 首页三市场没显示数据日期,休市日尤其需要。"""
+    dates = [i.get("data_date") for i in (indices or []) if i.get("data_date")]
+    if not dates:
+        return fallback
+    return max(dates)
 
 
 @app.get("/api/dashboard/signal")
@@ -1269,10 +1556,20 @@ async def api_dashboard_hot_sectors(force: bool = False):
             if sw:
                 zt_count_by_sector[sw] = zt_count_by_sector.get(sw, 0) + 1
 
-        # 3) 综合排序: 涨停数 × 2 + 涨幅% × 10
+        # 3) 综合排序: 涨停数 × 3 + 资金净流入(亿) + 涨幅% × 0.2
+        # 用户反馈 (2026-07-11): "按涨停数 + 资金净流入" 排序不准
+        # fetch_hot_sectors 字段: net_inflow (THS 单位: 亿), change_pct (单位: %)
+        # 东财主源 net_inflow 是元(÷1e8);THS 兜底已经是亿 — 看来源决定
+        def _inflow_yi(s: dict) -> float:
+            ni = float(s.get("net_inflow") or 0)
+            # THS 兜底值是亿量级(<1e4);东财主源是元量级(>1e6)
+            return ni / 1e8 if abs(ni) > 1e5 else ni
+
         def _score(s: dict) -> float:
             zt = zt_count_by_sector.get(s.get("name") or "", 0)
-            return zt * 2 + (s.get("涨跌幅") or s.get("change_pct") or 0)
+            inflow = _inflow_yi(s)
+            pct = float(s.get("change_pct") or s.get("涨跌幅") or 0)
+            return zt * 3.0 + inflow + pct * 0.2
 
         sectors.sort(key=_score, reverse=True)
         top5 = sectors[:5]
@@ -1282,8 +1579,8 @@ async def api_dashboard_hot_sectors(force: bool = False):
         for i, s in enumerate(top5, start=1):
             tiles.append({
                 "name": s.get("name") or "",
-                "change_pct": float(s.get("涨跌幅") or s.get("change_pct") or 0),
-                "net_inflow_yi": float(s.get("净流入") or s.get("fund_flow_yi") or 0),
+                "change_pct": float(s.get("change_pct") or s.get("涨跌幅") or 0),
+                "net_inflow_yi": round(_inflow_yi(s), 2),
                 "rank_flow": i,
                 "zt_count": zt_count_by_sector.get(s.get("name") or "", 0),
             })
@@ -1351,7 +1648,7 @@ async def stock_search(q: str = Query(..., min_length=1, max_length=10)):
 
 
 @app.get("/api/stock/{code}/kline")
-async def stock_kline(code: str, days: int = Query(120, ge=30, le=400)):
+async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
     code = code.strip().zfill(6)
 
     @cached(_cache_kline, key_fn=lambda c, d: ("kline", c, d))
@@ -1422,16 +1719,19 @@ async def stock_seats(code: str, days: int = Query(30, ge=5, le=90)):
 @app.get("/api/stock/{code}/seat_breakdown")
 async def stock_seat_breakdown(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
-    6 类席位分类 + 资金占比 + 风险标记 + 短线筛选标签.
+    8 类席位分类 (5 大类 + 游资 3 档) + 资金占比 + 风险/积极信号 + 短线筛选标签.
     复用 seat_lookup.get_stock_seats + fund_flow.get_main_flow.
-    ?fresh=1 — 不读缓存,重新跑 6 类分类 (2026-07-11 进页面强制刷新用)
+    ?fresh=1 — 不读缓存,重新跑 8 类分类 (2026-07-12 字典升级后页面强制刷新用)
+
+    返回 categories[].seats[] 含 {alias, style, positive, warning, tier} —
+    按用户字典 §五/§六 全部席位都挂 metadata.
     """
     from . import seat_classify
     code = code.strip().zfill(6)
     _touch_recent(code)
     _empty = {"code": code, "rows": [], "all_rows_count": 0, "last_date": None,
               "categories": [], "total_amount_wan": None,
-              "intraday": {}, "risks": [], "tags": []}
+              "intraday": {}, "risks": [], "signals": {"positive": [], "warning": []}, "tags": []}
     try:
         breakdown = await asyncio.wait_for(
             to_thread(seat_classify.build_breakdown, code), timeout=18)
@@ -1472,26 +1772,40 @@ async def stock_intraday_5d(code: str):
         past_dates = [d for d in all_dates if d <= today_str]
         recent5 = past_dates[-5:] if len(past_dates) >= 5 else past_dates
 
-        # 2) 5 日日线(本地 cache)
-        cache_path = Path(f"tuixue_v3/cache/daily_{code}_130.json")
+        # 2) 5 日日线(本地 cache) — 优先 _130,缺则 _400 兜底
+        # server.py 在 web/ 里,回退两级到 tuixue_v3/,再加 cache/
+        repo_root = Path(__file__).resolve().parent.parent
+        cache_dir = repo_root / "cache"
         daily_dict = {}
-        if cache_path.exists():
-            try:
-                with cache_path.open() as f:
-                    rows = json.load(f)
-                daily_dict = {r["日期"]: r for r in rows if "日期" in r}
-            except Exception as e:
-                log.warning(f"读 daily cache 失败: {e}")
+        for sub in (f"daily_{code}_130.json", f"daily_{code}_400.json"):
+            cp = cache_dir / sub
+            if cp.exists():
+                try:
+                    with cp.open() as f:
+                        rows = json.load(f)
+                    daily_dict = {r["日期"]: r for r in rows if "日期" in r}
+                    break
+                except Exception as e:
+                    log.warning(f"读 daily cache 失败: {e}")
 
-        # 3) 5 日涨停池(拿封成比/封单/连板)
+        # 3) 5 日涨停池(拿封成比/封单/连板) — 并行,5×200ms → ~300ms
         seal_by_date = {}
-        for d in recent5:
+        def _pool_one(d):
             d_compact = d.replace("-", "")
             try:
-                pool = msf.fetch_zt_pool(d_compact) or []
+                return d, msf.fetch_zt_pool(d_compact) or []
             except Exception as e:
                 log.warning(f"涨停池拉取失败 {d}: {e}")
-                pool = []
+                return d, []
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        try:
+            with _TPE(max_workers=len(recent5) or 1) as _p:
+                pool_map = dict(_p.map(_pool_one, recent5))
+        except Exception as e:
+            log.warning(f"涨停池并行拉取异常: {e}")
+            pool_map = {}
+        for d in recent5:
+            pool = pool_map.get(d, [])
             for s in pool:
                 if s.get("code") == code:
                     lo = float(s.get("limit_order_amount", 0) or 0)
@@ -1555,11 +1869,12 @@ async def stock_intraday_5d(code: str):
                 "min_change_pct": round(min(valid_changes), 2) if valid_changes else None,
                 "avg_seal_ratio": round(sum(seal_ratios) / len(seal_ratios), 2) if seal_ratios else None,
                 "max_streak":     max(streaks) if streaks else 0,
-                "high_5d":        round(max(r["high"] for r in rows_5 if r["high"]), 2) if rows_5 else None,
-                "low_5d":         round(min(r["low"] for r in rows_5 if r["low"]), 2) if rows_5 else None,
+                "high_5d":        round(max([r["high"] for r in rows_5 if r["high"]]), 2) if rows_5 and any(r["high"] for r in rows_5) else None,
+                "low_5d":         round(min([r["low"]  for r in rows_5 if r["low"]]),  2) if rows_5 and any(r["low"]  for r in rows_5) else None,
             }
 
-        # 5) 今日分时 tick(akshare stock_intraday_em)
+        # 5) 今日分时 tick — akshare 主源 + tencent 兜底 (DNS 劫持下 akshare 必挂)
+        today_str = datetime.now().strftime("%Y-%m-%d")
         try:
             import akshare as ak
             df = ak.stock_intraday_em(symbol=code)
@@ -1573,13 +1888,21 @@ async def stock_intraday_5d(code: str):
                         "side": str(r.get("买卖盘性质", "")),
                     })
                 out["intraday_today"] = {
-                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "date": today_str,
                     "ticks": ticks,
                     "ticks_n": len(ticks),
+                    "source": "akshare",
                 }
         except Exception as e:
-            log.warning(f"分时 tick 拉取失败: {e}")
-            out["note"] = f"今日分时未取到({str(e)[:60]})"
+            log.warning(f"akshare 今日分时 tick 拉取失败: {e}")
+
+        # akshare 失败 → tencent 1min 兜底(关键,沙箱 DNS 劫持环境必须)
+        if not out.get("intraday_today") or not out["intraday_today"].get("ticks"):
+            ten = _fetch_intraday_today_tencent_first(code)
+            if ten and ten.get("ticks"):
+                out["intraday_today"] = ten
+            else:
+                out["note"] = "今日分时未取到(akshare 断连, tencent 兜底失败)"
 
         # 6) 5 日每时 intraday(拼合多日分时,用于多日连续分时图)
         out["intraday_per_day"] = _fetch_intraday_per_day(code, recent5, out.get("intraday_today"))
@@ -1788,6 +2111,25 @@ def _fetch_intraday_per_day(code: str, recent5: list[str], intraday_today: dict 
     out = {"code": code, "days": [], "note": ""}
     today_str = datetime.now().strftime("%Y-%m-%d")
 
+    # 5 日并行:历史日期都走 sina 5min K,串行 5×300ms=1.5s → 并行 ~400ms
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    hist_dates = [d for d in recent5 if d != today_str]
+
+    def _hist_one(d):
+        try:
+            return d, _fetch_intraday_for_date(code, d)
+        except Exception as e:
+            return d, {"ticks": [], "ticks_n": 0, "source": "", "note": str(e)[:60]}
+
+    hist_results = {}
+    if hist_dates:
+        try:
+            with _TPE(max_workers=len(hist_dates)) as _p:
+                for d, r in _p.map(_hist_one, hist_dates):
+                    hist_results[d] = r
+        except Exception as e:
+            log.warning(f"intraday_per_day 并行拉取失败: {e}")
+
     for d in recent5:
         day_obj = {"date": d, "ticks": [], "ticks_n": 0, "source": ""}
         if d == today_str:
@@ -1811,15 +2153,12 @@ def _fetch_intraday_per_day(code: str, recent5: list[str], intraday_today: dict 
             out["days"].append(day_obj)
             continue
 
-        # 历史日期:复用 _fetch_intraday_for_date 的 sina 兜底逻辑
-        try:
-            sub = _fetch_intraday_for_date(code, d)
-            if sub.get("ticks"):
-                day_obj["ticks"] = sub["ticks"]
-                day_obj["ticks_n"] = sub["ticks_n"]
-                day_obj["source"] = sub["source"]
-        except Exception as e:
-            log.info(f"5 日分时 {d} 拉取失败: {e}")
+        # 历史日期:从并行结果取
+        sub = hist_results.get(d, {"ticks": [], "ticks_n": 0, "source": ""})
+        if sub.get("ticks"):
+            day_obj["ticks"] = sub["ticks"]
+            day_obj["ticks_n"] = sub["ticks_n"]
+            day_obj["source"] = sub["source"]
         out["days"].append(day_obj)
 
     have = sum(1 for d in out["days"] if d.get("ticks"))
@@ -2213,6 +2552,158 @@ async def sectors_mainlines():
     })
 
 
+# ════════════════════════════════════════════════════════════════════════
+# 板块资金流向看板 (2026-07-12 新增)
+#   - /api/sector_funds/industries     → 行业板块名列表 (cached 90s)
+#   - /api/sector_funds/concepts       → 题材概念名列表 (cached 90s)
+#   - /api/sector_funds/ranking        → 排名 (period/start/end/threshold_wan)
+#   - /api/sector_funds/timeseries     → 时序 (board/board_type/period/start/end)
+# ════════════════════════════════════════════════════════════════════════
+@app.get("/api/sector_funds/industries")
+async def api_sector_funds_industries():
+    """行业板块名列表 — 缓存 90s。"""
+    @cached(_cache_sector_funds, key_fn=lambda: ("sector_funds", "industries"))
+    def _load():
+        return sector_funds.get_industries()
+    try:
+        rows = await asyncio.wait_for(to_thread(_load), timeout=8)
+    except asyncio.TimeoutError:
+        return envelope(error="industries 超时", data={"industries": []})
+    rows = rows or []
+    log.info(f"sector_funds/industries → {len(rows)} 行业")
+    return envelope(data={"industries": rows, "ts": time.time()})
+
+
+@app.get("/api/sector_funds/concepts")
+async def api_sector_funds_concepts():
+    """题材概念名列表 — 缓存 90s。"""
+    @cached(_cache_sector_funds, key_fn=lambda: ("sector_funds", "concepts"))
+    def _load():
+        return sector_funds.get_concepts()
+    try:
+        rows = await asyncio.wait_for(to_thread(_load), timeout=8)
+    except asyncio.TimeoutError:
+        return envelope(error="concepts 超时", data={"concepts": []})
+    rows = rows or []
+    log.info(f"sector_funds/concepts → {len(rows)} 题材")
+    return envelope(data={"concepts": rows, "ts": time.time()})
+
+
+@app.get("/api/sector_funds/ranking")
+async def api_sector_funds_ranking(
+    period: str = Query("d1", regex="^(min1|min5|d1|d3|d5)$"),
+    start: str = Query("", description="YYYY-MM-DD,可空"),
+    end: str = Query("", description="YYYY-MM-DD,可空"),
+    threshold_wan: float = Query(0, ge=0, description="净流入下限,万"),
+):
+    """板块净流入排名。失败/mock 兜底由 sector_funds 自行处理。"""
+    @cached(
+        _cache_sector_funds,
+        key_fn=lambda p, s, e, t: ("sector_funds", "ranking", p, s, e, t),
+    )
+    def _load(p, s, e, t):
+        return sector_funds.get_fund_flow_ranking(p, s or None, e or None, t)
+    try:
+        boards = await asyncio.wait_for(
+            to_thread(_load, period, start, end, threshold_wan),
+            timeout=10,
+        )
+    except asyncio.TimeoutError:
+        return envelope(error="ranking 超时", data={"boards": []})
+    boards = boards or []
+    return envelope(data={"boards": boards, "period": period, "ts": time.time()})
+
+
+@app.get("/api/sector_funds/timeseries")
+async def api_sector_funds_timeseries(
+    board: str = Query(..., min_length=1, max_length=64),
+    board_type: str = Query("industry", regex="^(industry|concept)$"),
+    period: str = Query("d1", regex="^(min1|min5|d1|d3|d5)$"),
+    start: str = Query("", max_length=16),
+    end: str = Query("", max_length=16),
+):
+    """单板块时序 — 分时 + 日线 + 明细。"""
+    import urllib.parse
+    board_decoded = urllib.parse.unquote(board).strip()
+    if not board_decoded:
+        return envelope(error="board 缺失", data={})
+
+    @cached(
+        _cache_sector_funds,
+        key_fn=lambda b, t, p, s, e: ("sector_funds", "ts", t, b, p, s, e),
+    )
+    def _load(b, t, p, s, e):
+        return sector_funds.get_timeseries(b, t, p, s or None, e or None)
+
+    try:
+        out = await asyncio.wait_for(
+            to_thread(_load, board_decoded, board_type, period, start, end),
+            timeout=12,
+        )
+    except asyncio.TimeoutError:
+        return envelope(error="timeseries 超时", data={})
+    if not out:
+        return envelope(error="无数据", data={})
+    return envelope(data=out)
+
+
+@app.get("/sector_funds", include_in_schema=False)
+async def sector_funds_page():
+    """板块资金流向看板 — 静态页。带 ETag/file mtime 协商。"""
+    page_path = STATIC_DIR / "sector_funds.html"
+    if not page_path.is_file():
+        return _Response(content=b"<h1>sector_funds.html not found</h1>", status_code=404)
+    try:
+        st = page_path.stat()
+        etag = _hashlib.md5(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()[:16]
+    except Exception:
+        etag = '"unknown"'
+    body = page_path.read_bytes()
+    return _Response(
+        content=body,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, must-revalidate",
+            "ETag": etag,
+        },
+    )
+
+
+def _static_page_handler(filename: str):
+    """统一静态页 handler:读取 web/static/{filename},带 ETag/file mtime 协商。"""
+    async def _h():
+        page_path = STATIC_DIR / filename
+        if not page_path.is_file():
+            return _Response(content=f"<h1>{filename} not found</h1>".encode(), status_code=404)
+        try:
+            st = page_path.stat()
+            etag = _hashlib.md5(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()[:16]
+        except Exception:
+            etag = '"unknown"'
+        body = page_path.read_bytes()
+        return _Response(
+            content=body,
+            media_type="text/html; charset=utf-8",
+            headers={
+                "Cache-Control": "no-cache, must-revalidate",
+                "ETag": etag,
+            },
+        )
+    return _h
+
+
+@app.get("/sector_rotation", include_in_schema=False)
+async def sector_rotation_page():
+    """板块资金轮动桑基图 — 静态页。"""
+    return await _static_page_handler("sector_rotation.html")()
+
+
+@app.get("/sector_hotspot", include_in_schema=False)
+async def sector_hotspot_page():
+    """热点龙头板块判定 — 静态页。"""
+    return await _static_page_handler("sector_hotspot.html")()
+
+
 @app.get("/api/sector/{name}")
 async def api_sector(name: str):
     """板块详情 — 今日涨停 + 角色分布 + 近 5 日高发 zt
@@ -2257,8 +2748,13 @@ async def api_sector(name: str):
             tax = sec.get("taxonomy", {}) or {}
             chain = tax.get("level3_chain", "") or ""
             sw = tax.get("level2_sw", "") or ""
-            if matched in chain or chain in matched or matched in sw or sw in matched:
-                today_zt.append({
+            # 严格匹配: sw 或 chain 精确等于板块名, 或 matched 是 chain 的子板块 (前缀 + 间隔符)
+            ok = (sw == matched) or (chain == matched) \
+                 or (chain and matched.startswith(chain) and len(matched) > len(chain)
+                     and matched[len(chain)] in "·-— ")
+            if not ok:
+                continue
+            today_zt.append({
                     "code":      code,
                     "name":      z.get("name", "") or sec.get("name", ""),
                     "time":      z.get("first_zt_time") or z.get("zt_time") or z.get("time", ""),
@@ -2326,14 +2822,45 @@ async def api_sector(name: str):
 
 
 @app.get("/api/stock/{code}")
-async def stock_overview(code: str, fresh: int = Query(0, ge=0, le=1)):
-    """个股综合数据:4 个上游并行 + 单源失败不阻塞其他。
-    ?fresh=1 — 失效该 code 的 quote / fund_flow 缓存,进页面必拿最新 (2026-07-11)
+async def stock_overview(
+    code: str,
+    fresh: int = Query(0, ge=0, le=1),
+    date: str = Query("", description="YYYY-MM-DD 或 YYYYMMDD; 空=今日/最新交易日"),
+):
+    """个股综合数据。
+    ?fresh=1 — 失效 quote / fund_flow 缓存,进页面必拿最新
+    ?date=YYYY-MM-DD — 历史快照模式 (2026-07-11 用户反馈日期切换不生效):
+      - 实时接口无法回放 → 用 kline 当日 bar 构造伪 quote
+      - fund_flow.today = None
+      - fund_flow.history / seats 全部截断到 <=date
+      - 返回 is_historical=true 让前端加"历史快照"标签
     """
     code = code.strip().zfill(6)
     _touch_recent(code)
-    if fresh:
+
+    # ─── 解析 date 参数 + 判断是否历史快照模式 ───
+    target_date = ""
+    is_historical = False
+    if date:
+        d_norm = date.strip().replace("/", "-")
+        if len(d_norm) == 8 and d_norm.isdigit():
+            d_norm = f"{d_norm[:4]}-{d_norm[4:6]}-{d_norm[6:8]}"
+        target_date = d_norm
+        try:
+            today_yyyymmdd = datetime.date.today().strftime("%Y-%m-%d")
+            from .. import multi_source_fetchers as msf
+            all_dates = msf.fetch_trade_dates()
+            past = [d for d in all_dates if d <= today_yyyymmdd]
+            last_trade = max(past) if past else today_yyyymmdd
+            # 选了"今天"或"最近交易日"都按实时走;其他算历史
+            is_historical = bool(target_date) and target_date < last_trade
+        except Exception:
+            is_historical = bool(target_date) and target_date < datetime.date.today().strftime("%Y-%m-%d")
+
+    if fresh or is_historical:
+        # 历史模式 cache key 必须含 date,否则切日期拿到旧缓存
         _cache_quote.invalidate(("quote", code))
+        _cache_quote.invalidate(("quote_hist", code, target_date or "today"))
         _cache_fund.invalidate(("fund_flow", code, 60))
 
     from .. import lib_common as lc
@@ -2350,11 +2877,92 @@ async def stock_overview(code: str, fresh: int = Query(0, ge=0, le=1)):
     async def _extras():
         return None  # placeholder for future
 
-    quote_t = to_thread(_quote, code)
-    flow_t  = to_thread(fund_flow.get_combined, code, 60)
-    seats_t = to_thread(seat_lookup.get_stock_seats, code, 10)
-    kline_t = to_thread(stock_kline_loader, code, 120)
-    holders_t = to_thread(_holders, code)
+    if is_historical:
+        # 历史快照:拉 kline → 用当日 bar 构造 quote;fund_flow/seats 截断到 date
+        def _hist_snapshot(code_, cutoff_date):
+            k = stock_kline_loader(code_, 250) or []
+            k.sort(key=lambda r: r.get("date") or "")
+            # 找 <= cutoff_date 最后一行 bar
+            bar = None
+            for row in reversed(k):
+                rd = str(row.get("date") or "")[:10]
+                if rd <= cutoff_date:
+                    bar = row
+                    break
+            if not bar:
+                return {}, []
+            # 构造伪 quote 字段 (字段名跟 fetch_realtime 对齐)
+            prev_c = 0
+            for row in k:
+                rd = str(row.get("date") or "")[:10]
+                if rd < cutoff_date:
+                    prev_c = float(row.get("close") or 0)
+            op = float(bar.get("open") or 0)
+            cl = float(bar.get("close") or 0)
+            hi = float(bar.get("high") or 0)
+            lo = float(bar.get("low") or 0)
+            vol = float(bar.get("volume") or 0)
+            amt = float(bar.get("amount") or 0)
+            chg = (cl - prev_c) / prev_c * 100 if prev_c else 0
+            # 从 hist_flow 找那天的 main_net (仅显示参考)
+            main_net = None
+            try:
+                hf = fund_flow.get_history_flow(code_, 60)
+                for r in hf:
+                    if str(r.get("date", ""))[:10] == cutoff_date:
+                        main_net = r.get("main_net")
+                        break
+            except Exception:
+                pass
+            pseudo = {
+                "最新价": cl, "今开": op, "最高": hi, "最低": lo, "昨收": prev_c,
+                "成交量": vol, "成交额": amt, "涨跌幅": round(chg, 2),
+                "涨跌额": round(cl - prev_c, 2) if prev_c else 0,
+                "换手率": None, "市盈率-动态": None, "量比": None,
+                "总市值": None, "流通市值": None,
+                "name": code_, "code": code_,
+                "is_historical": True, "snapshot_date": cutoff_date,
+                "main_net_proxy": main_net,
+                "source": "kline_snapshot",
+            }
+            # 截断 kline 到 <= cutoff_date
+            kk = [r for r in k if str(r.get("date") or "")[:10] <= cutoff_date]
+            return pseudo, kk
+
+        def _hist_flow(code_, cutoff_date):
+            try:
+                rows = fund_flow.get_history_flow(code_, 60) or []
+                rows = [r for r in rows if str(r.get("date", ""))[:10] <= cutoff_date]
+            except Exception:
+                rows = []
+            return {"code": code_, "today": None, "history": rows,
+                    "is_historical": True, "snapshot_date": cutoff_date}
+
+        def _hist_seats(code_, cutoff_date):
+            try:
+                sd = seat_lookup.get_stock_seats(code_, 60) or {}
+                rows = sd.get("rows") or []
+                rows = [r for r in rows if str(r.get("date") or "")[:10] <= cutoff_date]
+                sd["rows"] = rows
+                sd["is_historical"] = True
+                sd["snapshot_date"] = cutoff_date
+                return sd
+            except Exception:
+                return {"code": code_, "rows": [], "is_historical": True, "snapshot_date": cutoff_date}
+
+        snapshot_t = to_thread(_hist_snapshot, code, target_date)
+        flow_t     = to_thread(_hist_flow, code, target_date)
+        seats_t    = to_thread(_hist_seats, code, target_date)
+        holders_t  = to_thread(_holders, code)
+        quote_t    = None  # 占位,后面接 snapshot 的 quote
+        kline_t    = None
+    else:
+        quote_t = to_thread(_quote, code)
+        flow_t  = to_thread(fund_flow.get_combined, code, 60)
+        seats_t = to_thread(seat_lookup.get_stock_seats, code, 10)
+        kline_t = to_thread(stock_kline_loader, code, 120)
+        holders_t = to_thread(_holders, code)
+        snapshot_t = None
 
     # 逃生:每分支独立超时 + 独立失败,
     # 避免"4 个上游全冷启动→所有 await 全挂 18s→返回空 envelope"的局面
@@ -2368,13 +2976,29 @@ async def stock_overview(code: str, fresh: int = Query(0, ge=0, le=1)):
             log.warning(f"上游异常: {e} (code={code})")
             return None
 
-    quote, flow, seats, kline, holders = await asyncio.wait_for(asyncio.gather(
-        _with_timeout(quote_t, 12),   # 实时行情 — 东财冷启动可达 6-8s,周末/晚间限频 10-12s 常见
-        _with_timeout(flow_t, 6),
-        _with_timeout(seats_t, 4),
-        _with_timeout(kline_t, 6),
-        _with_timeout(holders_t, 8),
-    ), timeout=20)
+    if is_historical and snapshot_t is not None:
+        # 历史快照:把 snapshot 拆成 quote + kline,再用 _ok 兜底
+        snap = await asyncio.wait_for(snapshot_t, timeout=8)
+        snap = snap if isinstance(snap, tuple) and len(snap) == 2 else ({}, [])
+        hist_quote, hist_kline = snap
+        # flow/seats/holders 走独立线程
+        flow_h, seats_h, holders_h = await asyncio.wait_for(asyncio.gather(
+            _with_timeout(flow_t, 8),
+            _with_timeout(seats_t, 4),
+            _with_timeout(holders_t, 8),
+        ), timeout=15)
+        quote, kline = hist_quote, hist_kline
+        flow = flow_h
+        seats = seats_h
+        holders = holders_h
+    else:
+        quote, flow, seats, kline, holders = await asyncio.wait_for(asyncio.gather(
+            _with_timeout(quote_t, 12),   # 实时行情 — 东财冷启动可达 6-8s,周末/晚间限频 10-12s 常见
+            _with_timeout(flow_t, 10),    # 资金流 (get_main_flow + get_history_flow 各 5s 兜底,合计常见 4-9s)
+            _with_timeout(seats_t, 4),
+            _with_timeout(kline_t, 6),
+            _with_timeout(holders_t, 8),
+        ), timeout=20)
     # 兜底:异常/None 转为前端期望的默认值
     def _ok(v, default):
         if isinstance(v, BaseException) or v is None:
@@ -2401,6 +3025,9 @@ async def stock_overview(code: str, fresh: int = Query(0, ge=0, le=1)):
             log.warning(f"[name-lookup] error for {code}: {e}")
     if not quote.get("name"):
         quote["name"] = code  # 最后兜底
+
+    # 字段标准化 — 把不同上游(腾讯/东财/THS)的别名归一为前端用的字段
+    quote = _normalize_quote(quote)
 
     # 计算扩展指标 - 5日涨跌 / 振幅 / 量比 / 当日 OHLC
     price = float(quote.get("最新价") or 0)
@@ -2462,6 +3089,9 @@ async def stock_overview(code: str, fresh: int = Query(0, ge=0, le=1)):
         "kline": kline or [],
         "holders": holders,  # 散户/主力持股 (季报,含前十大流通股东集中度)
         "main_exit": None,
+        # 历史快照标记 (2026-07-11 用户反馈日期切换不生效)
+        "is_historical": is_historical,
+        "snapshot_date": target_date or "",
         # 扩展信息(前端可读)
         "extras": {
             "amplitude_pct":     round(amplitude, 2),
@@ -2618,18 +3248,24 @@ def _analyze_news_with_ai(news_list: list[dict], api_key: str, model: str, base_
 
 
 def _analyze_news_batch(batch: list[dict], api_key: str, model: str, base_url: str) -> dict[str, dict]:
-    """单批(≤15 条)→ {id: ai_dict}"""
+    """单批(≤15 条)→ {id: ai_dict}  (R1+R3 升级走 ai_client.call + parse_json_loose)"""
+    from . import ai_client
     from .sector_classify import SW_31
     lines = ["请分析以下 {} 条 A 股财经新闻:\n".format(len(batch))]
     for n in batch:
-        lines.append(f"--- id={n['id']} time={n.get('ctime_str','')} media={n.get('media','')} ---")
-        lines.append(f"标题:{n['title']}")
-        if n.get("intro"):
-            lines.append(f"摘要:{n['intro'][:200]}")
-        if n.get("keywords"):
-            lines.append(f"关键词:{','.join(n['keywords'])}")
+        # R2 prompt 注入防御: 新闻标题/摘要可能含乱七八糟字符,先过清洗 + boundary
+        title = (n.get("title") or "")[:120]
+        intro = ai_client.cap_text(n.get("intro"), 200)
+        kw = (",".join(n.get("keywords") or []))[:80]
+        lines.append(f"--- id={n.get('id','')} time={n.get('ctime_str','')} media={n.get('media','')} ---")
+        lines.append(f"标题:{title}")
+        if intro:
+            lines.append(f"摘要:{intro}")
+        if kw:
+            lines.append(f"关键词:{kw}")
         lines.append("")
     user_content = "\n".join(lines)
+    user_content = ai_client.wrap_prompt("news", user_content, max_chars=4500)
     system_content = _build_news_ai_system()
 
     body = {
@@ -2638,55 +3274,41 @@ def _analyze_news_batch(batch: list[dict], api_key: str, model: str, base_url: s
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content},
         ],
-        "max_tokens": 3000,
         "temperature": 0.3,
     }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    spec = ai_client.CallSpec(
+        url=base_url,
+        headers=ai_client.headers(api_key),
+        body=body,
+        name="news",
+        model=model,
+        timeout=45.0,
+        attempts=(1, 2),
+        max_tokens_alts=(3000, 4500),
+    )
+    try:
+        _text, parsed, _info = ai_client.call(spec)
+    except ai_client.AICallError as e:
+        log.warning(f"news AI batch 失败: {e}")
+        return {}
 
-    last_err = ""
-    for attempt, max_t in [(1, 3000), (2, 4500)]:
-        body_local = dict(body)
-        body_local["max_tokens"] = max_t
-        try:
-            r = _requests.post(base_url, json=body_local, headers=headers, timeout=45)
-            if r.status_code != 200:
-                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
-                continue
-            j = r.json()
-            text = j.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if not text:
-                finish = j.get("choices", [{}])[0].get("finish_reason", "?")
-                reasoning = j.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")[:200]
-                last_err = f"empty content (finish={finish}, reasoning={reasoning})"
-                log.warning(f"news AI attempt {attempt} content 为空 (finish={finish})")
-                continue
-            parsed = _parse_news_ai_json(text)
-            if parsed.get("items"):
-                out = {}
-                for it in parsed["items"]:
-                    if "id" not in it:
-                        continue
-                    sectors = [s for s in (it.get("sectors") or []) if s in SW_31]
-                    out[it["id"]] = {
-                        "score":     float(it.get("score", 0) or 0),
-                        "direction": it.get("direction", "中性"),
-                        "sectors":   sectors,
-                        "stocks":    it.get("stocks", []) or [],
-                        "reason":    (it.get("reason", "") or "")[:60],
-                    }
-                return out
-            last_err = "parsed empty items"
-        except _requests.exceptions.ReadTimeout as e:
-            last_err = f"timeout (attempt {attempt}): {e}"
-            log.warning(f"news AI attempt {attempt} 超时")
-            continue
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            log.warning(f"news AI attempt {attempt} 异常: {e}")
-            continue
+    items = parsed.get("items") if isinstance(parsed, dict) else None
+    if not items:
+        return {}
 
-    log.warning(f"news AI batch 失败: {last_err}")
-    return {}
+    out: dict[str, dict] = {}
+    for it in items:
+        if "id" not in it:
+            continue
+        sectors = [s for s in (it.get("sectors") or []) if s in SW_31]
+        out[it["id"]] = {
+            "score":     float(it.get("score", 0) or 0),
+            "direction": it.get("direction", "中性"),
+            "sectors":   sectors,
+            "stocks":    it.get("stocks", []) or [],
+            "reason":    (it.get("reason", "") or "")[:60],
+        }
+    return out
 
 
 def _parse_news_ai_json(text: str) -> dict:
@@ -2709,9 +3331,12 @@ def _parse_news_ai_json(text: str) -> dict:
 
 
 def _call_minimax(api_key: str, code: str, ctx: dict) -> dict:
-    """同步调用 MiniMax(M3) chat completion. 失败抛 RuntimeError."""
-    url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
-    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+    """同步调用 MiniMax(M3) chat completion. 失败抛 RuntimeError.
+
+    R1+R3+R5+R7 已统一委托 web.ai_client.call + parse_json_loose +
+    normalize_ai_verdict;本函数只剩"如何拼 user_content + 取 system prompt"。
+    """
+    from . import ai_client
 
     last5 = ctx.get("kline", [])[-5:]
     fund_hist = ctx.get("fund_flow", {}).get("history", [])[-5:]
@@ -2720,7 +3345,7 @@ def _call_minimax(api_key: str, code: str, ctx: dict) -> dict:
     limit_up = ctx.get("limit_up", {}) or {}
     sector = ctx.get("sector", {}) or {}
     ai_tags = sector.get("ai_tags", {}) or {}
-    tax = sector.get("taxonomy") or {}  # 2026-07-11 — 4 层分类
+    tax = sector.get("taxonomy") or {}
     # 主线判定 — 该股所在 L3 chain 当日涨停 ≥15 家?
     is_mainline_brief = ""
     try:
@@ -2753,116 +3378,38 @@ K线(近5日收盘):{[k.get('收盘') for k in last5]}
     if global_text:
         user_content = f"{global_text}\n\n--- 个股 ---\n{user_content}"
 
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": AI_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        # M3 reasoning_content 占用大量 token → max_tokens 必须够大
-        "max_tokens": 3500,
-        "temperature": 0.3,
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    # M3 reasoning 慢: 单次 read timeout 必须 ≥ 30s, 否则 reasoning 还没完就 ReadTimeout
-    # 2 次调用: 第一次 3500 / 35s, 第二次 4000 / 35s 兜底
-    last_err = None
-    text = ""
-    for attempt, max_t, t_out in [(1, 3500, 35), (2, 4000, 35)]:
-        body_local = dict(body)
-        body_local["max_tokens"] = max_t
-        try:
-            r = _requests.post(url, json=body_local, headers=headers, timeout=t_out)
-            if r.status_code != 200:
-                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
-                continue
-            j = r.json()
-            text = j.get("choices", [{}])[0].get("message", {}).get("content", "")
-            finish = j.get("choices", [{}])[0].get("finish_reason", "?")
-            if text:
-                return _parse_ai_json(text)
-            reasoning = j.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")[:200]
-            last_err = f"empty content (finish={finish}, reasoning={reasoning})"
-            log.warning(f"AI attempt {attempt} content 为空 (finish={finish})")
-        except _requests.exceptions.ReadTimeout as e:
-            last_err = f"timeout (attempt {attempt}): {e}"
-            log.warning(f"AI attempt {attempt} 超时")
-            continue
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            log.warning(f"AI attempt {attempt} 异常: {e}")
-            continue
-    raise RuntimeError(f"AI 调用失败 ({last_err})")
+    # R5 token governance: 单股 user_content 不超过 ~600 tokens
+    user_content = ai_client.truncate_to_tokens(user_content, max_tokens=600)
+
+    spec = ai_client.CallSpec(
+        url=ai_client.default_url(),
+        headers=ai_client.headers(api_key),
+        body={
+            "model": ai_client.default_model(),
+            "messages": [
+                {"role": "system", "content": AI_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            "temperature": 0.3,
+        },
+        name="main_verdict",
+        model=ai_client.default_model(),
+        timeout=35.0,
+        attempts=(1, 2),
+        max_tokens_alts=(3500, 4500),
+    )
+    try:
+        _text, parsed, _info = ai_client.call(spec)
+    except ai_client.AICallError as e:
+        raise RuntimeError(f"AI 调用失败 ({e})") from e
+    # R7 schema 白名单 + clamp
+    return ai_client.normalize_ai_verdict(parsed) if parsed else {}
 
 
 def _parse_ai_json(text: str) -> dict:
-    """宽松解析:AI 可能把 JSON 嵌在 ```json ... ``` 里, 也可能截断"""
-    import re
-    text = text.strip()
-
-    # 1. 提取 markdown 围栏
-    if text.startswith("```"):
-        m = re.search(r"```(?:json)?\s*([\s\S]+?)(?:```|$)", text)
-        if m:
-            text = m.group(1).strip()
-
-    # 2. 提取第一个 {...} 块 (兜底: 即使有杂字符也能找)
-    if not text.startswith("{"):
-        m = re.search(r"\{[\s\S]+\}", text)
-        if m:
-            text = m.group(0)
-
-    try:
-        return json.loads(text)
-    except Exception as e:
-        # 3. 截断 JSON 兜底: 找到最后一个 } 截断
-        idx = text.rfind("}")
-        if idx > 0:
-            try:
-                return json.loads(text[:idx+1])
-            except:
-                pass
-        log.warning(f"AI JSON parse failed: {e}; raw={text[:200]}")
-        # 4. 最后兜底: 用正则从截断文本里抢救 verdict/role/conviction/layer/rules/summary
-        def _find_str(field):
-            m = re.search(rf'"{field}"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
-            return m.group(1) if m else None
-        def _find_int(field):
-            m = re.search(rf'"{field}"\s*:\s*(\d+)', text)
-            return int(m.group(1)) if m else None
-        def _find_arr(field):
-            m = re.search(rf'"{field}"\s*:\s*\[([\s\S]*?)\]', text)
-            if not m:
-                return []
-            return re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))[:8]
-        def _find_layers():
-            m = re.search(r'"layer_pass"\s*:\s*\{([\s\S]+?)\}', text)
-            if not m:
-                return {"L1_风控": None, "L2_周期主线": None, "L3_形态": None, "L4_分时": None}
-            block = m.group(1)
-            out = {}
-            for name in ["L1_风控", "L2_周期主线", "L3_形态", "L4_分时"]:
-                nm = re.search(rf'"{re.escape(name)}"\s*:\s*(true|false|null|"true"|"false")', block, re.IGNORECASE)
-                if nm:
-                    v = nm.group(1).lower()
-                    out[name] = None if v == "null" else (v == "true")
-                else:
-                    out[name] = None
-            return out
-        summary_val = _find_str("summary")
-        return {
-            "verdict":       _find_str("verdict") or "观望",
-            "role":          _find_str("role") or "中军",
-            "conviction":    _find_int("conviction") if _find_int("conviction") is not None else 30,
-            "layer_pass":    _find_layers(),
-            "rules_passed":  _find_arr("rules_passed"),
-            "rules_failed":  _find_arr("rules_failed"),
-            "key_risks":     _find_arr("key_risks") or ["AI 返回被截断,部分数据已尽力恢复"],
-            "summary":       summary_val if summary_val else text[:200],
-        }
+    """宽松解析:AI 可能把 JSON 嵌在 ```json ... ``` 里, 也可能截断 (R3:R1+R3 升级走 ai_client.parse_json_loose)"""
+    from . import ai_client
+    return ai_client.parse_json_loose(text or "")
 
 
 @app.get("/api/stock/{code}/limit_up_context")
@@ -3065,6 +3612,12 @@ async def stock_ai_analysis(code: str, date: str | None = Query(None, descriptio
         date = None
     today_str = date or datetime.datetime.now().strftime("%Y%m%d")
     hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3")
+    if hit:
+        # R4 缓存污染防护: schema 校验,不合法 → 当未命中重算
+        from . import ai_client
+        if not ai_client.is_valid_cached_verdict(hit):
+            log.warning(f"stock_ai_analysis 缓存污染 ({code}), 重算")
+            hit = None
     if hit:
         # 即使命中缓存, 也同步写一份 watchlist_ai (首次访问 + 已在 watchlist 中)
         try:
@@ -3431,9 +3984,8 @@ def _build_crash_risk_system_prompt() -> str:
 
 
 def _call_minimax_crash_risk(api_key: str, code: str, ctx: dict) -> dict:
-    """同步调用 MiniMax(M3) - 量化砸盘检测"""
-    url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
-    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+    """同步调用 MiniMax(M3) - 量化砸盘检测 (R1+R3+R7 统一走 ai_client)."""
+    from . import ai_client
 
     quant_seats = ctx.get("quant_seats") or []
     pair_trades = ctx.get("pair_trades") or []
@@ -3447,12 +3999,9 @@ def _call_minimax_crash_risk(api_key: str, code: str, ctx: dict) -> dict:
     quote = ctx.get("quote") or {}
     sector = ctx.get("sector") or {}
 
-    # 近 10 日 K线
     kline_10 = kline[-10:] if kline else []
-    # 近 5 日资金
     fund_5 = flow_hist[-5:] if flow_hist else []
 
-    # 拼接 user content
     parts = [f"【个股】{code} {quote.get('名称','')} | 价 {quote.get('最新价','-')} 涨跌 {quote.get('涨跌幅','-')}% 成交额 {quote.get('成交额','-')}"]
     parts.append(f"行业: {sector.get('sw') or sector.get('name') or '-'}")
 
@@ -3468,14 +4017,12 @@ def _call_minimax_crash_risk(api_key: str, code: str, ctx: dict) -> dict:
     parts.append("\n【二、龙虎榜席位】")
     seats_rows = seats.get("rows") or []
     if seats_rows:
-        # 量化席位
         if quant_seats:
             parts.append(f"⚠ 量化席位命中 {len(quant_seats)} 次:")
             for s in quant_seats[:8]:
                 parts.append(f"  - {s['date']} | {s['direction']} | {s['seat']} | {s['amount_wan']} 万 | 关键词={s['matched_kw']}")
         else:
             parts.append("(无已知量化席位)")
-        # 对倒
         if pair_trades:
             parts.append(f"⚠ 同席位对倒 {len(pair_trades)} 次:")
             for p in pair_trades[:6]:
@@ -3491,84 +4038,54 @@ def _call_minimax_crash_risk(api_key: str, code: str, ctx: dict) -> dict:
     if not flow_today and not fund_5:
         parts.append("(资金流数据暂无)")
 
-    # 5 层资金 skew
     if flow_today:
         parts.append(f"\n5 层资金: 主力 {flow_today.get('主力净','-')}% | 超大单 {flow_today.get('超大单净','-')}% | 大单 {flow_today.get('大单净','-')}% | 中单 {flow_today.get('中单净','-')}% | 小单 {flow_today.get('小单净','-')}%")
 
     parts.append("\n【请输出 JSON】crash_risk / verdict / conviction / signals / signal_count / rule_violations / funding_skew / summary")
+
+    # R2 prompt 注入防御: 用 boundary 标签包住不可信内容
     user_content = "\n".join(parts)
+    user_content = ai_client.wrap_prompt("ctx", user_content)
+    # R5 token governance
+    user_content = ai_client.truncate_to_tokens(user_content, max_tokens=900)
 
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _build_crash_risk_system_prompt()},
-            {"role": "user", "content": user_content},
-        ],
-        "max_tokens": 3500,
-        "temperature": 0.2,
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    last_err = None
-    for attempt, max_t, t_out in [(1, 3500, 35), (2, 4000, 35)]:
-        body_local = dict(body)
-        body_local["max_tokens"] = max_t
-        try:
-            r = _requests.post(url, json=body_local, headers=headers, timeout=t_out)
-            if r.status_code != 200:
-                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
-                continue
-            j = r.json()
-            text = j.get("choices", [{}])[0].get("message", {}).get("content", "")
-            finish = j.get("choices", [{}])[0].get("finish_reason", "?")
-            if text:
-                return _parse_crash_risk_json(text)
-            reasoning = j.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")[:200]
-            last_err = f"empty content (finish={finish}, reasoning={reasoning})"
-            log.warning(f"crash_risk AI attempt {attempt} content 为空 (finish={finish})")
-        except _requests.exceptions.ReadTimeout as e:
-            last_err = f"timeout (attempt {attempt}): {e}"
-            log.warning(f"crash_risk AI attempt {attempt} 超时")
-            continue
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            log.warning(f"crash_risk AI attempt {attempt} 异常: {e}")
-            continue
-    raise RuntimeError(f"crash_risk AI 调用失败 ({last_err})")
+    spec = ai_client.CallSpec(
+        url=ai_client.default_url(),
+        headers=ai_client.headers(api_key),
+        body={
+            "model": ai_client.default_model(),
+            "messages": [
+                {"role": "system", "content": _build_crash_risk_system_prompt()},
+                {"role": "user", "content": user_content},
+            ],
+            "temperature": 0.2,
+        },
+        name="crash_risk",
+        model=ai_client.default_model(),
+        timeout=35.0,
+        attempts=(1, 2),
+        max_tokens_alts=(3500, 4500),
+    )
+    try:
+        _text, parsed, _info = ai_client.call(spec)
+    except ai_client.AICallError as e:
+        raise RuntimeError(f"crash_risk AI 调用失败 ({e})") from e
+    return ai_client.normalize_crash_risk(parsed) if parsed else {}
 
 
 def _parse_crash_risk_json(text: str) -> dict:
-    """宽松解析 crash_risk JSON"""
-    import re
-    text = text.strip()
-    if text.startswith("```"):
-        m = re.search(r"```(?:json)?\s*([\s\S]+?)(?:```|$)", text)
-        if m:
-            text = m.group(1).strip()
-    if not text.startswith("{"):
-        m = re.search(r"\{[\s\S]+\}", text)
-        if m:
-            text = m.group(0)
-    try:
-        return json.loads(text)
-    except Exception:
-        idx = text.rfind("}")
-        if idx > 0:
-            try:
-                return json.loads(text[:idx+1])
-            except Exception:
-                pass
-        log.warning(f"crash_risk JSON parse failed; raw={text[:200]}")
+    """宽松解析 crash_risk JSON (R3 升级走 ai_client.parse_json_loose)."""
+    from . import ai_client
+    parsed = ai_client.parse_json_loose(text or "")
+    if not parsed:
         return {
-            "crash_risk": "中",
-            "verdict": "观望",
-            "conviction": 50,
-            "signals": [{"category": "系统", "name": "AI 返回被截断", "detail": text[:120], "weight": "中"}],
-            "signal_count": 0,
-            "rule_violations": [],
-            "funding_skew": {},
-            "summary": "AI 返回被截断, 已尽力恢复结构。请重试或检查日志。"
+            "crash_risk": "中", "verdict": "观望", "conviction": 50,
+            "signals": [{"category": "系统", "name": "AI 返回被截断",
+                         "detail": (text or "")[:120], "weight": "中"}],
+            "signal_count": 0, "rule_violations": [], "funding_skew": {},
+            "summary": "AI 返回被截断, 已尽力恢复结构。请重试或检查日志。",
         }
+    return ai_client.normalize_crash_risk(parsed)
 
 
 @app.get("/api/stock/{code}/ai_crash_risk")
@@ -3586,6 +4103,12 @@ async def stock_ai_crash_risk(code: str, force: bool = False):
 
     if not force:
         hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3-crash")
+        if hit:
+            # R4 缓存污染防护
+            from . import ai_client
+            if not ai_client.is_valid_cached_crash(hit):
+                log.warning(f"crash_risk 缓存污染 ({code}), 重算")
+                hit = None
         if hit and hit.get("crash_risk") is not None:
             return envelope(data=hit)
 
@@ -3804,6 +4327,8 @@ async def api_stock_ai_history(code: str, days: int = Query(7, ge=1, le=30)):
         history = await asyncio.wait_for(to_thread(_load), timeout=4)
     except Exception:
         history = []
+    if history is None:
+        history = []
     return envelope(data={"code": code, "history": history, "count": len(history)})
 
 
@@ -3817,6 +4342,10 @@ async def api_stock_ai_layer_detail(code: str):
     L4 分时: 今日 tick 量价 + 5 日分时形态 + 异动
     """
     code = code.strip().zfill(6)
+    # 读缓存(3min TTL,纯计算)
+    hit = _cache_layer.get(("ai_layer_detail", code))
+    if hit:
+        return envelope(data=hit)
 
     def _load():
         from .. import lib_common as lc
@@ -3827,8 +4356,11 @@ async def api_stock_ai_layer_detail(code: str):
         out = {"code": code, "layers": {}}
 
         # 5 路并行 (4-6s 总耗时 vs 串行 10-15s)
+        @cached(_cache_quote, key_fn=lambda c: ("quote", c))
+        def _q_uncached(code_):
+            return lc.fetch_realtime(code_) or {}
         def _q():
-            try: return lc.fetch_realtime(code) or {}
+            try: return _q_uncached(code) or {}
             except Exception: return {}
         def _f():
             try: return _ff.get_combined(code, 60) or {}
@@ -3847,15 +4379,20 @@ async def api_stock_ai_layer_detail(code: str):
 
         results: dict = {"q": {}, "f": {}, "s": {}, "l": {}, "gm": {}}
         try:
-            with _TPE(max_workers=5) as _pool:
+            _pool = _TPE(max_workers=5)
+            try:
                 futs = {"q": _pool.submit(_q), "f": _pool.submit(_f),
                         "s": _pool.submit(_s), "l": _pool.submit(_l),
                         "gm": _pool.submit(_gm)}
+                # 2026-07-12: akshare 全面断连, 单源超时 2s(降级数据但快速返)
                 for k, f in futs.items():
                     try:
-                        results[k] = f.result(timeout=6)
+                        results[k] = f.result(timeout=2)
                     except Exception as e:
                         log.debug(f"ai_layer_detail {k} 失败: {e}")
+            finally:
+                # 关键: wait=False 避免孤儿线程拖累整个请求(他们还在跑 socket)
+                _pool.shutdown(wait=False)
         except Exception as e:
             log.warning(f"ai_layer_detail 并行拉取异常: {e}")
 
@@ -4000,13 +4537,19 @@ async def api_stock_ai_layer_detail(code: str):
         return out
 
     try:
-        data = await asyncio.wait_for(to_thread(_load), timeout=18)
+        # 2026-07-12: 上游降级场景, 总闸 6s(5 路并行 ×2s, 加 thread 调度开销)
+        data = await asyncio.wait_for(to_thread(_load), timeout=6)
     except asyncio.TimeoutError:
-        log.warning(f"ai_layer_detail {code} 18s 超时")
+        log.warning(f"ai_layer_detail {code} 6s 超时")
         return envelope(error="层详情拉取超时", data={"code": code, "layers": {}})
     except Exception as e:
         log.warning(f"ai_layer_detail {code} 异常: {e}")
         return envelope(error=str(e), data={"code": code, "layers": {}})
+    # 写缓存(3min TTL,纯计算结果不依赖行情秒变)
+    try:
+        _cache_layer.set(("ai_layer_detail", code), data)
+    except Exception:
+        pass
     return envelope(data=data)
 
 
@@ -4088,12 +4631,22 @@ async def api_screen(req: ScreenRequest):
 @app.post("/api/backtest")
 async def api_backtest(req: BacktestRequest):
     from ..backtest import run_backtest
-    result = await to_thread(
-        run_backtest,
-        start=req.start, end=req.end,
-        top_n=req.top_n, hold_days=req.hold_days,
-        sell_mode=req.sell_mode, sample=req.sample,
-    )
+    # 硬超时 90s: 数据源 / LLM 在沙箱挂时不能拖死 server(2026-07-12 audit 发现)
+    try:
+        result = await asyncio.wait_for(
+            to_thread(
+                run_backtest,
+                start=req.start, end=req.end,
+                top_n=req.top_n, hold_days=req.hold_days,
+                sell_mode=req.sell_mode, sample=req.sample,
+            ),
+            timeout=90,
+        )
+    except asyncio.TimeoutError:
+        log.warning(f"backtest 超时 90s ({req.start}→{req.end})")
+        return envelope(error="回测超时 90s, 请缩小样本或重试", data={
+            "trades": [], "stats": {"reason": "timeout"},
+        })
     return envelope(data=result or {})
 
 
@@ -4169,21 +4722,540 @@ async def api_review_time_points(code: str, date: str | None = None, price: floa
 
 @app.post("/api/review/trades")
 async def api_review_record_trade(payload: dict):
-    """记一笔交易。payload: {code, direction, price, shares, occurred_at?, memo?, tags?[]}"""
+    """记 1 笔或批量记多笔交易。
+
+    payload 兼容两种形状:
+    1) 单笔 (旧): {code, direction, price, shares, occurred_at?, memo?, tags?[]}
+    2) 批量 (新): {trades:[{code,direction,...}, ...]} — 一次性入库多笔
+
+    返回:
+    1) 单笔:{trade_id, trade}
+    2) 批量:{inserted:[{index, trade_id, trade}], errors:[{index, error, input}], total, ok}
+    """
+    # 批量模式
+    trades_in = payload.get("trades")
+    if isinstance(trades_in, list) and trades_in:
+        # 先于插入跑归一化:name→code 反查、total/shares 反推 price (2026-07-12)
+        _refresh_name_lookup()
+        norm_in = {"trades": list(trades_in)}
+        trades_norm = _normalize_trades_parsed(norm_in)
+        inserted: list[dict] = []
+        errors: list[dict] = []
+        for i, t in enumerate(trades_norm):
+            if not isinstance(t, dict):
+                errors.append({"index": i, "error": "trade 不是 dict", "input": t})
+                continue
+            try:
+                tid = _review.record_trade(
+                    code=str(t.get("code", "")).strip(),
+                    direction=str(t.get("direction", "buy") or "buy").strip().lower(),
+                    price=float(t.get("price", 0) or 0),
+                    shares=int(t.get("shares", 0) or 0),
+                    occurred_at=t.get("occurred_at"),
+                    trade_date=t.get("trade_date"),
+                    memo=str(t.get("memo", "") or ""),
+                    tags=t.get("tags", []) or [],
+                    name=t.get("name"),
+                )
+                inserted.append({"index": i, "trade_id": tid, "trade": _review.get_trade(tid)})
+            except Exception as e:
+                errors.append({"index": i, "error": str(e), "input": t})
+        return envelope(data={
+            "inserted": inserted, "errors": errors,
+            "total": len(trades_in), "ok": len(inserted), "fail": len(errors),
+        })
+
+    # 单笔模式 (兼容) — 也跑归一化便于 name→code 兜底
     try:
+        _refresh_name_lookup()
+        norm = _normalize_trade_parsed({
+            "code": payload.get("code", ""),
+            "direction": payload.get("direction", "buy"),
+            "price": payload.get("price", 0),
+            "shares": payload.get("shares", 0),
+            "total_amount": payload.get("total_amount", 0),
+            "name": payload.get("name", ""),
+            "occurred_at": payload.get("occurred_at", ""),
+            "trade_date": payload.get("trade_date", ""),
+            "memo": payload.get("memo", ""),
+        })
         tid = _review.record_trade(
-            code=payload.get("code", ""),
-            direction=payload.get("direction", "buy"),
-            price=float(payload.get("price", 0)),
-            shares=int(payload.get("shares", 0)),
+            code=norm.get("code", "") or payload.get("code", ""),
+            direction=norm.get("direction", "buy"),
+            price=norm.get("price") or float(payload.get("price", 0)),
+            shares=norm.get("shares") or int(payload.get("shares", 0)),
             occurred_at=payload.get("occurred_at"),
             memo=payload.get("memo", ""),
             tags=payload.get("tags", []) or [],
+            name=norm.get("name") or payload.get("name") or None,
+            trade_date=payload.get("trade_date") or norm.get("trade_date"),
         )
         return envelope(data={"trade_id": tid, "trade": _review.get_trade(tid)})
     except Exception as e:
         log.exception("record_trade")
         return envelope(error=str(e), status_code=400)
+
+
+# ── 截图 → 自动解析交易字段 (AI vision 优先, OCR 兜底;支持多笔 + 简单推理) ─────────
+_REVIEW_IMAGE_PROMPT = """你是 A 股交易截图解析助手。从截图中提取**所有**买入或卖出交易的关键字段。
+允许并鼓励做"简单推理"补全缺失字段。
+
+【字段(每一笔交易)】
+- direction: "buy" 或 "sell"
+- code: 6 位数字股票代码,如 600519。**截图中如只有股票名没有代码,必须用下面的【股票名速查表】反查,填 6 位数字**
+- name: 中文股票名称,如 "贵州茅台"
+- price: 单股成交价(数字,保留 2 位小数)。**截图中如只有"成交金额/总金额"和"成交数量/股数",就用 total_amount ÷ shares 算出 price**
+- total_amount: 成交总金额(元)。**可选字段**,如果截图中能看到"成交金额"或"总金额"数字,填这里,便于后端校验
+- shares: 成交股数(整数, A 股 100 的倍数)
+- occurred_at: ISO 8601 日期时间,如 "2026-07-10T14:32:00"。仅含截图可见的时间;日期不可见就空字符串
+- trade_date: YYYYMMDD 格式, 同 occurred_at,留空字符串表示未知
+- memo: 备注/标签/手续费等附加信息(<80 字)
+
+【规则】
+1. 只输出合法 JSON,不要解释、不要 markdown 包代码块
+2. **一图多笔必须全部解析**,放进 trades 数组,按时间从早到晚排序
+3. **简单推理(必须做)**:
+   a) 截图只有"股票名"没有代码 → 用下方【股票名速查表】反查;查不到就留空让服务端兜底
+   b) 截图只有"总金额 + 股数"没有单价 → price = total_amount ÷ shares,保留 2 位小数
+   c) 截图只有"单价 + 总金额"没有股数 → shares = total_amount ÷ price,向下取整到 100 倍数
+   d) 截图只有"单价 + 股数"没有总金额 → total_amount = price × shares
+4. 截图模糊读不出也输出空数组 trades=[]
+5. 不确定宁可留空,让服务端兜底,**绝对不要编造 6 位代码**(可留空,但不可瞎填)
+
+【输出示例 — 单笔(完整)】
+{"trades":[{"direction":"buy","code":"600519","name":"贵州茅台","price":1820.50,"shares":100,"total_amount":182050,"occurred_at":"2026-07-10T14:32:00","trade_date":"20260710","memo":""}]}
+
+【输出示例 — 只有股票名(推理补 code)】
+{"trades":[{"direction":"buy","code":"600519","name":"贵州茅台","price":1820.50,"shares":100,"total_amount":0,"occurred_at":"2026-07-10T14:32:00","trade_date":"20260710","memo":""}]}
+
+【输出示例 — 只有总价+股数(推理补 price)】
+{"trades":[{"direction":"buy","code":"","name":"贵州茅台","price":1820.50,"shares":100,"total_amount":182050,"occurred_at":"2026-07-10T14:32:00","trade_date":"20260710","memo":"成交金额 182,050"}]}
+
+【输出示例 — 多笔】
+{"trades":[
+  {"direction":"buy","code":"600519","name":"贵州茅台","price":1820.50,"shares":100,"total_amount":182050,"occurred_at":"2026-07-10T14:32:00","trade_date":"20260710","memo":""},
+  {"direction":"buy","code":"002747","name":"埃斯顿","price":46.75,"shares":100,"total_amount":4675,"occurred_at":"2026-07-10T10:42:00","trade_date":"20260710","memo":"机器人龙头"}
+]}"""
+
+
+def _ocr_trade_image(content: bytes) -> dict:
+    """本地 OCR 兜底 — tesseract 抽文字 + 正则匹配字段。返回 {"trades":[...]}。
+
+    多笔解析 (2026-07-12):
+    - 券商 App 历史成交通常 2 行/笔:
+        ① header = [direction] [name] [total_amount] [time]
+        ② detail = [price] [shares] [date]
+      把行配对 → 逐笔返回 (而不是只取最显眼的一笔)
+    - 抽 name 后用 _NAME_LOOKUP 反查 code
+    - tesseract 把"买入"识别成 ZA/Patt/sui 等 artifact,normalize 时看是否含 "卖"
+    """
+    import re as _re
+    import subprocess as _sp
+    try:
+        r = _sp.run(
+            ["tesseract", "stdin", "stdout", "-l", "chi_sim+eng", "--psm", "6"],
+            input=content, capture_output=True, timeout=20,
+        )
+        text = (r.stdout or b"").decode("utf-8", errors="ignore")
+    except Exception as e:
+        log.warning(f"OCR 启动失败: {e}")
+        return {"trades": []}
+
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    noise_re = _re.compile(r"^(?:<.*>|.*当日成交.*|.*历史成交|查询时间|一个月内|已展示全部|^\d{1,2}:\d{2}\s|^\d{4}-\d{2}-\d{2}$)")
+    clean_lines = [l for l in lines if not noise_re.match(l)]
+
+    header_re = _re.compile(
+        r"^(?P<dir>[^\s]*?)\s+"
+        r"(?P<name>[一-龥]{2,6})\s+"
+        r"(?P<total>[\d,]+\.?\d{0,2})\s+"
+        r"(?P<time>\d{1,2}:\d{2}(?::\d{2})?)"
+        r"\s*$"
+    )
+    detail_re = _re.compile(
+        r"^(?P<price>\d+\.\d{2,4})\s+"
+        r"(?P<shares>[\d,]+)\s+"
+        r"(?P<date>\d{4}-\d{2}-\d{2})"
+        r"\s*$"
+    )
+
+    def _norm_dir(raw: str) -> str:
+        if "卖" in raw:
+            return "sell"
+        return "buy"
+
+    lk: dict[str, str] = {}
+    try:
+        from .review import _NAME_LOOKUP as _lk
+        lk = _lk
+    except Exception:
+        pass
+
+    trades: list[dict] = []
+    i = 0
+    while i < len(clean_lines) - 1:
+        h = header_re.match(clean_lines[i])
+        d = detail_re.match(clean_lines[i + 1])
+        if h and d:
+            try:
+                total = float(h.group("total").replace(",", ""))
+                price = float(d.group("price"))
+                shares = int(d.group("shares").replace(",", ""))
+                name = h.group("name")
+                code = lk.get(name, "") or ""
+                time_str = h.group("time")
+                if time_str.count(":") == 1:
+                    time_str += ":00"
+                trades.append({
+                    "direction": _norm_dir(h.group("dir")),
+                    "code": code,
+                    "name": name,
+                    "price": price,
+                    "shares": shares,
+                    "total_amount": total,
+                    "occurred_at": f"{d.group('date')}T{time_str}",
+                    "trade_date": d.group("date").replace("-", ""),
+                    "memo": "",
+                })
+                i += 2
+                continue
+            except (ValueError, KeyError):
+                pass
+        i += 1
+
+    if trades:
+        log.info(f"OCR 多笔解析: {len(trades)} 笔 (源文本 {len(lines)} 行)")
+        return {"trades": trades}
+
+    # ── 兜底:如果一对模式没匹配,回到单笔逻辑 ──
+    out = {
+        "direction": "", "code": "", "name": "",
+        "price": 0.0, "shares": 0, "total_amount": 0.0,
+        "occurred_at": "", "trade_date": "", "memo": "",
+    }
+    if "买" in text and "卖" not in text.split("买")[0]:
+        out["direction"] = "buy"
+    elif "卖" in text:
+        out["direction"] = "sell"
+
+    m = _re.search(r"\b([0368]\d{5})\b", text)
+    if m:
+        out["code"] = m.group(1)
+
+    name_hint = _re.search(r"(?:证券名称|股票名称|名称)[::\s]*([一-龥]{2,4})", text)
+    if name_hint:
+        out["name"] = name_hint.group(1)
+    else:
+        m2 = _re.search(r"[一-龥]{2,4}", text)
+        if m2:
+            out["name"] = m2.group(0)
+
+    m_amt = _re.search(r"(?:成交金额|总金额|发生金额|交易金额|金额)[::\s¥￥]*([\d,]+\.?\d{0,2})", text)
+    if m_amt:
+        try:
+            out["total_amount"] = float(m_amt.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    m_price = _re.search(r"(?:成交价|成交价格|价格)[::\s¥￥]*([\d]+\.\d{2,3})", text)
+    if m_price:
+        try:
+            out["price"] = float(m_price.group(1))
+        except ValueError:
+            pass
+
+    m = _re.search(r"(\d{2,6})\s*股", text)
+    if m:
+        try:
+            sh = int(m.group(1))
+            if sh > 0 and sh % 100 == 0:
+                out["shares"] = sh
+        except ValueError:
+            pass
+
+    m = _re.search(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", text)
+    if m:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            out["occurred_at"] = f"T{hh:02d}:{mm:02d}:00"
+    m = _re.search(r"(\d{4})[-/]?(\d{2})[-/]?(\d{2})", text)
+    if m:
+        y, mo, d = m.group(1), m.group(2), m.group(3)
+        out["trade_date"] = f"{y}{mo}{d}"
+        out["occurred_at"] = f"{y}-{mo}-{d}{out['occurred_at']}" if out["occurred_at"] else ""
+
+    if lines:
+        out["memo"] = lines[0][:80]
+    return {"trades": [out] if (out["code"] or out["name"] or out["price"]) else []}
+
+
+def _call_minimax_vision(api_key: str, image_b64: str, mime: str) -> dict | None:
+    """调 MiniMax M3 vision 解析截图。返回 {"trades":[...]} 或 None。
+
+    兼容老返回(单笔平铺)在 _normalize_trades_parsed 里处理。
+    Prompt 会注入【股票名速查表】帮助 AI 把"只有名字"的截图反查代码。
+    R1+R3 已升级走 ai_client.call + parse_json_loose。
+    """
+    from . import ai_client
+    lookup_hint = _format_name_lookup_for_prompt(limit=80)
+    # R5 token governance: vision prompt 控制在 1500 token 内
+    full_prompt = ai_client.truncate_to_tokens(
+        _REVIEW_IMAGE_PROMPT + "\n\n【股票名速查表 (name→code)】\n" + lookup_hint,
+        max_tokens=1500,
+    )
+    body = {
+        "model": ai_client.default_model(),
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": full_prompt},
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+            ],
+        }],
+        "temperature": 0.1,
+    }
+    spec = ai_client.CallSpec(
+        url=ai_client.default_url(),
+        headers=ai_client.headers(api_key),
+        body=body,
+        name="vision_review",
+        model=ai_client.default_model(),
+        timeout=80.0,  # M3 vision + reasoning 实际 25-60s,留 buffer
+        attempts=(1, 2),
+        # M3 vision + reasoning_content 会消耗大量 token;给到 8000/12000 留出空间
+        max_tokens_alts=(8000, 12000),
+    )
+    try:
+        _text, parsed, _info = ai_client.call(spec)
+    except ai_client.AICallError as e:
+        log.warning(f"vision 网络失败: {e}")
+        return None
+
+    if isinstance(parsed, dict):
+        if isinstance(parsed.get("trades"), list):
+            return parsed
+        # 旧的"单笔平铺"
+        if parsed.get("code") or parsed.get("price"):
+            return {"trades": [parsed]}
+        return {"trades": []}
+    if isinstance(parsed, list):
+        return {"trades": parsed}
+    return {"trades": []}
+
+
+def _normalize_trade_parsed(d: dict) -> dict:
+    """把 AI/OCR 字段洗成 record_trade 接口需要的形状。
+
+    增强:
+    1) name → code 兜底 (查 _NAME_LOOKUP, 用户的近期交易 + 自选 + 热点)
+    2) total_amount + shares → price 反推
+    3) total_amount + price → shares 反推 (向下 100 倍数)
+    """
+    raw_dir = str(d.get("direction", "")).lower()
+    direction = "buy" if raw_dir in ("buy", "买", "买入") else (
+        "sell" if raw_dir in ("sell", "卖", "卖出") else "buy")
+    raw_code = str(d.get("code", "")).strip()
+    code = raw_code.zfill(6) if raw_code else ""
+    if code and not code.isdigit():
+        code = ""
+    price = float(d.get("price") or 0)
+    if price:
+        price = round(price, 2)
+    shares = int(d.get("shares") or 0)
+    if shares and shares % 100 != 0:
+        shares = max(100, (shares // 100) * 100)
+    name = str(d.get("name", "")).strip()
+
+    # ── 推理 1: code 缺 → 用 name 反查 ──
+    if not code and name:
+        looked = _NAME_LOOKUP.get(name)
+        if looked:
+            code = looked
+
+    # ── 推理 2: price 缺 → total / shares ──
+    total = float(d.get("total_amount") or 0)
+    if not price and total > 0 and shares > 0:
+        price = round(total / shares, 2)
+    # ── 推理 3: shares 缺 → total / price (向下 100 倍数) ──
+    if not shares and total > 0 and price > 0:
+        sh = int(total / price)
+        # 向下取整到 100 倍数
+        sh = max(100, (sh // 100) * 100) if sh > 0 else 0
+        shares = sh
+
+    # ── 推理 4: total 缺 → price × shares (R3 增强: 2026-07-12 M3 vision 不返回 total 时兜底)
+    if not total and price > 0 and shares > 0:
+        total = round(price * shares, 2)
+
+    return {
+        "direction": direction,
+        "code": code,
+        "name": name,
+        "price": price,
+        "shares": shares,
+        "total_amount": total,
+        "occurred_at": str(d.get("occurred_at", "")).strip(),
+        "trade_date": str(d.get("trade_date", "")).strip(),
+        "memo": str(d.get("memo", "")).strip()[:200],
+    }
+
+
+def _normalize_trades_parsed(parsed: dict) -> list[dict]:
+    """把 {"trades":[...]} 归一化成 record_trade 接口可用的 list。"""
+    items = parsed.get("trades") if isinstance(parsed, dict) else None
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        out.append(_normalize_trade_parsed(it))
+    return out
+
+
+def _avg_confidence(trades: list[dict]) -> float:
+    """给一组归一化交易计算平均 confidence (0..1)。"""
+    if not trades:
+        return 0.0
+    confs = []
+    for t in trades:
+        c = 0.0
+        if t.get("code"):   c += 0.30
+        if t.get("name"):   c += 0.20
+        if (t.get("price") or 0) > 0: c += 0.30
+        if (t.get("shares") or 0) >= 100: c += 0.10
+        if t.get("occurred_at") or t.get("trade_date"): c += 0.10
+        confs.append(c)
+    return round(sum(confs) / len(confs), 2)
+
+
+# ═══════════════════════════════════════════════════
+# 股票名 → 代码 速查表 (用于 AI/OCR 缺 code 时的兜底)
+# 2026-07-12: 用户反馈 — 截图中经常只有股票名,要求自动补 code
+# 数据源:
+#   1) 最近 90 天 trades.code + trades.name (用户自己的实际票池)
+#   2) 自选股 watchlist
+#   3) 全市场 (data_layer.fetch_stock_list) — 但限制 1500 只热门
+# 缓存在内存 5min
+# ═══════════════════════════════════════════════════
+_NAME_LOOKUP: dict[str, str] = {}
+_NAME_LOOKUP_TS: float = 0.0
+
+def _refresh_name_lookup() -> dict[str, str]:
+    """5 分钟内复用内存缓存。"""
+    global _NAME_LOOKUP, _NAME_LOOKUP_TS
+    now = time.time()
+    if _NAME_LOOKUP and (now - _NAME_LOOKUP_TS) < 300:
+        return _NAME_LOOKUP
+    out: dict[str, str] = {}
+    try:
+        # 1) 用户近期 trades
+        from .. import cache_db as _cdb
+        conn = _cdb._thread_conn()
+        rows = conn.execute(
+            "SELECT code, name FROM trades WHERE name IS NOT NULL AND name!='' "
+            "ORDER BY id DESC LIMIT 200"
+        ).fetchall()
+        for code, name in rows:
+            n = (name or "").strip()
+            c = (code or "").strip().zfill(6)
+            # 2026-07-12: 跳过占位 "000000" — 早期失败测试的脏数据
+            if n and c and c.isdigit() and c != "000000" and n not in out:
+                out[n] = c
+        # 2) 自选
+        rows = conn.execute("SELECT code, name FROM watchlist").fetchall()
+        for code, name in rows:
+            n = (name or "").strip()
+            c = (code or "").strip().zfill(6)
+            if n and c and c.isdigit() and c != "000000" and n not in out:
+                out[n] = c
+    except Exception as e:
+        log.debug(f"refresh name lookup (db): {e}")
+    try:
+        # 3) 全市场 — 兜底,只取前 2000 只 (避免太大)
+        # 必须用 fetch_stock_list_all() 不是 fetch_stock_list() — 后者过滤掉创业板 300xxx/301xxx
+        # 2026-07-12: 宁德时代 300750 因 filter 被丢,导致 name→code 反查失效
+        from .. import data_layer as _dl
+        for code, name in (_dl.fetch_stock_list_all() or [])[:2000]:
+            n = (name or "").strip()
+            c = (code or "").strip().zfill(6)
+            if n and c and c.isdigit() and n not in out:
+                out[n] = c
+    except Exception as e:
+        log.debug(f"refresh name lookup (market): {e}")
+    _NAME_LOOKUP = out
+    _NAME_LOOKUP_TS = now
+    log.info(f"股票名速查表刷新: {len(out)} 条")
+    return out
+
+
+def _format_name_lookup_for_prompt(limit: int = 80) -> str:
+    """格式化一小撮最相关的 name→code 给 AI 提示(优先近期交易+自选,前 limit 条)。"""
+    lk = _refresh_name_lookup()
+    if not lk:
+        return "（速查表暂无可用数据 — 截图中如有股票名没有代码,留空让服务端兜底）"
+    items = list(lk.items())[:limit]
+    body = " | ".join(f"{name}={code}" for name, code in items)
+    return f"共 {len(lk)} 条(用户近期交易+自选+市场)。最相关前 {len(items)} 条:\n{body}"
+
+
+@app.post("/api/review/parse_trade_image")
+async def api_review_parse_trade_image(file: UploadFile = File(...)):
+    """截图 → AI 解析(失败自动 OCR) → 返回 trade 字段列表供前端批量预填。
+    返回:{ok, data:{trades:[...], source:"ai"|"ocr", confidence:0..1}}
+    """
+    content = await file.read()
+    if not content:
+        return envelope(error="空文件", status_code=400)
+    if len(content) > 6 * 1024 * 1024:
+        return envelope(error="图片超过 6MB,请压缩后再试", status_code=400)
+    mime = (file.content_type or "").split(";")[0].strip()
+    if mime not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
+        name = (file.filename or "").lower()
+        if name.endswith(".png"):
+            mime = "image/png"
+        elif name.endswith((".jpg", ".jpeg")):
+            mime = "image/jpeg"
+        elif name.endswith(".webp"):
+            mime = "image/webp"
+        else:
+            return envelope(error=f"不支持的图片格式: {mime or '未知'}", status_code=400)
+
+    parsed_obj: dict | None = None
+    source = "ai"
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if api_key:
+        import base64 as _b64
+        image_b64 = _b64.b64encode(content).decode("ascii")
+        parsed_obj = _call_minimax_vision(api_key, image_b64, mime)
+    else:
+        log.info("MINIMAX_API_KEY 未配置, 走 OCR")
+
+    # AI 没识别出任何东西 或 没配 key → OCR 兜底
+    ai_empty = (not parsed_obj) or (
+        isinstance(parsed_obj, dict) and not parsed_obj.get("trades")
+    )
+    if ai_empty:
+        source = "ocr"
+        try:
+            parsed_obj = _ocr_trade_image(content)
+        except Exception as e:
+            log.warning(f"OCR 兜底失败: {e}")
+            parsed_obj = {"trades": []}
+
+    trades = _normalize_trades_parsed(parsed_obj or {})
+    if not trades:
+        return envelope(error="AI 与 OCR 都未识别出有效字段,请手填",
+                        data={"trades": [], "source": source, "missing": True})
+    # 至少 1 笔关键字段都为空 → 不算有效
+    has_key = any((t["code"] or t["price"]) for t in trades)
+    if not has_key:
+        return envelope(error="未识别出有效交易字段,请手填",
+                        data={"trades": [], "source": source, "missing": True})
+
+    conf = _avg_confidence(trades)
+    return envelope(data={"trades": trades, "source": source, "confidence": conf,
+                          "filename": file.filename or ""})
 
 
 @app.put("/api/review/trades/{trade_id}")
@@ -4201,6 +5273,19 @@ async def api_review_delete_trade(trade_id: int):
         ok = _review.delete_trade(trade_id)
         return envelope(data={"deleted": ok})
     except Exception as e:
+        return envelope(error=str(e), status_code=400)
+
+
+@app.delete("/api/review/positions/{code}")
+async def api_review_delete_position(code: str):
+    """删除某只股票的全部交易记录(用于清理误录入 / 移出持仓)。
+    不可逆 — 同时清理 trade_reviews。
+    """
+    try:
+        deleted = _review.delete_trades_by_code(code)
+        return envelope(data={"deleted": deleted, "code": code})
+    except Exception as e:
+        log.exception("delete_position")
         return envelope(error=str(e), status_code=400)
 
 
@@ -4260,6 +5345,11 @@ class WatchlistUpdateRequest(BaseModel):
     sort_order: int | None = None
 
 
+class StockHistoryRequest(BaseModel):
+    code: str
+    name: str | None = None
+
+
 @app.get("/api/watchlist")
 async def api_watchlist_list():
     """列出全部自选股 + 实时行情 + 最新 AI 建议(同日有效)。"""
@@ -4275,7 +5365,8 @@ async def api_watchlist_list():
 async def api_trade_dates(limit: int = 60):
     """返回最近 N 个交易日的 YYYY-MM-DD 列表 + 最临近交易日。
 
-    服务于个股页日期切换:用户选非交易日(周末/节假日) → 自动回退到最近交易日。
+    关键:必须既含过去交易日(用于 snap/prev)又含未来(用于 next,允许小幅未来日期缓存)。
+    之前 limit=60 全取了未来日期,导致用户选历史日期 snap 到未来日期上 (bug 2026-07-11)。
     """
     try:
         from .. import multi_source_fetchers as msf
@@ -4283,23 +5374,23 @@ async def api_trade_dates(limit: int = 60):
         if not all_dates:
             return envelope(error="交易日历不可用", data={"dates": [], "today": None, "last_trade_date": None})
 
-        sorted_dates = sorted(all_dates, reverse=True)
-        recent = sorted_dates[:limit]
-
+        sorted_desc = sorted(all_dates, reverse=True)
         today = datetime.date.today().strftime("%Y-%m-%d")
+
+        # 1) 过去部分:取今天及之前的最近 limit 天 (倒序)
+        past_dates = [d for d in sorted_desc if d <= today][:limit]
+        # 2) 未来部分:取今天之后的最近 30 天 (倒序,允许小幅缓存)
+        future_dates = [d for d in sorted_desc if d > today][:30]
+        # 合并:未来在前(降序)、过去在后,这样浏览器 Set/Array 都好查
+        recent = future_dates + past_dates
+
         # 最临近且 <= 今日的交易日 (今日非交易时回退用)
-        # 全表里倒序找,这样即便 recent 截断的是未来日期也能正确找到
-        last_trade = None
-        for d in sorted_dates:
-            if d <= today:
-                last_trade = d
-                break
-        # 兜底:万一日历全是未来日期 (罕见,缓存错位)
-        if last_trade is None and sorted_dates:
-            last_trade = sorted_dates[-1]
+        last_trade = past_dates[0] if past_dates else None
 
         return envelope(data={
             "dates": recent,
+            "past_dates": past_dates,        # 仅过去日期,前端 snap/prev 用
+            "future_dates": future_dates,    # 仅未来日期,前端 next 用
             "today": today,
             "last_trade_date": last_trade,
             "is_today_trade_day": today in all_dates,
@@ -4327,6 +5418,59 @@ async def api_watchlist_remove(code: str):
         return envelope(data={"removed": ok})
     except Exception as e:
         return envelope(error=str(e), status_code=400)
+
+
+# ── 个股查询历史 (2026-07-11) — 服务端永久化,跨浏览器/跨设备同步 ──
+# 之前用 localStorage 浏览器清数据就丢;现在 SQLite,清缓存/换设备/隐身
+# 模式都能保留
+@app.get("/api/stock_history")
+async def api_stock_history_list(limit: int = Query(50, ge=1, le=200)):
+    try:
+        from .. import cache_db
+        rows = cache_db.list_stock_history(limit=limit)
+        return envelope(data={"history": rows, "count": len(rows)})
+    except Exception as e:
+        log.exception("stock_history list")
+        return envelope(error=str(e))
+
+
+@app.post("/api/stock_history")
+async def api_stock_history_add(req: StockHistoryRequest):
+    """记录一次个股查询(查询时/主动加自选时都触发)。"""
+    try:
+        code = (req.code or "").strip()
+        name = (req.name or "").strip()
+        if not code:
+            return envelope(error="code 必填", status_code=400)
+        from .. import cache_db
+        cache_db.record_stock_query(code, name=name)
+        rows = cache_db.list_stock_history(limit=50)
+        return envelope(data={"history": rows, "count": len(rows)})
+    except Exception as e:
+        log.exception("stock_history add")
+        return envelope(error=str(e))
+
+
+@app.delete("/api/stock_history/{code}")
+async def api_stock_history_remove(code: str):
+    try:
+        from .. import cache_db
+        ok = cache_db.remove_stock_history(code)
+        return envelope(data={"removed": ok})
+    except Exception as e:
+        log.exception("stock_history remove")
+        return envelope(error=str(e))
+
+
+@app.delete("/api/stock_history")
+async def api_stock_history_clear():
+    try:
+        from .. import cache_db
+        n = cache_db.clear_stock_history()
+        return envelope(data={"cleared": n})
+    except Exception as e:
+        log.exception("stock_history clear")
+        return envelope(error=str(e))
 
 
 @app.patch("/api/watchlist/{code}")
@@ -4523,46 +5667,38 @@ async def _analyze_for_watchlist(code: str, extras: dict, api_key: str) -> dict:
 
     system_prompt = _build_watchlist_system_prompt()
 
-    url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
-    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "max_tokens": 1500,
-        "temperature": 0.3,
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    text = ""
-    last_err = ""
-    for attempt, max_t in [(1, 1500), (2, 2500)]:
-        body_local = dict(body)
-        body_local["max_tokens"] = max_t
-        try:
-            r = await asyncio.to_thread(_requests.post, url, json=body_local, headers=headers, timeout=30)
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            log.warning(f"watchlist AI attempt {attempt} 异常 {code}: {e}")
-            continue
-        if r.status_code != 200:
-            last_err = f"HTTP {r.status_code}: {r.text[:200]}"
-            log.warning(f"watchlist AI attempt {attempt} HTTP {r.status_code} {code}")
-            continue
-        j = r.json()
-        text = j.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-        if text:
-            break
-        finish = j.get("choices", [{}])[0].get("finish_reason", "?")
-        reasoning = j.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")[:200]
-        last_err = f"empty content (finish={finish}, reasoning={reasoning})"
-        log.warning(f"watchlist AI attempt {attempt} content 空 {code} (finish={finish})")
-    if not text:
-        log.warning(f"watchlist AI 失败 {code}: {last_err}")
+    # R2 prompt 注入防御: 把用户喂的 ctx 用 boundary 包住
+    from . import ai_client
+    user_content_safe = ai_client.wrap_prompt("ctx", user_content)
+    # R5 token governance
+    user_content_safe = ai_client.truncate_to_tokens(user_content_safe, max_tokens=900)
+
+    spec = ai_client.CallSpec(
+        url=ai_client.default_url(),
+        headers=ai_client.headers(api_key),
+        body={
+            "model": ai_client.default_model(),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content_safe},
+            ],
+            "temperature": 0.3,
+        },
+        name="watchlist",
+        model=ai_client.default_model(),
+        timeout=30.0,
+        attempts=(1, 2),
+        max_tokens_alts=(1500, 2500),
+    )
+    try:
+        _text, parsed, _info = await asyncio.to_thread(ai_client.call, spec)
+    except ai_client.AICallError as e:
+        log.warning(f"watchlist AI 失败 {code}: {e}")
         return {}
-    parsed = _parse_ai_json(text)
-    # 附 extras
+
+    parsed = ai_client.normalize_ai_verdict(parsed) if parsed else {}
+    if not parsed:
+        return {}
     parsed["extras"] = extras
     return parsed
 
@@ -4689,7 +5825,15 @@ _DRAGONS_CACHE: dict[str, dict] = {}
 @app.post("/api/optimize")
 async def api_optimize():
     from ..optimizer import run_optimize
-    result = await to_thread(run_optimize)
+    # 硬超时 120s: 优化器 10 次迭代跑完常 1-3min,沙箱数据源挂时不能拖死 server
+    # (2026-07-12 audit 发现该 endpoint 之前无超时保护)
+    try:
+        result = await asyncio.wait_for(to_thread(run_optimize), timeout=120)
+    except asyncio.TimeoutError:
+        log.warning("optimize 超时 120s")
+        return envelope(error="优化器超时 120s, 请稍后重试或减小迭代次数", data={
+            "best_params": None, "history": [], "stats": {"reason": "timeout"},
+        })
     return envelope(data=result or {})
 
 
@@ -5417,6 +6561,159 @@ async def api_stream_review(trade_id: int):
             log.exception("stream_review")
             yield {"event": "error", "data": json.dumps({"err": str(e)[:300]}, ensure_ascii=False)}
     return EventSourceResponse(event_gen(), ping=15)
+
+
+# ═══════════════════════════════════════════
+# 板块资金轮动 (2026-07-12 新增)
+# 数据来源 web.rotation — 申万行业 + 题材概念 + 龙虎榜 → 三类核心 endpoint
+# ═══════════════════════════════════════════
+from . import rotation as _rotation
+from .. import config as _config
+
+
+@app.get("/api/flow")
+async def flow_endpoint(
+    sectors: str = "",
+    period: str = "1d",
+    hide: str = "",
+    refresh: int = 0,
+):
+    """板块分时/日线分层资金。返回 6 类资金 + 板块指数。"""
+    from .rotation import (
+        fetch_board_list, fetch_sector_daily, fetch_sector_intraday,
+    )
+    try:
+        boards = fetch_board_list(force=bool(refresh))
+        names = [s.strip() for s in sectors.split(",") if s.strip()]
+        if not names:
+            names = [b["name"] for b in (boards.get("industry") or [])][:6]
+        series = []
+        for n in names:
+            if period in ("1min", "5min"):
+                rows = fetch_sector_intraday(n,
+                    period=int(period.replace("min", "")) or 5)
+            else:
+                days = {"1d": 1, "3d": 3, "5d": 5}.get(period, 1)
+                rows = fetch_sector_daily(n, days=days)
+            series.append({"sector": n, "rows": rows})
+        layered_order = _rotation.SEAT_USER6_ORDER
+        layered_colors = _config.ROTATION_TYPE_COLORS
+        hide_set = {h.strip() for h in hide.split(",") if h.strip()}
+        return envelope(data={
+            "period":        period,
+            "sectors":       names,
+            "layered_order": layered_order,
+            "layered_label": {k: _rotation.SEAT_USER6_LABEL[k]
+                              for k in layered_order},
+            "layered_color": {k: layered_colors[k]
+                              for k in layered_order if k not in hide_set},
+            "series":        series,
+        })
+    except Exception as e:                                   # noqa: BLE001
+        log.exception("api/flow")
+        return envelope(error=str(e)[:300])
+
+
+@app.get("/api/rotation")
+async def rotation_endpoint(
+    sectors: str = "",
+    period: str = "1d",
+    refresh: int = 0,
+):
+    """板块资金轮动识别(资金动量/分流系数/强度/类型)。"""
+    from .rotation import fetch_board_list, detect_rotation
+    try:
+        boards = fetch_board_list(force=bool(refresh))
+        rows = []
+        for b in (boards.get("industry") or []) + (boards.get("concept") or []):
+            name = (b.get("name") or "").strip()
+            if not name:
+                continue
+            rows.append({
+                "name":        name,
+                "code":        b.get("code", ""),
+                "kind":        b.get("kind", ""),
+                "net_flow_yi": b.get("net_flow_yi") or 0,
+                "turnover_yi": b.get("turnover_yi") or 0,
+                "change_pct":  b.get("change_pct") or 0,
+                "leader_code": b.get("leader_code", ""),
+                "leader_name": b.get("leader_name", ""),
+            })
+        result = detect_rotation(rows)
+        return envelope(data={
+            **result,
+            "period":      period,
+            "line_colors": _config.ROTATION_LINE_COLORS,
+        })
+    except Exception as e:                                   # noqa: BLE001
+        log.exception("api/rotation")
+        return envelope(error=str(e)[:300])
+
+
+@app.get("/api/hotspot")
+async def hotspot_endpoint(
+    sectors: str = "",
+    period: str = "1d",
+    refresh: int = 0,
+    top_n: int = 0,
+):
+    """当前热点龙头板块打分排名(资金 40 + 游资 35 + 行情 25)。"""
+    from .rotation import (
+        fetch_board_list, fetch_components,
+        fetch_lhb_rows_for_securities, score_hotspot,
+    )
+    try:
+        boards_raw = fetch_board_list(force=bool(refresh))
+        industry = boards_raw.get("industry") or []
+        concept  = boards_raw.get("concept")  or []
+        candidates = industry + concept
+        # 拉成份股代码(给龙虎榜用),只取前 30 个热点候选
+        for b in candidates[:30]:
+            b["component_codes"] = fetch_components(b["name"], max_n=8)
+        # 收集所有成份股代码去重
+        code_set: set[str] = set()
+        for b in candidates:
+            for c in (b.get("component_codes") or []):
+                code_set.add(c)
+        rows = fetch_lhb_rows_for_securities(
+            sorted(code_set),
+            days=_config.HOTSPOT_LHB_LOOKBACK_DAYS,
+        )
+        lhb_by_code: dict[str, list] = {}
+        for r in rows:
+            lhb_by_code.setdefault(r["code"], []).append(r)
+        names_filter = {s.strip() for s in sectors.split(",") if s.strip()}
+        target = [b for b in candidates
+                  if not names_filter or b["name"] in names_filter]
+        ranked = score_hotspot(
+            target, lhb_by_code,
+            top_n=top_n or _config.HOTSPOT_TOP_N,
+        )
+        return envelope(data={
+            "period":     period,
+            "weights": {
+                "fund":     _config.HOTSPOT_FUND_WEIGHT,
+                "seat":     _config.HOTSPOT_SEAT_WEIGHT,
+                "momentum": _config.HOTSPOT_MOMENTUM_WEIGHT,
+            },
+            "tier_label": {
+                "core_main": "核心主线龙头",
+                "secondary": "次级跟风热点",
+                "pulse":     "脉冲短期题材",
+                "cold":      "冷门弱势板块",
+            },
+            "tier_color": {
+                "core_main": _config.ROTATION_LINE_COLORS["main_switch"],
+                "secondary": _config.ROTATION_LINE_COLORS["themed_in"],
+                "pulse":     _config.ROTATION_LINE_COLORS["pulse"],
+                "cold":      "#666",
+            },
+            "boards":     ranked,
+            "ts":         time.time(),
+        })
+    except Exception as e:                                   # noqa: BLE001
+        log.exception("api/hotspot")
+        return envelope(error=str(e)[:300])
 
 
 if __name__ == "__main__":
