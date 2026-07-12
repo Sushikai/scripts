@@ -1,0 +1,5 @@
+# Python dependencies for web/relay/*
+aiohttp>=3.9
+websockets>=12
+aiomqtt>=2.0       # was asyncio-mqtt, renamed
+paho-mqtt>=1.6     # fallback dependency

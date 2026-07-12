@@ -1,0 +1,17 @@
+{
+  "name": "tuixue-relay-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebSocket relay for Mac <-> iPhone Safari, deployable to Koyeb/Render/Fly/HF",
+  "main": "relay_node.js",
+  "scripts": {
+    "start": "node relay_node.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "ws": "^8.18.0"
+  }
+}
