@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>热点龙头板块 · tuixue_v3</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg-page:    #0E1116;
+      --bg-card:    #161A22;
+      --bg-card-2:  #1B2029;
+      --bg-hover:   #232934;
+      --line:       rgba(255,255,255,0.06);
+      --line-strong:rgba(255,255,255,0.12);
+      --ink-1:      #E8EAF0;
+      --ink-2:      #A8AEBA;
+      --ink-3:      #6B7280;
+      --accent:     #F0C075;
+      --c-institution: #165DFF;
+      --c-northbound:  #F5319D;
+      --c-quant:       #868686;
+      --c-hot_tier1:   #F53F3F;
+      --c-hot_tier2:   #FF7D00;
+      --c-retail_lhasa:#C9CDD4;
+      --radius:     10px;
+      --radius-sm:  6px;
+      --shadow:     0 4px 12px rgba(0,0,0,.32);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg-page); color: var(--ink-1);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px; line-height: 1.5; }
+    .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg-card);
+      border-bottom: 1px solid var(--line); padding: 14px 20px;
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+      box-shadow: var(--shadow); }
+    .topbar h1 { margin: 0 12px 0 0; font-size: 16px; font-weight: 600; color: var(--accent); }
+    .topbar h1 .sub { font-size: 11px; color: var(--ink-3); margin-left: 6px; font-weight: 400; }
+    .weight-tag { font-size: 11px; color: var(--ink-2); padding: 4px 10px;
+      background: var(--bg-card-2); border-radius: var(--radius-sm);
+      border: 1px solid var(--line-strong); }
+    .btn-refresh { padding: 5px 12px; font-size: 12px; background: var(--bg-card-2);
+      color: var(--ink-1); border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm); cursor: pointer; transition: all .15s; }
+    .btn-refresh:hover { background: var(--bg-hover); border-color: var(--accent); }
+    .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-left: auto; color: var(--ink-3); font-size: 12px; }
+    .status .ok { color: #34C759; } .status .err { color: #F53F3F; }
+
+    .container { padding: 20px; max-width: 1600px; margin: 0 auto; }
+    .card { background: var(--bg-card); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+      box-shadow: var(--shadow); }
+    .card h2 { margin: 0 0 12px 0; font-size: 13px; font-weight: 600;
+      color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase; }
+    .card .sub { font-size: 11px; color: var(--ink-3); font-weight: 400;
+      margin-left: 6px; text-transform: none; letter-spacing: 0; }
+
+    .grid-2 { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 16px; }
+    @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
+    #chart-score { width: 100%; height: 480px; }
+    #chart-detail { width: 100%; height: 360px; }
+
+    .board-list { display: flex; flex-direction: column; gap: 6px; max-height: 480px;
+      overflow-y: auto; padding-right: 4px; }
+    .board-card { padding: 10px 12px; background: var(--bg-card-2);
+      border-radius: var(--radius-sm); border-left: 3px solid var(--ink-3);
+      cursor: pointer; transition: background .15s; }
+    .board-card:hover { background: var(--bg-hover); }
+    .board-card.tier-core_main { border-left-color: #F53F3F; }
+    .board-card.tier-secondary  { border-left-color: var(--accent); }
+    .board-card.tier-pulse      { border-left-color: #8A8A8A; }
+    .board-card.tier-cold       { border-left-color: #666; }
+    .board-card.selected { background: var(--bg-hover); box-shadow: 0 0 0 1px var(--accent); }
+    .board-head { display: flex; justify-content: space-between; align-items: center; }
+    .board-name { font-size: 13px; font-weight: 600; }
+    .board-tier { font-size: 11px; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+    .tier-core_main .board-tier { background: rgba(245,63,63,0.15); color: #F53F3F; }
+    .tier-secondary  .board-tier { background: rgba(240,192,117,0.15); color: var(--accent); }
+    .tier-pulse      .board-tier { background: rgba(138,138,138,0.15); color: #A8AEBA; }
+    .tier-cold       .board-tier { background: rgba(102,102,102,0.15); color: #999; }
+    .board-meta { display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--ink-3); }
+    .board-score { font-size: 18px; font-weight: 700; color: var(--ink-1);
+      font-variant-numeric: tabular-nums; }
+
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th, .table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+    .table th { color: var(--ink-3); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+    .table tr:hover td { background: var(--bg-card-2); }
+    .num { font-variant-numeric: tabular-nums; font-family: "SF Mono", "Menlo", monospace; }
+    .up { color: #E84545; } .down { color: #34C759; }
+    .alias { color: var(--accent); font-weight: 600; }
+    .board-link, .stock-link { color: var(--accent); cursor: pointer;
+      text-decoration: none; border-bottom: 1px dashed transparent; transition: all .15s; }
+    .board-link:hover, .stock-link:hover { color: #FFD494; border-bottom-color: #FFD494; }
+
+    .empty-state { padding: 60px 20px; text-align: center; color: var(--ink-3); font-size: 13px; }
+    .empty-state .icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>热点龙头板块 <span class="sub">资金 40% + 游资 35% + 行情 25% · 7 大类规则 §4</span></h1>
+    <div class="weight-tag">⚖ 资金 0.40 · 顶级游资 0.35 · 行情 0.25</div>
+    <button class="btn-refresh" id="btn-refresh">↻ 强制刷新</button>
+    <div class="status" id="status">就绪</div>
+  </div>
+
+  <div class="container">
+    <div class="grid-2">
+      <div class="card">
+        <h2>综合得分排名 <span class="sub">点击板块查看资金结构 / 游资详情</span></h2>
+        <div id="chart-score"></div>
+      </div>
+      <div class="card">
+        <h2>板块列表 <span class="sub" id="tier-summary"></span></h2>
+        <div class="board-list" id="board-list"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>当前选中 · 资金结构 + 顶级游资 <span class="sub" id="sel-name">未选择</span></h2>
+      <div class="grid-2" style="grid-template-columns: 0.9fr 1.1fr;">
+        <div id="chart-detail"></div>
+        <div>
+          <table class="table" id="tbl-seats">
+            <thead>
+              <tr>
+                <th>股票</th><th>席位</th><th>江湖别名</th>
+                <th>金额(万)</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="4" class="empty-state">选择板块查看</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = '/api/hotspot';
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+let chartScore = null, chartDetail = null;
+let allBoards = [];
+let selectedIdx = -1;
+let curRefresh = 0;
+
+$('#btn-refresh').addEventListener('click', () => {
+  curRefresh = 1;
+  load().finally(() => { curRefresh = 0; });
+});
+
+async function load() {
+  $('#status').innerHTML = '<span class="err">加载中…</span>';
+  $('#btn-refresh').disabled = true;
+  try {
+    const r = await fetch(`${API}?refresh=${curRefresh}`);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'API 错误');
+    allBoards = j.data.boards || [];
+    renderAll(j.data);
+    const t = new Date((j.data.ts || Date.now()/1000) * 1000);
+    $('#status').innerHTML = `<span class="ok">✓</span> ${t.toLocaleTimeString()}`;
+  } catch (e) {
+    $('#status').innerHTML = `<span class="err">✗ ${e.message}</span>`;
+  } finally {
+    $('#btn-refresh').disabled = false;
+  }
+}
+
+function renderAll(d) {
+  // ── Summary ──
+  const tCount = {};
+  allBoards.forEach(b => tCount[b.tier] = (tCount[b.tier] || 0) + 1);
+  const tLabels = d.tier_label || {};
+  $('#tier-summary').textContent = allBoards.length === 0 ? '—' :
+    Object.entries(tCount).map(([k, v]) => `${tLabels[k] || k} ${v}`).join(' · ');
+
+  // ── Score bar ──
+  if (chartScore) chartScore.dispose();
+  chartScore = echarts.init(document.getElementById('chart-score'), 'dark', { renderer: 'canvas' });
+  if (allBoards.length === 0) {
+    document.getElementById('chart-score').innerHTML =
+      '<div class="empty-state"><div class="icon">∅</div>暂无热点板块数据<br>(数据源未通或市场休市)</div>';
+  } else {
+    const colors = d.tier_color || {};
+    const top = allBoards.slice(0, 20);
+    chartScore.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+        formatter: p => {
+          const b = top[p[0].dataIndex];
+          return `<b>${b.name}</b><br>` +
+                 `总分: <b>${b.score}</b><br>` +
+                 `资金 ${b.fund_score} · 游资 ${b.seat_score} · 行情 ${b.momentum_score}<br>` +
+                 `${b.tier_label} · ${(b.change_pct || 0) > 0 ? '+' : ''}${(b.change_pct || 0).toFixed(2)}%`;
+        }
+      },
+      grid: { left: 100, right: 30, top: 20, bottom: 30 },
+      xAxis: { type: 'value', max: 100, axisLabel: { color: '#A8AEBA' },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
+      yAxis: { type: 'category', data: top.map(b => b.name).reverse(),
+        axisLabel: { color: '#E8EAF0' },
+        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } } },
+      series: [{
+        type: 'bar',
+        data: top.map(b => ({
+          value: b.score,
+          itemStyle: { color: colors[b.tier] || '#666' }
+        })).reverse(),
+        barWidth: 14,
+        label: { show: true, position: 'right', color: '#E8EAF0', fontSize: 11,
+          formatter: '{c}' },
+        emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(240,192,117,0.5)' } }
+      }]
+    });
+    chartScore.on('click', p => {
+      const idx = top.length - 1 - p.dataIndex;  // reversed
+      selectBoard(idx);
+    });
+  }
+
+  // ── Board list ──
+  const list = $('#board-list');
+  if (allBoards.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">∅</div>暂无板块</div>';
+  } else {
+    list.innerHTML = allBoards.map((b, i) => `
+      <div class="board-card tier-${b.tier}${i === selectedIdx ? ' selected' : ''}" data-idx="${i}">
+        <div class="board-head">
+          <div>
+            <a class="board-link" data-board="${b.name}" title="跳到 ${b.name} 资金详情">${b.name}</a>
+            <span class="board-tier">${b.tier_label}</span>
+            ${b.leader_name ? `<a class="stock-link" data-code="${b.leader_code||''}" data-name="${b.leader_name}" title="查看 ${b.leader_name} 个股">龙头 ${b.leader_name}</a>` : ''}
+          </div>
+          <div class="board-score">${b.score}</div>
+        </div>
+        <div class="board-meta">
+          <span>资金 ${b.fund_score}</span>
+          <span>游资 ${b.seat_score}</span>
+          <span>行情 ${b.momentum_score}</span>
+          <span class="${b.change_pct > 0 ? 'up' : b.change_pct < 0 ? 'down' : ''}">${(b.change_pct||0) > 0 ? '+' : ''}${(b.change_pct||0).toFixed(2)}%</span>
+        </div>
+      </div>
+    `).join('');
+    list.querySelectorAll('.board-card').forEach(el => {
+      el.addEventListener('click', e => {
+        // 链接点击不触发卡片选择
+        if (e.target.closest('.board-link') || e.target.closest('.stock-link')) return;
+        selectBoard(parseInt(el.dataset.idx));
+      });
+    });
+    // 板块名 → sector_funds
+    list.querySelectorAll('.board-link').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        const b = a.dataset.board;
+        if (b) window.open(`/sector_funds?board=${encodeURIComponent(b)}`, '_blank', 'noopener');
+      });
+    });
+    // 龙头股 → 主 SPA
+    list.querySelectorAll('.stock-link').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        const code = a.dataset.code;
+        if (code) window.open(`/?code=${encodeURIComponent(code)}`, '_blank', 'noopener');
+      });
+    });
+  }
+
+  // Auto-select top board if none selected
+  if (allBoards.length > 0 && selectedIdx < 0) selectBoard(0);
+  else if (selectedIdx >= 0 && selectedIdx < allBoards.length) selectBoard(selectedIdx);
+}
+
+function selectBoard(idx) {
+  selectedIdx = idx;
+  const b = allBoards[idx];
+  if (!b) return;
+  // update list visual
+  $$('.board-card').forEach((el, i) => el.classList.toggle('selected', i === idx));
+  $('#sel-name').textContent = `— ${b.name} · ${b.tier_label} · ${b.score} 分`;
+
+  // Detail stacked bar: 6 类资金占比
+  if (chartDetail) chartDetail.dispose();
+  chartDetail = echarts.init(document.getElementById('chart-detail'), 'dark', { renderer: 'canvas' });
+  const structMap = b.seat_struct_pct || {};
+  const order = ['institution', 'northbound', 'quant', 'hot_tier1', 'hot_tier2', 'retail_lhasa'];
+  const labels = ['机构', '北向', '量化', '顶级游资', '二线游资', '散户'];
+  const colors = ['#165DFF', '#F5319D', '#868686', '#F53F3F', '#FF7D00', '#C9CDD4'];
+  const values = order.map(k => structMap[k] || 0);
+  chartDetail.setOption({
+    tooltip: { trigger: 'item',
+      formatter: p => `${p.name}: <b>${p.value}%</b>` },
+    series: [{
+      type: 'pie', radius: ['45%', '75%'], center: ['50%', '55%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderColor: '#161A22', borderWidth: 2 },
+      label: { color: '#E8EAF0', fontSize: 11, formatter: '{b}\n{c}%' },
+      data: order.map((k, i) => ({ name: labels[i], value: values[i],
+        itemStyle: { color: colors[i] } }))
+    }],
+    title: { text: '6 类资金占比', left: 'center', top: 10,
+      textStyle: { color: '#A8AEBA', fontSize: 12, fontWeight: 400 } }
+  });
+
+  // Top seats table
+  const seats = b.top_seats || [];
+  const tbody = $('#tbl-seats tbody');
+  if (seats.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">该板块无近期龙虎榜顶级游资记录</td></tr>';
+  } else {
+    tbody.innerHTML = seats.map(s => `
+      <tr>
+        <td><a class="stock-link" data-code="${s.code}" title="跳到 ${s.name} 个股"><b>${s.code}</b> ${s.name}</a></td>
+        <td>${s.seat}</td>
+        <td><span class="alias">${s.alias}</span></td>
+        <td class="num ${s.amount_wan >= 0 ? 'up' : 'down'}">${(s.amount_wan || 0).toFixed(0)}</td>
+      </tr>
+    `).join('');
+    tbody.querySelectorAll('.stock-link').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        const code = a.dataset.code;
+        if (code) window.open(`/?code=${encodeURIComponent(code)}`, '_blank', 'noopener');
+      });
+    });
+  }
+}
+
+window.addEventListener('resize', () => {
+  chartScore && chartScore.resize();
+  chartDetail && chartDetail.resize();
+});
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

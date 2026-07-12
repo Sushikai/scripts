@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>板块资金轮动 · tuixue_v3</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg-page:    #0E1116;
+      --bg-card:    #161A22;
+      --bg-card-2:  #1B2029;
+      --bg-hover:   #232934;
+      --line:       rgba(255,255,255,0.06);
+      --line-strong:rgba(255,255,255,0.12);
+      --ink-1:      #E8EAF0;
+      --ink-2:      #A8AEBA;
+      --ink-3:      #6B7280;
+      --accent:     #F0C075;
+      --radius:     10px;
+      --radius-sm:  6px;
+      --shadow:     0 4px 12px rgba(0,0,0,.32);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg-page); color: var(--ink-1);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px; line-height: 1.5; }
+    .topbar {
+      position: sticky; top: 0; z-index: 100; background: var(--bg-card);
+      border-bottom: 1px solid var(--line); padding: 14px 20px;
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+      box-shadow: var(--shadow);
+    }
+    .topbar h1 { margin: 0 12px 0 0; font-size: 16px; font-weight: 600; color: var(--accent); }
+    .topbar h1 .sub { font-size: 11px; color: var(--ink-3); margin-left: 6px; font-weight: 400; }
+    .tab-group { display: inline-flex; background: var(--bg-card-2); border-radius: var(--radius-sm);
+      padding: 3px; border: 1px solid var(--line-strong); }
+    .tab-btn { padding: 5px 12px; font-size: 12px; background: transparent; color: var(--ink-2);
+      border: none; cursor: pointer; border-radius: 4px; transition: all .15s; }
+    .tab-btn.active { background: var(--accent); color: #1a1a1a; font-weight: 600; }
+    .tab-btn:hover:not(.active) { color: var(--ink-1); }
+    .btn-refresh {
+      padding: 5px 12px; font-size: 12px; background: var(--bg-card-2); color: var(--ink-1);
+      border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+      cursor: pointer; transition: all .15s;
+    }
+    .btn-refresh:hover { background: var(--bg-hover); border-color: var(--accent); }
+    .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-left: auto; color: var(--ink-3); font-size: 12px; }
+    .status .ok { color: #34C759; }
+    .status .err { color: #F53F3F; }
+
+    .container { padding: 20px; max-width: 1600px; margin: 0 auto; }
+    .card { background: var(--bg-card); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+      box-shadow: var(--shadow); }
+    .card h2 { margin: 0 0 12px 0; font-size: 13px; font-weight: 600;
+      color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase; }
+    .card .sub { font-size: 11px; color: var(--ink-3); font-weight: 400;
+      margin-left: 6px; text-transform: none; letter-spacing: 0; }
+    .briefing {
+      padding: 14px 16px; background: var(--bg-card-2); border-radius: var(--radius-sm);
+      border-left: 3px solid var(--accent); line-height: 1.7; font-size: 13px;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th, .table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+    .table th { color: var(--ink-3); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+    .table tr:hover td { background: var(--bg-card-2); }
+    .num { font-variant-numeric: tabular-nums; font-family: "SF Mono", "Menlo", monospace; }
+    .up   { color: #E84545; }
+    .down { color: #34C759; }
+    .neutral { color: var(--ink-2); }
+
+    .type-badge { display: inline-block; padding: 2px 8px; border-radius: 3px;
+      font-size: 11px; font-weight: 600; }
+    .type-main_switch { background: rgba(245,63,63,0.15); color: #F53F3F; }
+    .type-themed_in   { background: rgba(240,192,117,0.15); color: var(--accent); }
+    .type-pulse       { background: rgba(138,138,138,0.15); color: #A8AEBA; }
+
+    .board-link { color: var(--accent); cursor: pointer; text-decoration: none;
+      border-bottom: 1px dashed transparent; transition: all .15s; }
+    .board-link:hover { color: #FFD494; border-bottom-color: #FFD494; }
+
+    #sankey { width: 100%; height: 560px; }
+
+    .empty-state { padding: 80px 20px; text-align: center; color: var(--ink-3); font-size: 13px; }
+    .empty-state .icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
+
+    .legend { display: flex; gap: 14px; font-size: 11px; color: var(--ink-2); }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>板块资金轮动 <span class="sub">Sankey · 资金迁徙图谱 · 7 大类规则 §3</span></h1>
+    <div class="tab-group" id="period-tabs">
+      <button class="tab-btn active" data-period="1d">1日</button>
+      <button class="tab-btn" data-period="3d">3日</button>
+      <button class="tab-btn" data-period="5d">5日</button>
+    </div>
+    <button class="btn-refresh" id="btn-refresh">↻ 强制刷新</button>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#F53F3F"></div>主线切换</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#F0C075"></div>题材内轮动</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#8A8A8A"></div>脉冲套利</div>
+    </div>
+    <div class="status" id="status">就绪</div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2>轮动简报 <span class="sub" id="ts"></span></h2>
+      <div class="briefing" id="briefing">加载中…</div>
+    </div>
+
+    <div class="card">
+      <h2>资金迁徙桑基图 <span class="sub">左=资金流出板块 · 右=资金流入板块 · 线条粗细=迁徙体量(亿)</span></h2>
+      <div id="sankey"></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>资金流出 Top <span class="sub">退潮板块</span></h2>
+        <table class="table" id="tbl-outflow">
+          <thead><tr><th>板块</th><th>净流出(亿)</th><th>涨跌幅</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty-state">—</td></tr></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>资金流入 Top <span class="sub">崛起主线</span></h2>
+        <table class="table" id="tbl-inflow">
+          <thead><tr><th>板块</th><th>净流入(亿)</th><th>涨跌幅</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty-state">—</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>轮动明细 <span class="sub">强 → 弱 排序</span></h2>
+      <table class="table" id="tbl-migrations">
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>流出板块</th>
+            <th>→</th>
+            <th>流入板块</th>
+            <th>迁徙(亿)</th>
+            <th>强度</th>
+            <th>分歧(pp)</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="7" class="empty-state">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const API = '/api/rotation';
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+let chartSankey = null;
+let curPeriod = '1d';
+let curRefresh = 0;
+
+$('#period-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  $$('#period-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  curPeriod = btn.dataset.period;
+  load();
+});
+
+$('#btn-refresh').addEventListener('click', () => {
+  curRefresh = 1;
+  load().finally(() => { curRefresh = 0; });
+});
+
+async function load() {
+  $('#status').innerHTML = '<span class="err">加载中…</span>';
+  $('#btn-refresh').disabled = true;
+  try {
+    const url = `${API}?period=${curPeriod}&refresh=${curRefresh}`;
+    const r = await fetch(url);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'API 错误');
+    render(j.data);
+    const t = new Date((j.data.ts || Date.now()/1000) * 1000);
+    $('#status').innerHTML = `<span class="ok">✓</span> ${t.toLocaleTimeString()}`;
+  } catch (e) {
+    $('#status').innerHTML = `<span class="err">✗ ${e.message}</span>`;
+  } finally {
+    $('#btn-refresh').disabled = false;
+  }
+}
+
+function render(d) {
+  $('#ts').textContent = new Date((d.ts||0)*1000).toLocaleString();
+  $('#briefing').textContent = d.briefing || '—';
+
+  // Sankey
+  const sankeyData = d.sankey || { nodes: [], links: [] };
+  if (chartSankey) chartSankey.dispose();
+  chartSankey = echarts.init(document.getElementById('sankey'), 'dark', { renderer: 'canvas' });
+  if (sankeyData.nodes.length === 0) {
+    document.getElementById('sankey').innerHTML =
+      '<div class="empty-state"><div class="icon">∅</div>暂无轮动数据 — 板块净流入/流出均低于阈值,<br>或当前为非交易日 / 沙箱数据源未通</div>';
+  } else {
+    chartSankey.setOption({
+      tooltip: {
+        trigger: 'item', triggerOn: 'mousemove',
+        formatter: p => {
+          if (p.dataType === 'edge') {
+            return `<b>${p.data.source}</b> → <b>${p.data.target}</b><br>` +
+                   `迁徙: <b>${p.data.value} 亿</b><br>` +
+                   `<span style="color:#F0C075">点击跳到「${p.data.target}」资金详情</span>`;
+          }
+          return `<b>${p.name}</b><br>${p.value && p.value > 0 ? '总流量: ' + p.value.toFixed(2) + ' 亿' : ''}<br>` +
+                 `<span style="color:#F0C075">点击查看资金详情</span>`;
+        }
+      },
+      series: [{
+        type: 'sankey',
+        left: 20, right: 120, top: 20, bottom: 20,
+        nodeWidth: 18, nodeGap: 14,
+        data: sankeyData.nodes,
+        links: sankeyData.links,
+        lineStyle: { color: 'gradient', curveness: 0.5, opacity: 0.55 },
+        label: { color: '#E8EAF0', fontSize: 12, cursor: 'pointer' },
+        itemStyle: { borderWidth: 0, cursor: 'pointer' },
+        emphasis: { focus: 'adjacency' }
+      }]
+    });
+    // 节点 / 边点击 → 跳 /sector_funds?board=X
+    chartSankey.on('click', p => {
+      const name = p.dataType === 'edge' ? p.data.target : p.name;
+      if (name) window.open(`/sector_funds?board=${encodeURIComponent(name)}`, '_blank', 'noopener');
+    });
+  }
+
+  // Outflow / Inflow tables
+  fillTable('tbl-outflow', (d.outflow || []).map(b => ({
+    name: b.name, val: b.out_yi != null ? -b.out_yi : null, pct: b.change_pct
+  })), '亿', 0);
+  fillTable('tbl-inflow', (d.inflow || []).map(b => ({
+    name: b.name, val: b.in_yi, pct: b.change_pct
+  })), '亿', 1);
+
+  // Migrations table
+  const mtbody = $('#tbl-migrations tbody');
+  const ms = d.migrations || [];
+  if (ms.length === 0) {
+    mtbody.innerHTML = '<tr><td colspan="7" class="empty-state">—</td></tr>';
+  } else {
+    ms.sort((a, b) => b.strength - a.strength);
+    mtbody.innerHTML = ms.map(m => {
+      const cls = 'type-' + m.type;
+      return `<tr>
+        <td><span class="type-badge ${cls}">${m.type_label || m.type}</span></td>
+        <td><a class="board-link" data-board="${m.from}">${m.from}</a> <span class="neutral">(${fmtPct(m.src_change)})</span></td>
+        <td class="neutral">→</td>
+        <td><a class="board-link" data-board="${m.to}">${m.to}</a> <span class="neutral">(${fmtPct(m.dst_change)})</span></td>
+        <td class="num">${(m.scale_yi || 0).toFixed(2)}</td>
+        <td class="num">${(m.strength || 0).toFixed(1)}</td>
+        <td class="num">${m.divergence_pp != null ? m.divergence_pp.toFixed(2) : '—'}</td>
+      </tr>`;
+    }).join('');
+    mtbody.querySelectorAll('.board-link').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        const b = a.dataset.board;
+        if (b) window.open(`/sector_funds?board=${encodeURIComponent(b)}`, '_blank', 'noopener');
+      });
+    });
+  }
+}
+
+function fillTable(tblId, rows, unit, sign) {
+  const tbody = $('#' + tblId + ' tbody');
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-state">—</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(b => {
+    const v = b.val;
+    const cls = v == null ? 'neutral' : (v > 0 ? (sign ? 'up' : 'down') : (sign ? 'down' : 'up'));
+    return `<tr>
+      <td><a class="board-link" data-board="${b.name}">${b.name}</a></td>
+      <td class="num ${cls}">${v != null ? (v > 0 ? '+' : '') + v.toFixed(2) + ' ' + unit : '—'}</td>
+      <td class="num ${fmtPctCls(b.pct)}">${fmtPct(b.pct)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('.board-link').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const b = a.dataset.board;
+      if (b) window.open(`/sector_funds?board=${encodeURIComponent(b)}`, '_blank', 'noopener');
+    });
+  });
+}
+
+function fmtPct(v) { return v == null ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%'; }
+function fmtPctCls(v) { return v == null ? 'neutral' : (v > 0 ? 'up' : v < 0 ? 'down' : 'neutral'); }
+
+window.addEventListener('resize', () => chartSankey && chartSankey.resize());
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

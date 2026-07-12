@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>板块资金流向看板 · tuixue_v3</title>
+  <!-- ECharts CDN (按需切换本地路径) -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts-gl@2.0.9/dist/echarts-gl.min.js"></script>
+  <!-- 视觉规范: 深色专业金融面板,柔和低饱和配色 -->
+  <style>
+    /* === 全局变量: 配色 + 间距 (改这里统一改主题) === */
+    :root {
+      /* 资金分类固定配色 (用户字典 §6 类) */
+      --c-institution: #165DFF;   /* 机构专用 — 深蓝 */
+      --c-northbound:  #F5319D;   /* 北向资金 — 洋红 */
+      --c-quant:       #868686;   /* 量化程序化 — 灰 */
+      --c-hot_tier1:   #F53F3F;   /* 顶级一线游资 — 亮红 */
+      --c-hot_tier2:   #FF7D00;   /* 二线区域游资 — 橙 */
+      --c-hot_tier3:   #C9CDD4;   /* 三线微型大户 (散户·拉萨) — 浅灰 */
+      --c-index:       #34C759;   /* 板块指数 — 绿 */
+      /* 主题色 — 深色面板 */
+      --bg-page:       #0E1116;
+      --bg-card:       #161A22;
+      --bg-card-2:     #1B2029;
+      --bg-hover:      #232934;
+      --line:          rgba(255,255,255,0.06);
+      --line-strong:   rgba(255,255,255,0.12);
+      --ink-1:         #E8EAF0;
+      --ink-2:         #A8AEBA;
+      --ink-3:         #6B7280;
+      --accent:        #F0C075;
+      --up:            #E84545;   /* CN 标准 红涨 */
+      --down:          #34C759;   /* CN 标准 绿跌 */
+      --radius:        10px;
+      --radius-sm:     6px;
+      --shadow:        0 4px 12px rgba(0,0,0,.32);
+      --shadow-lg:     0 8px 24px rgba(0,0,0,.48);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg-page); color: var(--ink-1);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px; line-height: 1.5; }
+    /* === 顶部全局筛选栏 === */
+    .topbar {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--bg-card); border-bottom: 1px solid var(--line);
+      padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+      box-shadow: var(--shadow);
+    }
+    .topbar h1 {
+      margin: 0 12px 0 0; font-size: 16px; font-weight: 600; color: var(--accent);
+      letter-spacing: 0.5px;
+    }
+    .topbar h1 .sub { font-size: 11px; color: var(--ink-3); margin-left: 6px; font-weight: 400; }
+    .filter-group { display: flex; align-items: center; gap: 6px; }
+    .filter-group label { color: var(--ink-2); font-size: 12px; user-select: none; }
+    .multi-select {
+      background: var(--bg-card-2); color: var(--ink-1); border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; min-width: 220px;
+      max-width: 360px; cursor: pointer; min-height: 30px;
+    }
+    .multi-select:focus { outline: none; border-color: var(--accent); }
+    .tab-group {
+      display: inline-flex; background: var(--bg-card-2); border-radius: var(--radius-sm);
+      padding: 3px; border: 1px solid var(--line-strong);
+    }
+    .tab-btn {
+      padding: 5px 12px; font-size: 12px; background: transparent; color: var(--ink-2);
+      border: none; cursor: pointer; border-radius: 4px; transition: all .15s;
+    }
+    .tab-btn.active { background: var(--accent); color: #1a1a1a; font-weight: 600; }
+    .tab-btn:hover:not(.active) { color: var(--ink-1); }
+    .input-num, .input-date {
+      background: var(--bg-card-2); color: var(--ink-1); border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; width: 120px;
+    }
+    .input-date { width: 130px; }
+    .input-num { width: 110px; }
+    .input-num:focus, .input-date:focus { outline: none; border-color: var(--accent); }
+    .legend-toggles { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+    .legend-chip {
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; font-size: 11px;
+      border-radius: 999px; background: var(--bg-card-2); border: 1px solid var(--line-strong);
+      cursor: pointer; user-select: none; transition: opacity .15s, background .15s;
+    }
+    .legend-chip.off { opacity: 0.35; }
+    .legend-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .legend-chip[data-key="institution"] .dot { background: var(--c-institution); }
+    .legend-chip[data-key="northbound"]  .dot { background: var(--c-northbound); }
+    .legend-chip[data-key="quant"]       .dot { background: var(--c-quant); }
+    .legend-chip[data-key="hot_tier1"]   .dot { background: var(--c-hot_tier1); }
+    .legend-chip[data-key="hot_tier2"]   .dot { background: var(--c-hot_tier2); }
+    .legend-chip[data-key="retail_lhasa"].dot { background: var(--c-hot_tier3); }
+    .btn {
+      background: var(--accent); color: #1a1a1a; border: none; border-radius: var(--radius-sm);
+      padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+    }
+    .btn:hover { filter: brightness(1.08); }
+    .btn-ghost {
+      background: transparent; color: var(--ink-2); border: 1px solid var(--line-strong);
+    }
+    .btn-ghost:hover { background: var(--bg-hover); color: var(--ink-1); }
+    /* === 主体: 左侧图表 + 右侧表格 === */
+    .layout { display: grid; grid-template-columns: 1fr 460px; gap: 14px; padding: 14px 20px 20px; }
+    .charts { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 14px; box-shadow: var(--shadow);
+    }
+    .card-h {
+      font-size: 13px; font-weight: 600; color: var(--ink-1); margin: 0 0 8px 0;
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    }
+    .card-h .meta { font-size: 11px; color: var(--ink-3); font-weight: 400; }
+    .chart { width: 100%; height: 360px; }
+    .chart.tall { height: 420px; }
+    /* === 底部表格 === */
+    .table-card {
+      background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 14px; box-shadow: var(--shadow); grid-column: 1 / -1;
+    }
+    .ranking-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .ranking-table thead th {
+      background: var(--bg-card-2); color: var(--ink-2); padding: 8px 10px; text-align: left;
+      font-weight: 500; border-bottom: 1px solid var(--line-strong); position: sticky; top: 0;
+    }
+    .ranking-table tbody tr {
+      cursor: pointer; transition: background .12s;
+    }
+    .ranking-table tbody tr:hover { background: var(--bg-hover); }
+    .ranking-table tbody tr.selected { background: rgba(240,192,117,0.10); }
+    .ranking-table tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    .ranking-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .net-up   { color: var(--up); }
+    .net-down { color: var(--down); }
+    .tag {
+      display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+      background: rgba(240,192,117,0.15); color: var(--accent); margin-right: 4px;
+    }
+    .tag.tier1 { background: rgba(245,63,63,0.15); color: var(--c-hot_tier1); }
+    .tag.tier2 { background: rgba(255,125,0,0.15); color: var(--c-hot_tier2); }
+    .tag.quant { background: rgba(134,134,134,0.20); color: var(--c-quant); }
+    .seat-pill {
+      display: inline-flex; align-items: center; gap: 3px; font-size: 11px;
+      padding: 2px 7px; border-radius: 999px; margin: 1px 2px 1px 0;
+      background: var(--bg-card-2); border: 1px solid var(--line-strong); color: var(--ink-2);
+    }
+    .seat-pill .alias { color: var(--c-hot_tier1); font-weight: 600; }
+    .seat-pill.tier2 .alias { color: var(--c-hot_tier2); }
+    /* === 状态条 / Toast === */
+    .toast {
+      position: fixed; top: 70px; right: 24px; z-index: 200;
+      background: var(--bg-card-2); border: 1px solid var(--line-strong); padding: 10px 16px;
+      border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); font-size: 12px;
+      opacity: 0; transform: translateY(-8px); transition: all .25s; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.ok { border-color: var(--down); }
+    .toast.err { border-color: var(--up); }
+    .badge-source {
+      display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px;
+      background: rgba(255,255,255,0.06); color: var(--ink-3); margin-left: 6px;
+    }
+    /* === 大屏适配 === */
+    @media (max-width: 1280px) { .layout { grid-template-columns: 1fr 380px; } }
+    @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; } }
+    /* === 滚动条美化 === */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+  </style>
+</head>
+<body>
+
+<!-- ============================ 顶部筛选栏 ============================ -->
+<div class="topbar">
+  <h1>板块资金流向 <span class="sub">tuixue_v3 · SECTOR_FUNDS · 6 类资金分层</span></h1>
+
+  <!-- 板块筛选 (行业 + 题材概念) -->
+  <div class="filter-group">
+    <label>行业板块</label>
+    <select id="f-industry" class="multi-select" multiple size="1" placeholder="选择行业板块…"></select>
+  </div>
+  <div class="filter-group">
+    <label>题材概念</label>
+    <select id="f-concept" class="multi-select" multiple size="1" placeholder="选择题材…"></select>
+  </div>
+
+  <!-- 周期 Tab -->
+  <div class="filter-group">
+    <label>周期</label>
+    <div class="tab-group" id="period-tabs">
+      <button class="tab-btn" data-period="min1">分时 1min</button>
+      <button class="tab-btn" data-period="min5">分时 5min</button>
+      <button class="tab-btn" data-period="d1" class="active">日线 1日</button>
+      <button class="tab-btn" data-period="d3">日线 3日</button>
+      <button class="tab-btn" data-period="d5">日线 5日</button>
+    </div>
+  </div>
+
+  <!-- 日期区间 + 阈值 -->
+  <div class="filter-group">
+    <label>起</label>
+    <input type="date" id="f-date-start" class="input-date" />
+    <label>止</label>
+    <input type="date" id="f-date-end" class="input-date" />
+  </div>
+  <div class="filter-group">
+    <label>净流入≥(万)</label>
+    <input type="number" id="f-threshold" class="input-num" placeholder="0" value="0" />
+  </div>
+
+  <!-- 资金类型隐藏开关 -->
+  <div class="filter-group">
+    <label>资金</label>
+    <div class="legend-toggles" id="legend-toggles">
+      <span class="legend-chip" data-key="institution"><span class="dot"></span>机构</span>
+      <span class="legend-chip" data-key="northbound"><span class="dot"></span>北向</span>
+      <span class="legend-chip" data-key="quant"><span class="dot"></span>量化</span>
+      <span class="legend-chip" data-key="hot_tier1"><span class="dot"></span>顶级游资</span>
+      <span class="legend-chip" data-key="hot_tier2"><span class="dot"></span>二线游资</span>
+      <span class="legend-chip" data-key="retail_lhasa"><span class="dot"></span>散户</span>
+    </div>
+  </div>
+
+  <button class="btn btn-ghost" id="btn-reset" title="重置所有筛选">重置</button>
+  <button class="btn" id="btn-refresh" title="刷新数据 (Cmd+R)">刷新</button>
+</div>
+
+<!-- ============================ 主布局 ============================ -->
+<div class="layout">
+
+  <!-- 左侧: 双图 -->
+  <div class="charts">
+    <div class="card">
+      <div class="card-h">
+        分时资金流向 <span class="meta" id="meta-min">—</span>
+      </div>
+      <div id="chart-min" class="chart"></div>
+    </div>
+    <div class="card">
+      <div class="card-h">
+        日线资金流向 (堆叠柱 + 指数联动) <span class="meta" id="meta-day">—</span>
+      </div>
+      <div id="chart-day" class="chart tall"></div>
+    </div>
+  </div>
+
+  <!-- 右侧: 板块资金排名 -->
+  <div class="card">
+    <div class="card-h">
+      板块资金排名 <span class="meta" id="meta-rank">—</span>
+    </div>
+    <div style="overflow-y:auto; max-height: 800px;">
+      <table class="ranking-table" id="ranking-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>板块</th>
+            <th>类型</th>
+            <th class="num">净流入(亿)</th>
+            <th>游资席位</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 底部: 明细表格 (跨栏) -->
+  <div class="table-card">
+    <div class="card-h">
+      板块明细 <span class="meta" id="meta-detail">勾选上方板块自动刷新</span>
+      <div>
+        <button class="btn-ghost" id="btn-export-png" style="background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);padding:4px 10px;font-size:11px;border-radius:6px;cursor:pointer;">导出 PNG</button>
+        <button class="btn-ghost" id="btn-export-xlsx" style="background:transparent;border:1px solid var(--line-strong);color:var(--ink-2);padding:4px 10px;font-size:11px;border-radius:6px;cursor:pointer;margin-left:6px;">导出 Excel</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="ranking-table" id="detail-table">
+        <thead>
+          <tr>
+            <th>板块</th>
+            <th>日期</th>
+            <th class="num">机构(亿)</th>
+            <th class="num">北向(亿)</th>
+            <th class="num">量化(亿)</th>
+            <th class="num">顶级游资(亿)</th>
+            <th class="num">二线游资(亿)</th>
+            <th class="num">散户(亿)</th>
+            <th class="num">合计(亿)</th>
+            <th class="num">板块涨跌</th>
+            <th>龙虎榜席位</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================================
+ * A 股板块资金流向看板 — JS 业务逻辑
+ * 数据源: GET /api/sector_funds/{industries,concepts,ranking,timeseries}
+ * 主要修改位置:
+ *   - FUND_KEYS / COLORS: 资金分类与配色,改这里同步图表
+ *   - _fetchFunds / _fetchRank: 数据获取,接入其他后端改这里
+ *   - renderMin / renderDay:  ECharts 配置,改图表样式改这里
+ *   - applyFilter:           筛选逻辑,加新筛选条件改这里
+ * ============================================================================ */
+
+// === 资金分类定义 (6 类,固定配色) ======================================
+const FUND_KEYS = [
+  { key: 'institution',  label: '机构专用',      color: '#165DFF', z: 5 },
+  { key: 'northbound',   label: '北向资金',      color: '#F5319D', z: 4 },
+  { key: 'quant',        label: '量化程序化',    color: '#868686', z: 3 },
+  { key: 'hot_tier1',    label: '顶级一线游资',  color: '#F53F3F', z: 2 },
+  { key: 'hot_tier2',    label: '二线区域游资',  color: '#FF7D00', z: 1 },
+  { key: 'retail_lhasa', label: '散户·拉萨',     color: '#C9CDD4', z: 0 },
+];
+const COLORS = Object.fromEntries(FUND_KEYS.map(f => [f.key, f.color]));
+const INDEX_COLOR = '#34C759';
+
+// === 全局状态 ===========================================================
+const state = {
+  period: 'd1',            // min1 / min5 / d1 / d3 / d5
+  industries: [],          // 多选板块名
+  concepts: [],
+  dateStart: null,
+  dateEnd: null,
+  thresholdWan: 0,
+  legendOff: new Set(),    // 用户关掉的资金分类
+  selectedBoard: null,     // 当前选中板块
+  ranking: [],
+  detail: [],
+  timeseriesMin: null,
+  timeseriesDay: null,
+};
+const chartMin = echarts.init(document.getElementById('chart-min'), 'dark', { renderer: 'canvas' });
+const chartDay = echarts.init(document.getElementById('chart-day'), 'dark', { renderer: 'canvas' });
+window.addEventListener('resize', () => { chartMin.resize(); chartDay.resize(); });
+
+// === Toast / Loading ====================================================
+function toast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = 'toast'; }, 2400);
+}
+
+// === 拉取数据 — 后端 JSON 接口 ============================================
+async function fetchJSON(path, params={}) {
+  const url = new URL(path, location.origin);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== '') url.searchParams.set(k, v);
+  });
+  const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const env = await r.json();
+  if (!env.ok) throw new Error(env.error || 'API err');
+  return env.data;
+}
+
+async function loadBoards() {
+  try {
+    const data = await fetchJSON('/api/sector_funds/industries');
+    fillSelect('f-industry', data.industries || []);
+    const data2 = await fetchJSON('/api/sector_funds/concepts');
+    fillSelect('f-concept', data2.concepts || []);
+  } catch (e) {
+    console.warn('load boards failed, using mock', e);
+    fillSelect('f-industry', MOCK_INDUSTRIES);
+    fillSelect('f-concept', MOCK_CONCEPTS);
+  }
+}
+function fillSelect(id, items) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = items.map(x => `<option value="${x}">${x}</option>`).join('');
+}
+
+// === 拉取资金排名 ========================================================
+async function loadRanking() {
+  try {
+    const data = await fetchJSON('/api/sector_funds/ranking', {
+      period: state.period,
+      start: state.dateStart || '',
+      end: state.dateEnd || '',
+      threshold_wan: state.thresholdWan || 0,
+    });
+    state.ranking = data.boards || [];
+  } catch (e) {
+    console.warn('ranking api failed, using mock', e);
+    state.ranking = mockRanking();
+  }
+  renderRanking();
+}
+
+// === 拉取资金时序 (按板块) =============================================
+async function loadTimeseries(board, boardType) {
+  try {
+    const data = await fetchJSON('/api/sector_funds/timeseries', {
+      board, board_type: boardType || 'industry',
+      period: state.period,
+      start: state.dateStart || '',
+      end: state.dateEnd || '',
+    });
+    state.timeseriesMin = data.minute || null;
+    state.timeseriesDay = data.daily || null;
+    state.detail = data.detail || [];
+  } catch (e) {
+    console.warn('timeseries api failed, using mock', e);
+    const mock = mockTimeseries(board);
+    state.timeseriesMin = mock.minute;
+    state.timeseriesDay = mock.daily;
+    state.detail = mock.detail;
+  }
+}
+
+// === 渲染: 分时图 =======================================================
+function renderMin() {
+  const data = state.timeseriesMin;
+  if (!data) {
+    chartMin.clear();
+    chartMin.setOption({ title: { text: '请选择板块', left: 'center', textStyle: { color: '#A8AEBA' }}});
+    document.getElementById('meta-min').textContent = '—';
+    return;
+  }
+  const times = data.times || [];
+  const series = FUND_KEYS.filter(f => !state.legendOff.has(f.key)).map(f => ({
+    name: f.label, type: 'line', smooth: true, showSymbol: false,
+    lineStyle: {
+      width: f.key === 'hot_tier1' ? 3 : 2,             // 顶级游资加粗 (用户要求)
+      color: f.color,
+    },
+    itemStyle: { color: f.color },
+    emphasis: { focus: 'series', lineStyle: { width: 4 } },
+    data: (data.funds?.[f.key] || []).map((v, i) => [times[i], v]),
+  }));
+  // 板块指数副图 (右 Y 轴)
+  series.push({
+    name: '板块指数', type: 'line', yAxisIndex: 1, smooth: true, showSymbol: false,
+    lineStyle: { color: INDEX_COLOR, width: 2, type: 'dashed' },
+    itemStyle: { color: INDEX_COLOR },
+    data: (data.index || []).map((v, i) => [times[i], v]),
+  });
+
+  chartMin.setOption({
+    backgroundColor: 'transparent',
+    grid: { left: 60, right: 60, top: 50, bottom: 40 },
+    legend: { textStyle: { color: '#A8AEBA' }, top: 6 },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross', label: { backgroundColor: '#1B2029' }},
+      backgroundColor: '#1B2029', borderColor: '#2A2F3A', textStyle: { color: '#E8EAF0' },
+    },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    xAxis: {
+      type: 'time', boundaryGap: false,
+      axisLine: { lineStyle: { color: '#6B7280' }}, axisLabel: { color: '#A8AEBA' },
+      splitLine: { show: true, lineStyle: { color: 'rgba(255,255,255,0.04)' }},
+    },
+    yAxis: [
+      { type: 'value', name: '净流入(万)', nameTextStyle: { color: '#A8AEBA' },
+        axisLine: { lineStyle: { color: '#6B7280' }}, axisLabel: { color: '#A8AEBA' },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' }}},
+      { type: 'value', name: '指数', nameTextStyle: { color: INDEX_COLOR }, position: 'right',
+        axisLine: { lineStyle: { color: INDEX_COLOR }}, axisLabel: { color: INDEX_COLOR },
+        splitLine: { show: false }},
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0 },
+      { type: 'slider', xAxisIndex: 0, height: 18, bottom: 8,
+        textStyle: { color: '#A8AEBA' }, fillerColor: 'rgba(240,192,117,0.15)',
+        borderColor: 'rgba(255,255,255,0.10)', handleStyle: { color: '#F0C075' }},
+    ],
+    series,
+  }, true);
+  document.getElementById('meta-min').textContent =
+    `${state.selectedBoard} · ${data.times?.length || 0} 分钟 · ${series.length - 1} 类资金`;
+}
+
+// === 渲染: 日线堆叠柱 + 指数联动 ========================================
+function renderDay() {
+  const data = state.timeseriesDay;
+  if (!data) {
+    chartDay.clear();
+    chartDay.setOption({ title: { text: '请选择板块', left: 'center', textStyle: { color: '#A8AEBA' }}});
+    document.getElementById('meta-day').textContent = '—';
+    return;
+  }
+  const dates = data.dates || [];
+  // 堆叠柱 — 6 类资金
+  const barSeries = FUND_KEYS.filter(f => !state.legendOff.has(f.key)).map(f => ({
+    name: f.label, type: 'bar', stack: 'funds',
+    itemStyle: {
+      color: f.color,
+      // 顶级游资加粗 — 用更鲜明的色阶
+      borderColor: f.key === 'hot_tier1' ? '#FF8585' : 'transparent',
+      borderWidth: f.key === 'hot_tier1' ? 1 : 0,
+    },
+    emphasis: { focus: 'series' },
+    data: data.funds?.[f.key] || [],
+  }));
+  // 板块指数折线 (右 Y 轴)
+  barSeries.push({
+    name: '板块指数', type: 'line', yAxisIndex: 1, smooth: true,
+    lineStyle: { color: INDEX_COLOR, width: 2.5 },
+    itemStyle: { color: INDEX_COLOR },
+    symbol: 'circle', symbolSize: 6,
+    data: data.index || [],
+    z: 10,
+  });
+  // 龙虎榜上榜日标三角符号
+  const lhbDates = data.lhb_dates || [];
+  const lhbMarks = lhbDates.map(d => {
+    const total = FUND_KEYS.reduce((s, f) => s + (data.funds?.[f.key]?.find((_, i) => data.dates[i] === d) || 0), 0);
+    return {
+      name: '龙虎榜', value: [d, total * 1.05], symbol: 'triangle',
+      symbolSize: 14, itemStyle: { color: '#F0C075' },
+      label: { show: true, formatter: '★', color: '#F0C075', fontSize: 14, position: 'top' },
+    };
+  });
+
+  chartDay.setOption({
+    backgroundColor: 'transparent',
+    grid: { left: 60, right: 70, top: 50, bottom: 60 },
+    legend: { textStyle: { color: '#A8AEBA' }, top: 6 },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow', label: { backgroundColor: '#1B2029' }},
+      backgroundColor: '#1B2029', borderColor: '#2A2F3A', textStyle: { color: '#E8EAF0' },
+      formatter: (params) => {
+        if (!params || !params.length) return '';
+        const date = params[0].axisValue;
+        let html = `<div style="font-weight:600;margin-bottom:6px;">${date}`;
+        if (lhbDates.includes(date)) html += ` <span style="color:#F0C075;">★ 龙虎榜</span>`;
+        html += `</div>`;
+        let total = 0;
+        params.forEach(p => {
+          if (p.seriesName === '板块指数') {
+            html += `<div style="color:${INDEX_COLOR};">${p.marker}${p.seriesName}: <b>${p.value}</b></div>`;
+          } else {
+            total += p.value || 0;
+            html += `<div style="color:${p.color};">${p.marker}${p.seriesName}: <b>${(p.value||0).toFixed(2)}</b></div>`;
+          }
+        });
+        html += `<div style="border-top:1px solid #2A2F3A;margin-top:4px;padding-top:4px;color:#A8AEBA;">合计: <b>${total.toFixed(2)}</b></div>`;
+        return html;
+      },
+    },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    xAxis: {
+      type: 'category', data: dates,
+      axisLine: { lineStyle: { color: '#6B7280' }}, axisLabel: { color: '#A8AEBA' },
+      splitLine: { show: false },
+    },
+    yAxis: [
+      { type: 'value', name: '净流入(亿)', nameTextStyle: { color: '#A8AEBA' },
+        axisLine: { lineStyle: { color: '#6B7280' }}, axisLabel: { color: '#A8AEBA' },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' }}},
+      { type: 'value', name: '指数', nameTextStyle: { color: INDEX_COLOR }, position: 'right',
+        axisLine: { lineStyle: { color: INDEX_COLOR }}, axisLabel: { color: INDEX_COLOR },
+        splitLine: { show: false }},
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0 },
+      { type: 'slider', xAxisIndex: 0, height: 18, bottom: 18,
+        textStyle: { color: '#A8AEBA' }, fillerColor: 'rgba(240,192,117,0.15)',
+        borderColor: 'rgba(255,255,255,0.10)', handleStyle: { color: '#F0C075' }},
+    ],
+    series: barSeries,
+    // 龙虎榜标记点叠加
+    ...(lhbMarks.length ? {
+      graphic: lhbDates.map(d => ({
+        type: 'text', left: 'auto', top: 'auto', position: undefined,
+        style: { text: '★', fontSize: 14, fill: '#F0C075' },
+        // 用 graphic 简化为系列 markPoint
+      })),
+    } : {}),
+  }, true);
+  document.getElementById('meta-day').textContent =
+    `${state.selectedBoard} · ${dates.length} 个交易日 · 6 类资金堆叠`;
+}
+
+// === 渲染: 板块排名表 ===================================================
+function renderRanking() {
+  const tb = document.querySelector('#ranking-table tbody');
+  const filtered = state.ranking.filter(r => {
+    if (state.industries.length && !state.industries.includes(r.board)) return false;
+    if (state.concepts.length && r.board_type === 'concept' && !state.concepts.includes(r.board)) return false;
+    return true;
+  });
+  tb.innerHTML = filtered.slice(0, 80).map((r, i) => {
+    const netYi = (r.net_wan || 0) / 10000;
+    const cls = netYi > 0 ? 'net-up' : netYi < 0 ? 'net-down' : '';
+    const seats = (r.seats || []).slice(0, 4).map(s => {
+      const tierCls = s.tier === '顶级一线' ? 'tier1' : (s.tier === '二线区域' ? 'tier2' : '');
+      return `<span class="seat-pill ${tierCls}">${s.tier === '顶级一线' ? '★ ' : ''}<span class="alias">${s.alias || s.seat}</span> <span style="color:#6B7280;">${(s.amount_wan||0).toFixed(0)}万</span></span>`;
+    }).join('') || '<span style="color:#6B7280;">—</span>';
+    const selected = state.selectedBoard === r.board ? 'selected' : '';
+    return `<tr class="${selected}" data-board="${r.board}" data-type="${r.board_type||'industry'}">
+      <td>${i+1}</td>
+      <td>${r.board}</td>
+      <td>${r.board_type === 'concept' ? '<span class="tag">题材</span>' : '<span class="tag" style="color:#A8AEBA;background:rgba(168,174,186,0.10);">行业</span>'}</td>
+      <td class="num ${cls}">${netYi >= 0 ? '+' : ''}${netYi.toFixed(2)}</td>
+      <td>${seats}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" style="text-align:center;color:#6B7280;padding:20px;">无符合条件板块</td></tr>`;
+  // 行点击
+  tb.querySelectorAll('tr[data-board]').forEach(tr => {
+    tr.addEventListener('click', async () => {
+      const board = tr.dataset.board;
+      const type = tr.dataset.type;
+      state.selectedBoard = board;
+      tb.querySelectorAll('tr').forEach(x => x.classList.remove('selected'));
+      tr.classList.add('selected');
+      await loadTimeseries(board, type);
+      renderMin(); renderDay(); renderDetail();
+    });
+  });
+  document.getElementById('meta-rank').textContent = `共 ${filtered.length} 个板块 · 阈值 ≥ ${state.thresholdWan || 0} 万`;
+  // 自动选第一个
+  if (!state.selectedBoard && filtered.length) {
+    const first = filtered[0];
+    state.selectedBoard = first.board;
+    awaitLoad(first.board, first.board_type || 'industry');
+  } else if (state.selectedBoard) {
+    const sel = filtered.find(r => r.board === state.selectedBoard);
+    if (sel) awaitLoad(sel.board, sel.board_type || 'industry');
+  }
+}
+async function awaitLoad(board, type) {
+  await loadTimeseries(board, type);
+  renderMin(); renderDay(); renderDetail();
+}
+
+// === 渲染: 板块明细表 ===================================================
+function renderDetail() {
+  const tb = document.querySelector('#detail-table tbody');
+  if (!state.detail?.length) {
+    tb.innerHTML = `<tr><td colspan="11" style="text-align:center;color:#6B7280;padding:20px;">暂无明细数据</td></tr>`;
+    document.getElementById('meta-detail').textContent = '—';
+    return;
+  }
+  tb.innerHTML = state.detail.slice(0, 50).map(d => {
+    const seats = (d.seats || []).slice(0, 5).map(s => {
+      const tierCls = s.tier === '顶级一线' ? 'tier1' : (s.tier === '二线区域' ? 'tier2' : '');
+      return `<span class="seat-pill ${tierCls}" title="${s.seat}"><span class="alias">${s.alias || s.seat}</span></span>`;
+    }).join('') || '—';
+    const pct = d.pct_change;
+    const pctCls = pct > 0 ? 'net-up' : pct < 0 ? 'net-down' : '';
+    return `<tr>
+      <td>${d.board}</td>
+      <td>${d.date}</td>
+      <td class="num">${(d.funds?.institution||0).toFixed(2)}</td>
+      <td class="num">${(d.funds?.northbound||0).toFixed(2)}</td>
+      <td class="num">${(d.funds?.quant||0).toFixed(2)}</td>
+      <td class="num ${d.funds?.hot_tier1>0?'net-up':''}">${(d.funds?.hot_tier1||0).toFixed(2)}</td>
+      <td class="num">${(d.funds?.hot_tier2||0).toFixed(2)}</td>
+      <td class="num">${(d.funds?.retail_lhasa||0).toFixed(2)}</td>
+      <td class="num">${(d.total||0).toFixed(2)}</td>
+      <td class="num ${pctCls}">${pct>=0?'+':''}${(pct||0).toFixed(2)}%</td>
+      <td>${seats}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('meta-detail').textContent = `${state.selectedBoard} · ${state.detail.length} 条`;
+}
+
+// === 筛选应用 ===========================================================
+function applyFilter() {
+  state.industries = Array.from(document.getElementById('f-industry').selectedOptions).map(o => o.value);
+  state.concepts   = Array.from(document.getElementById('f-concept').selectedOptions).map(o => o.value);
+  state.dateStart  = document.getElementById('f-date-start').value || null;
+  state.dateEnd    = document.getElementById('f-date-end').value || null;
+  state.thresholdWan = parseFloat(document.getElementById('f-threshold').value) || 0;
+  loadRanking();
+}
+
+// === 绑定交互 ===========================================================
+document.querySelectorAll('#period-tabs .tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#period-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.period = btn.dataset.period;
+    if (state.selectedBoard) {
+      const sel = state.ranking.find(r => r.board === state.selectedBoard);
+      if (sel) awaitLoad(sel.board, sel.board_type || 'industry');
+    } else {
+      loadRanking();
+    }
+  });
+});
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  applyFilter();
+  toast('已刷新', 'ok');
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  ['f-industry','f-concept'].forEach(id => {
+    const sel = document.getElementById(id); Array.from(sel.options).forEach(o => o.selected = false);
+  });
+  document.getElementById('f-threshold').value = 0;
+  document.getElementById('f-date-start').value = '';
+  document.getElementById('f-date-end').value = '';
+  document.querySelectorAll('#period-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('#period-tabs .tab-btn[data-period="d1"]').classList.add('active');
+  state.period = 'd1';
+  state.selectedBoard = null;
+  applyFilter();
+});
+['f-industry','f-concept','f-date-start','f-date-end','f-threshold'].forEach(id => {
+  document.getElementById(id).addEventListener('change', applyFilter);
+});
+document.querySelectorAll('.legend-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const key = chip.dataset.key;
+    if (state.legendOff.has(key)) {
+      state.legendOff.delete(key);
+      chip.classList.remove('off');
+    } else {
+      state.legendOff.add(key);
+      chip.classList.add('off');
+    }
+    renderMin(); renderDay();
+  });
+});
+document.getElementById('btn-export-png').addEventListener('click', () => {
+  // 导出当前活跃图 (优先日线)
+  const url = chartDay.getDataURL({ pixelRatio: 2, backgroundColor: '#161A22' });
+  const a = document.createElement('a'); a.href = url; a.download = `${state.selectedBoard || 'sector_funds'}_day.png`;
+  a.click(); toast('已导出 PNG', 'ok');
+});
+document.getElementById('btn-export-xlsx').addEventListener('click', () => {
+  // 简化版:导出 CSV (浏览器内无需依赖 xlsx 库)
+  if (!state.detail?.length) { toast('无明细可导出', 'err'); return; }
+  const headers = ['板块','日期','机构(亿)','北向(亿)','量化(亿)','顶级游资(亿)','二线游资(亿)','散户(亿)','合计(亿)','板块涨跌%','龙虎榜席位'];
+  const rows = state.detail.map(d => [
+    d.board, d.date,
+    d.funds?.institution||0, d.funds?.northbound||0, d.funds?.quant||0,
+    d.funds?.hot_tier1||0, d.funds?.hot_tier2||0, d.funds?.retail_lhasa||0,
+    d.total||0, d.pct_change||0,
+    (d.seats||[]).map(s => `${s.alias||s.seat}(${s.tier||''})`).join('; '),
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(x => `"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `${state.selectedBoard || 'sector_funds'}_明细.csv`; a.click();
+  toast('已导出 CSV', 'ok');
+});
+
+// === Mock 数据 (API 失败时降级) =========================================
+const MOCK_INDUSTRIES = ['半导体','新能源车','光伏','医药','白酒','银行','券商','军工','钢铁','煤炭','房地产','消费'];
+const MOCK_CONCEPTS = ['人工智能','华为产业链','储能','固态电池','机器人','低空经济','军工电子','数字货币','创新药','国企改革','中字头','高股息'];
+
+function mockRanking() {
+  const boards = [...MOCK_INDUSTRIES, ...MOCK_CONCEPTS];
+  return boards.map((b, i) => {
+    const net = (Math.random() - 0.4) * 50;
+    const seats = [];
+    if (Math.random() > 0.5) seats.push({ seat: '国泰君安上海江苏路营业部', alias: '章盟主', tier: '顶级一线', amount_wan: 3500 });
+    if (Math.random() > 0.7) seats.push({ seat: '华鑫证券上海宛平南路', alias: '炒股养家', tier: '顶级一线', amount_wan: 2800 });
+    if (Math.random() > 0.6) seats.push({ seat: '方正证券温岭安平东路证券营业部', alias: '温岭安平东路', tier: '二线区域', amount_wan: 1200 });
+    return {
+      board: b,
+      board_type: MOCK_CONCEPTS.includes(b) ? 'concept' : 'industry',
+      net_wan: net * 10000,
+      pct_change: (Math.random() - 0.4) * 5,
+      seats,
+    };
+  }).sort((a, b) => b.net_wan - a.net_wan);
+}
+function mockTimeseries(board) {
+  const days = 30;
+  const dates = Array.from({ length: days }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (days - 1 - i));
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+  const base = 1000;
+  const idx = dates.map((_, i) => +(base * (1 + (Math.random()-0.45)*0.02*i/10)).toFixed(1));
+  const funds = {};
+  FUND_KEYS.forEach(f => {
+    funds[f.key] = dates.map(() => +((Math.random()-0.4)*8).toFixed(2));
+  });
+  // 分时 240 根
+  const times = [];
+  for (let h = 9; h <= 15; h++) {
+    for (let m = 0; m < 60; m++) {
+      if (h === 9 && m < 30) continue;
+      if (h === 11 && m > 30) continue;
+      if (h === 12) continue;
+      if (h === 15 && m > 0) continue;
+      times.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+    }
+  }
+  const minFunds = {};
+  FUND_KEYS.forEach(f => { minFunds[f.key] = times.map(() => +((Math.random()-0.4)*200).toFixed(0)); });
+  const minIdx = times.map(() => +(base * (1 + (Math.random()-0.5)*0.005)).toFixed(1));
+  const detail = dates.map((d, i) => ({
+    board, date: d,
+    funds: Object.fromEntries(FUND_KEYS.map(f => [f.key, funds[f.key][i]])),
+    total: FUND_KEYS.reduce((s, f) => s + funds[f.key][i], 0),
+    pct_change: +(Math.random()*4-2).toFixed(2),
+    seats: i % 7 === 0 ? [{ seat: '国泰君安上海江苏路营业部', alias: '章盟主', tier: '顶级一线' }] : [],
+  }));
+  return {
+    minute: { times, funds: minFunds, index: minIdx },
+    daily: { dates, funds, index: idx, lhb_dates: dates.filter((_, i) => i % 7 === 0) },
+    detail,
+  };
+}
+
+// === 启动 ===============================================================
+(async () => {
+  await loadBoards();
+  // 默认日期:最近 30 天
+  const today = new Date();
+  const ago = new Date(); ago.setDate(today.getDate() - 30);
+  document.getElementById('f-date-start').value = ago.toISOString().slice(0,10);
+  document.getElementById('f-date-end').value = today.toISOString().slice(0,10);
+  document.querySelector('#period-tabs .tab-btn[data-period="d1"]').classList.add('active');
+  await loadRanking();
+
+  // 深链 ?board=X&type=industry|concept — 来自 sector_rotation / sector_hotspot 跳转
+  const _qp = new URLSearchParams(location.search);
+  const _deepBoard = _qp.get('board');
+  const _deepType  = _qp.get('type') || 'industry';
+  if (_deepBoard) {
+    // 等到 ranking 渲染完再选,避免覆盖
+    setTimeout(async () => {
+      const found = state.ranking.find(r => r.board === _deepBoard);
+      state.selectedBoard = _deepBoard;
+      if (found) {
+        // 高亮对应行
+        document.querySelectorAll('tr[data-board]').forEach(tr => {
+          tr.classList.toggle('selected', tr.dataset.board === _deepBoard);
+        });
+        await loadTimeseries(_deepBoard, found.board_type || _deepType);
+        renderMin(); renderDay(); renderDetail();
+        toast(`已深链到板块「${_deepBoard}」`);
+      } else {
+        toast(`板块「${_deepBoard}」不在当前 ranking 榜单(可能阈值过滤),仅拉时序`, 'info');
+        await loadTimeseries(_deepBoard, _deepType);
+        renderMin(); renderDay(); renderDetail();
+      }
+    }, 100);
+  }
+})();
+</script>
+
+</body>
+</html>
