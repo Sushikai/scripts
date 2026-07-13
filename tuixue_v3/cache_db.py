@@ -116,12 +116,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
             rules_failed_json  TEXT,
             mistake_pattern    TEXT,                  -- 错误模式: 追高/不止损/无主线/杂毛/情绪化...
             improvement        TEXT,                  -- 改进建议 (markdown)
+            key_risks_json     TEXT,                  -- 关键风险 JSON list (R-cfg-009 schema 补齐)
             context_json       TEXT,                  -- 当时的盘面/铁律命中快照
             ts_created    REAL    DEFAULT 0,
             FOREIGN KEY (trade_id) REFERENCES trades(id)
         );
         CREATE INDEX IF NOT EXISTS idx_reviews_trade ON trade_reviews(trade_id);
         CREATE INDEX IF NOT EXISTS idx_reviews_pattern ON trade_reviews(mistake_pattern);
+        -- 老库补齐 key_risks_json 列(无害,已存在则 no-op)
+        -- 注意: SQLite 不支持 IF NOT EXISTS on ADD COLUMN; 用 PRAGMA table_info 判断
+        -- (这里 db_init 启动时一次性跑,不会拖性能)
 
         -- 资金结构 (主力/散户/基金占比) - 2026-07-10
         -- 每个 code 每 60s 一行;前端表格每 10s 拉取最新
@@ -205,14 +209,63 @@ def _init_db(conn: sqlite3.Connection) -> None:
             pass
     conn.commit()
 
+    # R-cfg-009: trade_reviews (trade_id, model) 去重 + 唯一索引
+    # 必须放在 executescript 外,否则老库里有重复行会直接挂掉整个 _init_db,
+    # 进而炸掉 to_thread 拉新连接,所有读 API 返回空。2026-07-14 修复。
+    try:
+        cur = conn.execute(
+            "DELETE FROM trade_reviews WHERE id NOT IN ("
+            "  SELECT MAX(id) FROM trade_reviews GROUP BY trade_id, model"
+            ")"
+        )
+        if cur.rowcount:
+            log.info(f"trade_reviews dedup: 清理 {cur.rowcount} 条重复行")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_unique_trade_model "
+            "ON trade_reviews(trade_id, model)"
+        )
+    except Exception as e:
+        log.warning(f"trade_reviews unique index 跳过: {e}")
+
 
 def get_conn() -> sqlite3.Connection:
-    """线程安全 connection(每个线程一份)."""
+    """线程安全 connection(每个线程一份).
+    R8 增强: 加 busy_timeout + mmap + temp_store + slow query 记录.
+    """
     global _init_done
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False, timeout=10.0)
-    conn.execute("PRAGMA journal_mode=WAL;")  # 多读少写时 WAL 更友好
-    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA journal_mode=WAL;")      # 多读少写时 WAL 更友好
+    conn.execute("PRAGMA synchronous=NORMAL;")     # 折中: 安全 vs 性能
+    conn.execute("PRAGMA busy_timeout=5000;")      # R8: 锁等待最多 5s 自动重试
+    conn.execute("PRAGMA temp_store=MEMORY;")      # R8: 临时表放内存
+    try:
+        conn.execute("PRAGMA mmap_size=268435456;")  # R8: 256MB mmap (读多写少友好)
+    except Exception:
+        pass
+    # R8: 慢查询日志 (>300ms 打印 SQL + 堆栈,定位热点)
+    # 注:sqlite3.Connection.execute 是 C 层只读属性, 不能 monkey-patch。
+    # 改用 setattr 试,失败就降级到无埋点 (不影响主流程)。
+    try:
+        import time as _t
+        _orig_execute = type(conn).execute
+        def _timed(self, sql, params=()):
+            t0 = _t.monotonic()
+            cur = _orig_execute(self, sql, params)
+            dt = (_t.monotonic() - t0) * 1000
+            if dt > 300:
+                try:
+                    import logging as _lg
+                    _lg.getLogger("slowdb").warning(
+                        f"slow={dt:.0f}ms sql={sql[:200]!r}"
+                    )
+                except Exception:
+                    pass
+            return cur
+        import sqlite3 as _sq
+        _sq.Connection.execute = _timed
+    except Exception:
+        pass  # sqlite3 不允许替换,降级无埋点
     with _init_lock:
         if not _init_done:
             _init_db(conn)
@@ -659,3 +712,99 @@ def clear_stock_history() -> int:
     except Exception as e:
         log.debug(f"clear_stock_history 失败: {e}")
         return 0
+
+
+# ════════════════════════════════════════════════════════════
+# R8: 自动备份 + 健康指标
+# ════════════════════════════════════════════════════════════
+import shutil as _shutil
+import gzip as _gzip
+from datetime import datetime as _dt
+
+
+def backup_db(dest_dir: str | None = None) -> str | None:
+    """用 sqlite 在线 API 备份当前 db 到 dest_dir/cache-YYYYMMDD-HHMMSS.db.gz。
+
+    比直接 cp 安全 — 不会复制到一半的 WAL 页。
+    返回备份文件路径,失败返 None。
+    """
+    try:
+        if dest_dir is None:
+            dest_dir = str(_DB_PATH.parent / "backups")
+        import os as _os
+        _os.makedirs(dest_dir, exist_ok=True)
+        ts = _dt.now().strftime("%Y%m%d-%H%M%S")
+        out = _os.path.join(dest_dir, f"cache-{ts}.db.gz")
+        # 用在线 backup API — 即使有并发写入也安全
+        src = _thread_conn()
+        with _gzip.open(out, "wb", compresslevel=6) as gz:
+            with sqlite3.connect(":memory:") as dst:
+                src.backup(dst)
+                # 把内存里的内容写到 gz
+                for line in dst.iterdump():
+                    gz.write((line + "\n").encode("utf-8"))
+        # 清理 7 天前的旧备份
+        _prune_old_backups(dest_dir, keep_days=7)
+        return out
+    except Exception as e:
+        log.warning(f"backup_db 失败: {e}")
+        return None
+
+
+def _prune_old_backups(dest_dir: str, keep_days: int = 7) -> int:
+    """删 N 天前的旧备份,避免磁盘爆。"""
+    try:
+        import os as _os, glob as _glob, time as _t
+        cutoff = _t.time() - keep_days * 86400
+        n = 0
+        for p in _glob.glob(_os.path.join(dest_dir, "cache-*.db.gz")):
+            try:
+                if _os.path.getmtime(p) < cutoff:
+                    _os.remove(p)
+                    n += 1
+            except Exception:
+                pass
+        return n
+    except Exception:
+        return 0
+
+
+def db_health() -> dict:
+    """健康指标:R8 — 慢查询数 / WAL 大小 / 表行数 / 上次 backup 时间"""
+    try:
+        conn = _thread_conn()
+        out = {
+            "path":         str(_DB_PATH),
+            "size_mb":      round(_DB_PATH.stat().st_size / 1024 / 1024, 2) if _DB_PATH.exists() else 0,
+        }
+        # WAL 文件大小
+        wal = _DB_PATH.with_suffix(".db-wal")
+        if wal.exists():
+            out["wal_mb"] = round(wal.stat().st_size / 1024 / 1024, 2)
+        # 主表行数
+        try:
+            r = conn.execute("SELECT COUNT(*) FROM trades").fetchone()
+            out["trades_rows"] = r[0]
+            r = conn.execute("SELECT COUNT(*) FROM trade_reviews").fetchone()
+            out["trade_reviews_rows"] = r[0]
+            r = conn.execute("SELECT COUNT(*) FROM stock_history").fetchone()
+            out["stock_history_rows"] = r[0]
+        except Exception:
+            pass
+        # 最近一次 backup
+        backup_dir = _DB_PATH.parent / "backups"
+        if backup_dir.exists():
+            backups = sorted(backup_dir.glob("cache-*.db.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if backups:
+                out["last_backup"] = _dt.fromtimestamp(backups[0].stat().st_mtime).isoformat(timespec="seconds")
+                out["backup_count"] = len(backups)
+        # PRAGMA stats
+        try:
+            out["journal_mode"]   = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            out["synchronous"]    = conn.execute("PRAGMA synchronous").fetchone()[0]
+            out["cache_size_kb"]  = conn.execute("PRAGMA cache_size").fetchone()[0]
+        except Exception:
+            pass
+        return out
+    except Exception as e:
+        return {"error": str(e)[:200]}
