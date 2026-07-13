@@ -322,6 +322,23 @@
         <div class="qh-tags" id="qh-tags">
           <span class="qh-tag" id="qh-source">数据源</span>
         </div>
+        <!-- Sparkline: 近 1M 收盘价折线 + 5/20 日均线 + 现价竖线 -->
+        <div class="qh-spark" id="qh-spark-wrap" hidden>
+          <svg id="qh-spark" viewBox="0 0 200 44" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="qh-spark-fill" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0" stop-color="currentColor" stop-opacity="0.18" />
+                <stop offset="1" stop-color="currentColor" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <path id="qh-spark-area" fill="url(#qh-spark-fill)" d="" />
+            <path id="qh-spark-line" fill="none" stroke="currentColor" stroke-width="1.4" d="" />
+            <path id="qh-spark-ma5"  fill="none" stroke="#7b9bd1" stroke-width="0.8" stroke-dasharray="2 2" d="" opacity="0.85" />
+            <path id="qh-spark-ma20" fill="none" stroke="#a78bcf" stroke-width="0.8" stroke-dasharray="3 2" d="" opacity="0.85" />
+            <line id="qh-spark-now" x1="0" y1="0" x2="0" y2="44" stroke="#fff" stroke-width="1" stroke-dasharray="1 1" opacity="0.9" />
+          </svg>
+          <div class="qh-spark-meta" id="qh-spark-meta"></div>
+        </div>
       </div>
       <div class="qh-price-wrap">
         <div class="qh-price" id="q-price">—</div>
@@ -331,6 +348,19 @@
           <span class="qh-arrow" id="q-arrow"></span>
         </div>
         <div class="qh-time" id="q-time">—</div>
+        <!-- 现价 vs 涨停/跌停 距离条 + 风险标签 -->
+        <div class="qh-lu-band" id="qh-lu-band" hidden>
+          <div class="qh-lu-bar">
+            <span class="qh-lu-ld" id="qh-lu-ld">跌停</span>
+            <div class="qh-lu-track"><div class="qh-lu-fill" id="qh-lu-fill"></div><div class="qh-lu-tick" id="qh-lu-now"></div></div>
+            <span class="qh-lu-lu" id="qh-lu-lu">涨停</span>
+          </div>
+          <div class="qh-lu-meta">
+            <span id="qh-lu-distance">距涨停 —</span>
+            <span id="qh-lu-zone">—</span>
+          </div>
+        </div>
+        <div class="qh-risks" id="qh-risks" hidden></div>
       </div>
     </div>
 
@@ -1200,6 +1230,12 @@
           <button class="btn-mini danger" id="review-clear-all" title="清空所有交易记录(用于重新开始)" style="margin-left:8px">🗑 清空全部</button>
         </span>
       </div>
+      <div id="review-auto-banner" class="auto-review-banner" hidden>
+        <span class="arb-icon">🌀</span>
+        <span class="arb-text">进入页面自动后台复盘中…</span>
+        <span class="arb-prog"></span>
+        <button class="btn-mini arb-stop">停</button>
+      </div>
       <div class="review-table-wrap">
         <table class="data-table review-table" id="review-table">
           <thead>
@@ -1224,7 +1260,7 @@
             <tr>
               <td colspan="6" class="right bold">合计 · 所有交易汇总</td>
               <td id="rv-sum-today" class="cell-num bold">—</td>
-              <td colspan="2" class="cell-num-cell">
+              <td class="cell-num-cell">
                 <div><span id="rv-sum-cum" class="cell-num bold">—</span></div>
                 <div class="caption dim" style="margin-top:.2rem" id="rv-sum-cum-sub">—</div>
               </td>

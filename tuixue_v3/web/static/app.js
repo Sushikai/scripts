@@ -1720,6 +1720,11 @@ function renderStockDetail(code, data) {
   renderSeatsTable(seats.rows || [], seats);
   renderHolders(data.holders || null);
 
+  // Hero · sparkline + 涨停距 + 风险标
+  renderHeroSparkline(data.kline || [], price);
+  renderHeroLimitBand(price, prev, lu, extras.limit_dn_price, chg, extras.amplitude_pct);
+  renderHeroRisks(q, extras, chg);
+
   // 资金成分 (6 类席位 + 占比 + 风险) — 异步
   loadStockSeatBreakdown(code);
 
@@ -1751,6 +1756,128 @@ function renderStockDetail(code, data) {
 
   // 砸盘风险 (cache 命中 < 0.1s,冷启动 30-60s;先 re-render panel 骨架)
   loadCrashRisk(code);
+}
+
+// ─── Hero · sparkline (近 1M 收 + MA5/MA20 + 现价竖线) ───
+function renderHeroSparkline(kline, lastPrice) {
+  const wrap = $('#qh-spark-wrap');
+  if (!wrap) return;
+  if (!kline || kline.length < 5) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+
+  // 兼容 [{date, close}] / [dict] 两种结构
+  const closes = kline.map(k => Number(k.close ?? k[1] ?? k.收盘价 ?? 0)).filter(v => v > 0);
+  if (closes.length < 5) { wrap.hidden = true; return; }
+
+  const W = 200, H = 44, PAD = 2;
+  const min = Math.min(...closes), max = Math.max(...closes);
+  const span = (max - min) || 1;
+  const x = (i) => PAD + (i / (closes.length - 1)) * (W - 2 * PAD);
+  const y = (v) => PAD + (1 - (v - min) / span) * (H - 2 * PAD);
+
+  const points = closes.map((c, i) => [x(i), y(c)]);
+  const lineD = points.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const areaD = lineD + ` L${points[points.length - 1][0].toFixed(1)} ${H} L${points[0][0].toFixed(1)} ${H} Z`;
+
+  $('#qh-spark-line').setAttribute('d', lineD);
+  $('#qh-spark-area').setAttribute('d', areaD);
+
+  // MA5 / MA20
+  const ma = (n) => closes.map((_, i) => {
+    if (i < n - 1) return null;
+    let s = 0; for (let j = i - n + 1; j <= i; j++) s += closes[j];
+    return s / n;
+  });
+  const ma5 = ma(5), ma20 = ma(20);
+  const buildMa = (arr) => arr.map((v, i) => v != null ? [x(i), y(v)] : null)
+                              .filter(p => p).map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  $('#qh-spark-ma5').setAttribute('d', buildMa(ma5));
+  $('#qh-spark-ma20').setAttribute('d', buildMa(ma20));
+
+  // 现价竖线 — 锚定最后一根 (用 lastPrice 真实位置,无 lastPrice 时用 closes[-1])
+  const finalPrice = lastPrice || closes[closes.length - 1];
+  const finalX = x(closes.length - 1);
+  $('#qh-spark-now').setAttribute('x1', finalX);
+  $('#qh-spark-now').setAttribute('x2', finalX);
+
+  // 颜色 = 涨绿跌红 (对比最后值 vs 5 日前)
+  const trendUp = finalPrice >= closes[0];
+  wrap.classList.remove('up', 'down');
+  wrap.classList.add(trendUp ? 'up' : 'down');
+
+  // meta 小字: 区间高 / 低 / 当前点
+  const meta = $('#qh-spark-meta');
+  const days = kline.length;
+  if (meta) {
+    meta.innerHTML =
+      `<span>${days} 日</span>` +
+      `<span>高 <b>${max.toFixed(2)}</b></span>` +
+      `<span>低 <b>${min.toFixed(2)}</b></span>` +
+      `<span class="${finalPrice >= closes[0] ? 'dot-up' : 'dot-dn'}">现 <b>${finalPrice.toFixed(2)}</b></span>`;
+  }
+}
+
+// ─── Hero · 涨停距 / 跌停距 可视化 ───
+function renderHeroLimitBand(price, prev, lu, ld, chg, amp) {
+  const wrap = $('#qh-lu-band');
+  if (!wrap) return;
+  if (!prev || prev <= 0 || !lu || !ld) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+
+  const lo = Math.min(ld, prev * 0.85);
+  const hi = Math.max(lu, prev * 1.15);
+  const pct = (price - lo) / (hi - lo);
+  const left = Math.max(2, Math.min(98, pct * 100));
+
+  const tick = $('#qh-lu-now');
+  if (tick) tick.style.left = left + '%';
+
+  const distLU = lu - price;
+  const distLD = price - ld;
+  const distLU_pct = ((lu - price) / price) * 100;
+  const distLD_pct = ((price - ld) / price) * 100;
+
+  $('#qh-lu-distance').textContent = price >= lu
+    ? `🔴 已涨停 (+${(chg || 0).toFixed(2)}%)`
+    : `距涨停 +${distLU.toFixed(2)} · ${distLU_pct.toFixed(2)}%`;
+
+  const zone = $('#qh-lu-zone');
+  let zClass = '', zText = '';
+  if (price >= lu - 0.01)                   { zClass = 'zone-lu';  zText = '🚨 封板'; }
+  else if (price <= ld + 0.01)               { zClass = 'zone-ld';  zText = '⚠ 跌停'; }
+  else if (distLU_pct < 2)                   { zClass = 'zone-hot'; zText = '🔥 近涨停 <2%'; }
+  else if (distLD_pct < 2)                   { zClass = 'zone-hot'; zText = '⚡ 近跌停 <2%'; }
+  else if (amp && amp > 10)                  { zClass = 'zone-hot'; zText = '🎯 高振幅'; }
+  else                                       { zClass = '';         zText = '常态区间'; }
+  zone.className = zClass;
+  zone.textContent = zText;
+}
+
+// ─── Hero · 风险标签 (量比/振幅/换手/连板/弱势) ───
+function renderHeroRisks(q, extras, chg) {
+  const host = $('#qh-risks');
+  if (!host) return;
+  const risks = [];
+
+  const turnover = q.换手率;
+  if (turnover != null && turnover > 15)      risks.push(['r-turn', `高换手 ${turnover.toFixed(1)}%`]);
+  if (turnover != null && turnover < 1 && turnover > 0) risks.push(['r-turn', `冷 ${turnover.toFixed(2)}%`]);
+
+  const vr = q.量比;
+  if (vr != null && vr > 3)                   risks.push(['r-vol', `巨量 ${vr.toFixed(1)}×`]);
+  else if (vr != null && vr < 0.5 && vr > 0)  risks.push(['r-vol', `缩量 ${vr.toFixed(2)}×`]);
+
+  const amp = extras.amplitude_pct;
+  if (amp != null && amp > 12)                risks.push(['r-amp', `高振幅 ${amp.toFixed(1)}%`]);
+
+  if (extras.streak && extras.streak >= 2)    risks.push(['r-streak', `${extras.streak} 连板`]);
+
+  if (chg != null && chg <= -7)              risks.push(['r-bear', `急跌 ${chg.toFixed(2)}%`]);
+  else if (chg != null && chg >= 7 && chg < 9.7) risks.push(['r-streak', `冲刺涨停`]);
+
+  if (!risks.length) { host.hidden = true; host.innerHTML = ''; return; }
+  host.hidden = false;
+  host.innerHTML = risks.map(([cls, txt]) => `<span class="qh-risk ${cls}">${txt}</span>`).join('');
 }
 
 // 砸盘风险 (https://.../ai_crash_risk) — 量化席位 / 对倒 / 虚假流动性 / 尾盘异动
@@ -2735,6 +2862,9 @@ function renderIntraday5d(data) {
     dates: rows.map(r => r.date).sort(),
   };
 
+  // 同步下方分时回看的 上一交易日 / 下一交易日 按钮状态
+  if (typeof window.updateIntraDayNavState === 'function') window.updateIntraDayNavState();
+
   drawIntraday5dChart(code, rows, data.intraday_today, data.intraday_per_day);
 }
 
@@ -3065,14 +3195,55 @@ function initIntraDayPicker(code) {
   };
   refreshLabel();
   pick.onchange = refreshLabel;
-  prev.onclick = () => { pick.value = shiftDate(pick.value, -1); refreshLabel(); autoLoadIntraDay(); };
-  next.onclick = () => { pick.value = shiftDate(pick.value, +1); refreshLabel(); autoLoadIntraDay(); };
   load.onclick = () => autoLoadIntraDay();
+
+  // 5 日表内交易日导航: 优先在 5 日表里前后走,表外时回退到日历 ±1
+  const walkIntraDay = (dir) => {
+    const tbl = (intraday5dCache && intraday5dCache.daily_5d) || [];
+    const cur = pick.value;
+    let target;
+    if (tbl.length) {
+      const dates = tbl.map(r => r.date).sort();
+      const idx = dates.indexOf(cur);
+      if (idx >= 0) {
+        const j = Math.max(0, Math.min(dates.length - 1, idx + dir));
+        target = dates[j];
+      } else {
+        // 当前不在表里 — 找最近的一个
+        const before = dates.filter(d => d < cur).sort();
+        const after  = dates.filter(d => d > cur).sort();
+        target = dir < 0 ? (before.length ? before[before.length - 1] : dates[0])
+                         : (after.length  ? after[0] : dates[dates.length - 1]);
+      }
+    } else {
+      target = shiftDate(cur, dir);
+    }
+    pick.value = target;
+    refreshLabel();
+    autoLoadIntraDay();
+    updateIntraDayNavState();
+  };
+  prev.onclick = () => walkIntraDay(-1);
+  next.onclick = () => walkIntraDay(+1);
 
   function autoLoadIntraDay() {
     if (!currentStockCode) return;
     loadIntraDay(currentStockCode, pick.value);
+    updateIntraDayNavState();
   }
+
+  // 暴露给外部 (renderIntraday5d 加载完调用) — 同步按钮可用态
+  window.updateIntraDayNavState = updateIntraDayNavState;
+  function updateIntraDayNavState() {
+    const tbl = (intraday5dCache && intraday5dCache.daily_5d) || [];
+    if (!prev || !next) return;
+    if (!tbl.length) { prev.disabled = false; next.disabled = false; return; }
+    const dates = tbl.map(r => r.date).sort();
+    const idx = dates.indexOf(pick.value);
+    prev.disabled = idx <= 0;                              // 在最左(或不在线)无法再往前
+    next.disabled = idx < 0 || idx >= dates.length - 1;    // 在最右(或不在线)无法再往后
+  }
+  updateIntraDayNavState();
 }
 
 async function loadIntraDay(code, dateStr) {
@@ -5098,9 +5269,18 @@ function _renderCapbar(d) {
   const total_pnl = _reviewMoney(d.total_pnl);
   const totalSub = {
     text: `浮 ${_reviewMoney(d.unrealized_pnl).text} · 实 ${_reviewMoney(d.realized_pnl).text}` +
-      (d.codes ? ` · ${d.codes} 股` : ''),
+      (d.codes ? ` · ${d.trade_count || d.codes} 笔` : ''),
     cls: 'dim',
   };
+  // 含手续费总盈亏 = 总盈亏 − 笔数 × 5 (用户口径)
+  const tCount = d.trade_count || 0;
+  const feeAdj = (d.total_pnl != null && tCount > 0) ? round2(d.total_pnl - tCount * 5) : null;
+  const feeAdjObj = feeAdj != null
+    ? _reviewMoney(feeAdj)
+    : { text: '—', cls: '' };
+  const feeSub = tCount > 0
+    ? { text: `−¥${(tCount * 5).toLocaleString('zh-CN')} (${tCount} × ¥5)`, cls: 'dim' }
+    : { text: '无交易 · 0', cls: 'dim' };
   const ratio = d.total_pnl_pct != null
     ? _reviewPct(d.total_pnl_pct)
     : { text: '设总资金', cls: 'cell-flat' };
@@ -5109,9 +5289,12 @@ function _renderCapbar(d) {
     _capTile('仓位', { text: posText, cls: '' }, posRatio) +
     _capTile('今日盈亏', today, todaySub) +
     _capTile('总盈亏', total_pnl, totalSub) +
+    _capTile('含手续费', feeAdjObj, feeSub) +
     _capTile('盈亏比', ratio, { text: '总盈亏 / 总资金', cls: 'dim' });
   _renderPositions(d.positions || []);
 }
+
+function round2(v) { return Math.round((+v || 0) * 100) / 100; }
 
 function _renderPositions(positions) {
   const box = $('#review-positions');

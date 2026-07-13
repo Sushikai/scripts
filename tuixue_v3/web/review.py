@@ -1447,6 +1447,7 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
         "position_count": len(positions),
         "quotes_ok": sum(1 for c in codes if c in quotes),
         "codes": len(codes),
+        "trade_count": len(trades),  # 总交易笔数 — 用于资金栏手续费估算 (用户口径每笔 5 元)
         "ts": systime.time(),
     }
 
