@@ -499,8 +499,8 @@
           <div class="kt-group">
             <span class="kt-label">周期</span>
             <div class="kt-pills" id="kline-period">
-              <button class="kt-pill" data-days="22">1M</button>
-              <button class="kt-pill active" data-days="66">3M</button>
+              <button class="kt-pill active" data-days="22">1M</button>
+              <button class="kt-pill" data-days="66">3M</button>
               <button class="kt-pill" data-days="132">6M</button>
               <button class="kt-pill" data-days="250">1Y</button>
               <button class="kt-pill" data-days="400">2Y</button>
@@ -1191,6 +1191,12 @@
         <span>TRADES · 交易明细 · 逐笔实时盈亏</span>
         <span class="trades-toolbar">
           <span class="caption dim" id="review-ts">—</span>
+          <span class="integrity-badge" id="integrity-badge" data-state="loading" title="前端分组累计 vs 后端 portfolio 单源真值对账">
+            <span class="ib-dot"></span>
+            <span class="ib-text">对账中…</span>
+          </span>
+          <button class="btn-mini" id="review-fix-dirty" hidden title="检测到 DB 残留历史脏数据,一键清空重录" style="margin-left:8px">⚠ 修复脏数据</button>
+          <button class="btn-mini primary" id="review-bulk-ai" title="后台顺序 AI 复盘我的所有交易 (≈60s/笔,不阻塞浏览)" style="margin-left:8px">⚡ 一键 AI 复盘全部</button>
           <button class="btn-mini danger" id="review-clear-all" title="清空所有交易记录(用于重新开始)" style="margin-left:8px">🗑 清空全部</button>
         </span>
       </div>
@@ -1218,8 +1224,14 @@
             <tr>
               <td colspan="6" class="right bold">合计 · 所有交易汇总</td>
               <td id="rv-sum-today" class="cell-num bold">—</td>
-              <td id="rv-sum-cum"    class="cell-num bold">—</td>
-              <td id="rv-sum-pct"    class="cell-num bold">—</td>
+              <td colspan="2" class="cell-num-cell">
+                <div><span id="rv-sum-cum" class="cell-num bold">—</span></div>
+                <div class="caption dim" style="margin-top:.2rem" id="rv-sum-cum-sub">—</div>
+              </td>
+              <td class="cell-num-cell">
+                <div><span id="rv-sum-real" class="cell-num bold">—</span></div>
+                <div class="caption dim" style="margin-top:.2rem" id="rv-sum-real-sub">—</div>
+              </td>
               <td colspan="2" class="caption dim" id="rv-sum-meta">—</td>
             </tr>
           </tfoot>

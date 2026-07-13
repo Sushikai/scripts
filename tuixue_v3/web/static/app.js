@@ -1712,7 +1712,7 @@ function renderStockDetail(code, data) {
   if (empty) empty.style.display = 'none';
   drawFlowChart(flow.history || []);
   klineState.data = data.kline || [];
-  klineState.period = 66;
+  klineState.period = 22;
   syncKlineToolbar();
   drawKlineChart();
   renderFlowKpi(flow.history || []);
@@ -2233,7 +2233,7 @@ function drawFlowChart(history) {
 // K线状态 + 周期切换 + 指标计算 (MACD / KDJ / BOLL)
 // ──────────────────────────────────────────────────────────────
 let klineState = {
-  period: 66,                 // 当前显示周期 (天)
+  period: 22,                 // 当前显示周期 (天) · 默认 1M
   indicators: { ma: true, macd: false, kdj: false, boll: false },
   data: [],                   // 当前缓存的 kline
   loading: false,
@@ -2669,7 +2669,7 @@ function renderIntraday5d(data) {
     const lu = r.was_limit_up
       ? '<span style="color:' + UP + '">✓</span>'
       : '<span style="color:' + INK3 + '">·</span>';
-    return `<tr>
+    return `<tr data-date="${r.date}" style="cursor:pointer" title="点击查看 ${r.date} 分时">
       <td>${r.date}</td>
       <td class="num">${fmtN(r.open, 2)}</td>
       <td class="num">${fmtN(r.high, 2)}</td>
@@ -2688,6 +2688,28 @@ function renderIntraday5d(data) {
 
   note.textContent = data.note || '';
   if (data.note) note.style.color = INK2;
+
+  // 行点击 → 下方分时图跳到该日 (设置日期选择器 + 加载)
+  const tb = $('#intraday5d-table tbody');
+  tb.onclick = (ev) => {
+    const tr = ev.target.closest('tr[data-date]');
+    if (!tr) return;
+    const date = tr.dataset.date;
+    if (!date) return;
+    tb.querySelectorAll('tr.intra5d-active-row').forEach(r => r.classList.remove('intra5d-active-row'));
+    tr.classList.add('intra5d-active-row');
+    const pick = $('#intra-day-pick');
+    if (pick) {
+      pick.value = date;
+      const labelEl = $('#intra-day-label');
+      if (labelEl) {
+        const wk = ['日','一','二','三','四','五','六'];
+        const dd = new Date(date + 'T00:00:00');
+        labelEl.textContent = `${date} · 周${wk[dd.getDay()]}`;
+      }
+    }
+    if (currentStockCode) loadIntraDay(currentStockCode, date);
+  };
 
   drawIntraday5dChart(code, rows, data.intraday_today, data.intraday_per_day);
 }
@@ -3080,6 +3102,30 @@ function renderIntraDay(data) {
   const lo = lows.length ? Math.min(...lows) : null;
   const pct = (openRef && lastPrice) ? ((lastPrice - openRef) / openRef * 100) : null;
   const totalVol = ticks.reduce((s, t) => s + (t.volume_hand || 0), 0);
+
+  // 量加权均价(VWAP)
+  let cumPV = 0, cumV = 0;
+  for (const t of ticks) {
+    if (t.price != null) {
+      const v = t.volume_hand || 0;
+      cumPV += t.price * v;
+      cumV += v;
+    }
+  }
+  const vwap = cumV > 0 ? +(cumPV / cumV).toFixed(3) : null;
+
+  // 振幅 = (最高 - 最低) / 昨收
+  const refForAmp = prevClose ?? openRef;
+  const amp = (refForAmp && hi != null && lo != null) ? +(((hi - lo) / refForAmp) * 100).toFixed(2) : null;
+
+  // 主动买卖笔数 (side 含"买"/"卖"/"b"/"s")
+  let buyCnt = 0, sellCnt = 0;
+  for (const t of ticks) {
+    const s = (t.side || '').toLowerCase();
+    if (s.includes('买') || s === 'b' || s.startsWith('buy') || s.includes('bid')) buyCnt++;
+    else if (s.includes('卖') || s === 's' || s.startsWith('sell') || s.includes('ask')) sellCnt++;
+  }
+  const sideRatio = (buyCnt + sellCnt) > 0 ? (buyCnt / (buyCnt + sellCnt)) : null;
   const isSina = (data.source || '').startsWith('sina');
   const volStr = isSina
     ? (totalVol >= 1e8 ? (totalVol / 1e8).toFixed(2) + ' 亿股' : (totalVol / 1e4).toFixed(2) + ' 万股')
@@ -3089,6 +3135,13 @@ function renderIntraDay(data) {
     ['开盘',     openRef != null ? openRef.toFixed(2) : '—', INK],
     ['最新',     lastPrice != null ? lastPrice.toFixed(2) : '—', colorFor(pct)],
     ['日内涨跌', pct != null ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : '—', colorFor(pct)],
+    ['均价VWAP', vwap != null ? vwap.toFixed(3) : '—', ACCENT],
+    ['振幅',     amp != null ? (amp >= 0 ? '+' : '') + amp.toFixed(2) + '%' : '—', amp != null ? (amp >= 5 ? UP : INK2) : INK3],
+    ['主动买/卖',
+      (buyCnt + sellCnt) > 0
+        ? `${buyCnt} / ${sellCnt}` + (sideRatio != null ? ` · ${(sideRatio * 100).toFixed(0)}%` : '')
+        : '—',
+      sideRatio != null ? (sideRatio >= 0.55 ? UP : sideRatio <= 0.45 ? DOWN : INK2) : INK3],
     ['最高',     hi != null ? hi.toFixed(2) : '—', UP],
     ['最低',     lo != null ? lo.toFixed(2) : '—', DOWN],
     ['Tick 数',  ticks.length, INK2],
@@ -3818,10 +3871,125 @@ $('#review-clear-all')?.addEventListener('click', async () => {
     if (typeof _reviewLoadList === 'function') await _reviewLoadList();
     if (typeof _reviewLoadPortfolio === 'function') await _reviewLoadPortfolio();
     if (typeof _reviewLoadStats === 'function') await _reviewLoadStats();
+    if (typeof _reviewRefreshIntegrity === 'function') await _reviewRefreshIntegrity();
   } catch (e) {
     showToast('✗ 请求失败: ' + e.message, 'error');
   }
 });
+
+// R14: 一键 AI 复盘所有交易 — 后台并发跑,不阻塞页面
+$('#review-bulk-ai')?.addEventListener('click', async () => {
+  const trades = (_reviewState && _reviewState.trades) || [];
+  if (!trades.length) { showToast('✗ 当前没有交易可复盘', 'error', 2500); return; }
+  const needRun = trades.filter(t => !t.last_review).length;
+  const cached  = trades.length - needRun;
+  const lines = [
+    `将对 ${trades.length} 笔交易启动 AI 复盘`,
+    needRun ? `其中 ${needRun} 笔需要现跑(≈60s/笔),${cached} 笔走缓存秒回` : `${cached} 笔全部命中缓存,瞬时完成`,
+    '',
+    '后台并发 2 路,可在原地继续浏览/操作其它页',
+    '完成每笔会自动刷新主表',
+  ];
+  if (!confirm(lines.join('\n'))) return;
+  const btn = document.getElementById('review-bulk-ai');
+  const original = btn.textContent;
+  btn.disabled = true;
+  let done = 0, okCnt = 0, failCnt = 0;
+  const CONC = 2;
+  const queue = trades.slice();
+  const patchProgress = () => { btn.textContent = `⏳ ${done}/${queue.length}`; };
+  patchProgress();
+  async function worker() {
+    while (queue.length) {
+      const t = queue.shift();
+      const wasCached = !!t.last_review;
+      try {
+        // force=false:已复盘的笔秒回,未复盘的笔调 LLM (≈60s)
+        const r = await _fetchWithTimeout(`/api/review/trades/${t.id}/review?force=false`, { method: 'POST' });
+        const j = await r.json();
+        if (j.ok && j.data) {
+          okCnt++;
+          const v = j.data.verdict || '';
+          const s = (j.data.score != null) ? `${j.data.score}分` : '';
+          showToast(`✓ #${t.id} ${v} ${s}${wasCached ? ' ⌛缓存' : ''}`.trim(), 'success', 1800);
+        } else {
+          failCnt++;
+          showToast(`✗ #${t.id} ${j.error || '失败'}`, 'error', 2500);
+        }
+      } catch (e) {
+        failCnt++;
+        showToast(`✗ #${t.id} ${e.message}`, 'error', 2500);
+      } finally {
+        done++;
+        patchProgress();
+        try { await _reviewLoadList(); } catch {}
+        try { await _reviewRefreshIntegrity(); } catch {}
+      }
+    }
+  }
+  const ws = Array.from({ length: CONC }, () => worker());
+  await Promise.all(ws);
+  btn.disabled = false;
+  btn.textContent = original;
+  showToast(`✅ 全部完成 · 成功 ${okCnt} / 失败 ${failCnt}`, 'success', 4000);
+  try { await _reviewLoadPortfolio(); } catch {}
+});
+
+// R13: 「修复脏数据」按钮 — dirty 时显示, 点击等同 clear-all + 引导重录
+$('#review-fix-dirty')?.addEventListener('click', async () => {
+  if (!confirm('⚠ 检测到 DB 残留历史脏数据 (老解析器切碎 shares / 无法反查的 code)。\n\n清空所有交易后请重新粘贴录入。\n\n继续?')) return;
+  if (!confirm('⚠ 最终确认?')) return;
+  try {
+    const r = await _fetchWithTimeout('/api/review/trades_all?confirm=YES', { method: 'DELETE', timeout: 10000 });
+    const j = await r.json();
+    if (!j.ok) { showToast('✗ 清空失败: ' + (j.error || ''), 'error'); return; }
+    showToast(`✓ 脏数据已清 (trades=${j.data.deleted_trades}) — 请重新粘贴导入`, 'success');
+    if (typeof _reviewLoadList === 'function') await _reviewLoadList();
+    if (typeof _reviewLoadPortfolio === 'function') await _reviewLoadPortfolio();
+    if (typeof _reviewRefreshIntegrity === 'function') await _reviewRefreshIntegrity();
+  } catch (e) {
+    showToast('✗ 请求失败: ' + e.message, 'error');
+  }
+});
+
+// R13: 一致性校验 — 前端分组聚合 vs 后端 FIFO 单源真值
+async function _reviewRefreshIntegrity() {
+  const badge = document.getElementById('integrity-badge');
+  const fixBtn = document.getElementById('review-fix-dirty');
+  if (!badge) return;
+  badge.dataset.state = 'loading';
+  badge.querySelector('.ib-text').textContent = '对账中…';
+  try {
+    const r = await _fetchWithTimeout('/api/review/integrity', { timeout: 5000 });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'API err');
+    const d = j.data;
+    if (d.dirty_codes && d.dirty_codes.length) {
+      badge.dataset.state = 'dirty';
+      badge.querySelector('.ib-text').textContent = `脏数据 ${d.dirty_codes.length} 项`;
+      badge.title = d.recommendation + `\n脏: ${d.dirty_codes.map(x => x.name).join(', ')}`;
+      if (fixBtn) fixBtn.hidden = false;
+    } else if (!d.ok || Math.abs(d.discrepancy) > (d.threshold || 0.01)) {
+      badge.dataset.state = 'mismatch';
+      badge.querySelector('.ib-text').textContent =
+        `差 ${d.discrepancy >= 0 ? '+' : ''}${d.discrepancy.toFixed(2)} 元`;
+      badge.title = `前端分组: ${d.group_sum}\n后端 portfolio: ${d.portfolio_total}\n差异: ${d.discrepancy}`;
+      if (fixBtn) fixBtn.hidden = true;
+    } else {
+      badge.dataset.state = 'ok';
+      const total = d.portfolio_total;
+      const sign = total > 0 ? '+' : '';
+      badge.querySelector('.ib-text').textContent =
+        d.n_groups ? `✓ ${sign}${total.toFixed(2)}` : '✓ 空仓';
+      badge.title = `前端分组: ${d.group_sum}\n后端 portfolio: ${d.portfolio_total}\n已实现: ${d.portfolio_realized} · 浮: ${d.portfolio_unrealized}\n分组数: ${d.n_groups}`;
+      if (fixBtn) fixBtn.hidden = true;
+    }
+  } catch (e) {
+    badge.dataset.state = 'mismatch';
+    badge.querySelector('.ib-text').textContent = '对账失败';
+    badge.title = '拉取 /api/review/integrity 失败: ' + e.message;
+  }
+}
 
 // ─── 主题切换 (深/浅/跟随系统) ────────────────────────────────
 function getActiveTheme() {
@@ -4635,17 +4803,14 @@ function _reviewRender() {
 
   // ── 底部汇总 (所有可见交易 · 含子行 · 不含 000000 占位) ──
   // - 今日盈亏 = Σ today_pnl
-  // - 累计盈亏 = Σ cum_pnl (only once per FIFO-closed trade; per-trade view counts each sell)
-  // - 累计盈亏比 = 总累计 / 总成本
+  // - 累计盈亏 = 已实现 + 浮动 (cleared 不再重复计)
+  // - 含手续费累计 = 累计 − 笔数 × 5 (用户口径:每笔买卖固定 5 元手续费)
   const tfoot = $('#review-tfoot');
   if (tfoot) {
     const PLACEHOLDER = new Set(['', '000000', '—']);
     const allTrades = (_reviewState.trades || []).filter(t => !PLACEHOLDER.has(String(t.code || '').trim()));
     if (allTrades.length) {
-      // today_pnl: Σ 所有 holding/open/sold 的 today_pnl (避免双算 cleared)
-      // cum_pnl: Σ 所有 holding/open/sold 的 cum_pnl (同)
-      // 已被对冲的买单 (cleared) 在卖单已计,不重复,故只统计 status in [holding,open,sold]
-      let sToday = 0, sCum = 0, sCost = 0;
+      let sToday = 0, sRealized = 0, sFloat = 0;
       let nHolding = 0, nSold = 0, nCleared = 0;
       for (const t of allTrades) {
         const live = t.live || {};
@@ -4654,40 +4819,38 @@ function _reviewRender() {
         const cum = +(live.cum_pnl || 0);
         if (st === 'holding' || st === 'open') {
           sToday += today;
-          sCum += cum;
-          // 持仓持仓成本 = price * held_shares
-          sCost += +(t.price || 0) * +(live.held_shares || 0);
+          sFloat += cum;
           nHolding++;
         } else if (st === 'sold') {
           sToday += today;
-          sCum += cum;
-          // 卖出实现盈亏用 cum 算持仓成本不直观,只供参考
-          sCost += +(t.price || 0) * +(t.shares || 0);
+          sRealized += cum;
           nSold++;
         } else if (st === 'cleared') {
-          // 不计入汇总 (避免双算)
           nCleared++;
         }
       }
-      const clsToday = sToday > 0.5 ? 'cell-up' : (sToday < -0.5 ? 'cell-down' : 'cell-flat');
-      const clsCum = sCum > 0.5 ? 'cell-up' : (sCum < -0.5 ? 'cell-down' : 'cell-flat');
-      const pct = sCost > 0 ? (sCum / sCost * 100) : 0;
-      const clsPct = pct > 0.5 ? 'cell-up' : (pct < -0.5 ? 'cell-down' : 'cell-flat');
+      const sCum = sRealized + sFloat;
+      const totalTrades = nHolding + nSold + nCleared;
+      const feeTotal = totalTrades * 5;
+      const sReal = sCum - feeTotal;
       const fmtMoney = (v) => {
-        const s = (Math.round(v * 100) / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        return (v > 0 ? '+' : (v < 0 ? '−' : '')) + Math.abs(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (v > 0 ? '+' : (v < 0 ? '−' : '')) + '¥' + Math.abs(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       };
-      const fmtPct = (v) => (v > 0 ? '+' : (v < 0 ? '−' : '')) + Math.abs(v).toFixed(2) + '%';
-      const todayEl = $('#rv-sum-today');
-      const cumEl = $('#rv-sum-cum');
-      const pctEl = $('#rv-sum-pct');
-      const metaEl = $('#rv-sum-meta');
-      if (todayEl) { todayEl.textContent = fmtMoney(sToday); todayEl.className = `cell-num bold ${clsToday}`; }
-      if (cumEl)   { cumEl.textContent   = fmtMoney(sCum);   cumEl.className   = `cell-num bold ${clsCum}`; }
-      if (pctEl)   { pctEl.textContent   = fmtPct(pct);      pctEl.className   = `cell-num bold ${clsPct}`; }
-      if (metaEl)  {
-        metaEl.textContent = `持仓 ${nHolding} 笔 · 已卖 ${nSold} 笔 · 清仓 ${nCleared} 笔 · 总成本 ¥${Math.round(sCost).toLocaleString('zh-CN')}`;
-      }
+      const clsToday = sToday > 0.5 ? 'cell-up' : (sToday < -0.5 ? 'cell-down' : 'cell-flat');
+      const clsCum   = sCum > 0.5 ? 'cell-up' : (sCum < -0.5 ? 'cell-down' : 'cell-flat');
+      const clsReal  = sReal > 0.5 ? 'cell-up' : (sReal < -0.5 ? 'cell-down' : 'cell-flat');
+      const todayEl  = $('#rv-sum-today');
+      const cumEl    = $('#rv-sum-cum');
+      const cumSubEl = $('#rv-sum-cum-sub');
+      const realEl   = $('#rv-sum-real');
+      const realSubEl = $('#rv-sum-real-sub');
+      const metaEl   = $('#rv-sum-meta');
+      if (todayEl)   { todayEl.textContent   = fmtMoney(sToday); todayEl.className   = `cell-num bold ${clsToday}`; }
+      if (cumEl)     { cumEl.textContent     = fmtMoney(sCum);   cumEl.className     = `cell-num bold ${clsCum}`; }
+      if (cumSubEl)  { cumSubEl.textContent  = `实 ${fmtMoney(sRealized)} · 浮 ${fmtMoney(sFloat)}`; }
+      if (realEl)    { realEl.textContent    = fmtMoney(sReal);  realEl.className    = `cell-num bold ${clsReal}`; }
+      if (realSubEl) { realSubEl.textContent = `含手续费 −¥${feeTotal.toLocaleString('zh-CN')} (${totalTrades} × ¥5)`; }
+      if (metaEl)    { metaEl.textContent    = `共 ${totalTrades} 笔 · 持仓 ${nHolding} · 已卖 ${nSold} · 清仓 ${nCleared}`; }
       tfoot.hidden = false;
     } else {
       tfoot.hidden = true;
@@ -4850,7 +5013,11 @@ function _renderCapbar(d) {
   const today = _reviewMoney(d.today_pnl);
   const todaySub = d.today_pnl_pct != null ? _reviewPct(d.today_pnl_pct) : null;
   const total_pnl = _reviewMoney(d.total_pnl);
-  const totalSub = { text: `浮 ${_reviewMoney(d.unrealized_pnl).text} · 实 ${_reviewMoney(d.realized_pnl).text}`, cls: 'dim' };
+  const totalSub = {
+    text: `浮 ${_reviewMoney(d.unrealized_pnl).text} · 实 ${_reviewMoney(d.realized_pnl).text}` +
+      (d.codes ? ` · ${d.codes} 股` : ''),
+    cls: 'dim',
+  };
   const ratio = d.total_pnl_pct != null
     ? _reviewPct(d.total_pnl_pct)
     : { text: '设总资金', cls: 'cell-flat' };
@@ -4992,11 +5159,49 @@ const _aiReviewState = {
 };
 
 function openAiReview(tradeId) {
-  // 在主表里找这笔交易(快速预览头部)
+  // 在主表里找这笔交易
+  const t = (_reviewState.trades || []).find(t => t.id === tradeId) || null;
+  const hasReview = !!(t && t.last_review);
   _aiReviewState.tradeId = tradeId;
-  _aiReviewState.trade = (_reviewState.trades || []).find(t => t.id === tradeId) || null;
-  _aiReviewState.review = _aiReviewState.trade?.last_review || null;
-  showView('ai-review');
+  _aiReviewState.trade = t;
+  _aiReviewState.review = t?.last_review || null;
+  if (hasReview) {
+    // 已有复盘 → 跳面板看详细结果(原行为)
+    showView('ai-review');
+    return;
+  }
+  // 未复盘 → 后台跑,不要跳转页面
+  _reviewRunInBackground(tradeId, t);
+}
+
+// R-bug-2: 后台跑 AI 复盘 — 不导航,完成后只刷新主表 + toast
+async function _reviewRunInBackground(tradeId, t) {
+  if (!tradeId) return;
+  // 视觉反馈:把当前所有指向这 tradeId 的 AI 复盘按钮打上"⏳"状态
+  const btns = document.querySelectorAll(`button[data-action="ai-review:${tradeId}"], button[data-action="review-run:${tradeId}"]`);
+  btns.forEach(b => { b.dataset._oldText = b.textContent; b.disabled = true; b.textContent = '⏳'; });
+  showToast(`🌀 AI 复盘 #${tradeId} 后台启动中…约 60s`, 'info', 3000);
+  try {
+    const r = await _fetchWithTimeout(`/api/review/trades/${tradeId}/review?force=true`, { method: 'POST' });
+    const j = await r.json();
+    if (j.ok && j.data) {
+      // 缓存 result,这样后续用户点已复盘的按钮能立即打开面板
+      _aiReviewState.review = j.data;
+      _aiReviewState.trade = t;
+      _aiReviewState.tradeId = tradeId;
+      const v = j.data?.verdict || '';
+      const s = (j.data?.score != null) ? `${j.data.score}分` : '';
+      showToast(`✓ #${tradeId} 复盘完成 · ${v} ${s}`, 'success', 3500);
+      // 刷新主表:reviewed 标记 / 按钮文案 / mistake pill 全部更新
+      await _reviewLoadList();
+    } else {
+      btns.forEach(b => { b.disabled = false; b.textContent = b.dataset._oldText || 'AI 复盘'; });
+      showToast(`✗ #${tradeId} 复盘失败: ${j.error || '未知错误'}`, 'error', 5000);
+    }
+  } catch (e) {
+    btns.forEach(b => { b.disabled = false; b.textContent = b.dataset._oldText || 'AI 复盘'; });
+    showToast(`✗ #${tradeId} 复盘超时/失败: ${e.message}`, 'error', 5000);
+  }
 }
 
 // 当切到 ai-review view 时: 先看有没有缓存, 有就显示; 否则跑 LLM
@@ -6007,6 +6212,7 @@ function _reviewOnViewEnter() {
     _reviewLoadSettings();
     _reviewLoadPortfolio();
     _reviewLoadList();
+    _reviewRefreshIntegrity();                  // R13: 对账 badge
     _reviewLoadNextPicks();
     // 顶部资金栏 + 持仓 15s 刷新 — 离开页面自动停
     if (_reviewState.capTimer) clearInterval(_reviewState.capTimer);

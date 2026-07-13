@@ -325,99 +325,137 @@ def delete_trades_by_code(code: str) -> int:
 # ═══════════════════════════════════════════════════
 # AI 复盘 (核心)
 # ═══════════════════════════════════════════════════
+
+# R-cfg-1: 上下文拉取线程池 — sections 1-8 全并发,section 9 依赖 sector
+_ctx_executor = None
+def _get_ctx_executor():
+    global _ctx_executor
+    if _ctx_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _ctx_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ctx")
+        import atexit as _atexit
+        _atexit.register(lambda: _ctx_executor.shutdown(wait=False))
+    return _ctx_executor
+
+
 def _build_context(trade: dict) -> dict:
     """组装复盘上下文: 决策日前后盘面 + 游资 + 资金 + K线 + 板块 + 新闻 + 主力出仓。
     用户要求 (2026-07-10): 必须含前 10 日 + 后 5 日 K线、全部游资席位、主力资金逐日明细。
+    R14: 9 段 IO 拉取, 8 段 (1-8) 并发到 4 路线程池, 仅 9 段 (limit_up_landscape)
+        依赖 sector 所以串行在 sector 之后。整体由原本 ≈sum(t_i) 降到 ≈max(t_i)。
     """
     from .. import lib_common as lc
     from . import seat_lookup, fund_flow, holder_lookup
     from . import sector_classify, news_lookup
     code = trade["code"]
-    ctx: dict[str, Any] = {}
-    # 1) K线 (决策前 10 日 + 后 5 日 — 看清趋势 vs 噪声)
-    try:
+
+    # ── section factories:每一个返回一个 dict,放进 ctx[k] ──
+    def _sec_kline():
+        out: dict[str, Any] = {}
         df = lc.fetch_daily(code, days=120)
-        if df is not None and not df.empty:
-            df = df.sort_values("日期").reset_index(drop=True)
-            tdate = trade["trade_date"]
-            tdate_norm = f"{tdate[:4]}-{tdate[4:6]}-{tdate[6:8]}"
-            if "日期" in df.columns:
-                # 决策日及后 5 日
-                mask = df["日期"] >= tdate_norm
-                sub = df[mask].head(5)
-                ctx["kline_after"] = _safe_records(sub)
-                # 决策日前 10 日 — 看清趋势
-                pre = df[df["日期"] < tdate_norm].tail(10)
-                ctx["kline_before"] = _safe_records(pre)
-                # 决策日前 10 日整体走势统计(连板数/放量天数/资金态度)
-                ctx["trend_10d_before"] = _compute_trend_stats(pre)
-                # 后 5 日资金 + 走势 — 用来评判"买入是否正确"
-                ctx["aftermath_5d"] = _compute_aftermath(sub)
-    except Exception as e:
-        log.warning(f"复盘 kline {code} 失败: {e}")
-    # 2) 主力资金流(决策点前后 10 日 逐日明细)
-    try:
-        df_fund = lc.fetch_index_daily("sh000001", days=2)  # 触发 fetch 链
-        from .. import lib_common as lc2
-        main_exit = lc2.detect_main_force_exit(code, lookback_days=10)
-        if main_exit:
-            ctx["main_exit_10d"] = main_exit
-    except Exception as e:
-        log.debug(f"复盘 main_exit {code} 失败: {e}")
-    # 3) 资金流 (60 日完整历史 + 当日决策点单日)
-    try:
+        if df is None or df.empty:
+            return out
+        df = df.sort_values("日期").reset_index(drop=True)
+        tdate = trade["trade_date"]
+        tdate_norm = f"{tdate[:4]}-{tdate[4:6]}-{tdate[6:8]}"
+        if "日期" not in df.columns:
+            return out
+        sub = df[df["日期"] >= tdate_norm].head(5)
+        out["kline_after"] = _safe_records(sub)
+        pre = df[df["日期"] < tdate_norm].tail(10)
+        out["kline_before"] = _safe_records(pre)
+        out["trend_10d_before"] = _compute_trend_stats(pre)
+        out["aftermath_5d"] = _compute_aftermath(sub)
+        return out
+
+    def _sec_main_exit():
+        out: dict[str, Any] = {}
+        # R14: 删了原先的 `lc.fetch_index_daily("sh000001", days=2)` 触发调用 —
+        # 那行只是 legacy 占位,不进入任何字段,白浪费一个网络往返
+        v = lc.detect_main_force_exit(code, lookback_days=10)
+        if v:
+            out["main_exit_10d"] = v
+        return out
+
+    def _sec_fund_flow():
+        out: dict[str, Any] = {}
         ff = fund_flow.get_combined(code, days=60)
         if ff.get("history"):
-            ctx["fund_flow"] = ff
-    except Exception as e:
-        log.warning(f"复盘 fund_flow {code} 失败: {e}")
-    # 4) 龙虎榜 (60 日内全部席位 — 看清游资进出节奏)
-    try:
-        seats = seat_lookup.get_stock_seats(code, lookback_days=60)
-        if seats.get("rows"):
-            ctx["seats"] = seats
-            # 进一步: 提取近 10 日 vs 远 10 日 席位活跃度变化
-            ctx["seats_recent_10d"] = _seats_recent_stats(seats, days=10)
-    except Exception as e:
-        log.warning(f"复盘 seats {code} 失败: {e}")
-    # 5) 板块
-    try:
+            out["fund_flow"] = ff
+        return out
+
+    def _sec_seats():
+        out: dict[str, Any] = {}
+        s = seat_lookup.get_stock_seats(code, lookback_days=60)
+        if s.get("rows"):
+            out["seats"] = s
+            out["seats_recent_10d"] = _seats_recent_stats(s, days=10)
+        return out
+
+    def _sec_sector():
+        out: dict[str, Any] = {}
         s = sector_classify.get_sector(code, force_refresh=False)
         if s:
-            ctx["sector"] = s
-    except Exception as e:
-        log.warning(f"复盘 sector {code} 失败: {e}")
-    # 6) 新闻(优先按股票代码过滤,再回退到近期热点)
-    try:
-        news_data = news_lookup.get_cached_news(force_refresh=False, num=80)
-        all_news = news_data.get("items", []) if isinstance(news_data, dict) else []
-        # 优先挑相关
+            out["sector"] = s
+        return out
+
+    def _sec_news():
+        out: dict[str, Any] = {}
+        nd = news_lookup.get_cached_news(force_refresh=False, num=80)
+        all_news = nd.get("items", []) if isinstance(nd, dict) else []
         related = [n for n in all_news if code in (n.get("title", "") + str(n.get("codes", [])))]
-        ctx["news"] = (related + all_news)[:8]
-    except Exception as e:
-        log.warning(f"复盘 news {code} 失败: {e}")
-    # 7) 散户/主力持股占比
-    try:
+        out["news"] = (related + all_news)[:8]
+        return out
+
+    def _sec_holders():
+        out: dict[str, Any] = {}
         h = holder_lookup.fetch_holder_info(code)
         if h:
-            ctx["holders"] = h
-    except Exception:
-        pass
-    # 8) 大市(沪深300 / 上证 — 决策前后 10 日)
-    try:
+            out["holders"] = h
+        return out
+
+    def _sec_market():
+        out: dict[str, Any] = {}
         idx = lc.fetch_index_daily("sh000001", days=15)
         if idx is not None and not idx.empty:
-            ctx["market_10d"] = idx.to_dict(orient="records")[-10:]
-    except Exception:
-        pass
-    # 9) 当日涨停全景(用于"先回溯今日涨停,再回溯我的操作")
+            out["market_10d"] = idx.to_dict(orient="records")[-10:]
+        return out
+
+    # ── 并发 8 段,每段单独超时 18s,失败不阻塞其它段 ──
+    pool = _get_ctx_executor()
+    from concurrent.futures import TimeoutError as _FutTE
+    sections = {
+        "kline":     _sec_kline,
+        "main_exit": _sec_main_exit,
+        "fund_flow": _sec_fund_flow,
+        "seats":     _sec_seats,
+        "sector":    _sec_sector,
+        "news":      _sec_news,
+        "holders":   _sec_holders,
+        "market":    _sec_market,
+    }
+    futures = {k: pool.submit(fn) for k, fn in sections.items()}
+    ctx: dict[str, Any] = {}
+    for k, f in futures.items():
+        try:
+            d = f.result(timeout=18)
+            if d:
+                ctx.update(d)
+        except _FutTE:
+            log.warning(f"复盘 {k} {code} 超时 (18s)")
+        except Exception as e:
+            log.warning(f"复盘 {k} {code} 失败: {e}")
+
+    # ── section 9: limit_up_landscape 依赖 sector,所以放在最后 ──
     try:
         from . import limit_up_context as luc
         sector_name = None
         s = ctx.get("sector")
         if isinstance(s, dict):
             sector_name = s.get("name") or s.get("sector") or s.get("板块")
-        ctx["limit_up_landscape"] = luc.get_limit_up_context(code, sector_name)
+        v = luc.get_limit_up_context(code, sector_name)
+        if v:
+            ctx["limit_up_landscape"] = v
     except Exception as e:
         log.debug(f"复盘 limit_up_landscape {code} 失败: {e}")
     return ctx
