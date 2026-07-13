@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time as systime
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -135,177 +136,183 @@ def run_backtest(start: str = "2025-01-01", end: str = "2026-06-30",
       - hold_days: 持有天数（默认 cfg.BACKTEST_HOLD_DAYS）
       - sell_mode: rule / max / close
       - sample: 股票池采样（默认 200，加快速度；0=全市场）
+
+    并发安全:
+      run_backtest 共享 _BT_CTX + 全局 monkey-patch,所以同一时间只能跑一个。
+      用 _BT_RUN_SEMAPHORE 串行化,避免 _LONG_EXECUTOR 多 worker 并发触发
+      patched_screen 递归 / _BT_CTX 串扰 (2026-07-12 audit)。
     """
     top_n = top_n or cfg.BACKTEST_TOP_N
     hold_days = hold_days or cfg.BACKTEST_HOLD_DAYS
 
-    log.info(f"========== 回测开始 {start} → {end} | top={top_n} hold={hold_days} sell={sell_mode} sample={sample} ==========")
-    t0 = systime.time()
+    with _BT_RUN_SEMAPHORE:
+        log.info(f"========== 回测开始 {start} → {end} | top={top_n} hold={hold_days} sell={sell_mode} sample={sample} ==========")
+        t0 = systime.time()
 
-    # 1) 交易日历
-    dates = dl.fetch_trade_dates(start, end)
-    log.info(f"交易日历: {len(dates)} 天")
+        # 1) 交易日历
+        dates = dl.fetch_trade_dates(start, end)
+        log.info(f"交易日历: {len(dates)} 天")
 
-    # 2) 股票池
-    stocks_all = dl.fetch_stock_list()
-    if sample and len(stocks_all) > sample:
-        stocks_all = stocks_all[:sample]
-    log.info(f"股票池采样: {len(stocks_all)} 只")
+        # 2) 股票池
+        stocks_all = dl.fetch_stock_list()
+        if sample and len(stocks_all) > sample:
+            stocks_all = stocks_all[:sample]
+        log.info(f"股票池采样: {len(stocks_all)} 只")
 
-    # 3) 批量预热日线
-    log.info("预热日线数据...")
-    daily_cache = dl.batch_fetch_daily([c for c, _ in stocks_all], days=400, progress_every=100)
-    log.info(f"日线缓存: {len(daily_cache)} 只命中（耗时 {systime.time()-t0:.1f}s）")
+        # 3) 批量预热日线
+        log.info("预热日线数据...")
+        daily_cache = dl.batch_fetch_daily([c for c, _ in stocks_all], days=400, progress_every=100)
+        log.info(f"日线缓存: {len(daily_cache)} 只命中（耗时 {systime.time()-t0:.1f}s）")
 
-    # 4) 预加载情绪日历 + 主线日历（复用 v2 lib 的缓存）
-    log.info("预加载情绪日历 + 主线日历...")
-    emotion_cal, mainline_cal = _preload_calendars(dates)
+        # 4) 预加载情绪日历 + 主线日历（复用 v2 lib 的缓存）
+        log.info("预加载情绪日历 + 主线日历...")
+        emotion_cal, mainline_cal = _preload_calendars(dates)
 
-    # 5) 写入回测上下文 + 一次性安装 monkey-patch（避免每日期重建 closure）
-    _BT_CTX["daily_cache"] = daily_cache
-    _BT_CTX["emotion_cal"] = emotion_cal
-    _BT_CTX["mainline_cal"] = mainline_cal
-    _install_backtest_patches()
-    try:
-        # 6) 每日选股 + 模拟交易
-        trades: list[dict] = []
-        stats_by_date = []
-        skipped_no_pick = 0
-        cycle_blocked_days = 0
+        # 5) 写入回测上下文 + 一次性安装 monkey-patch（避免每日期重建 closure）
+        _BT_CTX["daily_cache"] = daily_cache
+        _BT_CTX["emotion_cal"] = emotion_cal
+        _BT_CTX["mainline_cal"] = mainline_cal
+        _install_backtest_patches()
+        try:
+            # 6) 每日选股 + 模拟交易
+            trades: list[dict] = []
+            stats_by_date = []
+            skipped_no_pick = 0
+            cycle_blocked_days = 0
 
-        # ── 铁律三.4：回撤到本轮高点 10% → 强制把 top_n 减半，恢复用 5% 死区 ──
-        # 用累计已实现盈亏 (按 top_n 等分摊到每槽) 估算资金曲线，峰值跟踪
-        peak_equity = 1.0
-        equity_running = 1.0
-        effective_top = top_n
-        risk_state = "normal"          # normal / reduced
-        risk_actions: list[dict] = []  # 每次状态切换的记录
-        DD_THRESHOLD = 10.0            # 减仓阈值
-        DD_RECOVER   =  5.0            # 恢复阈值（死区，避免反复切）
+            # ── 铁律三.4：回撤到本轮高点 10% → 强制把 top_n 减半，恢复用 5% 死区 ──
+            # 用累计已实现盈亏 (按 top_n 等分摊到每槽) 估算资金曲线，峰值跟踪
+            peak_equity = 1.0
+            equity_running = 1.0
+            effective_top = top_n
+            risk_state = "normal"          # normal / reduced
+            risk_actions: list[dict] = []  # 每次状态切换的记录
+            DD_THRESHOLD = 10.0            # 减仓阈值
+            DD_RECOVER   =  5.0            # 恢复阈值（死区，避免反复切）
 
-        for di, d in enumerate(dates):
-            if di + hold_days + 1 >= len(dates):
-                continue
-            buy_d = dates[di + 1]
-            sell_d = dates[di + 1 + hold_days]
-
-            try:
-                r = _screen_for_date(d, stocks_all)
-            except RecursionError as e:
-                # 仅在第一次捕获时打完整栈,避免日志被刷爆
-                import traceback as _tb
-                if not getattr(log, "_recursion_trace_done", False):
-                    log.error(f"{d} 选股 RecursionError 完整栈:\n"
-                              + "".join(_tb.format_exc()))
-                    log._recursion_trace_done = True
-                log.warning(f"{d} 选股异常: {e}")
-                continue
-            except Exception as e:
-                log.warning(f"{d} 选股异常: {e}")
-                continue
-
-            picks = r.get("candidates", [])
-            if not picks:
-                if r.get("stats_by_layer", {}).get("l2", {}).get("cycle_blocked", 0):
-                    cycle_blocked_days += 1
-                else:
-                    skipped_no_pick += 1
-                stats_by_date.append({"date": d, "picks": 0, "reason": r.get("reason")})
-                continue
-
-            picks = picks[:effective_top]
-
-            today_dd_pct = 0.0
-            for pick in picks:
-                code = pick["code"]
-                df = daily_cache.get(code)
-                if df is None:
+            for di, d in enumerate(dates):
+                if di + hold_days + 1 >= len(dates):
                     continue
-                trade = _simulate_trade(df, buy_d, sell_d, mode=sell_mode)
-                if trade:
-                    trade["code"] = code
-                    trade["name"] = pick.get("name", "")
-                    trade["sector"] = pick.get("sector", "")
-                    trade["pick_date"] = d
-                    trade["score"] = pick.get("rr_ratio", 0)
-                    trade["risk_state"] = risk_state
-                    trades.append(trade)
+                buy_d = dates[di + 1]
+                sell_d = dates[di + 1 + hold_days]
 
-            # ── 当日选完股 → 重算资金曲线 → 检查回撤并切换 effective_top ──
-            realized_pnl_pct = sum(t["return_pct"] for t in trades) / max(1, top_n)
-            equity_running = 1.0 + realized_pnl_pct / 100.0
-            peak_equity = max(peak_equity, equity_running)
-            drawdown_pct = (peak_equity - equity_running) / peak_equity * 100.0 if peak_equity > 0 else 0.0
-            today_dd_pct = drawdown_pct
+                try:
+                    r = _screen_for_date(d, stocks_all)
+                except RecursionError as e:
+                    # 仅在第一次捕获时打完整栈,避免日志被刷爆
+                    import traceback as _tb
+                    if not getattr(log, "_recursion_trace_done", False):
+                        log.error(f"{d} 选股 RecursionError 完整栈:\n"
+                                  + "".join(_tb.format_exc()))
+                        log._recursion_trace_done = True
+                    log.warning(f"{d} 选股异常: {e}")
+                    continue
+                except Exception as e:
+                    log.warning(f"{d} 选股异常: {e}")
+                    continue
 
-            # 把回撤写到所有今日买入的 trade 上
-            for t in trades:
-                if t["buy_date"] == buy_d:
-                    t["drawdown_pct_at_pick"] = round(drawdown_pct, 2)
+                picks = r.get("candidates", [])
+                if not picks:
+                    if r.get("stats_by_layer", {}).get("l2", {}).get("cycle_blocked", 0):
+                        cycle_blocked_days += 1
+                    else:
+                        skipped_no_pick += 1
+                    stats_by_date.append({"date": d, "picks": 0, "reason": r.get("reason")})
+                    continue
 
-            new_top = effective_top
-            new_state = risk_state
-            if drawdown_pct >= DD_THRESHOLD and risk_state == "normal":
-                new_top = max(1, top_n // 2)
-                new_state = "reduced"
-            elif drawdown_pct <= DD_RECOVER and risk_state == "reduced":
-                new_top = top_n
-                new_state = "normal"
-            if new_top != effective_top or new_state != risk_state:
-                action = {
-                    "date": d, "drawdown_pct": round(drawdown_pct, 2),
-                    "from_top": effective_top, "to_top": new_top,
-                    "from_state": risk_state, "to_state": new_state,
+                picks = picks[:effective_top]
+
+                today_dd_pct = 0.0
+                for pick in picks:
+                    code = pick["code"]
+                    df = daily_cache.get(code)
+                    if df is None:
+                        continue
+                    trade = _simulate_trade(df, buy_d, sell_d, mode=sell_mode)
+                    if trade:
+                        trade["code"] = code
+                        trade["name"] = pick.get("name", "")
+                        trade["sector"] = pick.get("sector", "")
+                        trade["pick_date"] = d
+                        trade["score"] = pick.get("rr_ratio", 0)
+                        trade["risk_state"] = risk_state
+                        trades.append(trade)
+
+                # ── 当日选完股 → 重算资金曲线 → 检查回撤并切换 effective_top ──
+                realized_pnl_pct = sum(t["return_pct"] for t in trades) / max(1, top_n)
+                equity_running = 1.0 + realized_pnl_pct / 100.0
+                peak_equity = max(peak_equity, equity_running)
+                drawdown_pct = (peak_equity - equity_running) / peak_equity * 100.0 if peak_equity > 0 else 0.0
+                today_dd_pct = drawdown_pct
+
+                # 把回撤写到所有今日买入的 trade 上
+                for t in trades:
+                    if t["buy_date"] == buy_d:
+                        t["drawdown_pct_at_pick"] = round(drawdown_pct, 2)
+
+                new_top = effective_top
+                new_state = risk_state
+                if drawdown_pct >= DD_THRESHOLD and risk_state == "normal":
+                    new_top = max(1, top_n // 2)
+                    new_state = "reduced"
+                elif drawdown_pct <= DD_RECOVER and risk_state == "reduced":
+                    new_top = top_n
+                    new_state = "normal"
+                if new_top != effective_top or new_state != risk_state:
+                    action = {
+                        "date": d, "drawdown_pct": round(drawdown_pct, 2),
+                        "from_top": effective_top, "to_top": new_top,
+                        "from_state": risk_state, "to_state": new_state,
+                        "peak_equity": round(peak_equity, 4),
+                        "equity": round(equity_running, 4),
+                    }
+                    risk_actions.append(action)
+                    log.info(f"  ⚠ [{d}] 回撤 {drawdown_pct:.2f}% ≥ {DD_THRESHOLD}%  → top_n {effective_top} → {new_top} ({risk_state} → {new_state})")
+                    effective_top = new_top
+                    risk_state = new_state
+
+                stats_by_date.append({
+                    "date": d, "picks": len(picks),
+                    "buy_date": buy_d, "sell_date": sell_d,
+                    "codes": [p["code"] for p in picks],
+                    "drawdown_pct": round(today_dd_pct, 2),
                     "peak_equity": round(peak_equity, 4),
-                    "equity": round(equity_running, 4),
-                }
-                risk_actions.append(action)
-                log.info(f"  ⚠ [{d}] 回撤 {drawdown_pct:.2f}% ≥ {DD_THRESHOLD}%  → top_n {effective_top} → {new_top} ({risk_state} → {new_state})")
-                effective_top = new_top
-                risk_state = new_state
+                    "risk_state": risk_state,
+                    "effective_top": effective_top,
+                })
 
-            stats_by_date.append({
-                "date": d, "picks": len(picks),
-                "buy_date": buy_d, "sell_date": sell_d,
-                "codes": [p["code"] for p in picks],
-                "drawdown_pct": round(today_dd_pct, 2),
-                "peak_equity": round(peak_equity, 4),
-                "risk_state": risk_state,
-                "effective_top": effective_top,
-            })
+                if (di + 1) % 20 == 0:
+                    log.info(f"  回测进度 {di+1}/{len(dates)} | trades={len(trades)} | drawdown={today_dd_pct:.2f}% | state={risk_state} | 用时 {systime.time()-t0:.1f}s")
+        finally:
+            _uninstall_backtest_patches()
 
-            if (di + 1) % 20 == 0:
-                log.info(f"  回测进度 {di+1}/{len(dates)} | trades={len(trades)} | drawdown={today_dd_pct:.2f}% | state={risk_state} | 用时 {systime.time()-t0:.1f}s")
-    finally:
-        _uninstall_backtest_patches()
+        monthly = _compute_monthly(trades)
+        overall = _compute_overall(trades)
 
-    monthly = _compute_monthly(trades)
-    overall = _compute_overall(trades)
-
-    result = {
-        "config": {
-            "start": start, "end": end,
-            "top_n": top_n, "hold_days": hold_days,
-            "sell_mode": sell_mode, "sample": sample,
-        },
-        "summary": overall,
-        "monthly": monthly,
-        "trades_count": len(trades),
-        "trade_dates_total": len(dates),
-        "cycle_blocked_days": cycle_blocked_days,
-        "skipped_no_pick_days": skipped_no_pick,
-        # 铁律三.4：回撤风控
-        "risk_actions": risk_actions,
-        "risk_reduced_days": sum(1 for s in stats_by_date if s.get("risk_state") == "reduced"),
-        "risk_state": risk_state,
-        "peak_equity": round(peak_equity, 4),
-        "final_equity": round(equity_running, 4),
-        "elapsed_sec": round(systime.time() - t0, 1),
-        "ts": datetime.now().isoformat(),
-    }
-    log.info(f"========== 回测完成 | trades={len(trades)} | {result['elapsed_sec']}s ==========")
-    log.info(f"  整体: 胜率 {overall['win_rate_pct']}% | 平均 {overall['avg_return_pct']}% | 月均 {overall['monthly_avg_return_pct']}% | 最大回撤 {overall['max_drawdown_pct']}%")
-    return result
+        result = {
+            "config": {
+                "start": start, "end": end,
+                "top_n": top_n, "hold_days": hold_days,
+                "sell_mode": sell_mode, "sample": sample,
+            },
+            "summary": overall,
+            "monthly": monthly,
+            "trades_count": len(trades),
+            "trade_dates_total": len(dates),
+            "cycle_blocked_days": cycle_blocked_days,
+            "skipped_no_pick_days": skipped_no_pick,
+            # 铁律三.4：回撤风控
+            "risk_actions": risk_actions,
+            "risk_reduced_days": sum(1 for s in stats_by_date if s.get("risk_state") == "reduced"),
+            "risk_state": risk_state,
+            "peak_equity": round(peak_equity, 4),
+            "final_equity": round(equity_running, 4),
+            "elapsed_sec": round(systime.time() - t0, 1),
+            "ts": datetime.now().isoformat(),
+        }
+        log.info(f"========== 回测完成 | trades={len(trades)} | {result['elapsed_sec']}s ==========")
+        log.info(f"  整体: 胜率 {overall['win_rate_pct']}% | 平均 {overall['avg_return_pct']}% | 月均 {overall['monthly_avg_return_pct']}% | 最大回撤 {overall['max_drawdown_pct']}%")
+        return result
 
 
 def _preload_calendars(trade_dates: list[str]) -> tuple[dict, dict]:
@@ -347,44 +354,65 @@ def _preload_calendars(trade_dates: list[str]) -> tuple[dict, dict]:
 # ═══════════════════════════════════════════════════
 _BT_CTX: dict[str, Any] = {"date": None, "daily_cache": None,
                           "emotion_cal": None, "mainline_cal": None}
+# 并发保护:_install_backtest_patches 必须互斥,否则第二个线程会把 patched_screen
+# 当成 _orig_screen 保存,导致 patched_screen → l2_mod._orig_screen → patched_screen
+# 无限递归 (RecursionError 986 层)。
+# 2026-07-12 audit 发现: _LONG_EXECUTOR=2 worker, optimizer 跑多次 run_backtest 时
+# (并发 from 浏览器 SSE + curl),两个 install 撞在一起就炸。
+_BT_INSTALL_LOCK = threading.RLock()
+_BT_PATCH_INSTALLED = False  # 标志位: 当前是否处于 patched 状态
+_BT_RUN_SEMAPHORE = threading.Semaphore(1)  # run_backtest 全局串行化(共享 _BT_CTX)
 
 
 def _install_backtest_patches() -> None:
     """一次性把 dl.fetch_daily + l2.screen 替换为使用 _BT_CTX 的回测版本。"""
-    import tuixue_v3.data_layer as dl_mod
-    import tuixue_v3.layer2_cycle_mainline as l2_mod
+    global _BT_PATCH_INSTALLED
+    with _BT_INSTALL_LOCK:
+        import tuixue_v3.data_layer as dl_mod
+        import tuixue_v3.layer2_cycle_mainline as l2_mod
 
-    def fake_fetch_daily(code: str, days: int = 120, force: bool = False):
-        date_str = _BT_CTX["date"]
-        df = _BT_CTX["daily_cache"].get(code) if _BT_CTX["daily_cache"] else None
-        if df is None or date_str is None:
-            return None
-        df = df.copy()
-        if "日期" in df.columns:
-            df["日期"] = pd.to_datetime(df["日期"])
-            df = df[df["日期"] <= pd.to_datetime(date_str)]
-            df["日期"] = df["日期"].dt.strftime("%Y%m%d")
-        return df.tail(days)
+        # 幂等: 已 patch 过就跳过(并发第二线程直接 return)
+        if _BT_PATCH_INSTALLED:
+            log.debug("backtest patches 已安装, 跳过 (并发第二线程)")
+            return
 
-    def patched_screen(stocks_, date_str_=None, **_):
-        return l2_mod._orig_screen(stocks_, date_str_ or _BT_CTX["date"],
-                                   emotion_cal=_BT_CTX["emotion_cal"],
-                                   mainline_cal=_BT_CTX["mainline_cal"])
+        def fake_fetch_daily(code: str, days: int = 120, force: bool = False):
+            date_str = _BT_CTX["date"]
+            df = _BT_CTX["daily_cache"].get(code) if _BT_CTX["daily_cache"] else None
+            if df is None or date_str is None:
+                return None
+            df = df.copy()
+            if "日期" in df.columns:
+                df["日期"] = pd.to_datetime(df["日期"])
+                df = df[df["日期"] <= pd.to_datetime(date_str)]
+                df["日期"] = df["日期"].dt.strftime("%Y%m%d")
+            return df.tail(days)
 
-    dl_mod._orig_fetch_daily = dl_mod.fetch_daily
-    l2_mod._orig_screen = l2_mod.screen
-    dl_mod.fetch_daily = fake_fetch_daily
-    l2_mod.screen = patched_screen
+        def patched_screen(stocks_, date_str_=None, **_):
+            return l2_mod._orig_screen(stocks_, date_str_ or _BT_CTX["date"],
+                                       emotion_cal=_BT_CTX["emotion_cal"],
+                                       mainline_cal=_BT_CTX["mainline_cal"])
+
+        dl_mod._orig_fetch_daily = dl_mod.fetch_daily
+        l2_mod._orig_screen = l2_mod.screen
+        dl_mod.fetch_daily = fake_fetch_daily
+        l2_mod.screen = patched_screen
+        _BT_PATCH_INSTALLED = True
 
 
 def _uninstall_backtest_patches() -> None:
     """还原 dl.fetch_daily + l2.screen。"""
-    import tuixue_v3.data_layer as dl_mod
-    import tuixue_v3.layer2_cycle_mainline as l2_mod
-    if hasattr(dl_mod, "_orig_fetch_daily"):
-        dl_mod.fetch_daily = dl_mod._orig_fetch_daily
-    if hasattr(l2_mod, "_orig_screen"):
-        l2_mod.screen = l2_mod._orig_screen
+    global _BT_PATCH_INSTALLED
+    with _BT_INSTALL_LOCK:
+        import tuixue_v3.data_layer as dl_mod
+        import tuixue_v3.layer2_cycle_mainline as l2_mod
+        if not _BT_PATCH_INSTALLED:
+            return  # 未安装 / 已被另一线程还原
+        if hasattr(dl_mod, "_orig_fetch_daily"):
+            dl_mod.fetch_daily = dl_mod._orig_fetch_daily
+        if hasattr(l2_mod, "_orig_screen"):
+            l2_mod.screen = l2_mod._orig_screen
+        _BT_PATCH_INSTALLED = False
 
 
 def _screen_for_date(date_str: str, stocks: list[tuple[str, str]]) -> dict:
