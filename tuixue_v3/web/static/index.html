@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5" />
 <meta name="theme-color" content="#0a0908" media="(prefers-color-scheme: dark)" />
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)" />
 <script>
@@ -22,9 +22,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/tokens.css" />
 <link rel="stylesheet" href="/static/style.css?v=__CSS_V__" />
 </head>
 <body>
+
+<!-- R10-A: 跳过链接 (键盘用户直接跳到主内容) -->
+<a href="#main-content" class="skip-link">跳到主内容</a>
 
 <!-- background mesh + noise -->
 <div class="bg-mesh" aria-hidden="true"></div>
@@ -47,6 +51,11 @@
     <span>首页</span>
     <span class="sb-num">01</span>
   </div>
+  <div class="sidebar-item" data-jump="all_stocks">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="3" width="2.5" height="10"/><rect x="6.5" y="6" width="2.5" height="7"/><rect x="11" y="2" width="2.5" height="11"/></svg></span>
+    <span>全 A 风向</span>
+    <span class="sb-num">02</span>
+  </div>
   <div class="sidebar-item" data-jump="dragons">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 10l3-4 2 3 2-5 3 6"/><path d="M2 13h12"/></svg></span>
     <span>龙头</span>
@@ -62,20 +71,15 @@
     <span>自选</span>
     <span class="sb-num">05</span>
   </div>
-  <div class="sidebar-item" data-jump="sector_funds">
-    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 12l3-3 3 2 5-6"/><path d="M10 5h3v3"/></svg></span>
-    <span>板块资金</span>
-    <span class="sb-num">05a</span>
-  </div>
-  <div class="sidebar-item" data-jump="sector_rotation">
-    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 4h7M9 2l2 2-2 2"/><path d="M14 12H7M7 14l-2-2 2-2"/></svg></span>
-    <span>资金轮动</span>
-    <span class="sb-num">05b</span>
-  </div>
   <div class="sidebar-item" data-jump="sector_hotspot">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M8 1.5l1.8 4 4.2.4-3.2 2.8 1 4.3L8 10.6 4.2 13l1-4.3L2 5.9l4.2-.4z"/></svg></span>
     <span>热点龙头</span>
-    <span class="sb-num">05c</span>
+    <span class="sb-num">05</span>
+  </div>
+  <div class="sidebar-item" data-jump="screener">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/><path d="M5 7l1.5 1.5L9 6"/></svg></span>
+    <span>尾盘战法</span>
+    <span class="sb-num">09</span>
   </div>
   <span class="sidebar-section">系统</span>
   <div class="sidebar-item" data-jump="optimize">
@@ -100,6 +104,18 @@
     </div>
   </div>
 </aside>
+
+<!-- R10-A: 移动端汉堡菜单按钮(只在 ≤980px 显示) -->
+<button class="menu-btn" id="menu-btn" aria-label="打开菜单" aria-controls="sidebar" aria-expanded="false">
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+    <line x1="3" y1="6"  x2="17" y2="6"/>
+    <line x1="3" y1="10" x2="17" y2="10"/>
+    <line x1="3" y1="14" x2="17" y2="14"/>
+  </svg>
+</button>
+
+<!-- 移动端 sidebar 背景遮罩 -->
+<div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
 <!-- top bar -->
 <header class="topbar">
@@ -129,7 +145,7 @@
   </div>
 </header>
 
-<main class="canvas">
+<main class="canvas" id="main-content" tabindex="-1">
 
   <!-- ─── DASHBOARD ─── -->
   <section class="view view-dash" data-view="dash">
@@ -215,11 +231,6 @@
       </div>
       <div class="tunnel-url-row" id="tunnel-url-row" hidden>
         <a id="tunnel-url" target="_blank" rel="noopener" class="tunnel-url">—</a>
-        <button class="btn-mini" id="tunnel-qr-btn">QR</button>
-      </div>
-      <div class="tunnel-qr" id="tunnel-qr-wrap" hidden>
-        <img id="tunnel-qr" alt="QR Code" />
-        <p class="caption dim">手机扫码 · 临时 URL · 重启会变</p>
       </div>
       <!-- LAN 入口 (默认一直显示) — 同一 WiFi 下手机扫码直接访问 -->
       <div id="tunnel-lan-card" class="mt-8">
@@ -264,6 +275,21 @@
       <div class="view-actions" id="stock-tags-host"></div>
     </header>
 
+    <article class="card mt-16">
+      <div class="searchbar">
+        <input id="stock-search" class="search-input" placeholder="代码 / 名称（如 600519 / 平安）"/>
+        <button class="btn btn-primary" id="stock-go">查询 ↗</button>
+      </div>
+      <div id="stock-search-results" class="search-results"></div>
+      <div class="stock-history" id="stock-history" hidden>
+        <div class="sh-head">
+          <span class="caption dim">最近查询</span>
+          <button class="btn-mini" id="sh-clear">清空</button>
+        </div>
+        <div class="sh-list" id="sh-list"></div>
+      </div>
+    </article>
+
     <!-- 个股自查工具栏 — 日期选择 + 一键复盘 + 一键自选 + 一键跳转 (2026-07-11) -->
     <article class="card mt-16" id="stock-quickbar">
       <div class="quickbar-row">
@@ -284,21 +310,6 @@
     <article class="card mt-16" id="stock-mytrades-card" hidden>
       <div class="card-eyebrow" style="color:var(--accent)">📌 我的交易</div>
       <div id="stock-mytrades-list"></div>
-    </article>
-
-    <article class="card">
-      <div class="searchbar">
-        <input id="stock-search" class="search-input" placeholder="代码 / 名称（如 600519 / 平安）"/>
-        <button class="btn btn-primary" id="stock-go">查询 ↗</button>
-      </div>
-      <div id="stock-search-results" class="search-results"></div>
-      <div class="stock-history" id="stock-history" hidden>
-        <div class="sh-head">
-          <span class="caption dim">最近查询</span>
-          <button class="btn-mini" id="sh-clear">清空</button>
-        </div>
-        <div class="sh-list" id="sh-list"></div>
-      </div>
     </article>
 
     <!-- Hero 价格区 + 12 卡 Bento -->
@@ -322,6 +333,14 @@
         <div class="qh-time" id="q-time">—</div>
       </div>
     </div>
+
+    <!-- 当日明细 + 涨停/跌停价 + 连板历史 -->
+    <article class="card mt-16" id="stock-limit-up-card">
+      <div class="card-eyebrow">🔥 LIMIT-UP · 连板梯队 + 板块联动</div>
+      <div id="stock-limit-up-body">
+        <p class="caption dim">查询股票后将显示连板 / 5 日涨停 / 板块涨停清单</p>
+      </div>
+    </article>
 
     <div class="quote-bento mt-16">
       <!-- 主格 2x2: 主力净流 + 当日明细 -->
@@ -411,13 +430,20 @@
       </div>
     </div>
 
-    <!-- 当日明细 + 涨停/跌停价 + 连板历史 -->
-    <article class="card mt-16" id="stock-limit-up-card">
-      <div class="card-eyebrow">🔥 LIMIT-UP · 连板梯队 + 板块联动</div>
-      <div id="stock-limit-up-body">
-        <p class="caption dim">查询股票后将显示连板 / 5 日涨停 / 板块涨停清单</p>
-      </div>
-    </article>
+    <div class="grid-4 mt-16">
+      <article class="card" style="grid-column: span 2">
+        <div class="card-eyebrow">SECTOR · 所属板块 / 行业</div>
+        <div id="q-sector-board" class="kv"></div>
+        <div id="q-sector-industries" class="stock-tags" style="margin-top:.5rem"></div>
+        <p class="caption dim" id="q-sector-source" style="margin:.5rem 0 0"></p>
+      </article>
+      <article class="card" style="grid-column: span 2">
+        <div class="card-eyebrow">SECTOR SENTIMENT · 板块情绪 + 相关新闻</div>
+        <div id="q-sector-sentiment" class="kpi-grid"></div>
+        <hr style="margin:.75rem 0; border:0; border-top:1px dashed var(--line)">
+        <div id="q-related-news"></div>
+      </article>
+    </div>
 
     <div class="grid grid-2 mt-16">
       <article class="card">
@@ -438,21 +464,6 @@
       <article class="card">
         <div class="card-eyebrow">STREAK · 近期涨停 / 连板</div>
         <div id="q-streak-host"><p class="caption dim" style="margin: 0">无近 10 日涨停记录</p></div>
-      </article>
-    </div>
-
-    <div class="grid-4 mt-16">
-      <article class="card" style="grid-column: span 2">
-        <div class="card-eyebrow">SECTOR · 所属板块 / 行业</div>
-        <div id="q-sector-board" class="kv"></div>
-        <div id="q-sector-industries" class="stock-tags" style="margin-top:.5rem"></div>
-        <p class="caption dim" id="q-sector-source" style="margin:.5rem 0 0"></p>
-      </article>
-      <article class="card" style="grid-column: span 2">
-        <div class="card-eyebrow">SECTOR SENTIMENT · 板块情绪 + 相关新闻</div>
-        <div id="q-sector-sentiment" class="kpi-grid"></div>
-        <hr style="margin:.75rem 0; border:0; border-top:1px dashed var(--line)">
-        <div id="q-related-news"></div>
       </article>
     </div>
 
@@ -914,6 +925,7 @@
         <span class="arrow">▶</span>
       </div>
       <div id="dragons-all-wrap" class="hidden">
+        <div id="dragons-tax-stats" class="dragons-tax-stats"></div>
         <p class="caption dim" style="margin: .25rem 0 .75rem">
           所有涨停 + 评分明细 · 点击列名排序 · 点击行跳个股页
         </p>
@@ -1177,7 +1189,10 @@
     <article class="card mt-16">
       <div class="card-eyebrow flex-between">
         <span>TRADES · 交易明细 · 逐笔实时盈亏</span>
-        <span class="caption dim" id="review-ts">—</span>
+        <span class="trades-toolbar">
+          <span class="caption dim" id="review-ts">—</span>
+          <button class="btn-mini danger" id="review-clear-all" title="清空所有交易记录(用于重新开始)" style="margin-left:8px">🗑 清空全部</button>
+        </span>
       </div>
       <div class="review-table-wrap">
         <table class="data-table review-table" id="review-table">
@@ -1199,6 +1214,15 @@
           <tbody id="review-tbody">
             <tr><td colspan="11" class="dim center">加载中…</td></tr>
           </tbody>
+          <tfoot id="review-tfoot" class="rv-tfoot" hidden>
+            <tr>
+              <td colspan="6" class="right bold">合计 · 所有交易汇总</td>
+              <td id="rv-sum-today" class="cell-num bold">—</td>
+              <td id="rv-sum-cum"    class="cell-num bold">—</td>
+              <td id="rv-sum-pct"    class="cell-num bold">—</td>
+              <td colspan="2" class="caption dim" id="rv-sum-meta">—</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </article>

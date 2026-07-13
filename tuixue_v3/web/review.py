@@ -1015,7 +1015,11 @@ def list_reviews(trade_id: int) -> list[dict]:
 # 统计 + 次日预警
 # ═══════════════════════════════════════════════════
 def summary_stats(since_days: int = 90) -> dict:
-    """胜率/平均盈亏/常见错误模式。"""
+    """胜率/平均盈亏/常见错误模式。
+
+    读时 name→code 兜底:历史脏数据 (code='000000') 必须按 name 反查回真实代码,
+    否则 FIFO 会跨股票匹配,胜率/最大/最小全部错位 (2026-07-14 修复)。
+    """
     cutoff = (datetime.now() - timedelta(days=since_days)).strftime("%Y%m%d")
     conn = _conn()
     # 配对 buy → sell 算盈亏
@@ -1024,10 +1028,36 @@ def summary_stats(since_days: int = 90) -> dict:
         "FROM trades WHERE trade_date>=? ORDER BY trade_date, id",
         (cutoff,),
     ).fetchall()
+    # name→code 兜底:扫一次,有占位符 (000000/空) 的 code 按 name 反查
+    rows_list = [list(r) for r in rows]
+    has_placeholder = any((not str(r[1] or "").strip()) or str(r[1]).strip() == "000000"
+                          for r in rows_list)
+    if has_placeholder:
+        try:
+            from .. import data_layer as _dl_stats
+            market = _dl_stats.fetch_stock_list_all() or []
+            name_to_code: dict[str, str] = {}
+            for c, n in market:
+                nn = (n or "").strip()
+                cc = (c or "").strip().zfill(6)
+                if nn and cc.isdigit() and cc != "000000" and nn not in name_to_code:
+                    name_to_code[nn] = cc
+            patched = 0
+            for r in rows_list:
+                code_s = str(r[1] or "").strip()
+                if not code_s or code_s == "000000":
+                    nn = (r[2] or "").strip()
+                    if nn in name_to_code:
+                        r[1] = name_to_code[nn]
+                        patched += 1
+            if patched:
+                log.info(f"summary_stats: name→code 反查 {patched} 笔")
+        except Exception as e:
+            log.debug(f"summary_stats name→code lookup: {e}")
     # 简化的 FIFO 配对
     holdings: dict[str, list[dict]] = {}  # code -> [buy 队列]
     closed = []  # [{code, name, buy, sell, pnl_pct}]
-    for r in rows:
+    for r in rows_list:
         tid, code, name, direction, price, shares, tdate = r
         d = direction
         if d == "buy":
@@ -1203,23 +1233,22 @@ def _all_trades_asc(codes: list[str] | None = None) -> list[dict]:
     读时 name→code 兜底:对 code='000000' / 空 的历史脏数据,按 name
     从全市场反查回正确代码,保证 FIFO / 行情 / 分组都按真实代码走。
     不动 DB;写入路径(record_trade)仍保留 6 位数字校验。
+
+    R13 关键修复:历史脏数据 (code 全是 '000000') 时,WHERE code IN
+    (codes) 永远 0 行;必须先 fetch-all → name→code patch → 再过滤。
     """
     conn = _conn()
     sql = ("SELECT id, code, name, direction, price, shares, occurred_at, trade_date "
-           "FROM trades")
-    params: list = []
-    if codes:
-        ph = ",".join("?" for _ in codes)
-        sql += f" WHERE code IN ({ph})"
-        params.extend([str(c).zfill(6) for c in codes])
-    sql += " ORDER BY trade_date ASC, occurred_at ASC, id ASC"
-    rows = conn.execute(sql, params).fetchall()
+           "FROM trades "
+           "ORDER BY trade_date ASC, occurred_at ASC, id ASC")
+    rows = conn.execute(sql).fetchall()
     out = [
         {"id": r[0], "code": r[1], "name": r[2], "direction": r[3],
          "price": r[4], "shares": r[5], "occurred_at": r[6], "trade_date": r[7]}
         for r in rows
     ]
-    # name→code 兜底:扫一次,只为有占位符 (000000 或空) 的 code 反查
+    # name→code 兜底 — 先做 (因为 WHERE 之前已废)
+    target_set: set[str] | None = {str(c).zfill(6) for c in codes} if codes else None
     has_placeholder = any((not t["code"]) or str(t["code"]).strip() == "000000" for t in out)
     if has_placeholder:
         try:
@@ -1243,6 +1272,9 @@ def _all_trades_asc(codes: list[str] | None = None) -> list[dict]:
                 log.info(f"_all_trades_asc: name→code 兜底反查 {patched} 笔 (历史脏数据)")
         except Exception as e:
             log.debug(f"_all_trades_asc name→code lookup failed: {e}")
+    # 现在按 target_set 过滤
+    if target_set is not None:
+        out = [t for t in out if t["code"] in target_set]
     return out
 
 
