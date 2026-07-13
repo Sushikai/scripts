@@ -2609,6 +2609,7 @@ function ma(arr, n) {
 // ────────────────────────────────────────────
 let intraday5dCache = null;
 let intraday5dLoading = false;
+let last5dRef = null;     // { closes:{date:close}, vwaps:{date:vwap}, dates:[sorted_dates] } — drawIntraDayChart 用
 
 async function loadIntraday5d(code) {
   if (intraday5dLoading) return;
@@ -2709,6 +2710,29 @@ function renderIntraday5d(data) {
       }
     }
     if (currentStockCode) loadIntraDay(currentStockCode, date);
+  };
+
+  // 缓存 5 日参考: 日 VWAP + 日收盘 → 给单日分时 chart 画 5 日均价参考线
+  const vwapByDay = {};
+  if (data.intraday_per_day && data.intraday_per_day.days) {
+    for (const d of data.intraday_per_day.days) {
+      let pv = 0, vv = 0;
+      for (const t of (d.ticks || [])) {
+        if (t.price != null) {
+          const v = t.volume_hand || 0;
+          pv += t.price * v;
+          vv += v;
+        }
+      }
+      if (vv > 0) vwapByDay[d.date] = +(pv / vv).toFixed(3);
+    }
+  }
+  const closesByDay = {};
+  for (const r of rows) closesByDay[r.date] = r.close;
+  last5dRef = {
+    closes: closesByDay,
+    vwaps: vwapByDay,
+    dates: rows.map(r => r.date).sort(),
   };
 
   drawIntraday5dChart(code, rows, data.intraday_today, data.intraday_per_day);
@@ -3211,6 +3235,47 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
         tooltip: { show: false } }
     : null;
 
+  // ── 5 日均价 / 收参考线(其他日的 close + 各日 vwap,5 日均收盘)──
+  let refLines = [];
+  if (last5dRef && last5dRef.dates && last5dRef.dates.length) {
+    const dates = last5dRef.dates;
+    const closes = last5dRef.closes || {};
+    const vwaps  = last5dRef.vwaps  || {};
+
+    // 其他日的收盘价虚线 + label
+    dates.forEach((d) => {
+      if (d === date) return;
+      const c = closes[d];
+      if (c != null) refLines.push({
+        yAxis: c,
+        lineStyle: { color: '#7fc8c9', type: 'dashed', width: 0.9, opacity: 0.7 },
+        label: { formatter: `${d.slice(5)} 收 ${c.toFixed(2)}`, color: '#7fc8c9', fontSize: 9, position: 'insideEndTop' },
+      });
+    });
+
+    // 其他日的 vwap 点线
+    dates.forEach((d) => {
+      if (d === date) return;
+      const vw = vwaps[d];
+      if (vw != null) refLines.push({
+        yAxis: vw,
+        lineStyle: { color: '#9a8cff', type: 'dotted', width: 1, opacity: 0.65 },
+        label: { formatter: `${d.slice(5)} 均 ${vw.toFixed(2)}`, color: '#9a8cff', fontSize: 9, position: 'insideStartBottom' },
+      });
+    });
+
+    // 5 日均参考线 (近 5 日 close 的均值)
+    const closeVals = dates.map(d => closes[d]).filter(v => v != null);
+    if (closeVals.length >= 2) {
+      const ma = closeVals.reduce((a, b) => a + b, 0) / closeVals.length;
+      refLines.push({
+        yAxis: ma,
+        lineStyle: { color: '#ff9f43', type: 'solid', width: 1.4, opacity: 0.85 },
+        label: { formatter: `5日均 ${ma.toFixed(2)}`, color: '#ff9f43', fontSize: 10, position: 'insideStartTop', fontWeight: 700 },
+      });
+    }
+  }
+
   chart.setOption({
     backgroundColor: 'transparent',
     title: { text: `${code}  ${date}  分时`, textStyle: { color: INK2, fontSize: 11 }, left: 8, top: 4 },
@@ -3273,9 +3338,11 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
       { name: '价格', type: 'line', data: prices, showSymbol: false, smooth: false,
         lineStyle: { color: ACCENT, width: 1.6 }, itemStyle: { color: ACCENT },
         areaStyle: { color: 'rgba(212,160,86,0.08)' },
-        markLine: { silent: true, symbol: 'none', data: timeMarkers } },
+        markLine: { silent: true, symbol: 'none', data: [...timeMarkers, ...refLines] } },
       { name: '均价', type: 'line', data: avgLine, showSymbol: false,
-        lineStyle: { color: '#f5d77e', width: 1, type: 'solid' } },
+        lineStyle: { color: '#ff9f43', width: 1.8, type: 'solid' },
+        itemStyle: { color: '#ff9f43' },
+        z: 3 },
       { name: '昨收', type: 'line', data: refLine, showSymbol: false,
         lineStyle: { color: INK3, type: 'dashed', width: 1 } },
       ...(limitUpLine ? [limitUpLine] : []),
@@ -3888,7 +3955,7 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
     needRun ? `其中 ${needRun} 笔需要现跑(≈60s/笔),${cached} 笔走缓存秒回` : `${cached} 笔全部命中缓存,瞬时完成`,
     '',
     '后台并发 2 路,可在原地继续浏览/操作其它页',
-    '完成每笔会自动刷新主表',
+    '完成每笔后只局部更新该行,账单/持仓不会闪',
   ];
   if (!confirm(lines.join('\n'))) return;
   const btn = document.getElementById('review-bulk-ai');
@@ -3909,6 +3976,10 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
         const j = await r.json();
         if (j.ok && j.data) {
           okCnt++;
+          // R15-fix: 局部更新行 — 不重渲整张表,不影响账单 / 持仓 / 浮盈
+          _reviewPatchRow(t.id, j.data);
+          const local = (_reviewState.trades || []).find(x => x.id === t.id);
+          if (local) local.last_review = j.data;
           const v = j.data.verdict || '';
           const s = (j.data.score != null) ? `${j.data.score}分` : '';
           showToast(`✓ #${t.id} ${v} ${s}${wasCached ? ' ⌛缓存' : ''}`.trim(), 'success', 1800);
@@ -3922,8 +3993,7 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
       } finally {
         done++;
         patchProgress();
-        try { await _reviewLoadList(); } catch {}
-        try { await _reviewRefreshIntegrity(); } catch {}
+        // R15-fix: 不要每笔都重渲 — 只在全部完成时再统一刷一次
       }
     }
   }
@@ -3932,6 +4002,9 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
   btn.disabled = false;
   btn.textContent = original;
   showToast(`✅ 全部完成 · 成功 ${okCnt} / 失败 ${failCnt}`, 'success', 4000);
+  // R15-fix: 一次性刷,账单不闪
+  try { await _reviewLoadList(); } catch {}
+  try { await _reviewRefreshIntegrity(); } catch {}
   try { await _reviewLoadPortfolio(); } catch {}
 });
 
@@ -4766,10 +4839,10 @@ function _reviewRender() {
           : '<span class="caption dim">未复盘</span>';
         const tRev = !!t.last_review;
         return `
-          <tr class="rv-child" data-trade-id="${t.id}" data-code="${escapeHtml(code)}" data-group="${gid}">
+          <tr class="rv-child" data-trade-id="${t.id}" data-code="${escapeHtml(code)}" data-trade-date="${escapeHtml(t.trade_date || '')}" data-group="${gid}">
             <td class="rv-nm rv-child-nm">
               <span class="rv-child-line"></span>
-              <a class="np-code" href="#" data-jump-code="${escapeHtml(code)}" title="点击进入个股详情">${escapeHtml(code)}</a>
+              <a class="np-code" href="#" data-jump-code="${escapeHtml(code)}" data-jump-date="${escapeHtml(t.trade_date || '')}" data-jump-time="${escapeHtml(t.occurred_at || '').slice(0,16)}" title="进入 ${escapeHtml(code)} 个股详情 · 跳到 ${escapeHtml(dStr || '此笔对应日')} 行情">${escapeHtml(code)}</a>
               <span class="caption dim" style="margin-left:.3rem">${escapeHtml(t.occurred_at || '').slice(0,16)}</span>
             </td>
             <td>${_reviewDirection(t.direction)}</td>
@@ -4857,17 +4930,23 @@ function _reviewRender() {
     }
   }
 
-  // ── 代码点击 → 跳个股详情 ──
+  // ── 代码点击 → 跳个股详情 (带 trade 日期上下文) ──
+  // 主行:不传日期 → 取最新; 子行: 传 trade_date → 历史快照到那一天
   tbody.querySelectorAll('[data-jump-code]').forEach(a => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       const code = a.dataset.jumpCode;
       if (!code) return;
-      // 跳到 stock 视图并加载个股 — 不管主子行都生效
+      // YYYYMMDD → YYYY-MM-DD
+      const rawDate = a.dataset.jumpDate || '';
+      const date = rawDate && /^\d{8}$/.test(rawDate)
+        ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}`
+        : '';
+      // 跳到 stock 视图并加载个股
       if (typeof showView === 'function') showView('stock');
       else window.location.hash = '#/stock';
-      loadStockDetail(code);
+      loadStockDetail(code, date);
     });
   });
 
@@ -4905,7 +4984,7 @@ function _reviewRender() {
       btn.classList.toggle('open', !expanded);
     });
   });
-  // 子行空白处点击 = 跳个股 (避开按钮 + 编辑中 input)
+  // 子行空白处点击 = 跳个股 (避开按钮 + 编辑中 input) — 带该笔 trade_date
   tbody.querySelectorAll('tr.rv-child > td.rv-child-nm').forEach(td => {
     td.style.cursor = 'pointer';
     td.addEventListener('click', (e) => {
@@ -4914,7 +4993,11 @@ function _reviewRender() {
       if (e.target.closest('[data-jump-code]')) return;
       const tr = td.closest('tr.rv-child');
       const c = tr?.dataset.code;
-      if (c) loadStockDetail(c);
+      const td2 = tr?.dataset.tradeDate || '';
+      const date = td2 && /^\d{8}$/.test(td2)
+        ? `${td2.slice(0,4)}-${td2.slice(4,6)}-${td2.slice(6,8)}`
+        : '';
+      if (c) loadStockDetail(c, date);
     });
   });
 }
@@ -6226,8 +6309,157 @@ function _reviewOnViewEnter() {
       btn._bound = true;
       btn.addEventListener('click', () => _reviewLoadNextPicks());
     }
+    // R15: 进入页面 — 如果有未复盘的笔,后台并发补齐,逐笔刷新主表,不阻塞浏览
+    //  - force=false:已复盘的笔走缓存秒回,未复盘的笔调 LLM (≈60s)
+    //  - 用户可点 banner 上的"停"中断
+    //  - 离开 view 不停(后台继续跑),再次进入会显示当前进度
+    setTimeout(() => _reviewAutoReviewTick(), 600);
   }
 }
+
+// R15: 自动复盘调度 — 状态机
+let _reviewAuto = { running: false, queue: [], done: 0, total: 0, startedTs: 0, stop: false };
+function _reviewAutoReviewTick() {
+  // 不在 review view → 不主动启动,但已运行的允许继续
+  if (!document.querySelector('.view-review:not([hidden])')) return;
+  if (_reviewAuto.running) return;  // 已经在跑
+  const trades = (_reviewState && _reviewState.trades) || [];
+  // 只复盘当前 DB 里有 last_review 缺失的笔 (过滤 000000 占位)
+  const pending = trades.filter(t => {
+    const code = (t.code || '').toString().padStart(6, '0');
+    const isPlaceholder = code === '000000' && !(t.name && /[一-龥]/.test(t.name || ''));
+    return !isPlaceholder && !t.last_review;
+  });
+  if (!pending.length) {
+    _reviewAutoHideBanner();
+    return;
+  }
+  _reviewAuto = {
+    running: true,
+    queue: pending.slice(),
+    done: 0,
+    total: pending.length,
+    startedTs: Date.now(),
+    stop: false,
+  };
+  _reviewAutoShowBanner();
+  // 启动一次性 integrity check 让 badge 反映开始前的真值,后续不再每笔重打
+  _reviewRefreshIntegrity().catch(() => {});
+  // 2 路并发 worker
+  _reviewAutoRunWorker(0);
+  _reviewAutoRunWorker(1);
+}
+function _reviewAutoRunWorker(workerId) {
+  const next = async () => {
+    // 用户中途点了"停" → 这条 worker 退出(已 in-flight 的请求让它跑完)
+    if (_reviewAuto.stop) return;
+    if (!_reviewAuto.queue.length) return;
+    const t = _reviewAuto.queue.shift();
+    if (!t) return;
+    try {
+      const r = await _fetchWithTimeout(`/api/review/trades/${t.id}/review?force=false`, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok && j.data) {
+        // R15-fix: 局部更新行 — 不重渲整张表 → 不影响账单 / 持仓 / 浮盈
+        _reviewPatchRow(t.id, j.data);
+        // 把 review 也写回 _reviewState.trades 内存 (后续汇总/筛选还要用)
+        const local = (_reviewState.trades || []).find(x => x.id === t.id);
+        if (local) local.last_review = j.data;
+        showToast(`✓ #${t.id} 已复盘 · ${j.data.verdict || ''} ${j.data.score || ''}分`.trim(), 'success', 1500);
+      } else {
+        showToast(`✗ #${t.id} 失败: ${j.error || '?'}`, 'error', 2000);
+      }
+    } catch (e) {
+      showToast(`✗ #${t.id} ${e.message}`, 'error', 2000);
+    } finally {
+      _reviewAuto.done++;
+      _reviewAutoUpdateBanner();
+      // R15-fix: 不要每笔都 _reviewLoadList / _reviewRefreshIntegrity — 会闪账单
+      // 只在最后一次性刷新
+      if (_reviewAuto.done >= _reviewAuto.total) {
+        _reviewAutoFinish();
+        return;
+      }
+      next();
+    }
+  };
+  next();
+}
+
+// R15-fix: 局部更新单笔 review 信息 (不改行顺序 / 不闪持仓 / 不重算 PnL)
+function _reviewPatchRow(tradeId, review) {
+  if (!tradeId || !review) return;
+  const mm = review.main_mistake || review.mistake_pattern || '';
+  // 主行 + 子行 — 用属性 [data-trade-id]
+  const rows = document.querySelectorAll(`tr[data-trade-id="${tradeId}"]`);
+  rows.forEach(tr => {
+    // 行结构: [name, direction, date, price, time, shares, today, cum, cum%, mistake, action]
+    //                              0   1   2    3    4    5     6     7    8       9         10
+    const tdList = tr.querySelectorAll(':scope > td');
+    if (tdList.length >= 11) {
+      const mistakeTd = tdList[9];  // mistake pill 列
+      if (mistakeTd && mm) {
+        const pill = mistakeTd.querySelector('.main-mistake-pill');
+        const safe = mm.replace(/</g,'&lt;').replace(/"/g,'&quot;');
+        if (pill) {
+          pill.textContent = mm;
+          pill.title = mm;
+        } else {
+          mistakeTd.innerHTML = `<span class="main-mistake-pill" title="${safe}">${safe}</span>`;
+        }
+      }
+    }
+    // 2) AI 复盘按钮 — 去掉 primary, 文案从 ● 变普通
+    const btn = tr.querySelector(`button[data-action="ai-review:${tradeId}"]`);
+    if (btn) {
+      btn.classList.remove('primary');
+      btn.textContent = 'AI 复盘';
+    }
+  });
+}
+
+function _reviewAutoShowBanner() {
+  const b = document.getElementById('review-auto-banner');
+  if (!b) return;
+  b.hidden = false;
+  const stopBtn = b.querySelector('.arb-stop');
+  if (stopBtn && !stopBtn._bound) {
+    stopBtn._bound = true;
+    stopBtn.addEventListener('click', () => {
+      _reviewAuto.stop = true;
+      showToast('已请求停止,正在收尾…', 'info', 2000);
+    });
+  }
+  _reviewAutoUpdateBanner();
+}
+function _reviewAutoUpdateBanner() {
+  const b = document.getElementById('review-auto-banner');
+  if (!b || b.hidden) return;
+  const dt = Math.round((Date.now() - _reviewAuto.startedTs) / 1000);
+  const m = Math.floor(dt / 60), s = dt % 60;
+  b.querySelector('.arb-text').textContent =
+    `正在后台复盘 ${_reviewAuto.done}/${_reviewAuto.total} 笔 · 已用 ${m}m${s}s · 可继续浏览`;
+  b.querySelector('.arb-prog').textContent = '';
+}
+function _reviewAutoHideBanner() {
+  const b = document.getElementById('review-auto-banner');
+  if (b) b.hidden = true;
+}
+function _reviewAutoFinish() {
+  if (!_reviewAuto.running) return;  // 防重入
+  _reviewAuto.running = false;
+  _reviewAuto.queue = [];
+  const total = _reviewAuto.total;
+  showToast(total > 0 ? `✅ 自动复盘完成 · 共 ${total} 笔` : '✅ 自动复盘完成', 'success', 4000);
+  setTimeout(_reviewAutoHideBanner, 6000);
+  // R15-fix: 全部完成后再统一刷新一次 (此时不会再闪了,因为只刷一次)
+  try { _reviewLoadList(); } catch {}
+  try { _reviewRefreshIntegrity(); } catch {}
+  try { _reviewLoadPortfolio(); } catch {}
+}
+
+// 暴露:被 review bulk 按钮 / 别的流程复用
+window.__reviewAutoAPI = { stop: () => { _reviewAuto.stop = true; }, get running() { return _reviewAuto.running; } };
 
 // 切到 review view 时加载 (已通过 showView 钩子触发,这里不重复)
 // const _origJump = window.jumpTo; // 项目用 showView,不用 jumpTo — 之前的覆盖无效
