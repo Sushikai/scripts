@@ -96,8 +96,51 @@ def record_trade(
     return cur.lastrowid
 
 
+def find_duplicate_trade(
+    code: str,
+    direction: str,
+    price: float,
+    shares: int,
+    occurred_at: str | None = None,
+    trade_date: str | None = None,
+) -> int | None:
+    """查库里是否已有"同一笔"交易(股票+方向+价格+股数+时间全对上)。
+    返回已存在记录的 id,没有返回 None。用于批量录入去重防止反复入库。
+    """
+    code = str(code).strip().zfill(6)
+    direction = (direction or "").lower()
+    try:
+        price = round(float(price), 3)
+        shares = int(shares)
+    except Exception:
+        return None
+    if not trade_date and occurred_at:
+        trade_date = occurred_at[:10].replace("-", "")
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, occurred_at FROM trades WHERE code=? AND direction=? AND shares=? "
+        "AND ABS(price-?)<0.005 AND trade_date=?",
+        (code, direction, shares, price, trade_date or ""),
+    ).fetchall()
+    if not rows:
+        return None
+    # 有 occurred_at 就精确到分钟比对(OCR 秒可能不同);否则同日同价同股数即视为重复
+    if occurred_at:
+        want = occurred_at[:16]  # YYYY-MM-DDTHH:MM
+        for r in rows:
+            oa = (r[1] or "")[:16]
+            if oa == want:
+                return r[0]
+        # 没有精确到分钟对上的 → 仍按同日同价视为重复(时间可能缺失)
+    return rows[0][0]
+
+
 def list_trades(limit: int = 50, code: str | None = None, since_days: int | None = None) -> list[dict]:
-    """最近 N 笔交易(含最后一条复盘结果)。"""
+    """最近 N 笔交易(含最后一条复盘结果)。
+
+    读时 name→code 兜底:历史脏数据 (code='000000') 按 name 反查真实代码,
+    保证前端按 code 分组/行情/汇总正确(2026-07-14)。
+    """
     conn = _conn()
     sql = "SELECT id, code, name, direction, price, shares, occurred_at, trade_date, mode, memo, tags FROM trades"
     params: list = []
@@ -113,15 +156,43 @@ def list_trades(limit: int = 50, code: str | None = None, since_days: int | None
     rows = conn.execute(sql, params).fetchall()
     out = []
     trade_ids = []
+    placeholder_codes_seen = False
     for r in rows:
+        code_raw = r[1]
         d = {
-            "id": r[0], "code": r[1], "name": r[2], "direction": r[3],
+            "id": r[0], "code": code_raw, "name": r[2], "direction": r[3],
             "price": r[4], "shares": r[5], "occurred_at": r[6], "trade_date": r[7],
             "mode": r[8], "memo": r[9] or "",
             "tags": json.loads(r[10]) if r[10] else [],
         }
+        if not str(code_raw or "").strip() or str(code_raw).strip() == "000000":
+            placeholder_codes_seen = True
         out.append(d)
         trade_ids.append(r[0])
+
+    # 历史 000000 占位反查 name→code (DB 不动,只在响应里替换)
+    if placeholder_codes_seen:
+        try:
+            from .. import data_layer as _dl_for_lookup
+            market = _dl_for_lookup.fetch_stock_list_all() or []
+            name_to_code: dict[str, str] = {}
+            for c, n in market:
+                nn = (n or "").strip()
+                cc = (c or "").strip().zfill(6)
+                if nn and cc.isdigit() and cc != "000000" and nn not in name_to_code:
+                    name_to_code[nn] = cc
+            patched = 0
+            for t in out:
+                code_s = str(t.get("code") or "").strip()
+                if not code_s or code_s == "000000":
+                    nn = (t.get("name") or "").strip()
+                    if nn in name_to_code:
+                        t["code"] = name_to_code[nn]
+                        patched += 1
+            if patched:
+                log.info(f"list_trades: name→code 反查 {patched} 笔")
+        except Exception as e:
+            log.debug(f"list_trades name→code lookup: {e}")
     if not trade_ids:
         return out
     # 批量拉最新复盘(每笔 1 条)
@@ -183,14 +254,40 @@ def get_trade(trade_id: int) -> dict | None:
 
 
 def update_trade(trade_id: int, **fields) -> bool:
-    """局部更新。"""
+    """局部更新。R1-B 修复: 镜像 record_trade 的所有校验,避免更新绕过。"""
     allowed = {"price", "shares", "memo", "tags", "direction", "occurred_at", "trade_date", "name"}
     sets, vals = [], []
     for k, v in fields.items():
         if k not in allowed:
             continue
+        # 镜像 create 时的硬校验
+        if k == "direction" and str(v).lower() not in ("buy", "sell"):
+            raise ValueError(f"direction 必须是 buy/sell, 收到 {v}")
+        if k == "price":
+            try:
+                p = float(v)
+            except Exception:
+                raise ValueError(f"price 非数字: {v!r}")
+            if p <= 0:
+                raise ValueError(f"price 必须 > 0, 收到 {p}")
+            v = p
+        if k == "shares":
+            try:
+                s = int(v)
+            except Exception:
+                raise ValueError(f"shares 非整数: {v!r}")
+            if s <= 0 or s % 100 != 0:
+                raise ValueError(f"shares 必须是 100 的整数倍, 收到 {s}")
+            v = s
         if k == "tags" and isinstance(v, list):
             v = json.dumps(v, ensure_ascii=False)
+        if k == "occurred_at" and v:
+            # ISO YYYY-MM-DDTHH:MM:SS 粗校验
+            if not isinstance(v, str) or len(v) < 16 or v[4] != "-" or v[7] != "-":
+                raise ValueError(f"occurred_at 必须为 ISO 字符串, 收到 {v!r}")
+            # 同步 trade_date (审计报告里 audit-bug-12)
+            if "trade_date" not in fields:
+                sets.append("trade_date=?"); vals.append(v[:10].replace("-", ""))
         sets.append(f"{k}=?")
         vals.append(v)
     if not sets:
@@ -1101,7 +1198,12 @@ def _batch_quotes(codes: list[str]) -> dict:
 
 
 def _all_trades_asc(codes: list[str] | None = None) -> list[dict]:
-    """按时间升序取交易(FIFO 需要),可按 code 过滤。"""
+    """按时间升序取交易(FIFO 需要),可按 code 过滤。
+
+    读时 name→code 兜底:对 code='000000' / 空 的历史脏数据,按 name
+    从全市场反查回正确代码,保证 FIFO / 行情 / 分组都按真实代码走。
+    不动 DB;写入路径(record_trade)仍保留 6 位数字校验。
+    """
     conn = _conn()
     sql = ("SELECT id, code, name, direction, price, shares, occurred_at, trade_date "
            "FROM trades")
@@ -1112,11 +1214,36 @@ def _all_trades_asc(codes: list[str] | None = None) -> list[dict]:
         params.extend([str(c).zfill(6) for c in codes])
     sql += " ORDER BY trade_date ASC, occurred_at ASC, id ASC"
     rows = conn.execute(sql, params).fetchall()
-    return [
+    out = [
         {"id": r[0], "code": r[1], "name": r[2], "direction": r[3],
          "price": r[4], "shares": r[5], "occurred_at": r[6], "trade_date": r[7]}
         for r in rows
     ]
+    # name→code 兜底:扫一次,只为有占位符 (000000 或空) 的 code 反查
+    has_placeholder = any((not t["code"]) or str(t["code"]).strip() == "000000" for t in out)
+    if has_placeholder:
+        try:
+            from .. import data_layer as _dl_for_lookup
+            market = _dl_for_lookup.fetch_stock_list_all() or []
+            name_to_code: dict[str, str] = {}
+            for c, n in market:
+                nn = (n or "").strip()
+                cc = (c or "").strip().zfill(6)
+                if nn and cc.isdigit() and cc != "000000" and nn not in name_to_code:
+                    name_to_code[nn] = cc
+            patched = 0
+            for t in out:
+                code = str(t["code"] or "").strip()
+                if not code or code == "000000":
+                    nn = (t.get("name") or "").strip()
+                    if nn in name_to_code:
+                        t["code"] = name_to_code[nn]
+                        patched += 1
+            if patched:
+                log.info(f"_all_trades_asc: name→code 兜底反查 {patched} 笔 (历史脏数据)")
+        except Exception as e:
+            log.debug(f"_all_trades_asc name→code lookup failed: {e}")
+    return out
 
 
 def _fifo_book(trades_asc: list[dict], quotes: dict, today_str: str):
@@ -1212,6 +1339,7 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
     today_str = datetime.now().strftime("%Y%m%d")
     per, positions = _fifo_book(trades, quotes, today_str)
     position_value = round(sum(p["market_value"] for p in positions.values()), 2)
+    position_cost = round(sum(p["cost_value"] for p in positions.values()), 2)
     unrealized = round(sum(p["unrealized"] for p in positions.values()), 2)
     today_hold = round(sum(p["today_pnl"] for p in positions.values()), 2)
     realized_total = 0.0; realized_today = 0.0
@@ -1224,11 +1352,21 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
     today_pnl = round(today_hold + realized_today, 2)
     total_pnl = round(unrealized + realized_total, 2)
     cap = float(total_capital or 0)
+    # 剩余满仓资金 = 总资金 − 累计亏损(若总盈亏≥0则仍按总资金算)
+    # 总盈亏为正则亏损视为 0 (没有"亏",只是少赚,可用资金仍是总资金)
+    loss_amount = max(0.0, -total_pnl)
+    available_capital = round(cap - loss_amount, 2)  # 真正能"满仓再买"的资金
+    # 仓位 = 持仓市值 / 剩余满仓资金
+    position_ratio = round(position_value / available_capital * 100, 2) if available_capital > 0 else None
+    # 剩余资金 = 剩余满仓资金 − 持仓市值
+    cash = round(available_capital - position_value, 2) if available_capital > 0 else None
     return {
         "total_capital": cap,
+        "available_capital": available_capital,
         "position_value": position_value,
-        "position_ratio": round(position_value / cap * 100, 2) if cap else None,
-        "cash": round(cap - position_value, 2) if cap else None,
+        "position_cost": position_cost,
+        "position_ratio": position_ratio,
+        "cash": cash,
         "today_pnl": today_pnl,
         "today_pnl_pct": round(today_pnl / cap * 100, 2) if cap else None,
         "total_pnl": total_pnl,
