@@ -895,19 +895,40 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
     # 杂毛 → verdict 强制不优于"及格";即便 AI 给"优"也降级
     if taxonomy_role == "noise" and verdict in ("优", "及格"):
         verdict = "及格"
+    # R-sec-008: score 必须在 0..100, mistypint (e.g. 8.5/10) 拉回 85
+    try:
+        raw_score = ai.get("score", 60)
+        if isinstance(raw_score, (int, float)):
+            score = int(round(float(raw_score)))
+        else:
+            score = 60
+        if score < 0:
+            score = 0
+        elif score > 100:
+            # 0..10 → 0..100
+            if score <= 10:
+                score = int(round(score * 10))
+            else:
+                score = 100
+    except Exception:
+        score = 60
     # 回填到返回 dict,子页面/表格直接用
     ai["limit_up_recap"] = limit_up_recap
     ai["main_mistake"] = main_mistake
     ai["ai_advice"] = advice
     ai["taxonomy_role"] = taxonomy_role
     ai["is_mainline"] = is_mainline
+    ai["verdict"] = verdict
+    ai["score"] = score
     conn.execute(
-        "INSERT INTO trade_reviews "
+        # R-cfg-009: 改 INSERT OR REPLACE 配合 idx_reviews_unique_trade_model
+        # 防止 force=True 一次次堆重复行
+        "INSERT OR REPLACE INTO trade_reviews "
         "(trade_id, model, verdict, score, summary_md, rules_passed_json, rules_failed_json, "
         " mistake_pattern, improvement, key_risks_json, context_json, ts_created) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (trade_id, "MiniMax-M3",
-         verdict, int(ai.get("score", 60)),
+         verdict, score,
          summary_md,
          json.dumps(ai.get("rules_passed", []) or [], ensure_ascii=False, default=str),
          json.dumps(ai.get("rules_failed", []) or [], ensure_ascii=False, default=str),
@@ -924,6 +945,52 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
     )
     conn.commit()
     return ai
+
+
+# ── 状态/缓存快路径(2026-07-14)─────────────────────
+# AI 复盘走后台任务后,这两个轻量读取用来给前端做快路径 + 轮询。
+def get_cached_review(trade_id: int) -> dict | None:
+    """查 trade_reviews 最近一条;有就返回 review dict,没有就 None。
+    用于 api_review_run 快路径:用户没 force + 已有复盘 → 同步返,不丢后台。"""
+    try:
+        conn = _conn()
+        r = conn.execute(
+            "SELECT id, verdict, score, summary_md, rules_passed_json, rules_failed_json, "
+            "       mistake_pattern, improvement, key_risks_json, context_json, ts_created "
+            "FROM trade_reviews WHERE trade_id=? ORDER BY id DESC LIMIT 1",
+            (trade_id,),
+        ).fetchone()
+        if not r:
+            return None
+        trade = get_trade(trade_id) or {}
+        return _review_row_to_dict(r, trade)
+    except Exception as e:
+        log.debug(f"get_cached_review trade={trade_id}: {e}")
+        return None
+
+
+def get_review_status(trade_id: int) -> dict:
+    """返回 {has_review, last_ts, verdict, score} 给前端轮询。
+    不调 AI、不占线程。"""
+    try:
+        conn = _conn()
+        r = conn.execute(
+            "SELECT verdict, score, ts_created FROM trade_reviews "
+            "WHERE trade_id=? ORDER BY id DESC LIMIT 1",
+            (trade_id,),
+        ).fetchone()
+        if not r:
+            return {"has_review": False, "trade_id": trade_id}
+        return {
+            "has_review": True,
+            "trade_id": trade_id,
+            "verdict": r[0] or "",
+            "score": r[1] or 0,
+            "ts_created": r[2] or 0,
+        }
+    except Exception as e:
+        log.debug(f"get_review_status trade={trade_id}: {e}")
+        return {"has_review": False, "trade_id": trade_id, "error": str(e)}
 
 
 def _review_row_to_dict(row, trade: dict) -> dict:
@@ -1316,6 +1383,33 @@ def _all_trades_asc(codes: list[str] | None = None) -> list[dict]:
     return out
 
 
+# R-cfg-006: 复盘记账必须按"交易日",不是日历日
+#  - 16:00 后算次日(收盘 15:00 已定)
+#  - 周末/节假日回退到上一个交易日
+# 失败时降级到本地日期,但 log warning 让运维能看到
+def _trading_today_str() -> str:
+    try:
+        from datetime import datetime as _dt, timedelta as _td
+        from zoneinfo import ZoneInfo
+        now_cn = _dt.now(ZoneInfo("Asia/Shanghai"))
+        # 16:00 后算"次日"
+        if now_cn.hour >= 16:
+            trading_day = now_cn + _td(days=1)
+        else:
+            trading_day = now_cn
+        # 周末回退到上一个周五
+        wd = trading_day.weekday()  # 0=Mon ... 6=Sun
+        if wd == 5:  # Sat
+            trading_day = trading_day - _td(days=1)
+        elif wd == 6:  # Sun
+            trading_day = trading_day - _td(days=2)
+        return trading_day.strftime("%Y%m%d")
+    except Exception as e:
+        log.warning(f"_trading_today_str 降级: {e}")
+        return datetime.now().strftime("%Y%m%d")
+
+
+
 def _fifo_book(trades_asc: list[dict], quotes: dict, today_str: str):
     """FIFO 逐笔盈亏账本。
     返回 (per_trade: {trade_id: metrics}, positions: {code: pos})。
@@ -1406,8 +1500,9 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
     trades = _all_trades_asc()
     codes = sorted({t["code"] for t in trades})
     quotes = _batch_quotes(codes)
-    today_str = datetime.now().strftime("%Y%m%d")
-    per, positions = _fifo_book(trades, quotes, today_str)
+    # R-cfg-006: 用 Asia/Shanghai 时区 + 最近一个交易日(16:00 后算次日,周末/节假日回退)
+    # 不再用本地 naive datetime — 否则 16:00 后看到的 today_pnl 是错的
+    today_str = _trading_today_str()
     position_value = round(sum(p["market_value"] for p in positions.values()), 2)
     position_cost = round(sum(p["cost_value"] for p in positions.values()), 2)
     unrealized = round(sum(p["unrealized"] for p in positions.values()), 2)
@@ -1460,7 +1555,7 @@ def live_trades(limit: int = 80, code: str | None = None, since_days: int | None
     inv_codes = sorted({t["code"] for t in trades})
     all_asc = _all_trades_asc(codes=inv_codes)  # 全历史保证 FIFO 归属正确
     quotes = _batch_quotes(inv_codes)
-    today_str = datetime.now().strftime("%Y%m%d")
+    today_str = _trading_today_str()
     per, _ = _fifo_book(all_asc, quotes, today_str)
     for t in trades:
         m = per.get(t["id"]) or {}
