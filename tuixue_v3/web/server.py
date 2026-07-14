@@ -1839,22 +1839,37 @@ def _build_dashboard_signal() -> dict:
             pass
     us_headline = f"风险偏好 {us_sent} · 综合 {us_idx_pct:+.2f}%"
 
-    # 4) 韩股 — KOSPI (KS11) — 走 global_markets._fetch_one 多源兜底链 (yahoo → eastmoney)
-    #    旧版 _index_realtime_em/qq 不支持 KS11 (secid 前缀只有 sh/sz), 永远 0.00%
+    # 4) 韩股 — KOSPI (KS11) — 优先复用 gm_data["indices"] (上面 fetch_global_sentiment
+    #    已经并发抓过),只在没拿到时再走 _fetch_one (naver 缓存 120s)。2026-07-14 优化:
+    #    旧版再调一次 naver 顺序拉 ~5s,dashboard 总耗时直接撞 25s 超时,UI 韩股永远 0.00%。
     kr_pct = 0.0
     kr_verdict = "cautious"
     kr_source = ""
-    try:
-        from . import global_markets as gm
-        if hasattr(gm, "_fetch_one"):
-            kr_data = gm._fetch_one("KS11", "kr") or {}
-            if kr_data:
-                kr_pct = _safe_float(kr_data.get("change_pct") or kr_data.get("涨跌幅"))
-                kr_verdict = _verdict_from_pct(kr_pct, allow=0.5, block=-0.5)
-                kr_source = kr_data.get("source", "")
-    except Exception as e:
-        log.warning(f"dashboard KOSPI 拉取失败: {e}")
-    kr_headline = f"KOSPI {kr_pct:+.2f}%" + (f" · {kr_source}" if kr_source else "")
+    kr_err = ""
+    kr_idx = next((i for i in (gm_data.get("indices") or [])
+                  if i.get("code") == "KS11"), None)
+    if kr_idx and kr_idx.get("change_pct") is not None:
+        kr_pct = _safe_float(kr_idx.get("change_pct"))
+        kr_source = kr_idx.get("source", "")
+        kr_verdict = _verdict_from_pct(kr_pct, allow=0.5, block=-0.5)
+    else:
+        try:
+            from . import global_markets as gm
+            if hasattr(gm, "_fetch_one"):
+                kr_data = gm._fetch_one("KS11", "kr") or {}
+                if kr_data:
+                    kr_pct = _safe_float(kr_data.get("change_pct") or kr_data.get("涨跌幅"))
+                    kr_verdict = _verdict_from_pct(kr_pct, allow=0.5, block=-0.5)
+                    kr_source = kr_data.get("source", "")
+                else:
+                    kr_err = "naver/yahoo/em 三源均未通"
+        except Exception as e:
+            log.warning(f"dashboard KOSPI 拉取失败: {e}")
+            kr_err = str(e)
+    if kr_err:
+        kr_headline = f"KOSPI {kr_pct:+.2f}% · {kr_err}"
+    else:
+        kr_headline = f"KOSPI {kr_pct:+.2f}%" + (f" · {kr_source}" if kr_source else "")
 
     # 5) 不利新闻 — sector_impact 板块跌 ≥ 3% 且驱动数 ≥ 2 → A股警告;n ≥ 3 → 也提醒美股
     sec_impact = gm_data.get("sector_impact") or {}
@@ -3141,8 +3156,8 @@ async def all_stocks_page():
 
 @app.get("/screener", include_in_schema=False)
 async def screener_page():
-    """选股 — 静态页。"""
-    return await _static_page_handler("screener.html")()
+    """尾盘战法 — 2026-07-14 inline 进主 app /view-screener,此 URL 仅 302 → /#screener 避免书签失效。"""
+    return _Response(status_code=302, headers={"Location": "/#screener"})
 
 
 @app.get("/api/screener/rule_status")
