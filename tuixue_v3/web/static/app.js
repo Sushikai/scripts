@@ -5245,6 +5245,30 @@ function _reviewRender() {
       btn.setAttribute('aria-expanded', String(!expanded));
     });
   });
+  // 2026-07-14: 用户反馈每只股票交易明细"不见了" — 实际是默认折叠,要点击 ▶ 才看
+  // 解决:首次进入页面默认全部展开,信息密度优先(沿用 feedback_more_info_visible 规则)
+  // localStorage 记忆用户后续手动折叠的组,刷新不丢
+  const collapsedKey = 'review_collapsed_groups';
+  let collapsed = new Set();
+  try { collapsed = new Set(JSON.parse(localStorage.getItem(collapsedKey) || '[]')); } catch {}
+  tbody.querySelectorAll('tr.rv-child-wrap[data-group]').forEach(wrap => {
+    const gid = wrap.dataset.group;
+    const btn = tbody.querySelector(`.rv-expand-btn[data-toggle="${gid}"]`);
+    if (!btn) return;
+    if (!collapsed.has(gid)) {
+      wrap.hidden = false;
+      btn.textContent = '▼';
+      btn.classList.add('open');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    // 单击 ▶ 也会同步写 collapsed 集合,刷新保留
+    btn.addEventListener('click', () => {
+      const isOpen = !wrap.hidden;
+      if (isOpen) collapsed.add(gid);
+      else collapsed.delete(gid);
+      try { localStorage.setItem(collapsedKey, JSON.stringify(Array.from(collapsed))); } catch {}
+    }, true);  // capture 阶段优先于主 click,避免时序冲突
+  });
   // 子行空白处点击 = 跳个股 (避开按钮 + 编辑中 input) — 带该笔 trade_date
   tbody.querySelectorAll('tr.rv-child > td.rv-child-nm').forEach(td => {
     td.style.cursor = 'pointer';
@@ -5452,6 +5476,24 @@ function _reviewBindCapital() {
       else showToast('保存失败: ' + (j.error || ''), 'error');
     } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
     finally { btn.disabled = false; }
+  });
+}
+
+// ── 录入表单折叠展开 (R50-FIX: 用户先看表, 再记一笔) ──
+function _reviewBindToggle() {
+  const btn = $('#rf-toggle-btn');
+  const wrap = $('#review-form-wrap');
+  if (!btn || !wrap || btn._bound) return;
+  btn._bound = true;
+  btn.addEventListener('click', () => {
+    const open = !wrap.hidden;
+    wrap.hidden = open;
+    btn.textContent = open ? '+ 记一笔' : '× 收起';
+    if (!open) {
+      // 展开时滚到表单,便于操作
+      setTimeout(() => wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      setTimeout(() => $('#rf-code')?.focus(), 280);
+    }
   });
 }
 
@@ -6663,6 +6705,7 @@ function _reviewOnViewEnter() {
     _reviewBindScreenshot();
     _reviewBindCapital();
     _reviewBindInfer();
+    _reviewBindToggle();
     _reviewLoadSettings();
     _reviewLoadPortfolio();
     _reviewLoadList();
@@ -6726,7 +6769,6 @@ let _reviewAuto = { running: false, queue: [], done: 0, total: 0, startedTs: 0, 
 function _reviewAutoReviewTick() {
   // 不在 review view → 不主动启动,但已运行的允许继续
   if (!document.querySelector('.view-review:not([hidden])')) return;
-  if (_reviewAuto.running) return;  // 已经在跑
   const trades = (_reviewState && _reviewState.trades) || [];
   // 只复盘当前 DB 里有 last_review 缺失的笔 (过滤 000000 占位)
   const pending = trades.filter(t => {
@@ -6734,10 +6776,21 @@ function _reviewAutoReviewTick() {
     const isPlaceholder = code === '000000' && !(t.name && /[一-龥]/.test(t.name || ''));
     return !isPlaceholder && !t.last_review;
   });
+  // 2026-07-14: 用户反馈进入页面 banner 一直显示,即使已全部复盘
+  // 先看 pending: 空 → 直接收尾 + 隐藏 banner(忽略 running 状态,允许在跑但无 pending 时收尾)
   if (!pending.length) {
-    _reviewAutoHideBanner();
+    if (_reviewAuto.running) {
+      // 之前有任务在跑但现在没 pending 了,直接收尾
+      _reviewAuto.running = false;
+      _reviewAuto.queue = [];
+      _reviewAutoHideBanner();
+    } else {
+      _reviewAutoHideBanner();
+    }
     return;
   }
+  // 已有跑的任务还在 → 不要重启,让现有 worker 继续
+  if (_reviewAuto.running) return;
   _reviewAuto = {
     running: true,
     queue: pending.slice(),
