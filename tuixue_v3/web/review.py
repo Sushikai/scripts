@@ -1503,6 +1503,8 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
     # R-cfg-006: 用 Asia/Shanghai 时区 + 最近一个交易日(16:00 后算次日,周末/节假日回退)
     # 不再用本地 naive datetime — 否则 16:00 后看到的 today_pnl 是错的
     today_str = _trading_today_str()
+    # 2026-07-14 修复: 之前漏调 _fifo_book,positions/per 都未定义 → portfolio 静默返空 dict
+    per, positions = _fifo_book(trades, quotes, today_str)
     position_value = round(sum(p["market_value"] for p in positions.values()), 2)
     position_cost = round(sum(p["cost_value"] for p in positions.values()), 2)
     unrealized = round(sum(p["unrealized"] for p in positions.values()), 2)
