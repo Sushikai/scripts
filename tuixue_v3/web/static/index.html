@@ -124,6 +124,11 @@
       <span class="brand-mark">退学</span><span class="brand-mark-2">v3</span>
       <span class="brand-sub">TUIXUE · 操作台</span>
     </div>
+    <!-- R17: 智能返回 — 从其他页跳回时显示"← 全 A / 板块层" -->
+    <a class="smart-back" id="smart-back" href="/" hidden title="返回上一页">
+      <span class="sb-icon">←</span>
+      <span class="sb-label" id="smart-back-label">上一页</span>
+    </a>
     <div class="net-pill" id="net-pill" data-state="ok" hidden>
       <span class="dot"></span><span class="net-text" id="net-text">在线</span>
     </div>
@@ -374,86 +379,101 @@
 
     <div class="quote-bento mt-16">
       <!-- 主格 2x2: 主力净流 + 当日明细 -->
-      <div class="quote-cell large">
+      <div class="quote-cell large" id="qc-main-card">
+        <span class="qc-dot" id="qc-dot-main"></span>
+        <span class="qc-icon" id="qc-icon-main">资</span>
         <span class="qc-label">主力净流入 · 万</span>
         <span class="qc-value large" id="q-main">—</span>
         <span class="qc-sub" id="q-main-sub">今日 4 单合计</span>
       </div>
 
-      <!-- 12 中格/小格 -->
-      <div class="quote-cell">
+      <!-- 12 中格/小格 — 按交易优先级排序 -->
+      <div class="quote-cell" id="qc-turnover-card">
+        <span class="qc-icon" id="qc-icon-turnover">换</span>
         <span class="qc-label">换手率</span>
         <span class="qc-value" id="q-turnover">—<span class="qc-unit">%</span></span>
         <span class="qc-sub" id="q-turnover-sub">活跃度</span>
       </div>
 
-      <div class="quote-cell">
+      <div class="quote-cell" id="qc-volratio-card">
+        <span class="qc-icon" id="qc-icon-volratio">量</span>
         <span class="qc-label">量比</span>
         <span class="qc-value" id="q-volratio">—</span>
         <span class="qc-sub">vs 5 日均量</span>
       </div>
 
-      <div class="quote-cell">
+      <div class="quote-cell" id="qc-amp-card">
+        <span class="qc-icon" id="qc-icon-amp">波</span>
         <span class="qc-label">振幅</span>
         <span class="qc-value" id="q-amp">—<span class="qc-unit">%</span></span>
         <span class="qc-sub">日内波动</span>
       </div>
 
-      <div class="quote-cell">
-        <span class="qc-label">5 日涨跌</span>
-        <span class="qc-value" id="q-5d">—</span>
-        <span class="qc-sub">短期趋势</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-label">20 日涨跌</span>
-        <span class="qc-value" id="q-20d">—</span>
-        <span class="qc-sub">中期趋势</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-label">总市值</span>
-        <span class="qc-value" id="q-mcap">—<span class="qc-unit">亿</span></span>
-        <span class="qc-sub" id="q-mcap-sub">流通 —</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-label">市盈率 · PE</span>
-        <span class="qc-value" id="q-pe">—</span>
-        <span class="qc-sub" id="q-pe-sub">动 · 当前</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-label">市净率 · PB</span>
-        <span class="qc-value" id="q-pb">—</span>
-        <span class="qc-sub" id="q-pb-sub">净资产倍数</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-label">当日 高 / 低</span>
-        <span class="qc-value" id="q-hl">—</span>
-        <span class="qc-sub" id="q-hl-sub">开 / 昨收</span>
-      </div>
-
-      <div class="quote-cell">
+      <div class="quote-cell" id="qc-lu-card">
+        <span class="qc-icon" id="qc-icon-lu">+</span>
         <span class="qc-label">涨停价</span>
         <span class="qc-value" id="q-lu">—</span>
         <span class="qc-sub">今日 +10%</span>
       </div>
 
-      <div class="quote-cell">
+      <div class="quote-cell" id="qc-ld-card">
+        <span class="qc-icon" id="qc-icon-ld">−</span>
         <span class="qc-label">跌停价</span>
         <span class="qc-value" id="q-ld">—</span>
         <span class="qc-sub">今日 -10%</span>
       </div>
 
       <div class="quote-cell">
+        <span class="qc-icon">5d</span>
+        <span class="qc-label">5 日涨跌</span>
+        <span class="qc-value" id="q-5d">—</span>
+        <span class="qc-sub">短期趋势</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-icon">20d</span>
+        <span class="qc-label">20 日涨跌</span>
+        <span class="qc-value" id="q-20d">—</span>
+        <span class="qc-sub">中期趋势</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-icon">值</span>
+        <span class="qc-label">总市值</span>
+        <span class="qc-value" id="q-mcap">—<span class="qc-unit">亿</span></span>
+        <span class="qc-sub" id="q-mcap-sub">流通 —</span>
+      </div>
+
+      <div class="quote-cell" id="qc-pe-card">
+        <span class="qc-icon">PE</span>
+        <span class="qc-label">市盈率 · PE</span>
+        <span class="qc-value" id="q-pe">—</span>
+        <span class="qc-sub" id="q-pe-sub">动 · 当前</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-icon">PB</span>
+        <span class="qc-label">市净率 · PB</span>
+        <span class="qc-value" id="q-pb">—</span>
+        <span class="qc-sub" id="q-pb-sub">净资产倍数</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-icon">⤧</span>
+        <span class="qc-label">当日 高 / 低</span>
+        <span class="qc-value" id="q-hl">—</span>
+        <span class="qc-sub" id="q-hl-sub">开 / 昨收</span>
+      </div>
+
+      <div class="quote-cell">
+        <span class="qc-icon">成</span>
         <span class="qc-label">成交量</span>
         <span class="qc-value" id="q-vol">—<span class="qc-unit">万手</span></span>
         <span class="qc-sub" id="q-amt">成交额 —</span>
       </div>
 
       <div class="quote-cell">
+        <span class="qc-icon">席</span>
         <span class="qc-label">龙虎席位</span>
         <span class="qc-value" id="q-seats">0<span class="qc-unit">条</span></span>
         <span class="qc-sub" id="q-seats-sub">近 10 日</span>
@@ -564,9 +584,9 @@
             <thead><tr>
               <th>日期</th><th>开</th><th>高</th><th>低</th><th>收</th><th>涨幅%</th>
               <th>涨停</th><th>连板</th><th>封成比%</th><th>封单(亿)</th><th>炸板</th>
-              <th>首封</th><th>板块</th>
+              <th>首封</th><th>量能</th><th>板块</th>
             </tr></thead>
-            <tbody><tr><td colspan="13" class="empty">查询后显示</td></tr></tbody>
+            <tbody><tr><td colspan="14" class="empty">查询后显示</td></tr></tbody>
           </table>
         </div>
         <div id="intraday5d-chart" style="height:280px; margin-top:1.25rem"></div>
@@ -625,6 +645,7 @@
           </div>
           <p class="caption dim" style="margin:.25rem 0 0">主力/散户实时买卖为净额拆分近似(akshare 未提供逐笔买卖分时)</p>
 
+          <div class="table-wrap mt-8">
           <table class="bd-cats" id="bd-cats">
             <thead>
               <tr>
@@ -643,6 +664,7 @@
               <tr><td colspan="9" class="empty">查询后显示</td></tr>
             </tbody>
           </table>
+          </div>
           <p class="caption dim" style="margin-top:.5rem">占比 = 类别金额 ÷ 个股当日总成交额 (万)</p>
         </section>
 
@@ -1171,6 +1193,7 @@
             <button type="button" class="btn btn-primary" id="snap-batch-save">📥 全部录入</button>
           </div>
         </div>
+        <div class="table-wrap">
         <table class="data-table snap-tbl">
           <thead>
             <tr>
@@ -1179,14 +1202,94 @@
           </thead>
           <tbody id="snap-tbody"></tbody>
         </table>
+        </div>
         <p class="caption dim" id="snap-meta">—</p>
       </div>
     </article>
 
-    <!-- 录入区 -->
+    <!-- 表格 (置顶 — 用户主要看这个) -->
     <article class="card mt-16">
-      <div class="card-eyebrow">RECORD · 录入新交易</div>
-      <h3 class="card-h">记一笔</h3>
+      <div class="card-eyebrow flex-between">
+        <span>TRADES · 交易明细 · 逐笔实时盈亏 <span class="rv-scroll-hint">← 左右滑动查看全部 →</span></span>
+        <span class="trades-toolbar">
+          <span class="caption dim" id="review-ts">—</span>
+          <span class="integrity-badge" id="integrity-badge" data-state="loading" title="前端分组累计 vs 后端 portfolio 单源真值对账">
+            <span class="ib-dot"></span>
+            <span class="ib-text">对账中…</span>
+          </span>
+          <button class="btn-mini" id="review-fix-dirty" hidden title="检测到 DB 残留历史脏数据,一键清空重录" style="margin-left:8px">⚠ 修复脏数据</button>
+          <button class="btn-mini primary" id="review-bulk-ai" title="后台顺序 AI 复盘我的所有交易 (≈60s/笔,不阻塞浏览)" style="margin-left:8px">⚡ 一键 AI 复盘全部</button>
+          <button class="btn-mini danger" id="review-clear-all" title="清空所有交易记录(用于重新开始)" style="margin-left:8px">🗑 清空全部</button>
+        </span>
+      </div>
+      <div id="review-auto-banner" class="auto-review-banner" hidden>
+        <span class="arb-icon">🌀</span>
+        <span class="arb-text">进入页面自动后台复盘中…</span>
+        <span class="arb-prog"></span>
+        <button class="btn-mini arb-stop">停</button>
+      </div>
+      <div class="review-table-wrap">
+        <table class="data-table review-table" id="review-table">
+          <thead>
+            <tr>
+              <th class="rv-sticky-1">代码 · 名称</th>
+              <th>方向</th>
+              <th>买入日期</th>
+              <th>买入价</th>
+              <th>成交时刻</th>
+              <th>股数</th>
+              <th>今日盈亏</th>
+              <th class="rv-hide-tablet">累计盈亏</th>
+              <th class="rv-hide-tablet">累计盈亏比</th>
+              <th class="rv-hide-tablet">铁律错在哪</th>
+              <th class="rv-hide-mobile">AI 复盘</th>
+            </tr>
+          </thead>
+          <tbody id="review-tbody">
+            <tr><td colspan="11" class="dim center">加载中…</td></tr>
+          </tbody>
+          <tfoot id="review-tfoot" class="rv-tfoot" hidden>
+            <tr>
+              <td colspan="6" class="right bold">合计 · 所有交易汇总</td>
+              <td id="rv-sum-today" class="cell-num bold">—</td>
+              <td class="cell-num-cell rv-hide-tablet">
+                <div><span id="rv-sum-cum" class="cell-num bold">—</span></div>
+                <div class="caption dim" style="margin-top:.2rem" id="rv-sum-cum-sub">—</div>
+              </td>
+              <td class="cell-num-cell rv-hide-tablet">
+                <div><span id="rv-sum-real" class="cell-num bold">—</span></div>
+                <div class="caption dim" style="margin-top:.2rem" id="rv-sum-real-sub">—</div>
+              </td>
+              <td colspan="2" class="caption dim" id="rv-sum-meta">—</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </article>
+
+    <!-- 统计 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow">STATS · 90 天统计</div>
+      <div class="review-stats" id="review-stats">—</div>
+    </article>
+
+    <!-- 次日选股 + 用户错模式预警 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>NEXT DAY · 次日选股 · 错模式预警</span>
+        <button class="btn btn-mini" id="review-next-pick-refresh">↻ 重生成</button>
+      </div>
+      <p class="caption dim" id="review-next-meta" style="margin:.25rem 0 .5rem">—</p>
+      <ol class="next-pick-list" id="review-next-pick-list"></ol>
+    </article>
+
+    <!-- 录入区 (置底 — 用户看完/分析完表格后再记一笔) -->
+    <article class="card mt-16" id="review-record-card">
+      <div class="card-eyebrow flex-between">
+        <span>RECORD · 录入新交易</span>
+        <button class="btn-mini primary" id="rf-toggle-btn" type="button">+ 记一笔</button>
+      </div>
+      <div id="review-form-wrap" hidden>
       <form id="review-form" class="review-form" autocomplete="off">
         <div class="rf-row">
           <label>代码<input id="rf-code" placeholder="603137" maxlength="6" required></label>
@@ -1213,83 +1316,13 @@
         </div>
         <p class="caption dim" id="rf-infer-hint" style="margin:.2rem 0 0"></p>
       </form>
+      </div>
     </article>
+  </section>
 
-    <!-- 表格 -->
-    <article class="card mt-16">
-      <div class="card-eyebrow flex-between">
-        <span>TRADES · 交易明细 · 逐笔实时盈亏</span>
-        <span class="trades-toolbar">
-          <span class="caption dim" id="review-ts">—</span>
-          <span class="integrity-badge" id="integrity-badge" data-state="loading" title="前端分组累计 vs 后端 portfolio 单源真值对账">
-            <span class="ib-dot"></span>
-            <span class="ib-text">对账中…</span>
-          </span>
-          <button class="btn-mini" id="review-fix-dirty" hidden title="检测到 DB 残留历史脏数据,一键清空重录" style="margin-left:8px">⚠ 修复脏数据</button>
-          <button class="btn-mini primary" id="review-bulk-ai" title="后台顺序 AI 复盘我的所有交易 (≈60s/笔,不阻塞浏览)" style="margin-left:8px">⚡ 一键 AI 复盘全部</button>
-          <button class="btn-mini danger" id="review-clear-all" title="清空所有交易记录(用于重新开始)" style="margin-left:8px">🗑 清空全部</button>
-        </span>
-      </div>
-      <div id="review-auto-banner" class="auto-review-banner" hidden>
-        <span class="arb-icon">🌀</span>
-        <span class="arb-text">进入页面自动后台复盘中…</span>
-        <span class="arb-prog"></span>
-        <button class="btn-mini arb-stop">停</button>
-      </div>
-      <div class="review-table-wrap">
-        <table class="data-table review-table" id="review-table">
-          <thead>
-            <tr>
-              <th>代码 · 名称</th>
-              <th>方向</th>
-              <th>买入日期</th>
-              <th>买入价</th>
-              <th>成交时刻</th>
-              <th>股数</th>
-              <th>今日盈亏</th>
-              <th>累计盈亏</th>
-              <th>累计盈亏比</th>
-              <th>铁律错在哪</th>
-              <th>AI 复盘</th>
-            </tr>
-          </thead>
-          <tbody id="review-tbody">
-            <tr><td colspan="11" class="dim center">加载中…</td></tr>
-          </tbody>
-          <tfoot id="review-tfoot" class="rv-tfoot" hidden>
-            <tr>
-              <td colspan="6" class="right bold">合计 · 所有交易汇总</td>
-              <td id="rv-sum-today" class="cell-num bold">—</td>
-              <td class="cell-num-cell">
-                <div><span id="rv-sum-cum" class="cell-num bold">—</span></div>
-                <div class="caption dim" style="margin-top:.2rem" id="rv-sum-cum-sub">—</div>
-              </td>
-              <td class="cell-num-cell">
-                <div><span id="rv-sum-real" class="cell-num bold">—</span></div>
-                <div class="caption dim" style="margin-top:.2rem" id="rv-sum-real-sub">—</div>
-              </td>
-              <td colspan="2" class="caption dim" id="rv-sum-meta">—</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </article>
-
-    <!-- 统计 -->
-    <article class="card mt-16">
-      <div class="card-eyebrow">STATS · 90 天统计</div>
-      <div class="review-stats" id="review-stats">—</div>
-    </article>
-
-    <!-- 次日选股 + 用户错模式预警 -->
-    <article class="card mt-16">
-      <div class="card-eyebrow flex-between">
-        <span>NEXT DAY · 次日选股 · 错模式预警</span>
-        <button class="btn btn-mini" id="review-next-pick-refresh">↻ 重生成</button>
-      </div>
-      <p class="caption dim" id="review-next-meta" style="margin:.25rem 0 .5rem">—</p>
-      <ol class="next-pick-list" id="review-next-pick-list"></ol>
-    </article>
+  <!-- ─── 尾盘战法 (iframe 加载 /screener,视觉跟主 app 一致,tab 切换即返回) ─── -->
+  <section class="view view-screener" data-view="screener" hidden>
+    <iframe class="screener-frame" src="/screener" title="尾盘战法"></iframe>
   </section>
 
   <!-- ─── AI 复盘子页面 (复盘主页 → 点 AI 复盘进入,左上角返回) ─── -->
@@ -1309,13 +1342,13 @@
 
 <!-- bottom tab bar (mobile) -->
 <nav class="tabbar" id="tabbar">
-  <button class="tabbar-item active" data-jump="dash"><span class="tabbar-glyph">◎</span><span>首页</span></button>
-  <button class="tabbar-item" data-jump="dragons"><span class="tabbar-glyph">★</span><span>龙头</span></button>
-  <button class="tabbar-item" data-jump="stock"><span class="tabbar-glyph">◇</span><span>个股</span></button>
-  <button class="tabbar-item" data-jump="watchlist"><span class="tabbar-glyph">☆</span><span>自选</span></button>
-  <button class="tabbar-item" data-jump="optimize"><span class="tabbar-glyph">◈</span><span>调优</span></button>
-  <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span>心法</span></button>
-  <button class="tabbar-item" data-jump="review"><span class="tabbar-glyph">⤓</span><span>复盘</span></button>
+  <button class="tabbar-item active" data-jump="dash"><span class="tabbar-glyph">◎</span><span class="tabbar-label">首页</span></button>
+  <button class="tabbar-item" data-jump="dragons"><span class="tabbar-glyph">★</span><span class="tabbar-label">龙头</span></button>
+  <button class="tabbar-item" data-jump="stock"><span class="tabbar-glyph">◇</span><span class="tabbar-label">个股</span></button>
+  <button class="tabbar-item" data-jump="watchlist"><span class="tabbar-glyph">☆</span><span class="tabbar-label">自选</span></button>
+  <button class="tabbar-item" data-jump="screener"><span class="tabbar-glyph">⊕</span><span class="tabbar-label">尾盘战法</span></button>
+  <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span class="tabbar-label">心法</span></button>
+  <button class="tabbar-item" data-jump="review"><span class="tabbar-glyph">⤓</span><span class="tabbar-label">复盘</span></button>
 </nav>
 
 <!-- top tab bar (desktop) -->
@@ -1324,9 +1357,10 @@
   <button class="toptab" data-jump="dragons">02 · 龙头</button>
   <button class="toptab" data-jump="stock">03 · 个股</button>
   <button class="toptab" data-jump="watchlist">04 · 自选</button>
-  <button class="toptab" data-jump="optimize">05 · 调优</button>
+  <button class="toptab" data-jump="screener">05 · 尾盘战法</button>
   <button class="toptab" data-jump="laws">06 · 心法</button>
   <button class="toptab" data-jump="review">07 · 复盘</button>
+  <button class="toptab" data-jump="optimize">08 · 调优</button>
 </nav>
 
 <!-- toast -->
@@ -1334,5 +1368,55 @@
 
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <script src="/static/app.js?v=__JS_V__" defer></script>
+<script>
+// R17: 主页 smart-back — 从其他页(全A/板块层/选股)跳过来时,左上角显示"← 全A"等
+(function setupSmartBack() {
+  const btn   = document.getElementById('smart-back');
+  const label = document.getElementById('smart-back-label');
+  if (!btn) return;
+  let prev = null;
+  try {
+    const raw = sessionStorage.getItem('_prev_page');
+    if (raw) prev = JSON.parse(raw);
+  } catch (_) {}
+
+  // 兜底 1: ?from= 参数 (从 stock code 链接点过来)
+  if (!prev) {
+    const params = new URLSearchParams(location.search);
+    const from = params.get('from');
+    if (from === 'all_stocks') prev = { url: '/all_stocks', label: '全 A 风向' };
+    else if (from === 'sector_hotspot') prev = { url: '/sector_hotspot', label: '热点龙头' };
+    else if (from === 'screener') prev = { url: '/screener', label: '尾盘战法' };
+  }
+
+  // 兜底 2: window.opener (同源新窗口,父页是 all_stocks 等)
+  if (!prev) {
+    try {
+      if (window.opener && !window.opener.closed) {
+        const op = window.opener;
+        const opPath = op.location.pathname + op.location.search;
+        if (opPath && opPath !== location.pathname) {
+          let opLabel = '上一页';
+          if (opPath.startsWith('/all_stocks')) opLabel = '全 A 风向';
+          else if (opPath.startsWith('/sector_hotspot')) opLabel = '热点龙头';
+          else if (opPath.startsWith('/screener')) opLabel = '尾盘战法';
+          prev = { url: opPath, label: opLabel };
+        }
+      }
+    } catch (e) { /* cross-origin or detached */ }
+  }
+
+  if (prev && prev.url && prev.url !== '/' && prev.url !== location.pathname + location.search) {
+    label.textContent = prev.label || '上一页';
+    label.title = prev.url;
+    btn.href = prev.url;
+    btn.hidden = false;
+  }
+  // 主页作为根,pagehide 时清空栈(避免循环)
+  window.addEventListener('pagehide', () => {
+    try { sessionStorage.removeItem('_prev_page'); } catch (_) {}
+  });
+})();
+</script>
 </body>
 </html>

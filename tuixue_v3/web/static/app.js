@@ -655,8 +655,14 @@ function _paintSignalCol(prefix, payload, animate) {
   const v = payload.verdict || 'cautious';
   const verdictEl = $(`#sig-${prefix}-verdict`);
   if (verdictEl) {
-    verdictEl.className = `signal-verdict signal-${v}`;
+    const prev = verdictEl.className;
+    verdictEl.className = `signal-verdict signal-${v}${animate ? ' fresh' : ''}`;
     verdictEl.textContent = _VERDICT_LABEL[v] || '—';
+    if (animate && !prev.includes(v)) {
+      // 重新触发动画
+      void verdictEl.offsetWidth;
+      verdictEl.className = `signal-verdict signal-${v} fresh`;
+    }
   }
   const pctEl = $(`#sig-${prefix}-pct`);
   if (pctEl) {
@@ -4156,12 +4162,6 @@ $$('[data-jump]').forEach(el => {
     }
     if (tgt === 'sector_hotspot') {
       window.open('/sector_hotspot' + qs, '_blank', 'noopener');
-      return;
-    }
-    // R-fix-2026-07-14: 尾盘战法是独立静态页,index.html 里没有 view-screener 容器,
-    // showView 切过去没东西 → 空白页。改新窗口打开
-    if (tgt === 'screener') {
-      window.open('/screener' + qs, '_blank', 'noopener');
       return;
     }
     showView(tgt);
