@@ -4158,6 +4158,12 @@ $$('[data-jump]').forEach(el => {
       window.open('/sector_hotspot' + qs, '_blank', 'noopener');
       return;
     }
+    // R-fix-2026-07-14: 尾盘战法是独立静态页,index.html 里没有 view-screener 容器,
+    // showView 切过去没东西 → 空白页。改新窗口打开
+    if (tgt === 'screener') {
+      window.open('/screener' + qs, '_blank', 'noopener');
+      return;
+    }
     showView(tgt);
   });
 });
