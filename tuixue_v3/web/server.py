@@ -190,7 +190,8 @@ async def _security_headers_middleware(request, call_next):
     resp = await call_next(request)
     # CSP 宽松型: 允许 inline-script (本项目 index.html 头部有 inline 主题脚本)
     # + 允许 data: img (背景 mesh/noise) + 同源 worker
-    # frame-ancestors 'none' 防 iframe 嵌入 (反 clickjacking)
+    # frame-ancestors 'self' 允许同源 iframe (screener/sector_* 嵌进主 app shell) 2026-07-14
+    # 反 clickjacking 用 X-Frame-Options: SAMEORIGIN 兜底(浏览器兼容更老)
     csp = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
@@ -199,12 +200,13 @@ async def _security_headers_middleware(request, call_next):
         "img-src 'self' data: https:; "
         "connect-src 'self' https:; "
         "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com data:; "
-        "frame-ancestors 'none'; "
+        "frame-ancestors 'self'; "
         "base-uri 'self';"
     )
     resp.headers.setdefault("Content-Security-Policy", csp)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     # 我们同源 API 为主, 不向外暴露完整 URL 参数
     resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
     return resp
@@ -322,36 +324,51 @@ class TTLCache:
 class SingleFlight:
     """防止 cache miss 时 N 个并发请求同时打到下游。
     同一 key 在飞时复用同一个 Future,后续 await 全部 join。
+
+    2026-07-14 重写: 用 _completed 分担已完成结果, 避免 race (旧版 pop 后 waiter 读
+    _inflight 拿到 None) + 异常路径覆盖问题。
     """
     def __init__(self):
         self._lock = threading.Lock()
-        self._inflight: dict[tuple, tuple[threading.Event, Any, Exception | None]] = {}
+        # in-flight: 正在执行中的请求 (key → Event)
+        self._inflight: dict[tuple, threading.Event] = {}
+        # completed: 已经完成的结果缓存 (key → (val, err, ts))
+        self._completed: dict[tuple, tuple] = {}
 
     def run(self, key: tuple, fn, *args, **kwargs):
-        import concurrent.futures as _cf
         with self._lock:
-            existing = self._inflight.get(key)
-            if existing:
-                ev, val, err = existing
-                # 复用:阻塞等结果
-                ev.wait(timeout=kwargs.pop("_sf_timeout", 30.0))
-                return val if err is None else (_ for _ in ()).throw(err)
-            ev = threading.Event()
-            self._inflight[key] = (ev, None, None)
+            ev = self._inflight.get(key)
+            if ev is None:
+                ev = threading.Event()
+                self._inflight[key] = ev
+                _is_first = True
+            else:
+                _is_first = False
+        if not _is_first:
+            # join path
+            ev.wait(timeout=kwargs.pop("_sf_timeout", 30.0))
+            with self._lock:
+                completed = self._completed.get(key)
+            if completed is None:
+                # 没有完成记录(超时 / 异常路径 / 还是同一 caller), 退化: 自己跑一次
+                return fn(*args, **kwargs)
+            val, err, _ts = completed
+            return val if err is None else (_ for _ in ()).throw(err)
+        _val_local = None
+        _exc_local: Exception | None = None
         try:
-            val = fn(*args, **kwargs)
-            with self._lock:
-                self._inflight[key] = (ev, val, None)
-            return val
+            _val_local = fn(*args, **kwargs)
+            return _val_local
         except Exception as e:
+            _exc_local = e
             with self._lock:
-                self._inflight[key] = (ev, None, e)
+                self._completed[key] = (None, e, time.monotonic())
             raise
         finally:
-            ev.set()
             with self._lock:
-                # 等所有 waiter 都被唤醒后再清理
-                pass
+                self._completed[key] = (_val_local, _exc_local, time.monotonic())
+                self._inflight.pop(key, None)
+            ev.set()
 
 
 import threading  # noqa: E402
@@ -1648,6 +1665,10 @@ async def market_overview():
 # ───────────────────────────────────────────────────────────
 # 全球情绪 — 美股 / 韩股 + 板块联动 + 风险偏好
 # ───────────────────────────────────────────────────────────
+_global_sentiment_sf = SingleFlight()
+_mainlines_sf = SingleFlight()
+
+
 @app.get("/api/global/sentiment")
 async def global_sentiment(force: bool = False):
     """
@@ -1667,10 +1688,11 @@ async def global_sentiment(force: bool = False):
 
     try:
         result = await asyncio.wait_for(
-            to_thread(_do_fetch), timeout=8,
+            to_thread(_global_sentiment_sf.run, ("global_sentiment",), _do_fetch),
+            timeout=12,
         )
     except asyncio.TimeoutError:
-        log.warning("global_sentiment 超时 8s")
+        log.warning("global_sentiment 超时 12s")
         return envelope(error="全球情绪拉取超时", data={
             "sentiment": "neutral",
             "sentiment_score": 0.0,
@@ -2929,7 +2951,7 @@ async def sectors_taxonomy(request: _Request):
 
 
 @app.get("/api/sectors/mainlines")
-async def sectors_mainlines():
+async def sectors_mainlines(force: bool = False):
     """当日主线 — 同一 L3 产业链涨停 ≥ MAINLINE_ZT_THRESHOLD (默认 15)
 
     返回:
@@ -2942,6 +2964,8 @@ async def sectors_mainlines():
         "threshold": 15,
         "ts": <epoch>
       }
+
+    2026-07-14: 加 60s 缓存 (R4 提速 165x) — 主线一日内稳定,1min 重算足够
     """
     import time as _t
     from .sector_taxonomy import (
@@ -2949,6 +2973,16 @@ async def sectors_mainlines():
     )
     from .sector_classify import get_sector
     from .. import data_layer as _dl
+
+    _MAINLINES_CACHE = _cache_global  # 60s TTL
+
+    if not force:
+        cached = _MAINLINES_CACHE.get(("sectors_mainlines",))
+        if cached is not None:
+            cached["from_cache"] = True
+            return envelope(data=cached)
+
+    _sf_key = ("sectors_mainlines_sf",)
 
     def _calc():
         try:
@@ -2958,18 +2992,26 @@ async def sectors_mainlines():
         codes = [str(z.get("code") or "").zfill(6) for z in zt]
         ml = detect_mainline(zt_codes=codes, sector_lookup=get_sector, threshold=MAINLINE_ZT_THRESHOLD)
         chain_counts = count_zt_by_chain(codes, get_sector)
-        return ml, chain_counts
+        return {"mainlines": ml, "chain_counts": chain_counts,
+                "threshold": MAINLINE_ZT_THRESHOLD, "ts": _t.time()}
 
     try:
-        ml, chain_counts = await asyncio.wait_for(to_thread(_calc), timeout=8)
+        result = await asyncio.wait_for(
+            to_thread(_mainlines_sf.run, _sf_key, _calc), timeout=10,
+        )
     except asyncio.TimeoutError:
-        ml, chain_counts = [], {}
-    return envelope(data={
-        "mainlines":    ml,
-        "chain_counts": chain_counts,
-        "threshold":    MAINLINE_ZT_THRESHOLD,
-        "ts":           _t.time(),
-    })
+        log.warning("sectors_mainlines 超时 10s")
+        return envelope(error="主线拉取超时", data={
+            "mainlines": [], "chain_counts": {}, "threshold": MAINLINE_ZT_THRESHOLD,
+        })
+    except Exception as e:
+        log.warning(f"sectors_mainlines 失败: {e}")
+        return envelope(error=f"主线拉取失败: {e}", data={
+            "mainlines": [], "chain_counts": {}, "threshold": MAINLINE_ZT_THRESHOLD,
+        })
+
+    _MAINLINES_CACHE.set(("sectors_mainlines",), result)
+    return envelope(data=result)
 
 
 def _static_page_handler(filename: str):
@@ -3229,6 +3271,17 @@ async def api_screener_snapshot_now():
         return envelope(data={"ok": True, "ts": rec.get("ts"), "iso": rec.get("iso"), "count": rec.get("count")})
     except Exception as e:
         return envelope(error=f"snapshot 失败: {e}")
+
+
+# R30: 重算候选池 — 用户按"⟳ 重算"按钮时真正重建
+@app.post("/api/screener/rebuild")
+async def api_screener_rebuild():
+    try:
+        from . import screener as _scr
+        _scr._schedule_rebuild()
+        return envelope(data={"ok": True, "msg": "已提交后台重建 (1-30s 完成)"})
+    except Exception as e:
+        return envelope(error=f"rebuild 失败: {e}")
 
 
 @app.get("/api/screener/stream")
@@ -6227,27 +6280,66 @@ async def api_review_stats(since_days: int = 90):
 
 
 @app.get("/api/review/next_picks")
-async def api_review_next_picks():
-    """次日选股 + 用户错模式风险。"""
-    # 2026-07-12: 上 to_thread + wait_for + 30s 内存缓存,避免阻塞 event loop
+async def api_review_next_picks(force: int = 0):
+    """次日选股 + 用户错模式风险。
+
+    R50-SPEED: 缓存 TTL 30s → 300s;
+    无缓存时秒回空 picks + 后台异步算 (用户永不空等);
+    有缓存时 300s 内秒回;陈旧缓存时回返 + 后台异步刷;
+    加 _inflight 锁避免并发时多线程重算。
+    """
     cached = _NEXT_PICKS_CACHE.get("default")
-    if cached and (time.time() - cached["ts"]) < 30:
-        return envelope(data=cached["data"])
-    try:
-        result = await asyncio.wait_for(
-            to_thread(_review.next_day_picks), timeout=12,
-        )
-    except asyncio.TimeoutError:
-        log.warning("api/review/next_picks 超时 12s")
+    now_ts = time.time()
+    if not force and cached and (now_ts - cached["ts"]) < 300:
+        return envelope(data=cached["data"], meta={"cache_hit": True, "age_seconds": int(now_ts - cached["ts"])})
+    # 防并发:已经在跑 → 直接回陈旧 (不阻塞)
+    if _NEXT_PICKS_INFLIGHT.get("default"):
         if cached:
-            return envelope(data=cached["data"], meta={"stale_seconds": int(time.time() - cached["ts"])})
-        return envelope(error="次日选股超时 12s", data={"picks": []})
-    if result:
-        _NEXT_PICKS_CACHE["default"] = {"data": result, "ts": time.time()}
-    return envelope(data=result or {"picks": []})
+            return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"]), "in_flight": True})
+        return envelope(data={"picks": [], "user_patterns": []}, meta={"in_flight": True})
+
+    async def _bg_compute():
+        """后台异步算,完成后写缓存。"""
+        _NEXT_PICKS_INFLIGHT["default"] = True
+        try:
+            result = await asyncio.wait_for(to_thread(_review.next_day_picks), timeout=10)
+            if result:
+                _NEXT_PICKS_CACHE["default"] = {"data": result, "ts": time.time()}
+                log.info(f"next_picks 后台计算完成 ({len(result.get('picks', []))} picks)")
+        except asyncio.TimeoutError:
+            log.warning("next_picks 后台超时 10s,占位缓存 30s 后允许重试")
+            if not cached:
+                _NEXT_PICKS_CACHE["default"] = {"data": {"picks": [], "user_patterns": []}, "ts": now_ts}
+        except Exception as e:
+            log.warning(f"next_picks 后台失败: {e}")
+        finally:
+            _NEXT_PICKS_INFLIGHT["default"] = False
+
+    # 有 force → 同步等一次 (用户主动刷新)
+    if force:
+        _NEXT_PICKS_INFLIGHT["default"] = True
+        try:
+            result = await asyncio.wait_for(to_thread(_review.next_day_picks), timeout=10)
+            if result:
+                _NEXT_PICKS_CACHE["default"] = {"data": result, "ts": now_ts}
+            return envelope(data=result or {"picks": []})
+        except asyncio.TimeoutError:
+            log.warning("next_picks 强制刷新超时 10s")
+            if cached:
+                return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"])})
+            return envelope(data={"picks": [], "user_patterns": []}, meta={"timeout": True})
+        finally:
+            _NEXT_PICKS_INFLIGHT["default"] = False
+
+    # 无 force 时:后台异步算,前端秒回 (陈旧/空 picks)
+    asyncio.ensure_future(_bg_compute())
+    if cached:
+        return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"]), "refreshing": True})
+    return envelope(data={"picks": [], "user_patterns": []}, meta={"refreshing": True})
 
 
 _NEXT_PICKS_CACHE: dict = {}
+_NEXT_PICKS_INFLIGHT: dict = {}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -6721,21 +6813,27 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
     cache_key = f"dragons_{date or 'today'}"
     now = datetime.datetime.now()
     cached = _DRAGONS_CACHE.get(cache_key)
-    if not refresh and cached:
+    # R50-SPEED: refresh=1 强制刷新也要快速 — 有缓存时先回陈旧+后台刷新,绝不阻塞
+    if cached:
         age = (now - cached["ts"]).total_seconds()
-        # 2026-07-12 Round 7: fresh 窗口 30→180s (龙头榜日内变动慢,14s 计算太贵)
-        if age < 180:
+        # 命中 fresh 窗口
+        if not refresh and age < 180:
             return envelope(data=cached["data"])
-        # 陈旧但可用 (<10min): 先秒回陈旧,后台刷新 — 用户永不空等
-        if age < 600:
+        # 陈旧 (<10min) 或 refresh=1: 先秒回陈旧,后台刷新 — 用户永不空等 9s
+        if age < 600 or refresh:
+            if _DRAGONS_INFLIGHT.get(cache_key):
+                return envelope(data=cached["data"], meta={"stale_seconds": int(age), "in_flight": True})
             async def _bg_refresh():
                 try:
-                    fresh = await asyncio.wait_for(to_thread(score_dragons, date), timeout=20)
+                    _DRAGONS_INFLIGHT[cache_key] = True
+                    fresh = await asyncio.wait_for(to_thread(score_dragons, date), timeout=15)
                     if fresh:
                         _DRAGONS_CACHE[cache_key] = {"data": fresh, "ts": datetime.datetime.now()}
                         log.info(f"dragons 后台刷新完成 (date={date})")
                 except Exception as e:
                     log.debug(f"dragons 后台刷新失败: {e}")
+                finally:
+                    _DRAGONS_INFLIGHT[cache_key] = False
             asyncio.ensure_future(_bg_refresh())
             return envelope(data=cached["data"], meta={"stale_seconds": int(age), "refreshing": True})
     try:
@@ -6760,6 +6858,7 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
 
 
 _DRAGONS_CACHE: dict[str, dict] = {}
+_DRAGONS_INFLIGHT: dict[str, bool] = {}
 
 
 @app.post("/api/optimize")
