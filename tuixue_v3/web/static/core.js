@@ -654,6 +654,26 @@ function skeletonTable(rows = 5, cols = 6) {
   return html + '</tbody></table>';
 }
 
+// R101: 统一 empty-state 组件 — 之前各 view 各写各的 (无主线数据/无龙头候选/暂无报告/...)
+// 现在统一:大图标 + 主文案 + 副文案 + 可选 CTA 按钮,role=status 让 SR 朗读
+// 用法: emptyState({icon:'📭', title:'暂无自选', hint:'点击左侧 ⭐ 按钮把关注的股票加进来', cta:{label:'浏览全 A 风向', jump:'all_stocks'}})
+function emptyState(opts) {
+  const icon = opts.icon || '📭';
+  const title = opts.title || '暂无数据';
+  const hint = opts.hint || '';
+  const cta = opts.cta;
+  const ctaHtml = cta
+    ? `<button class="btn btn-primary btn-mini" data-jump="${cta.jump || ''}" onclick="${cta.onclick || ''}">${cta.label}</button>`
+    : '';
+  // role=status 让屏幕阅读器自动朗读此区域(空态本身就是"状态变化")
+  return `<div class="empty-state" role="status">
+    <div class="empty-icon" aria-hidden="true">${icon}</div>
+    <div class="empty-title">${title}</div>
+    ${hint ? `<div class="empty-hint">${hint}</div>` : ''}
+    ${ctaHtml}
+  </div>`;
+}
+
 // ────────────────────────────────────────────
 // 顶部进度条 — 长操作(>3s)的视觉反馈
 // 用法: _showLoading('回测中…') / _hideLoading()
@@ -860,9 +880,56 @@ var fmtPct = (n, d = 2) => {
 var fmtAmt = (n) => {
   if (n === null || n === undefined) return '—';
   const v = Number(n);
-  if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + ' 亿';
-  if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(2) + ' 万';
-  return v.toFixed(0);
+  // R111: 千分位 + 单位 (万/亿) — 之前无千分位,大数读不清
+  if (Math.abs(v) >= 1e8) return (v / 1e8).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' 亿';
+  if (Math.abs(v) >= 1e4) return (v / 1e4).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' 万';
+  return v.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
 };
 var colorFor = (v) => v > 0 ? UP : (v < 0 ? DOWN : INK2);
+
+// R111: 日期格式化统一 — 接受 YYYYMMDD / YYYY-MM-DD / Date / timestamp,统一输出 'YYYY-MM-DD'
+// 之前 view 文件各自 slice(0,4)/slice(4,6)/slice(6,8) 拼字符串,出错风险高
+function fmtDate(input, opts = {}) {
+  if (!input && input !== 0) return '—';
+  // 数字 → 当 YYYYMMDD
+  let y, m, d;
+  if (typeof input === 'number') {
+    const s = String(input);
+    if (s.length === 8) {
+      y = +s.slice(0,4); m = +s.slice(4,6); d = +s.slice(6,8);
+    } else if (s.length === 10) {
+      // unix timestamp 秒
+      const dt = new Date(input * 1000);
+      return _fmtDateFromDate(dt, opts);
+    } else return '—';
+  } else if (typeof input === 'string') {
+    const s = input.replace(/[\/\.]/g, '-');
+    const parts = s.split('-').filter(Boolean);
+    if (parts.length === 3) {
+      y = +parts[0]; m = +parts[1]; d = +parts[2];
+    } else if (s.length === 8) {
+      y = +s.slice(0,4); m = +s.slice(4,6); d = +s.slice(6,8);
+    } else return input;  // 不可解析 → 原样返回
+  } else if (input instanceof Date) {
+    return _fmtDateFromDate(input, opts);
+  } else return '—';
+  if (!y || !m || !d || m > 12 || d > 31) return '—';
+  const mm = String(m).padStart(2, '0');
+  const dd = String(d).padStart(2, '0');
+  return opts.short ? `${mm}/${dd}` : `${y}-${mm}-${dd}`;
+}
+function _fmtDateFromDate(dt, opts) {
+  if (isNaN(dt.getTime())) return '—';
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return opts.short ? `${m}/${d}` : `${y}-${m}-${d}`;
+}
+// R111: 时间格式化 HH:MM:SS
+function fmtTime(ts) {
+  if (!ts && ts !== 0) return '—';
+  const dt = typeof ts === 'number' ? new Date(ts * 1000) : (ts instanceof Date ? ts : new Date(ts));
+  if (isNaN(dt.getTime())) return '—';
+  return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}:${String(dt.getSeconds()).padStart(2, '0')}`;
+}
 

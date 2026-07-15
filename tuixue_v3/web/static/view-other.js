@@ -232,7 +232,7 @@ function renderDragons(data) {
   // STEP 2: 主线 Top 5
   const main = d.mainline || [];
   if (main.length === 0) {
-    $('#dragons-mainline').innerHTML = '<p class="empty">无主线数据</p>';
+    $('#dragons-mainline').innerHTML = emptyState({ icon: '🐉', title: '无主线数据', hint: '当前未识别出强势主线板块,可放宽筛选条件或等待下一交易日数据' });
   } else {
     $('#dragons-mainline').innerHTML = main.slice(0, 5).map(m => {
       const pct = (m.change_pct ?? 0).toFixed(2);
@@ -264,7 +264,7 @@ function renderDragons(data) {
   // STEP 3: Top 10 龙头卡片
   const top10 = d.top10 || [];
   if (top10.length === 0) {
-    $('#dragons-top10').innerHTML = '<p class="empty">无龙头候选</p>';
+    $('#dragons-top10').innerHTML = emptyState({ icon: '🐲', title: '无龙头候选', hint: '暂无连板高度 ≥ 3 的标的,可放宽席位筛选或查看历史龙头' });
   } else {
     $('#dragons-top10').innerHTML = top10.map(s => {
       const bd = s.score_breakdown || {};
@@ -778,6 +778,19 @@ $('#tunnel-btn')?.addEventListener('click', async () => {
   const btn = $('#tunnel-btn');
   const btnLabel = $('#tunnel-btn-label');
   btn.disabled = true;
+
+  // R-tunnel-2026-07-15: 如果当前是 online 状态→先停旧隧道再重开,确保全新链接
+  const statusEl = $('#tunnel-status');
+  const isRestart = statusEl && statusEl.classList.contains('online');
+  if (isRestart) {
+    btnLabel.textContent = '停止旧隧道…';
+    try {
+      await api('/api/tunnel/stop', { method: 'POST', timeout: 10_000 });
+    } catch (e) {
+      // stop 失败仍继续尝试 start (旧进程可能已被杀)
+    }
+  }
+
   btnLabel.textContent = '启动中…';
   // 即时显示诊断面板
   const diag = $('#tunnel-diag');
@@ -1892,7 +1905,7 @@ function _reviewUpdateRelaxInfo() {
   const info = document.getElementById('review-next-relax-info');
   if (!info) return;
   const cfg = _RELAX_LABELS[_reviewRelaxLevel] || _RELAX_LABELS[0];
-  info.innerHTML = `当前筛选档:<b>${cfg.label}</b> (${cfg.caps}) — ${cfg.desc}`;
+  info.innerHTML = `当前筛选档:<b>${escapeHtml(cfg.label)}</b> (${escapeHtml(cfg.caps)}) — ${escapeHtml(cfg.desc)}`;
 }
 
 var _reviewNextPickToken = 0;
@@ -3119,7 +3132,9 @@ function _watchlistRender() {
   const tbody = $('#wl-tbody');
   if (!tbody) return;
   if (!_watchlistItems.length) {
-    tbody.innerHTML = `<tr><td colspan="12" class="empty">📭 自选股池为空 — 在上方添加第一只股票</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" style="padding:0;border:none;">
+        ${emptyState({ icon: '⭐', title: '自选股池为空', hint: '在左上方输入框加第一只股票,或浏览全 A 风向把感兴趣的股票 ⭐ 进来', cta: { label: '浏览全 A 风向 →', jump: 'all_stocks' } })}
+      </td></tr>`;
     return;
   }
   tbody.innerHTML = _watchlistItems.map(it => _watchlistRowHtml(it)).join('');

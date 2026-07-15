@@ -1533,9 +1533,12 @@ let _stockPollLastTs = 0;
 function _startStockPoll(code) {
   _stopStockPoll();
   if (!code) return;
-  // 3s 后先拉一次(让用户进页面 3s 看到第一次跳动),然后 10s 一次
-  setTimeout(() => { _pollStockRealtime(code); }, 3000);
-  _stockPollTimer = setInterval(() => _pollStockRealtime(code), 10_000);
+  // R141: 隐藏标签页不轮询 — 节流省 server + 客户端 CPU
+  setTimeout(() => { if (!document.hidden) _pollStockRealtime(code); }, 3000);
+  _stockPollTimer = setInterval(() => {
+    if (document.hidden) return;
+    _pollStockRealtime(code);
+  }, 10_000);
 }
 function _stopStockPoll() {
   if (_stockPollTimer) { clearInterval(_stockPollTimer); _stockPollTimer = null; }
@@ -4907,7 +4910,7 @@ async function loadStockLimitUp(code, sectorName) {
       : `/api/stock/${code}/limit_up_context`;
     const res = await api(url) || {};
     if (res.error && res.error.includes('超时')) {
-      host.innerHTML = `<p class="caption down">${res.error}</p>`;
+      host.innerHTML = `<p class="caption down">${escapeHtml(res.error)}</p>`;
       return;
     }
     const today = res.today;
@@ -6180,7 +6183,7 @@ function _reviewUpdateRelaxInfo() {
   const info = document.getElementById('review-next-relax-info');
   if (!info) return;
   const cfg = _RELAX_LABELS[_reviewRelaxLevel] || _RELAX_LABELS[0];
-  info.innerHTML = `当前筛选档:<b>${cfg.label}</b> (${cfg.caps}) — ${cfg.desc}`;
+  info.innerHTML = `当前筛选档:<b>${escapeHtml(cfg.label)}</b> (${escapeHtml(cfg.caps)}) — ${escapeHtml(cfg.desc)}`;
 }
 
 var _reviewNextPickToken = 0;
@@ -8096,50 +8099,56 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
     if (append) tbody.insertAdjacentHTML('beforeend', html);
     else tbody.innerHTML = html;
-    // 追加/替换后立即套列显隐 + 自选染色 + 行内 handler
+    // 追加/替换后立即套列显隐 + 自选染色 (事件代理已在 tbody 上挂载,不再 bindRowHandlers)
     if (typeof applyColVisibility === 'function') applyColVisibility();
     if (typeof refreshStarMarks === 'function') refreshStarMarks();
-    bindRowHandlers();
     // 2026-07-14: 同链涨停 chips — 触发批量拉取(防重复入队)
     hydrateZtChainChips();
   }
 
   // ── 2026-07-14: 把所有没注入 chips 的<td data-ztchips> 填上 (防抖 + 空跑优化)
+  // R-perf-2026-07-15: 用 data-zt-hydrated 标记已处理格,避免每次 loadMore 重跑全部
   let _ztHydrateTimer = null;
   function hydrateZtChainChips() {
     if (_ztHydrateTimer) return;
     _ztHydrateTimer = setTimeout(async () => {
       _ztHydrateTimer = null;
-      const cells = Array.from(document.querySelectorAll('#as-stocks-tbody td[data-ztchips="1"]'));
+      const cells = Array.from(document.querySelectorAll('#as-stocks-tbody td[data-ztchips="1"]:not([data-zt-hydrated])'));
       if (!cells.length) return;
       const codes = cells.map(c => c.dataset.code).filter(Boolean);
       const rows = await _ztChainFetch(codes);
       for (const cell of cells) {
         const code = cell.dataset.code;
         const html = _renderZtChainChips(code, { max: 3 });
-        // chips 渲染前清掉占位
         cell.innerHTML = html || '<span class="dim" style="font-size:11px">—</span>';
+        cell.dataset.ztHydrated = '1';
       }
     }, 50);
   }
 
-  // === 12. bindRowHandlers ================================================
-  function bindRowHandlers() {
-    // ⭐ 加自选 — 统一走 POST /api/watchlist (Bug 6)
-    $$('.star-btn', $('#as-stocks-table tbody')).forEach(el_ => {
-      el_.addEventListener('click', async (e) => {
+  // === 12. 事件代理 — 替代 bindRowHandlers (R-perf-2026-07-15: 消除每行重复监听器) ===
+  // 单次委托挂 tbody 上,内部用 closest 分发: ⭐ star-btn / code-link / data-goto-l2/3/4/domain
+  function setupTbodyDelegate() {
+    const tbody = $('#as-stocks-tbody');
+    if (!tbody || tbody._delegateSet) return;
+    tbody._delegateSet = true;
+    tbody.addEventListener('click', async (e) => {
+      // ⭐ 自选
+      const star = e.target.closest('.star-btn');
+      if (star && star.dataset.starCode) {
         e.stopPropagation();
-        const isActive = el_.classList.contains('active');
-        const code = el_.dataset.starCode;
-        const name = el_.dataset.starName || '';
+        const code = star.dataset.starCode;
+        const name = star.dataset.starName || '';
+        const isActive = star.classList.contains('active');
         if (isActive) {
-          // 已自选 → 删除 (2026-07-15: 不再弹 confirm)
           try {
             const resp = await fetch('/api/watchlist/' + encodeURIComponent(code), { method: 'DELETE' });
             const env = await resp.json();
             if (env.ok || env.data?.removed) {
-              el_.classList.remove('active');
+              star.classList.remove('active');
               state._watchedCodes.delete(code);
+              document.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'remove', code, name } }));
+              _watchlistLoaded = false;
               toast(`已删自选 ${code}`, 'ok');
             } else {
               toast('删除失败: ' + (env.error || ''), 'err');
@@ -8148,7 +8157,6 @@ document.addEventListener('DOMContentLoaded', () => {
             toast('删除失败: ' + err.message, 'err');
           }
         } else {
-          // 未自选 → 添加
           try {
             const resp = await fetch('/api/watchlist', {
               method: 'POST',
@@ -8157,8 +8165,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const env = await resp.json();
             if (env.ok) {
-              el_.classList.add('active');
+              star.classList.add('active');
               state._watchedCodes.add(code);
+              document.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'add', code, name } }));
+              _watchlistLoaded = false;
               toast(`已加自选 ${code} ${name}`, 'ok');
             } else {
               toast('加自选失败: ' + (env.error || '未知'), 'err');
@@ -8167,48 +8177,30 @@ document.addEventListener('DOMContentLoaded', () => {
             toast('加自选失败: ' + err.message, 'err');
           }
         }
-      });
+        return;
+      }
+      // 代码 → 个股详情
+      const codeLink = e.target.closest('.code-link');
+      if (codeLink && codeLink.dataset.code) {
+        window.open(`/?code=${codeLink.dataset.code}&from=all_stocks`, '_blank', 'noopener');
+        return;
+      }
+      // 联动 chip: L2 / L3 / L4 / domain
+      const chipFn = (el, layer) => {
+        state[layer] = el.dataset['goto' + layer.toUpperCase()] || '';
+        applyAllStocksCascade(layer);
+        syncUI(); syncUrl(); loadBoard();
+        toast(`已联动 ${layer.toUpperCase()} = ${state[layer]}`);
+      };
+      const l2 = e.target.closest('[data-goto-l2]');
+      if (l2) { chipFn(l2, 'l2'); return; }
+      const l3 = e.target.closest('[data-goto-l3]');
+      if (l3) { chipFn(l3, 'l3'); return; }
+      const l4 = e.target.closest('[data-goto-l4]');
+      if (l4) { chipFn(l4, 'l4'); return; }
+      const domain = e.target.closest('[data-goto-domain]');
+      if (domain) { chipFn(domain, 'domain'); return; }
     });
-    // 代码 → 个股详情 (新窗口,带 from=all_stocks)
-    $$('.code-link', $('#as-stocks-table tbody')).forEach(el_ => {
-      el_.addEventListener('click', () => {
-        const code = el_.dataset.code;
-        window.open(`/?code=${code}&from=all_stocks`, '_blank', 'noopener');
-      });
-    });
-    // L2 / L3 / L4 / 领域 chip 联动 — 切细层不再 wipe L1 (R4)
-    function bindGotoLayer(attr, layer) {
-      $$(`[data-goto-${attr}]`, $('#as-stocks-table tbody')).forEach(el_ => {
-        el_.addEventListener('click', () => {
-          state[layer] = el_.dataset[('goto' + attr.charAt(0).toUpperCase() + attr.slice(1)).replace('L', 'L')];
-          // compute from dataset
-          const val = el_.dataset['goto' + attr.toUpperCase()] || el_.dataset[attr.replace(/^./, c => c)] || '';
-          // dataset for "goto-l2" → "gotoL2"
-          const key = attr.replace(/-/g, '');
-          state[layer] = el_.dataset['goto' + (attr.charAt(0).toUpperCase() + attr.slice(1))];
-          applyAllStocksCascade(layer);
-          syncUI();
-          syncUrl();
-          loadBoard();
-          toast(`已联动 ${layer.toUpperCase()} = ${state[layer]}`);
-        });
-      });
-    }
-    // 简化版(明确层映射):
-    function makeGotoBinder(attr, layer, dsKey) {
-      $$(`[data-goto-${attr}]`, $('#as-stocks-table tbody')).forEach(el_ => {
-        el_.addEventListener('click', () => {
-          state[layer] = el_.dataset[dsKey];
-          applyAllStocksCascade(layer);
-          syncUI(); syncUrl(); loadBoard();
-          toast(`已联动 ${layer} = ${state[layer]}`);
-        });
-      });
-    }
-    makeGotoBinder('l2', 'l2', 'gotoL2');
-    makeGotoBinder('l3', 'l3', 'gotoL3');
-    makeGotoBinder('l4', 'l4', 'gotoL4');
-    makeGotoBinder('domain', 'domain', 'gotoDomain');
   }
 
   // === 13. renderMeta + active filters ====================================
@@ -8879,6 +8871,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     setupSentinelObserver();
     setupAllStocksBackNav();
+    setupTbodyDelegate();  // R-perf: 事件代理,一次挂载
     bindSortHeader();
     bindControls();
     bindTableScrollIndicator();

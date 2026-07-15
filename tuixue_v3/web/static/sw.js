@@ -10,11 +10,8 @@
 //
 // 注意:不要在这个文件里 import 任何外部模块 — SW 是 top-level, fetch handler 会捕获所有未命中路径
 
-// 2026-07-15: bump 到 v7 — 网络健壮性 + 移动端 + a11y 综合优化
-//  - dashboard 端点加入 API 缓存前缀
-//  - API 缓存新鲜度 TTL 60s
-//  - 修复多个前端 bug (sidebar close selector, intraday race, etc.)
-const CACHE = 'tuixue-v3-shell-v8';
+// 2026-07-15: bump 到 v11 — 全A风向性能修复(事件代理代替逐个绑监听器) + tunnel 重启修复
+const CACHE = 'tuixue-v3-shell-v11';
 const PRECACHE = [
   '/',
   '/static/app.js',
