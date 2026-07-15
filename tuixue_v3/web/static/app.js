@@ -2,8 +2,8 @@
  * v2.0 — 信封 / 并发 / SSE / 心法 / AI
  */
 
-const $  = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+// $ 和 $$ 已在 core.js 里 const 声明;删掉 app.js 副本避免重复声明 SyntaxError
+// (core.js 加载顺序在前,这里直接复用全局)
 
 // 启动时检测重复 ID — 防止 querySelector 漏更新第二处
 (function _checkDuplicateIds() {
@@ -37,7 +37,7 @@ document.addEventListener('click', (e) => {
   try {
     switch (name) {
       case 'refresh-dashboard': refreshDashboard(); break;
-      case 'open-stock':        loadStockDetail(arg); break;
+      case 'open-stock':        showView('stock'); loadStockDetail(arg); break;
       case 'show-view':         showView(arg); break;
       case 'review-run':        _reviewRun(arg); break;
       case 'review-delete':     _reviewDelete(arg); break;
@@ -108,7 +108,7 @@ function _closeSidebar() {
 }
 
 // R9-A: 调试面板 — 缓存命中率 + AI 调用成本 + DB 健康 + poller 状态
-let _debugPanelTimer = null;
+var _debugPanelTimer = null;
 function _toggleDebugPanel() {
   const existing = document.getElementById('debug-panel');
   if (existing) { existing.remove(); clearInterval(_debugPanelTimer); return; }
@@ -181,13 +181,13 @@ async function _refreshDebugPanel() {
 
 // 主题色 — 跟随 [data-theme] 动态刷新 (let 不是 const)
 // 2026-07-10: 涨跌色已切 CN 标准（红涨绿跌）
-let ACCENT = '#d4a056';
-let UP     = '#e84545';
-let DOWN   = '#34c759';
-let INK    = '#e8e3d8';
-let INK2   = '#a8a39a';
-let INK3   = '#6b6660';
-let GRID   = 'rgba(232,227,216,0.06)';
+var ACCENT = '#d4a056';
+var UP     = '#e84545';
+var DOWN   = '#34c759';
+var INK    = '#e8e3d8';
+var INK2   = '#a8a39a';
+var INK3   = '#6b6660';
+var GRID   = 'rgba(232,227,216,0.06)';
 
 function _cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -199,18 +199,30 @@ function refreshThemeColors() {
   INK    = _cssVar('--ink')      || '#e8e3d8';
   INK2   = _cssVar('--ink-2')    || '#a8a39a';
   INK3   = _cssVar('--ink-3')    || '#6b6660';
-  GRID   = 'rgba(127,127,127,0.12)';  // 跟随主题的网格线
+  GRID   = 'rgba(127,127,127,0.12)';
 }
-refreshThemeColors();
+// ECharts 特定色 — 用 CSS 变量,跟随主题
+var CHART_LINE        = '#B8B0A8';
+var CHART_TOOLTIP_BG  = '#FFFFFF';
+var CHART_TOOLTIP_BORDER = '#DDD8D0';
+function refreshChartColors() {
+  CHART_LINE        = _cssVar('--chart-line')        || '#B8B0A8';
+  CHART_TOOLTIP_BG  = _cssVar('--chart-tooltip-bg')  || '#FFFFFF';
+  CHART_TOOLTIP_BORDER = _cssVar('--chart-tooltip-border') || '#DDD8D0';
+}
 
-const echartsCharts = {};
-let lastRefreshTs = 0;
+// 初始化图表色
+refreshThemeColors();
+refreshChartColors();
+
+var echartsCharts = {};
+var lastRefreshTs = 0;
 
 // ────────────────────────────────────────────
 // fetch wrapper — 自动解包 {ok,data,error,ts}
 // 每个请求都有 timeout + AbortController，避免后端慢导致前端卡死
 // ────────────────────────────────────────────
-const API_TIMEOUTS = {
+var API_TIMEOUTS = {
   // 默认 8s; AI 分析和数据源密集型接口单独加长
   default: 12_000,
   '/api/backtest':        120_000,  // 回测慢
@@ -297,10 +309,10 @@ async function _fetchWithTimeout(path, opts = {}) {
 //   缓存 60s (今日涨停池 1 分钟内不变);批量单次接口,max 300 code/批。
 //   多股性 (一个 code 多个 L2/L3/L4 板块) → 每个分开显示。
 // ════════════════════════════════════════════════════
-const _ZT_CHAIN_CACHE_TTL_MS = 60 * 1000;
-const _ztChainCache = new Map();   // code -> { ts, rows: [...] }
-let _ztChainPendingPromise = null;   // 防止同时 N 个 page 触发 N 次 /api/limitup/per_code
-const _ztChainPendingBuf = new Set();
+var _ZT_CHAIN_CACHE_TTL_MS = 60 * 1000;
+var _ztChainCache = new Map();   // code -> { ts, rows: [...] }
+var _ztChainPendingPromise = null;   // 防止同时 N 个 page 触发 N 次 /api/limitup/per_code
+var _ztChainPendingBuf = new Set();
 
 function _ztChainGet(code) {
   const e = _ztChainCache.get(code);
@@ -375,7 +387,7 @@ function _ztChainRowColor(row) {
   if (n >= 15) return UP;                  // 主线 (≥15)
   if (n >= 5) return ACCENT;               // 二线 (≥5)
   if (n >= 1) return INK2;                 // 1~4 杂毛
-  return 'var(--text-dim, #6b6056)';        // 0 灰
+  return 'var(--ink-3)';        // 0 灰
 }
 
 function _renderZtChainChips(code, opts) {
@@ -397,9 +409,9 @@ function _renderZtChainChips(code, opts) {
       <span style="opacity:.7;font-weight:600">${lvl}</span>
       <span style="white-space:nowrap">${escapeHtml(r.chain)}</span>
       <b style="font-weight:700">${r.zt_count}</b>
-      ${r.is_mainline ? '<span style="color:#ffd84a">⚡</span>' : ''}
+      ${r.is_mainline ? '<span style="color:var(--star-gold)">⚡</span>' : ''}
     </span>`;
-  }).join('') + (more > 0 ? `<span style="font-size:10px;color:var(--text-dim,#6b6056);margin-right:4px">+${more}</span>` : '');
+  }).join('') + (more > 0 ? `<span style="font-size:10px;color:var(--ink-3);margin-right:4px">+${more}</span>` : '');
 }
 
 async function api(path, opts) {
@@ -430,7 +442,7 @@ async function api(path, opts) {
 }
 
 // R6: 顶部进度条 (CSS class .top-progress 由 style.css R4 定义)
-let _topProgTimer = null;
+var _topProgTimer = null;
 function _showTopProgress() {
   if (document.getElementById('top-progress')) return;
   const el = document.createElement('div');
@@ -454,7 +466,7 @@ async function apiRaw(path, opts) {
 // keepalive 心跳 — 防止 tunnel / NAT idle 切断所有闲置连接
 // 每 25s 发一次轻量 /api/health (200 byte),让远端 cache 和 nginx 代理识别为活
 // ────────────────────────────────────────────
-let _kaState = 'idle';  // 'idle' | 'sending' | 'offline'
+var _kaState = 'idle';  // 'idle' | 'sending' | 'offline'
 function _keepaliveTick() {
   if (!navigator.onLine) return;  // 系统层就离线,别发
   // R6: tab 隐藏时不发 — 节省电池 + 减少无用请求
@@ -479,7 +491,7 @@ setInterval(_keepaliveTick, 25_000);
 window.addEventListener('online',  () => _setNetworkStatus('ok'));
 window.addEventListener('offline', () => _setNetworkStatus('offline'));
 // 拦截 api() 函数抛错,标记离线
-const _origApi = api;
+var _origApi = api;
 function _markOfflineOnApiErr(_path, e) {
   if (_isRetryableError(e) || /timeout|网络|fetch/i.test(String(e?.message))) {
     _setNetworkStatus('switching');
@@ -489,7 +501,7 @@ function _markOfflineOnApiErr(_path, e) {
   }
 }
 // 在 api 外层 wrap 一下
-const _origApiWrap = api;
+var _origApiWrap = api;
 async function _apiWithStatus(...args) {
   try {
     return await _origApiWrap(...args);
@@ -507,14 +519,14 @@ window.__api = _apiWithStatus;
 //   switching 橙色 dot + "切换中"   (短抖动中,1.5s 没恢复就降为 offline)
 //   offline   红色 dot + "断线"
 // ────────────────────────────────────────────
-const _netPill = () => document.getElementById('net-pill');
-const _netText = () => document.getElementById('net-text');
-const _NET_LABELS = {
+var _netPill = () => document.getElementById('net-pill');
+var _netText = () => document.getElementById('net-text');
+var _NET_LABELS = {
   ok: '在线',
   switching: '切换中',
   offline: '断线 · 自动重连',
 };
-let _netHideTimer = null;
+var _netHideTimer = null;
 function _setNetworkStatus(state) {
   const pill = _netPill();
   if (!pill) return;
@@ -545,9 +557,9 @@ function _setNetworkStatus(state) {
 // toast 队列 — 多个错误同时发生时按 FIFO 依次展示,不互相覆盖
 // 解决之前 toast 单实例 + 短覆盖 = 用户看不到关键错误的问题
 // ────────────────────────────────────────────
-const toastEl = $('#toast');
-const _toastQueue = [];
-let _toastActive = false;
+var toastEl = $('#toast');
+var _toastQueue = [];
+var _toastActive = false;
 function _drainToast() {
   if (_toastActive) return;
   const next = _toastQueue.shift();
@@ -600,9 +612,9 @@ function skeletonTable(rows = 5, cols = 6) {
 // 用法: _showLoading('回测中…') / _hideLoading()
 // 支持多个并行操作 — 引用计数,所有 hide 后才真正隐藏
 // ────────────────────────────────────────────
-const _topLoadingEl = $('#top-loading');
-let _topLoadingCount = 0;
-let _topLoadingLabel = '';
+var _topLoadingEl = $('#top-loading');
+var _topLoadingCount = 0;
+var _topLoadingLabel = '';
 function _showLoading(label) {
   _topLoadingCount++;
   if (label) _topLoadingLabel = label;
@@ -621,8 +633,8 @@ function _hideLoading() {
 // ────────────────────────────────────────────
 // 视图切换
 // ────────────────────────────────────────────
-let _currentViewName = null;
-let _currentStockCode = null;
+var _currentViewName = null;
+var _currentStockCode = null;
 // R-fix-2026-07-15: view 入栈 — 浏览器后退逐层回到上一个 view
 // 首屏 dash 不入栈(避免首次后退直接退出站),每次 pushView 入栈一个名字
 const _VIEW_STACK = [];
@@ -686,7 +698,7 @@ function _viewFromHash() {
 // R-ui-012: view 离开钩子注册表 - { 'view-name': () => { ... cleanup ... } }
 // 比让每个 enter hook 兼任 leave 更不容易漏 (之前 capTimer/flowsTimer
 // 在反复切页时无限累加, +1s 一次拉取 → 服务端被拖垮)
-const _VIEW_LEAVE_HOOKS = {};
+var _VIEW_LEAVE_HOOKS = {};
 function _registerViewLeave(name, fn) { _VIEW_LEAVE_HOOKS[name] = fn; }
 
 // R5: hash 路由 — 让 #stock=603881 / #review / #dragons 都能深链
@@ -732,31 +744,31 @@ function qGet(q, ...keys) {
   return null;
 }
 
-const fmtN = (n, d = 2) => {
+var fmtN = (n, d = 2) => {
   if (n === null || n === undefined || isNaN(n)) return '—';
   return Number(n).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
 };
-const fmtPct = (n, d = 2) => {
+var fmtPct = (n, d = 2) => {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const v = Number(n);
   const sign = v > 0 ? '+' : '';
   return `${sign}${v.toFixed(d)}%`;
 };
-const fmtAmt = (n) => {
+var fmtAmt = (n) => {
   if (n === null || n === undefined) return '—';
   const v = Number(n);
   if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + ' 亿';
   if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(2) + ' 万';
   return v.toFixed(0);
 };
-const colorFor = (v) => v > 0 ? UP : (v < 0 ? DOWN : INK2);
+var colorFor = (v) => v > 0 ? UP : (v < 0 ? DOWN : INK2);
 
 // ────────────────────────────────────────────
 // 市场概览 + ticker
 // ────────────────────────────────────────────
 // P-perf: localStorage 快照缓存 — 页面重载时免白屏
-const _DASHBOARD_CACHE_KEY = 'tx3_dash_cache';
-const _DASHBOARD_CACHE_TTL_MS = 120_000;  // 2min 过期
+var _DASHBOARD_CACHE_KEY = 'tx3_dash_cache';
+var _DASHBOARD_CACHE_TTL_MS = 120_000;  // 2min 过期
 
 function _dashCacheSave(data) {
   try {
@@ -900,11 +912,11 @@ function _paintHotSectors(d) {
 }
 
 // ── 三市场信号面板 (首页) ─────────────────────────────────
-const _VERDICT_LABEL = { allow: '适合买入', cautious: '谨慎参与', block: '不适合买入' };
-const _VERDICT_DOT   = { allow: '🟢', cautious: '🟡', block: '🔴' };
+var _VERDICT_LABEL = { allow: '适合买入', cautious: '谨慎参与', block: '不适合买入' };
+var _VERDICT_DOT   = { allow: '🟢', cautious: '🟡', block: '🔴' };
 
 // P-perf: sessionStorage 个股缓存 — 切股/回退时免白屏
-const _STOCK_CACHE_KEY_PREFIX = 'tx3_stock_';
+var _STOCK_CACHE_KEY_PREFIX = 'tx3_stock_';
 
 function _stockCacheKey(code, date) {
   return _STOCK_CACHE_KEY_PREFIX + code + '_' + (date || 'today');
@@ -932,7 +944,7 @@ function _stockCacheLoad(code, date) {
 }
 
 // prefix → market 映射 (动画用)
-const _MARKET_OF_PREFIX = { a: 'a', kr: 'kr', us: 'us' };
+var _MARKET_OF_PREFIX = { a: 'a', kr: 'kr', us: 'us' };
 
 // P-perf: refreshDashboard 向后兼容 — 新实现走 _dashLoadPhased
 async function refreshDashboard() {
@@ -1284,10 +1296,10 @@ function drawEquityChart(points) {
   chart.setOption({
     backgroundColor: 'transparent',
     grid: { left: 50, right: 24, top: 20, bottom: 36 },
-    tooltip: { trigger: 'axis', backgroundColor: '#15110d', borderColor: '#2a241c', textStyle: { color: INK } },
+    tooltip: { trigger: 'axis', backgroundColor: CHART_TOOLTIP_BG, borderColor: CHART_TOOLTIP_BORDER, textStyle: { color: INK } },
     xAxis: {
       type: 'category', data: points.map(p => p[0]),
-      axisLine: { lineStyle: { color: '#2a2825' } },
+      axisLine: { lineStyle: { color: CHART_LINE } },
       axisLabel: { color: INK2, fontSize: 10 },
     },
     yAxis: {
@@ -1310,7 +1322,7 @@ function drawEquityChart(points) {
 // ────────────────────────────────────────────
 // STOCK SEARCH + DETAIL + AI
 // ────────────────────────────────────────────
-let searchTimer = null;
+var searchTimer = null;
 $('#stock-search')?.addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(doStockSearch, 250);
@@ -1323,9 +1335,9 @@ $('#stock-search')?.addEventListener('keydown', (e) => {
 // ── 查询历史(服务端 SQLite 永久化,2026-07-11 改造) ──
 // 之前用 localStorage,浏览器清数据就丢;现在走 /api/stock_history,
 // 跨设备/跨浏览器同步,清缓存也不丢
-const _STOCK_HIST_KEY = 'tuixue_stock_history_v1';
-const _STOCK_HIST_MAX = 50;          // 服务端上限
-let _histCache = null;               // 当前已知的历史(防止 API 抖动时清空)
+var _STOCK_HIST_KEY = 'tuixue_stock_history_v1';
+var _STOCK_HIST_MAX = 50;          // 服务端上限
+var _histCache = null;               // 当前已知的历史(防止 API 抖动时清空)
 
 function _toHistShape(arr) {
   // 兼容旧 localStorage {code, name, ts} 与新服务端 {code, name, last_query_ts}
@@ -1468,7 +1480,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const _bd = document.getElementById('sidebar-backdrop');
   if (_bd) _bd.addEventListener('click', _closeSidebar);
   // 点击 sidebar 内的导航项 → 移动端自动关闭
-  document.querySelectorAll('#sidebar [data-view]').forEach(el => {
+  document.querySelectorAll('#sidebar [data-jump]').forEach(el => {
     el.addEventListener('click', () => {
       if (window.matchMedia('(max-width: 979px)').matches) _closeSidebar();
     });
@@ -1693,14 +1705,14 @@ async function loadStockDetail(code, date) {
 // ────────────────────────────────────────────
 // 个股快速工具栏: 日期 / 一键复盘 / 一键自选 / 跳转
 // ────────────────────────────────────────────
-let _currentStockName = '';
-let _tradeDates = [];        // ['YYYY-MM-DD', ...] 按时间倒序 (按需扩展)
-let _tradeDatesSet = null;   // Set 加快 lookup
-let _tradeDatesLoaded = false;
-let _tradeDatesLoading = null;
-let _tradeDatesLimit = 0;    // 当前已加载的 limit (用于按需扩展判断)
-let _lastTradeDate = null;   // 服务端给的"今日不是交易日时"的回退日
-const _TRADE_DATES_LIMIT_MAX = 1500;   // ≈ 6 年,够用且不会跑飞
+var _currentStockName = '';
+var _tradeDates = [];        // ['YYYY-MM-DD', ...] 按时间倒序 (按需扩展)
+var _tradeDatesSet = null;   // Set 加快 lookup
+var _tradeDatesLoaded = false;
+var _tradeDatesLoading = null;
+var _tradeDatesLimit = 0;    // 当前已加载的 limit (用于按需扩展判断)
+var _lastTradeDate = null;   // 服务端给的"今日不是交易日时"的回退日
+var _TRADE_DATES_LIMIT_MAX = 1500;   // ≈ 6 年,够用且不会跑飞
 
 function _fmtYmd(d) {
   const y = d.getFullYear();
@@ -2819,8 +2831,8 @@ function drawFlowChart(history) {
     backgroundColor: 'transparent',
     legend: { data: ['主力','超大单','大单','中单','小单'], textStyle: { color: INK2, fontSize: 10 }, top: 0, right: 12 },
     grid: { left: 50, right: 16, top: 36, bottom: 50 },
-    tooltip: { trigger: 'axis', backgroundColor: '#15110d', borderColor: '#2a2825', textStyle: { color: INK }, axisPointer: { type: 'shadow' } },
-    xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#2a2825' } }, axisLabel: { color: INK2, fontSize: 10 } },
+    tooltip: { trigger: 'axis', backgroundColor: CHART_TOOLTIP_BG, borderColor: CHART_LINE, textStyle: { color: INK }, axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: CHART_LINE } }, axisLabel: { color: INK2, fontSize: 10 } },
     yAxis: { type: 'value', splitLine: { lineStyle: { color: GRID } }, axisLabel: { color: INK2, fontSize: 10, formatter: v => (v/1e4).toFixed(1)+'亿' } },
     dataZoom: [{ type: 'inside', start: 60, end: 100 }, { type: 'slider', height: 18, bottom: 8, textStyle: { color: INK2 } }],
     series: [
@@ -2836,7 +2848,7 @@ function drawFlowChart(history) {
 // ──────────────────────────────────────────────────────────────
 // K线状态 + 周期切换 + 指标计算 (MACD / KDJ / BOLL)
 // ──────────────────────────────────────────────────────────────
-let klineState = {
+var klineState = {
   period: 22,                 // 当前显示周期 (天) · 默认 1M
   indicators: { ma: true, macd: false, kdj: false, boll: false },
   data: [],                   // 当前缓存的 kline
@@ -2964,11 +2976,11 @@ function drawKlineChart() {
 
   const xAxes = [
     { type: 'category', data: dates, gridIndex: 0,
-      axisLine: { lineStyle: { color: '#2a2825' } },
+      axisLine: { lineStyle: { color: CHART_LINE } },
       axisLabel: { color: INK2, fontSize: 10, hideOverlap: true },
       splitLine: { show: false } },
     { type: 'category', data: dates, gridIndex: 1,
-      axisLine: { lineStyle: { color: '#2a2825' } },
+      axisLine: { lineStyle: { color: CHART_LINE } },
       axisLabel: { show: false },
       splitLine: { show: false } },
   ];
@@ -2976,21 +2988,21 @@ function drawKlineChart() {
     { scale: true, gridIndex: 0,
       splitLine: { lineStyle: { color: GRID } },
       axisLabel: { color: INK2, fontSize: 10 },
-      axisLine: { lineStyle: { color: '#2a2825' } } },
+      axisLine: { lineStyle: { color: CHART_LINE } } },
     { gridIndex: 1, scale: true, splitNumber: 2,
       axisLabel: { color: INK2, fontSize: 9, formatter: v => (v/1e4).toFixed(1)+'万' },
       splitLine: { show: false },
-      axisLine: { lineStyle: { color: '#2a2825' } } },
+      axisLine: { lineStyle: { color: CHART_LINE } } },
   ];
   if (hasSub) {
     xAxes.push({ type: 'category', data: dates, gridIndex: 2,
-      axisLine: { lineStyle: { color: '#2a2825' } },
+      axisLine: { lineStyle: { color: CHART_LINE } },
       axisLabel: { show: false },
       splitLine: { show: false } });
     yAxes.push({ gridIndex: 2, scale: true, splitNumber: 2,
       axisLabel: { color: INK2, fontSize: 9 },
       splitLine: { lineStyle: { color: GRID } },
-      axisLine: { lineStyle: { color: '#2a2825' } } });
+      axisLine: { lineStyle: { color: CHART_LINE } } });
   }
 
   // ── Series ──
@@ -3058,7 +3070,7 @@ function drawKlineChart() {
       trigger: 'axis',
       axisPointer: { type: 'cross', crossStyle: { color: ACCENT, width: 0.6, opacity: 0.6 }, lineStyle: { color: ACCENT, width: 0.6, opacity: 0.6 } },
       backgroundColor: 'rgba(20, 18, 14, 0.96)',
-      borderColor: '#2a2825',
+      borderColor: CHART_LINE,
       borderWidth: 1,
       padding: [10, 14],
       textStyle: { color: INK, fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
@@ -3128,7 +3140,7 @@ function drawKlineChart() {
       { type: 'inside', xAxisIndex: hasSub ? [0,1,2] : [0,1] },
       { type: 'slider', xAxisIndex: hasSub ? [0,1,2] : [0,1], height: 18, bottom: 4,
         textStyle: { color: INK2, fontSize: 9 },
-        borderColor: '#2a2825',
+        borderColor: CHART_LINE,
         fillerColor: 'rgba(212,160,86,0.15)',
         handleStyle: { color: ACCENT, borderColor: ACCENT } },
     ],
@@ -3355,8 +3367,8 @@ function bindRetry(host, fn) {
 // ────────────────────────────────────────────
 // STOCK · 任意日分时回看
 // ────────────────────────────────────────────
-let intraDayCache = new Map();  // date -> data
-let intraDayLoading = null;
+var intraDayCache = new Map();  // date -> data
+var intraDayLoading = null;
 
 function todayStr() {
   const d = new Date();
@@ -3627,7 +3639,7 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
       { left: 56, right: 24, top: '74%', height: '22%' },
     ],
     tooltip: {
-      trigger: 'axis', backgroundColor: '#15110d', borderColor: '#2a2825',
+      trigger: 'axis', backgroundColor: CHART_TOOLTIP_BG, borderColor: CHART_LINE,
       borderWidth: 1, textStyle: { color: INK, fontSize: 11 },
       formatter: (params) => {
         if (!params || !params.length) return '';
@@ -3662,9 +3674,9 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
       data: limitUp ? ['价格', '均价', '昨收', '涨停价', '成交量'] : ['价格', '均价', '昨收', '成交量']
     },
     xAxis: [
-      { type: 'category', data: times, gridIndex: 0, axisLine: { lineStyle: { color: '#2a2825' } },
+      { type: 'category', data: times, gridIndex: 0, axisLine: { lineStyle: { color: CHART_LINE } },
         axisLabel: { color: INK2, fontSize: 10 }, splitLine: { show: false } },
-      { type: 'category', data: times, gridIndex: 1, axisLine: { lineStyle: { color: '#2a2825' } },
+      { type: 'category', data: times, gridIndex: 1, axisLine: { lineStyle: { color: CHART_LINE } },
         axisLabel: { color: INK2, fontSize: 9, interval: Math.max(1, Math.floor(times.length / 8)) }, splitLine: { show: false } },
     ],
     yAxis: [
@@ -3697,9 +3709,9 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
 // ────────────────────────────────────────────
 // STOCK 内部 tab
 // ────────────────────────────────────────────
-let currentStockCode = null;
+var currentStockCode = null;
 // 当日分时辅助上下文（renderStockDetail 时填充，loadIntraDay 使用）
-let lastStockContext = { prev_close: null, limit_up_price: null, code: null };
+var lastStockContext = { prev_close: null, limit_up_price: null, code: null };
 $$('.tab[data-tab]').forEach(t => {
   t.addEventListener('click', () => {
     const tab = t.dataset.tab;
@@ -3818,8 +3830,8 @@ $('#run-optimize')?.addEventListener('click', async () => {
 // ────────────────────────────────────────────
 // LAWS view — 读 /api/laws（与 AI 复用同一源）
 // ────────────────────────────────────────────
-let lawsRendered = false;
-let lawsData = null;
+var lawsRendered = false;
+var lawsData = null;
 async function renderLawsOnce() {
   const host = $('#laws-categories');
   const kj = $('#laws-koujue');
@@ -3887,13 +3899,13 @@ async function renderLawsOnce() {
 // ────────────────────────────────────────────
 // DRAGONS · 龙头战法
 // ────────────────────────────────────────────
-let _dragonsLoaded = false;
-let _dragonsLoading = false;
-let _dragonsData = null;                          // 缓存最近一次 /api/dragons 返回
-const _dragonsSortState = { key: 'rank', dir: 'asc' };  // 全涨停表排序状态
+var _dragonsLoaded = false;
+var _dragonsLoading = false;
+var _dragonsData = null;                          // 缓存最近一次 /api/dragons 返回
+var _dragonsSortState = { key: 'rank', dir: 'asc' };  // 全涨停表排序状态
 
 // 排序键映射(对应 dragons.py 输出的字段)
-const _DRAGONS_SORT_KEYS = {
+var _DRAGONS_SORT_KEYS = {
   rank:        s => s.rank ?? 999,
   code:        s => s.code || '',
   name:        s => s.name || '',
@@ -3998,7 +4010,10 @@ function renderDragons(data) {
     $$('#dragons-mainline .sector-link').forEach(a => {
       a.onclick = e => {
         e.preventDefault();
-        showView('sector', a.dataset.sector);
+        // 板块名 → 跳全 A 风向,按该板块过滤 (l1=L1主题名, l2=板块名)
+        const sec = a.dataset.sector || '';
+        const qs = sec ? `?l2=${encodeURIComponent(sec)}` : '';
+        location.hash = `#all_stocks${qs}`;
       };
     });
   }
@@ -4220,7 +4235,7 @@ $('#dragons-refresh')?.addEventListener('click', () => loadDragons(true));
 // ────────────────────────────────────────────
 // 全局绑定
 // ────────────────────────────────────────────
-const _origShowView = showView;
+var _origShowView = showView;
 showView = function(name, ctx) {
   _origShowView(name);
   if (name === 'dragons' && !_dragonsLoaded) loadDragons(false);
@@ -4406,11 +4421,23 @@ $('#theme-toggle')?.addEventListener('click', () => {
   applyTheme(next);
   try { localStorage.setItem('tuixue-theme', next); } catch {}
   refreshThemeColors();
-  // B8: ECharts 主题切换 — 用 setOption + resize 复用实例(避免白/黑闪烁)
+  refreshChartColors();
+  // 更新 ECharts 实例颜色 (增量 setOption,避免全量 re-render 卡顿)
+  var _tl = CHART_LINE, _tt = CHART_TOOLTIP_BG, _tb = CHART_TOOLTIP_BORDER;
   Object.values(echartsCharts).forEach(c => {
     if (!c) return;
     try { c.resize(); } catch {}
-    try { c.setOption(c.getOption(), true); } catch {}
+    try {
+      c.setOption({
+        xAxis: { axisLine: { lineStyle: { color: _tl } },
+                axisLabel: { color: INK2 } },
+        yAxis: { splitLine: { lineStyle: { color: GRID } },
+                axisLabel: { color: INK2 },
+                axisLine: { lineStyle: { color: _tl } } },
+        tooltip: { backgroundColor: _tt, borderColor: _tb,
+                   textStyle: { color: INK } },
+      });
+    } catch {}
   });
   // 当前可见的 view 重渲一次 (showView 内部有 view-specific 加载)
   const activeView = $$('.view').find(v => !v.hidden)?.dataset?.view;
@@ -4423,13 +4450,7 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', 
   applyTheme(e.matches ? 'light' : 'dark');
 });
 
-window.addEventListener('resize', () => {
-  Object.values(echartsCharts).forEach(c => c && c.resize());
-});
-
-// 启动
-refreshTicker();
-setInterval(refreshTicker, 30 * 1000);
+// resize + refreshTicker 启动 → view-other.js:671-677 统一注册 (避免双 setInterval 拖双倍流量)
 
 // ────────────────────────────────────────────
 // TUNNEL · 外网访问状态 + 启动
@@ -4634,13 +4655,12 @@ $('#tunnel-tg-btn')?.addEventListener('click', async () => {
     btn.textContent = oldText;
   }
 });
-refreshTunnel();
-setInterval(refreshTunnel, 10 * 1000);
+// refreshTunnel + setInterval(refreshTunnel, 10s) → view-other.js 统一注册 (避免双轮询)
 
 // ────────────────────────────────────────────
 // NEWS · 全局新闻 tab
 // ────────────────────────────────────────────
-let newsCache = null;
+var newsCache = null;
 
 async function loadNewsList(forceRefresh) {
   const meta = $('#news-meta');
@@ -4708,7 +4728,7 @@ function renderNewsList(items) {
 // ────────────────────────────────────────────
 // SECTORS · 申万 31 行业聚合情绪
 // ────────────────────────────────────────────
-let sectorsCache = null;
+var sectorsCache = null;
 
 async function loadSectorsList(forceRefresh) {
   const meta = $('#sectors-meta');
@@ -5154,7 +5174,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // REVIEW 复盘 view · 铁律冲突 + 资金占比 + AI 建议 (2026-07-10)
 // ═══════════════════════════════════════════════════════════
 
-const _reviewState = {
+var _reviewState = {
   trades: [],
   flows: new Map(),   // code -> {main_pct, retail_pct, fund_pct, ...}
   flowsTimer: null,
@@ -5807,7 +5827,7 @@ function _reviewStartFlowsPolling() {
 }
 
 // ── AI 复盘子页面 · 进入入口 ──
-const _aiReviewState = {
+var _aiReviewState = {
   tradeId: null,
   trade: null,
   review: null,
@@ -6149,12 +6169,12 @@ async function _reviewDelete(tradeId) {
 }
 
 // R-relax-2026-07-14: 复盘页 next_picks 放宽档状态 — 默认 0 严格,用户点按钮才改
-const _RELAX_LABELS = {
+var _RELAX_LABELS = {
   0: { label: '严格', caps: '5 只', desc: '默认 7 条规则全开' },
   1: { label: '放宽', caps: '15 只', desc: '多送候选,screen 拉空时全 A 兜底' },
   2: { label: '极宽松', caps: '50 只', desc: '接近全 A 流动性筛选,适合 market 安静 / 数据源挂时' },
 };
-let _reviewRelaxLevel = 0;
+var _reviewRelaxLevel = 0;
 
 function _reviewUpdateRelaxInfo() {
   const info = document.getElementById('review-next-relax-info');
@@ -6163,7 +6183,7 @@ function _reviewUpdateRelaxInfo() {
   info.innerHTML = `当前筛选档:<b>${cfg.label}</b> (${cfg.caps}) — ${cfg.desc}`;
 }
 
-let _reviewNextPickToken = 0;
+var _reviewNextPickToken = 0;
 
 function _reviewRenderPicks(d, listEl, metaEl) {
   if (!d.picks || !d.picks.length) return false;
@@ -6274,7 +6294,7 @@ async function _reviewLoadStats() {
 }
 
 // ─── 截图 / 批量文本 AI 自动录入 (2026-07-11 增强:支持批量) ─────────
-const _snapState = {
+var _snapState = {
   running: 0,
   trades: [],   // [{ direction, code, name, price, shares, trade_date, occurred_at, memo, source }]
   thumbSlots: [], // 缩略图卡片列表
@@ -6944,16 +6964,16 @@ function _reviewBindForm() {
       _searchBox = document.createElement('div');
       _searchBox.className = 'review-suggest';
       _searchBox.style.cssText = `
-        position: absolute; background: rgba(20,18,14,0.98);
-        border: 1px solid rgba(212,160,86,0.3); border-radius: 6px;
+        position: absolute; background: var(--glass-bg-strong);
+        border: 1px solid var(--line); border-radius: 6px;
         max-height: 280px; overflow-y: auto; z-index: 100;
-        min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        min-width: 240px; box-shadow: var(--shadow-lg);
       `;
       items.slice(0, 10).forEach(item => {
         const row = document.createElement('div');
-        row.style.cssText = 'padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid rgba(232,227,216,0.05);';
-        row.innerHTML = `<code style="color:#d4a056">${item.code}</code> <span style="color:#e8e3d8">${escapeHtml(item.name || '')}</span>`;
-        row.addEventListener('mouseenter', () => row.style.background = 'rgba(212,160,86,0.15)');
+        row.className = 'review-suggest-row';
+        row.innerHTML = `<code class="review-suggest-code">${item.code}</code> <span class="review-suggest-name">${escapeHtml(item.name || '')}</span>`;
+        row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-3)');
         row.addEventListener('mouseleave', () => row.style.background = '');
         row.addEventListener('click', () => {
           codeInput.value = item.code;
@@ -7082,7 +7102,7 @@ function _stockOnViewLeave() {
 _registerViewLeave('stock', _stockOnViewLeave);
 
 // R15: 自动复盘调度 — 状态机
-let _reviewAuto = { running: false, queue: [], done: 0, total: 0, startedTs: 0, stop: false };
+var _reviewAuto = { running: false, queue: [], done: 0, total: 0, startedTs: 0, stop: false };
 function _reviewAutoReviewTick() {
   // 不在 review view → 不主动启动,但已运行的允许继续
   if (!document.querySelector('.view-review:not([hidden])')) return;
@@ -7241,9 +7261,9 @@ window.__reviewAutoAPI = { stop: () => { _reviewAuto.stop = true; }, get running
 // ────────────────────────────────────────────
 // WATCHLIST · 自选股池 (2026-07-11)
 // ────────────────────────────────────────────
-let _watchlistLoaded = false;
-let _watchlistItems = [];
-let _watchlistBatchRunning = false;
+var _watchlistLoaded = false;
+var _watchlistItems = [];
+var _watchlistBatchRunning = false;
 
 function _watchlistOnViewEnter() {
   if (!document.querySelector('.view-watchlist:not([hidden])')) return;
@@ -7261,7 +7281,7 @@ function _watchlistOnViewEnter() {
 }
 
 // "次日选股" 卡片按钮 + 防重入
-let _wlNextPickLoaded = false;
+var _wlNextPickLoaded = false;
 function _watchlistBindNextPick() {
   const btn = $('#wl-next-pick-refresh');
   if (btn && !btn._bound) {

@@ -46,7 +46,7 @@ document.addEventListener('click', (e) => {
   try {
     switch (name) {
       case 'refresh-dashboard': if (typeof refreshDashboard === 'function') refreshDashboard(); break;
-      case 'open-stock':        if (typeof loadStockDetail === 'function') loadStockDetail(arg); break;
+      case 'open-stock':        if (typeof showView === 'function') showView('stock'); if (typeof loadStockDetail === 'function') loadStockDetail(arg); break;
       case 'show-view':         if (typeof showView === 'function') showView(arg); break;
       case 'review-run':        if (typeof _reviewRun === 'function') _reviewRun(arg); break;
       case 'review-delete':     if (typeof _reviewDelete === 'function') _reviewDelete(arg); break;
@@ -91,6 +91,16 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     _toggleDebugPanel();
   }
+  // R-a11y: Enter/Space 激活 sidebar 导航项
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-jump]')) {
+    e.preventDefault();
+    const el = e.target.closest('[data-jump]');
+    const view = el.dataset.jump;
+    if (view && typeof showView === 'function') {
+      showView(view);
+      if (window.matchMedia('(max-width: 979px)').matches) _closeSidebar();
+    }
+  }
 });
 
 // R10-A: 移动端 sidebar 抽屉开关
@@ -117,7 +127,7 @@ function _closeSidebar() {
 }
 
 // R9-A: 调试面板 — 缓存命中率 + AI 调用成本 + DB 健康 + poller 状态
-let _debugPanelTimer = null;
+var _debugPanelTimer = null;
 function _toggleDebugPanel() {
   const existing = document.getElementById('debug-panel');
   if (existing) { existing.remove(); clearInterval(_debugPanelTimer); return; }
@@ -190,13 +200,13 @@ async function _refreshDebugPanel() {
 
 // 主题色 — 跟随 [data-theme] 动态刷新 (let 不是 const)
 // 2026-07-10: 涨跌色已切 CN 标准（红涨绿跌）
-let ACCENT = '#d4a056';
-let UP     = '#e84545';
-let DOWN   = '#34c759';
-let INK    = '#e8e3d8';
-let INK2   = '#a8a39a';
-let INK3   = '#6b6660';
-let GRID   = 'rgba(232,227,216,0.06)';
+var ACCENT = '#d4a056';
+var UP     = '#e84545';
+var DOWN   = '#34c759';
+var INK    = '#e8e3d8';
+var INK2   = '#a8a39a';
+var INK3   = '#6b6660';
+var GRID   = 'rgba(232,227,216,0.06)';
 
 function _cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -210,17 +220,27 @@ function refreshThemeColors() {
   INK3   = _cssVar('--ink-3')    || '#6b6660';
   GRID   = 'rgba(127,127,127,0.12)';  // 跟随主题的网格线
 }
+// ECharts 轴色 — 跟随主题
+var CHART_LINE        = '#B8B0A8';
+var CHART_TOOLTIP_BG  = '#FFFFFF';
+var CHART_TOOLTIP_BORDER = '#DDD8D0';
+function refreshChartColors() {
+  CHART_LINE        = _cssVar('--chart-line')        || '#B8B0A8';
+  CHART_TOOLTIP_BG  = _cssVar('--chart-tooltip-bg')  || '#FFFFFF';
+  CHART_TOOLTIP_BORDER = _cssVar('--chart-tooltip-border') || '#DDD8D0';
+}
 refreshThemeColors();
+refreshChartColors();
 
-const echartsCharts = {};
+var echartsCharts = {};
 TX.core.echartsCharts = echartsCharts;   // B1: 共享 chart 注册表,view 文件可直接读 TX.core.echartsCharts
-let lastRefreshTs = 0;
+var lastRefreshTs = 0;
 
 // ────────────────────────────────────────────
 // fetch wrapper — 自动解包 {ok,data,error,ts}
 // 每个请求都有 timeout + AbortController，避免后端慢导致前端卡死
 // ────────────────────────────────────────────
-const API_TIMEOUTS = {
+var API_TIMEOUTS = {
   // 默认 8s; AI 分析和数据源密集型接口单独加长
   default: 12_000,
   '/api/backtest':        120_000,  // 回测慢
@@ -338,10 +358,10 @@ async function _fetchWithTimeout(path, opts = {}) {
 //   缓存 60s (今日涨停池 1 分钟内不变);批量单次接口,max 300 code/批。
 //   多股性 (一个 code 多个 L2/L3/L4 板块) → 每个分开显示。
 // ════════════════════════════════════════════════════
-const _ZT_CHAIN_CACHE_TTL_MS = 60 * 1000;
-const _ztChainCache = new Map();   // code -> { ts, rows: [...] }
-let _ztChainPendingPromise = null;   // 防止同时 N 个 page 触发 N 次 /api/limitup/per_code
-const _ztChainPendingBuf = new Set();
+var _ZT_CHAIN_CACHE_TTL_MS = 60 * 1000;
+var _ztChainCache = new Map();   // code -> { ts, rows: [...] }
+var _ztChainPendingPromise = null;   // 防止同时 N 个 page 触发 N 次 /api/limitup/per_code
+var _ztChainPendingBuf = new Set();
 
 function _ztChainGet(code) {
   const e = _ztChainCache.get(code);
@@ -416,7 +436,7 @@ function _ztChainRowColor(row) {
   if (n >= 15) return UP;                  // 主线 (≥15)
   if (n >= 5) return ACCENT;               // 二线 (≥5)
   if (n >= 1) return INK2;                 // 1~4 杂毛
-  return 'var(--text-dim, #6b6056)';        // 0 灰
+  return 'var(--ink-3)';        // 0 灰
 }
 
 function _renderZtChainChips(code, opts) {
@@ -438,9 +458,9 @@ function _renderZtChainChips(code, opts) {
       <span style="opacity:.7;font-weight:600">${lvl}</span>
       <span style="white-space:nowrap">${escapeHtml(r.chain)}</span>
       <b style="font-weight:700">${r.zt_count}</b>
-      ${r.is_mainline ? '<span style="color:#ffd84a">⚡</span>' : ''}
+      ${r.is_mainline ? '<span style="color:var(--star-gold)">⚡</span>' : ''}
     </span>`;
-  }).join('') + (more > 0 ? `<span style="font-size:10px;color:var(--text-dim,#6b6056);margin-right:4px">+${more}</span>` : '');
+  }).join('') + (more > 0 ? `<span style="font-size:10px;color:var(--ink-3);margin-right:4px">+${more}</span>` : '');
 }
 
 async function api(path, opts) {
@@ -454,8 +474,13 @@ async function api(path, opts) {
   let r;
   try {
     r = await _fetchWithTimeout(path, opts);
+    // 请求成功 → 标记在线 (清除 pending 降级定时器)
+    clearTimeout(_markOfflineOnApiErr._t);
+    if (_kaState !== 'ok') _setNetworkStatus('ok');
   } catch (e) {
     clearTimeout(_bar); _hideTopProgress();
+    // 网络错误 → 更新状态 (不抛到 toast,给 _markOfflineOnApiErr 处理)
+    _markOfflineOnApiErr(path, e);
     // B10: 默认情况下统一 toast 错误,除非 opts.silent=true (需要精细控制时)
     if (!opts.silent && typeof toast === 'function') {
       const msg = e.name === 'AbortError'
@@ -478,7 +503,7 @@ async function api(path, opts) {
 }
 
 // R6: 顶部进度条 (CSS class .top-progress 由 style.css R4 定义)
-let _topProgTimer = null;
+var _topProgTimer = null;
 function _showTopProgress() {
   if (document.getElementById('top-progress')) return;
   const el = document.createElement('div');
@@ -502,7 +527,7 @@ async function apiRaw(path, opts) {
 // keepalive 心跳 — 防止 tunnel / NAT idle 切断所有闲置连接
 // 每 25s 发一次轻量 /api/health (200 byte),让远端 cache 和 nginx 代理识别为活
 // ────────────────────────────────────────────
-let _kaState = 'idle';  // 'idle' | 'sending' | 'offline'
+var _kaState = 'idle';  // 'idle' | 'sending' | 'offline'
 function _keepaliveTick() {
   if (!navigator.onLine) return;  // 系统层就离线,别发
   // R6: tab 隐藏时不发 — 节省电池 + 减少无用请求
@@ -526,28 +551,14 @@ setInterval(_keepaliveTick, 25_000);
 // 全局 fetch 失败监控 — 触发 UI 网络状态条
 window.addEventListener('online',  () => _setNetworkStatus('ok'));
 window.addEventListener('offline', () => _setNetworkStatus('offline'));
-// 拦截 api() 函数抛错,标记离线
-const _origApi = api;
+// 由 api() 内部调用,标记离线状态 (延迟降级防抖动)
 function _markOfflineOnApiErr(_path, e) {
   if (_isRetryableError(e) || /timeout|网络|fetch/i.test(String(e?.message))) {
     _setNetworkStatus('switching');
-    // 1.5s 后再降为 offline(短抖动不算掉线)
     clearTimeout(_markOfflineOnApiErr._t);
     _markOfflineOnApiErr._t = setTimeout(() => _setNetworkStatus('offline'), 1500);
   }
 }
-// 在 api 外层 wrap 一下
-const _origApiWrap = api;
-async function _apiWithStatus(...args) {
-  try {
-    return await _origApiWrap(...args);
-  } catch (e) {
-    _markOfflineOnApiErr(args[0], e);
-    throw e;
-  }
-}
-// 不替换 api()(会被 ref 引用),只暴露新名字用
-window.__api = _apiWithStatus;
 
 // ────────────────────────────────────────────
 // 网络状态条 — 把 _kaState / online 事件映射到 DOM pill
@@ -555,14 +566,14 @@ window.__api = _apiWithStatus;
 //   switching 橙色 dot + "切换中"   (短抖动中,1.5s 没恢复就降为 offline)
 //   offline   红色 dot + "断线"
 // ────────────────────────────────────────────
-const _netPill = () => document.getElementById('net-pill');
-const _netText = () => document.getElementById('net-text');
-const _NET_LABELS = {
+var _netPill = () => document.getElementById('net-pill');
+var _netText = () => document.getElementById('net-text');
+var _NET_LABELS = {
   ok: '在线',
   switching: '切换中',
   offline: '断线 · 自动重连',
 };
-let _netHideTimer = null;
+var _netHideTimer = null;
 function _setNetworkStatus(state) {
   const pill = _netPill();
   if (!pill) return;
@@ -593,9 +604,9 @@ function _setNetworkStatus(state) {
 // toast 队列 — 多个错误同时发生时按 FIFO 依次展示,不互相覆盖
 // 解决之前 toast 单实例 + 短覆盖 = 用户看不到关键错误的问题
 // ────────────────────────────────────────────
-const toastEl = $('#toast');
-const _toastQueue = [];
-let _toastActive = false;
+var toastEl = $('#toast');
+var _toastQueue = [];
+var _toastActive = false;
 function _drainToast() {
   if (_toastActive) return;
   const next = _toastQueue.shift();
@@ -648,9 +659,9 @@ function skeletonTable(rows = 5, cols = 6) {
 // 用法: _showLoading('回测中…') / _hideLoading()
 // 支持多个并行操作 — 引用计数,所有 hide 后才真正隐藏
 // ────────────────────────────────────────────
-const _topLoadingEl = $('#top-loading');
-let _topLoadingCount = 0;
-let _topLoadingLabel = '';
+var _topLoadingEl = $('#top-loading');
+var _topLoadingCount = 0;
+var _topLoadingLabel = '';
 function _showLoading(label) {
   _topLoadingCount++;
   if (label) _topLoadingLabel = label;
@@ -707,8 +718,8 @@ function forceHideLoadingOverlay() {
 // ────────────────────────────────────────────
 // 视图切换
 // ────────────────────────────────────────────
-let _currentViewName = null;
-let _currentStockCode = null;
+var _currentViewName = null;
+var _currentStockCode = null;
 // B1: 在 TX.core 上提供稳定别名 — 多个 view 文件用 `TX.core.currentViewName` 读,
 // 不再用 window._currentViewName (老引用仍兼容)
 TX.core.currentViewName  = () => _currentViewName;
@@ -750,36 +761,14 @@ function showView(name) {
 // R-ui-012: view 离开钩子注册表 - { 'view-name': () => { ... cleanup ... } }
 // 比让每个 enter hook 兼任 leave 更不容易漏 (之前 capTimer/flowsTimer
 // 在反复切页时无限累加, +1s 一次拉取 → 服务端被拖垮)
-const _VIEW_LEAVE_HOOKS = {};
+var _VIEW_LEAVE_HOOKS = {};
 TX.core.viewLeaveHooks = _VIEW_LEAVE_HOOKS;   // B1: view 文件用 TX.core.registerViewLeave 替代
 function _registerViewLeave(name, fn) { _VIEW_LEAVE_HOOKS[name] = fn; }
 TX.core.registerViewLeave = _registerViewLeave;
 
-// R5: hash 路由 — 让 #stock=603881 / #review / #dragons 都能深链
-function _routeFromHash() {
-  const h = (location.hash || '').replace(/^#/, '');
-  if (!h) return showView('dash');
-  const [name, arg] = h.split('=');
-  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review'];
-  if (!valid.includes(name)) return showView('dash');
-  if (name === 'stock' && arg) {
-    const code = arg.match(/\d{6}/)?.[0];
-    if (code) {
-      $('#stock-code').value = code;
-      showView('stock');
-      loadStockDetail(code);
-      return;
-    }
-  }
-  showView(name);
-}
-window.addEventListener('hashchange', _routeFromHash);
-// 页面加载时跑一次 (放在 DOMContentLoaded 之后,所以用 setTimeout 0)
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => setTimeout(_routeFromHash, 0));
-} else {
-  setTimeout(_routeFromHash, 0);
-}
+// R5: hash 路由已在 app.js 中完整实现(含 push:false 参数 + boot ?code= 深链)
+// core.js 只保留 showView 供 app.js 覆盖,不注册 hashchange / setTimeout 以免双发
+// (之前 core.js 和 app.js 各注册一次,导致 routeFromHash 跑 2 遍:首屏 dash→stock 闪烁 + 多余 API 请求)
 
 // ────────────────────────────────────────────
 // R-a11y-2026-07-15: 数据表无障碍 — 自动加 scope / caption / aria-sort
@@ -858,22 +847,22 @@ function qGet(q, ...keys) {
   return null;
 }
 
-const fmtN = (n, d = 2) => {
+var fmtN = (n, d = 2) => {
   if (n === null || n === undefined || isNaN(n)) return '—';
   return Number(n).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
 };
-const fmtPct = (n, d = 2) => {
+var fmtPct = (n, d = 2) => {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const v = Number(n);
   const sign = v > 0 ? '+' : '';
   return `${sign}${v.toFixed(d)}%`;
 };
-const fmtAmt = (n) => {
+var fmtAmt = (n) => {
   if (n === null || n === undefined) return '—';
   const v = Number(n);
   if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + ' 亿';
   if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(2) + ' 万';
   return v.toFixed(0);
 };
-const colorFor = (v) => v > 0 ? UP : (v < 0 ? DOWN : INK2);
+var colorFor = (v) => v > 0 ? UP : (v < 0 ? DOWN : INK2);
 

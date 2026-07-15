@@ -10,9 +10,11 @@
 //
 // 注意:不要在这个文件里 import 任何外部模块 — SW 是 top-level, fetch handler 会捕获所有未命中路径
 
-// 2026-07-15: bump 到 v6 — bug fix: 删 view-other.js 重复 showView 包装 (与 app.js 撞 wrapper
-// 形成 _origShowView → wrapper → _origShowView 无限递归)
-const CACHE = 'tuixue-v3-shell-v6';
+// 2026-07-15: bump 到 v7 — 网络健壮性 + 移动端 + a11y 综合优化
+//  - dashboard 端点加入 API 缓存前缀
+//  - API 缓存新鲜度 TTL 60s
+//  - 修复多个前端 bug (sidebar close selector, intraday race, etc.)
+const CACHE = 'tuixue-v3-shell-v8';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -22,6 +24,8 @@ const PRECACHE = [
   '/static/view-other.js',
   '/static/view-all-stocks.js',
   '/static/style.css',
+  '/static/index.html',
+  '/static/sw.js',
 ];
 
 // B7: 关键 API JSON 缓存 (offline shell)
@@ -31,7 +35,11 @@ const _CACHEABLE_API_PREFIXES = [
   '/api/review/portfolio',
   '/api/review/positions',
   '/api/all_stocks/l1',
+  '/api/dashboard/signal',
+  '/api/dashboard/hot_sectors',
 ];
+// API 缓存新鲜度: 60s 内直接用 cache,超过则后台 revalidate
+const _API_CACHE_FRESH_MS = 60_000;
 
 function _isCacheableApi(pathname) {
   return _CACHEABLE_API_PREFIXES.some(p => pathname.startsWith(p));
@@ -75,12 +83,17 @@ self.addEventListener('fetch', (event) => {
       event.respondWith(
         caches.open(CACHE).then(async (cache) => {
           const cached = await cache.match(req);
+          // 新鲜度检查: cache 在 TTL 内则直接返,否则等网络
+          if (cached) {
+            const cachedTime = new Date(cached.headers.get('date') || 0).getTime();
+            const age = Date.now() - (cachedTime || 0);
+            if (age < _API_CACHE_FRESH_MS) return cached;
+          }
           const fetchPromise = fetch(req).then((r) => {
             if (r.ok && r.status === 200) cache.put(req, r.clone()).catch(() => {});
             return r;
           }).catch(() => null);
-          // 有 cache 先返 cache (快),后端 fetch 在后台更新 cache
-          return cached || (await fetchPromise) || new Response(
+          return (cached && !navigator.onLine) ? cached : (await fetchPromise) || new Response(
             JSON.stringify({ ok: false, error: 'offline', cached: false }),
             { status: 503, headers: { 'content-type': 'application/json' } }
           );

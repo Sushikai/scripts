@@ -5513,9 +5513,12 @@ class BacktestRequest(BaseModel):
 
 
 @app.post("/api/screen")
-async def api_screen(req: ScreenRequest):
+async def api_screen(req: ScreenRequest, request: Request):
     from ..screen import run_stock_screen
     from .. import data_layer as dl
+    # P1-audit-2026-07-15: 重型筛选,加 admin token 防 DoS
+    if not _check_admin_token(request):
+        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
     stocks = None
     if req.pool_size and req.pool_size > 0:
         try:
@@ -5545,8 +5548,11 @@ async def api_screen(req: ScreenRequest):
 
 
 @app.post("/api/backtest")
-async def api_backtest(req: BacktestRequest):
+async def api_backtest(req: BacktestRequest, request: Request):
     from ..backtest import run_backtest
+    # P1-audit-2026-07-15: 重型计算,加 admin token 防 DoS
+    if not _check_admin_token(request):
+        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
     # 硬超时 90s: 数据源 / LLM 在沙箱挂时不能拖死 server(2026-07-12 audit 发现)
     try:
         result = await asyncio.wait_for(
@@ -5614,8 +5620,11 @@ async def api_review_get_settings():
 
 
 @app.post("/api/review/settings")
-async def api_review_set_settings(payload: dict):
+async def api_review_set_settings(payload: dict, request: Request):
     """保存复盘设置。payload: {total_capital}"""
+    # P0-audit-2026-07-15: 写操作,加 admin token (否则外网隧道可污染 total_capital 拖垮所有用户复盘)
+    if not _check_admin_token(request):
+        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
     try:
         if "total_capital" in payload:
             _review.set_setting("total_capital", float(payload.get("total_capital") or 0))
@@ -5734,7 +5743,7 @@ async def api_review_time_points(code: str, date: str | None = None, price: floa
 
 
 @app.post("/api/review/trades")
-async def api_review_record_trade(payload: dict):
+async def api_review_record_trade(payload: dict, request: Request):
     """记 1 笔或批量记多笔交易。
 
     payload 兼容两种形状:
@@ -5745,6 +5754,9 @@ async def api_review_record_trade(payload: dict):
     1) 单笔:{trade_id, trade}
     2) 批量:{inserted:[{index, trade_id, trade}], errors:[{index, error, input}], total, ok}
     """
+    # P1-audit-2026-07-15: 写操作,加 admin token (否则外网可灌垃圾交易污染 FIFO/portfolio/integrity)
+    if not _check_admin_token(request):
+        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
     # 批量模式
     trades_in = payload.get("trades")
     if isinstance(trades_in, list) and trades_in:
@@ -7043,8 +7055,11 @@ _DRAGONS_INFLIGHT: dict[str, bool] = {}
 
 
 @app.post("/api/optimize")
-async def api_optimize():
+async def api_optimize(request: Request):
     from ..optimizer import run_optimize
+    # P1-audit-2026-07-15: 重型优化,加 admin token 防 DoS
+    if not _check_admin_token(request):
+        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
     # 硬超时 120s: 优化器 10 次迭代跑完常 1-3min,沙箱数据源挂时不能拖死 server
     # (2026-07-12 audit 发现该 endpoint 之前无超时保护)
     try:
