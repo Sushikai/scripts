@@ -614,7 +614,7 @@ def _render_index_html() -> bytes:
         return b"<h1>index.html missing</h1>"
     css_h = _live_fingerprint("style.css", STATIC_DIR / "style.css")
     # 所有 JS 分片文件的合并指纹 — 任一个修改则所有缓存失效
-    js_files = ["core.js", "view-dash.js", "view-stock.js", "view-other.js", "view-all-stocks.js"]
+    js_files = ["core.js", "app.js", "view-dash.js", "view-stock.js", "view-other.js", "view-all-stocks.js"]
     js_h = "0" * 8
     for fname in js_files:
         fh = _live_fingerprint(fname, STATIC_DIR / fname)
@@ -3489,7 +3489,10 @@ _BT_RUN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bt-run"
 
 
 class _BacktestReq(BaseModel):
-    periods: list[str] = []   # 子集 eg ["1周","1月"]; 空 = 跑全部 5 个
+    periods:   list[str] = []   # 子集 eg ["1周","1月"]; 空 = 跑默认
+    hold_days: int = 3          # 持仓天数 (次级 7 套退场对比)
+    top_n:     int = 1          # 每日 Top N
+    sample:    int = 1200       # 主板采样数 (0=全量, 慢)
 
 
 def _bt_period_resolver(periods: list[str]) -> list[str]:
@@ -3507,14 +3510,20 @@ def _bt_period_resolver(periods: list[str]) -> list[str]:
     return out or [w for w, _ in _bt.WINDOWS]
 
 
-def _bt_run_bg(run_id: str, period_keys: list[str]) -> None:
+def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, sample: int) -> None:
     from . import backtest_screener as _bt
     try:
         def _cb(msg: str) -> None:
             with _BT_RUN_LOCK:
                 if run_id in _BT_RUNS:
                     _BT_RUNS[run_id]["progress"] = msg
-        r = _bt.run_for_frontend(period_keys, progress_cb=_cb)
+        r = _bt.run_for_frontend(
+            period_keys,
+            hold_days=hold_days,
+            top_n=top_n,
+            sample=sample,
+            progress_cb=_cb,
+        )
         with _BT_RUN_LOCK:
             if run_id in _BT_RUNS:
                 _BT_RUNS[run_id]["status"] = "done"
@@ -3548,14 +3557,22 @@ async def api_screener_backtest(req: _BacktestReq):
             "error":       None,
         }
     try:
-        _BT_RUN_EXECUTOR.submit(_bt_run_bg, run_id, period_keys)
+        _BT_RUN_EXECUTOR.submit(
+            _bt_run_bg,
+            run_id,
+            period_keys,
+            max(1, min(req.hold_days, 10)),
+            max(1, min(req.top_n, 5)),
+            max(0, min(req.sample, 5000)),
+        )
     except Exception as e:
         with _BT_RUN_LOCK:
             if run_id in _BT_RUNS:
                 _BT_RUNS[run_id]["status"] = "error"
                 _BT_RUNS[run_id]["error"] = str(e)
         return envelope(error=f"提交失败: {e}")
-    return envelope(data={"ok": True, "run_id": run_id, "periods": period_keys})
+    return envelope(data={"ok": True, "run_id": run_id, "periods": period_keys,
+                          "hold_days": req.hold_days, "top_n": req.top_n, "sample": req.sample})
 
 
 @app.get("/api/screener/backtest")

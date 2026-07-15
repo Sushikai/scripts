@@ -10,8 +10,9 @@
 //
 // 注意:不要在这个文件里 import 任何外部模块 — SW 是 top-level, fetch handler 会捕获所有未命中路径
 
-// 2026-07-15: bump 到 v3 — B7 加 cache 名称 + 离线时返缓存 JSON 兜底
-const CACHE = 'tuixue-v3-shell-v4';
+// 2026-07-15: bump 到 v6 — bug fix: 删 view-other.js 重复 showView 包装 (与 app.js 撞 wrapper
+// 形成 _origShowView → wrapper → _origShowView 无限递归)
+const CACHE = 'tuixue-v3-shell-v6';
 const PRECACHE = [
   '/',
   '/static/app.js',
