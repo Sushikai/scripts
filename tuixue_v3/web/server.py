@@ -130,6 +130,61 @@ async def _http_exception_handler(request, exc):
         status_code=exc.status_code,
     )
 
+# ───────────────────────────────────────────────────────────
+# R-sec-2026-07-15: admin / destructive endpoint 鉴权
+# TUIXUE_ADMIN_TOKEN 未设置 → 放行(开发模式),设置后所有 admin_*/DELETE 端点要求 X-Admin-Token
+# 前端 core.js api() 自动从 localStorage 读 'tuixue-admin-token' 注入到这些端点
+# 首次访问 /api/admin/* 时若未配置,后端返 401 + 提示用户在浏览器 console 设置:
+#   localStorage.setItem('tuixue-admin-token', '<token-from-env>')
+# ───────────────────────────────────────────────────────────
+def _check_admin_token(request) -> bool:
+    expected = os.environ.get("TUIXUE_ADMIN_TOKEN", "").strip()
+    if not expected:
+        return True  # 未配置 → 放行(向后兼容开发模式)
+    provided = (request.headers.get("X-Admin-Token") or "").strip()
+    if provided and provided == expected:
+        return True
+    log.warning(f"[auth] admin token mismatch from {request.client.host if request.client else '?'}")
+    return False
+
+
+# B5: tunnel/start 5min 冷却时间戳(进程内)— 防止疯狂重试拖死 worker
+_last_tunnel_start_ts: float = 0.0
+
+
+def _get_lan_ip() -> str:
+    """C4: 取局域网 IP — 扫所有非 lo/awdl/utun 接口,取首个非空 IP。
+    全失败时回 UDP-connect 拿本机外网 IP,再失败回 127.0.0.1。"""
+    try:
+        import subprocess as _sp
+        try:
+            ifaces_raw = _sp.check_output(["networksetup", "-listallhardwareports"], text=True, timeout=2)
+            import re as _re
+            devs = _re.findall(r"Device:\s*(\S+)", ifaces_raw)
+        except Exception:
+            devs = ["en0", "en1", "en2"]
+        for dev in devs:
+            if dev.startswith(("lo", "awdl", "llw", "utun", "bridge")):
+                continue
+            try:
+                ip = _sp.check_output(["ipconfig", "getifaddr", dev], text=True, timeout=1).strip()
+                if ip and not ip.startswith("127."):
+                    return ip
+            except Exception:
+                continue
+        raise RuntimeError("no ifaddr on any iface")
+    except Exception:
+        try:
+            import socket as _sk
+            s = _sk.socket(_sk.AF_INET, _sk.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+
 def _validated_extra_origins() -> list[str]:
     """R-sec-018: 解析 TUIXUE_EXTRA_ORIGINS,只接受合法 https://域 + 几个可信子域。
     错字如 "*.evil.com" / "javascript:..." / "null" / 端口被吞的, 直接拒收。
@@ -171,8 +226,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:8000",
+        "http://localhost:7799",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
+        "http://127.0.0.1:7799",
         # ngrok / cloudflared 隧道域(在环境变量里加白名单)
         *_validated_extra_origins(),
     ],
@@ -556,7 +613,13 @@ def _render_index_html() -> bytes:
     except Exception:
         return b"<h1>index.html missing</h1>"
     css_h = _live_fingerprint("style.css", STATIC_DIR / "style.css")
-    js_h  = _live_fingerprint("app.js",   STATIC_DIR / "app.js")
+    # 所有 JS 分片文件的合并指纹 — 任一个修改则所有缓存失效
+    js_files = ["core.js", "view-dash.js", "view-stock.js", "view-other.js", "view-all-stocks.js"]
+    js_h = "0" * 8
+    for fname in js_files:
+        fh = _live_fingerprint(fname, STATIC_DIR / fname)
+        if fh != "0" * 8:
+            js_h = _hashlib.sha256(f"{js_h}:{fh}".encode()).hexdigest()[:8]
     raw = raw.replace("__JS_V__",  js_h).replace("__CSS_V__", css_h)
     # 同时把 sw.js 也注入指纹 — 让 SW 注册不会被卡死缓存
     sw_h = _live_fingerprint("sw.js", STATIC_DIR / "sw.js")
@@ -797,8 +860,10 @@ async def _origin_check_middleware(request, call_next):
 _CORS_ALLOWED_ORIGINS: set[str] = set([
     "http://localhost:5173",
     "http://localhost:8000",
+    "http://localhost:7799",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
+    "http://127.0.0.1:7799",
     *_validated_extra_origins(),
 ])
 
@@ -958,16 +1023,20 @@ _SERVER_START_TS = time.time()
 
 
 @app.post("/api/admin/backup")
-async def admin_backup():
+async def admin_backup(request: Request):
     """R8: 手动触发 db 备份。返回备份文件路径。"""
+    if not _check_admin_token(request):
+        return envelope(error="需要 X-Admin-Token 头(从 env TUIXUE_ADMIN_TOKEN 读)", status_code=401)
     from .. import cache_db
     path = cache_db.backup_db()
     return envelope(data={"path": path} if path else {"error": "备份失败"})
 
 
 @app.get("/api/admin/db_health")
-async def admin_db_health():
+async def admin_db_health(request: Request):
     """R8: db 健康指标(WAL/慢查询/表行数/上次 backup)"""
+    if not _check_admin_token(request):
+        return envelope(error="需要 X-Admin-Token 头(从 env TUIXUE_ADMIN_TOKEN 读)", status_code=401)
     from .. import cache_db
     return envelope(data=cache_db.db_health())
 
@@ -1137,21 +1206,8 @@ async def tunnel_status():
         url = ""
         method = ""
 
-    # 局域网 IP (优先 en0 / Wi-Fi)
-    lan_ip = ""
-    try:
-        import subprocess as _sp
-        out = _sp.check_output(["ipconfig", "getifaddr", "en0"], text=True, timeout=2).strip()
-        lan_ip = out
-    except Exception:
-        try:
-            import socket as _sk
-            s = _sk.socket(_sk.AF_INET, _sk.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            lan_ip = s.getsockname()[0]
-            s.close()
-        except Exception:
-            lan_ip = "127.0.0.1"
+    # C4: 局域网 IP — 扫所有接口 (en0/en1/en2/...),取第一个非空;全失败时 UDP connect 兜底
+    lan_ip = _get_lan_ip()
 
     # tunnel 是否真在用:有 url_file 才算 running=true (残留进程不算)
     # 之前用 pgrep 会被冷启动中的 cloudflared 残留 / 上次失败进程误导,
@@ -1230,9 +1286,19 @@ async def tunnel_start():
 
     R-perf-016: 之前 open(...).read() + send_telegram(同步) 阻塞 event loop (单 65s 占 worker)
     现在: 文件读 + TG 推都在 to_thread 执行, 每 1s poll 也用作 await asyncio.sleep
+
+    B5: 5min cooldown 防止疯狂重试拖死 worker + 65s 失败时 TG 告警给用户
     """
     import os
     import subprocess as _sp
+
+    # ── 5min cooldown: 一次启动未结束/刚失败,不再接受新请求 ──
+    global _last_tunnel_start_ts
+    now = time.time()
+    if _last_tunnel_start_ts and (now - _last_tunnel_start_ts) < 300:
+        wait = int(300 - (now - _last_tunnel_start_ts))
+        return envelope(error=f"tunnel 启动冷却中,还需 {wait}s 才可重试", data={"cooldown": True, "wait_sec": wait})
+    _last_tunnel_start_ts = now
 
     script = os.path.join(os.path.dirname(__file__), "start_tunnel_only.sh")
     if not os.path.exists(script):
@@ -1287,7 +1353,7 @@ async def tunnel_start():
                 tg_sent, tg_err = False, ""
                 try:
                     port = int(os.environ.get("TUIXUE_PORT", "7799"))
-                    lan_ip = await to_thread(lambda: _sp.check_output(["ipconfig", "getifaddr", "en0"], text=True, timeout=2).strip())
+                    lan_ip = await to_thread(_get_lan_ip)
                 except Exception:
                     lan_ip = "127.0.0.1"; port = 7799
                 lines = [
@@ -1317,6 +1383,25 @@ async def tunnel_start():
                 "tg_pending": True,
                 "elapsed_sec": round(65 - (deadline - time.time()), 1),
             })
+
+    # ── B5: 全路失败告警推 TG (后台,不阻塞返错) ──
+    async def _notify_failure_bg():
+        def _send():
+            try:
+                from ..lib_common import send_telegram as _stg
+                lines = [
+                    "⚠️ 退学 v3 · tunnel 全部失败", "",
+                    "65s 内 6 路 tunnel 全部超时（DNS 劫持到 198.18.x 是常见原因）",
+                    f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    "建议：检查 ~/.hermes/.env 网络配置 或稍后重试。",
+                ]
+                return _stg("\n".join(lines), parse_mode="text", silent=True)
+            except Exception as e:
+                log.warning(f"tunnel failure notify TG error: {e}")
+                return False
+        return await to_thread(_send)
+    fail_task = asyncio.create_task(_notify_failure_bg())
+    fail_task.add_done_callback(lambda t: (None if t.exception() is None else log.warning(f"tunnel fail bg: {t.exception()}")))
 
     return envelope(data={
         "ok": False,
@@ -1368,13 +1453,8 @@ async def tunnel_push():
     except Exception:
         pass
 
-    lan_ip = "127.0.0.1"
+    lan_ip = _get_lan_ip()
     port = int(os.environ.get("TUIXUE_PORT", "7799"))
-    try:
-        import subprocess as _sp
-        lan_ip = _sp.check_output(["ipconfig", "getifaddr", "en0"], text=True, timeout=2).strip()
-    except Exception:
-        pass
 
     lan_url = f"http://{lan_ip}:{port}/"
     target_url = url or lan_url
@@ -1440,11 +1520,13 @@ async def ai_metrics():
 
 
 @app.post("/api/admin/reset_sources")
-async def reset_sources():
+async def reset_sources(request: Request):
     """
     重置所有数据源冷却状态 - 解决「连续失败 → 5 分钟冷却 → 全源被禁用 → screen 超时」的死循环。
     用法: curl -X POST http://localhost:7799/api/admin/reset_sources
     """
+    if not _check_admin_token(request):
+        return envelope(error="需要 X-Admin-Token 头(从 env TUIXUE_ADMIN_TOKEN 读)", status_code=401)
     from tuixue_v3 import lib_common as lc
     result = lc.reset_source_health()
     log.info(f"🔄 数据源冷却已重置: {result}")
@@ -2108,6 +2190,15 @@ async def stock_search(q: str = Query(..., min_length=1, max_length=10)):
 async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
     code = code.strip().zfill(6)
 
+    # P-perf: 优先读预计算K线缓存(含MA),跨进程共享
+    try:
+        from .. import cache_db
+        pre = cache_db.daily().get_kline_pre(code, days)
+        if pre is not None:
+            return envelope(data={"code": code, "kline": pre, "_from": "pre_cache"})
+    except Exception:
+        pass
+
     @cached(_cache_kline, key_fn=lambda c, d: ("kline", c, d))
     def _load(code_, days_):
         from .. import lib_common as lc
@@ -2126,7 +2217,7 @@ async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
                 "amount": _safe_float(row.get("成交额")),
                 "change_pct": _safe_float(row.get("涨跌幅")),
             })
-        # 计算 MA5/MA10/MA20/MA60 + 涨跌幅 + 量比(相对 5 日均量)
+        # 计算 MA5/MA10/MA20/MA60 + 涨跌幅 + 量比
         closes = [r["close"] for r in rows]
         vols = [r["volume"] for r in rows]
         for i, r in enumerate(rows):
@@ -2136,6 +2227,12 @@ async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
             r["ma60"] = round(sum(closes[max(0,i-59):i+1]) / min(i+1, 60), 3) if i+1 else 0
             v5 = sum(vols[max(0,i-4):i+1]) / min(i+1, 5) if i+1 else 0
             r["vol_ratio_5d"] = round(r["volume"] / v5, 2) if v5 else 0
+        # 回写预计算缓存
+        try:
+            from .. import cache_db as _cdb
+            _cdb.daily().set_kline_pre(code_, days_, rows)
+        except Exception:
+            pass
         return rows
 
     try:
@@ -2772,6 +2869,38 @@ async def stock_sector(code: str):
     return envelope(data=result)
 
 
+@app.post("/api/limitup/per_code")
+async def api_limitup_per_code(req: dict):
+    """批量:每只个股对应的"今日同板块/产业链/细分 涨停股数"(多股性列多条)。
+
+    Body: {"codes": ["000001", "600519", ...]}      limit ≤ 300 (一次最多 300 只,防滥用)
+    返回: {"counts": {"000001": [{"chain": "电子", "level": "L2", "zt_count": 22,
+               "is_mainline": true, "samples": ["北方华创", ...]}, ...], ...}, "ts": epoch}
+    缓存 60s (今天涨停池 1 分钟内不会变,够用)。
+    """
+    from .sector_taxonomy import zt_chains_per_code
+    from .sector_classify import get_sector
+    codes_in = (req or {}).get("codes") or []
+    codes = [str(c).strip().zfill(6) for c in codes_in if str(c).strip().isdigit() or str(c).strip().zfill(6).isdigit()]
+    codes = [c for c in codes if len(c) == 6][:300]
+    if not codes:
+        return envelope(data={"counts": {}, "ts": time.time()})
+
+    def _run():
+        try:
+            return zt_chains_per_code(codes, sector_lookup=get_sector)
+        except Exception as e:
+            log.warning(f"limitup_per_code 失败: {e}")
+            return {}
+
+    try:
+        counts = await asyncio.wait_for(to_thread(_run), timeout=15)
+    except asyncio.TimeoutError:
+        log.warning(f"limitup_per_code 超时 15s (codes={len(codes)})")
+        counts = {}
+    return envelope(data={"counts": counts or {}, "ts": time.time(), "codes": len(codes)})
+
+
 @app.get("/api/stock/{code}/related_news")
 async def stock_related_news(code: str):
     """
@@ -3054,8 +3183,8 @@ def _static_page_handler(filename: str):
 
 @app.get("/sector_hotspot", include_in_schema=False)
 async def sector_hotspot_page():
-    """热点龙头板块判定 — 静态页。"""
-    return await _static_page_handler("sector_hotspot.html")()
+    """热点龙头 — 2026-07-14 应用户要求删除,此 URL 仅 302 → / 避免书签失效。"""
+    return _Response(status_code=302, headers={"Location": "/"})
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -3134,11 +3263,8 @@ async def api_all_stocks_filters():
     return envelope(data=result)
 
 
-@app.get("/all_stocks", include_in_schema=False)
-async def all_stocks_page():
-    """全 A 风向 — 静态页。"""
-    return await _static_page_handler("all_stocks.html")()
-
+# 注: /all_stocks 已在 2026-07-14 迁入 index.html (view-all_stocks section),
+#      旧独立 HTML 页删除,路由随之删除。前端侧栏 data-jump='all_stocks' 走 showView。
 
 # ═════════════════════════════════════════════════════════════════
 # 选股 (2026-07-13 · 8 规则 · 14:30 启 · SSE 推送)
@@ -3209,6 +3335,16 @@ async def api_screener_thresholds(req: _ScreenerThresholdReq):
         return envelope(data=_scr.set_threshold(req.key, req.value))
     except Exception as e:
         return envelope(error=f"thresholds 失败: {e}")
+
+
+@app.post("/api/screener/reset-defaults")
+async def api_screener_reset_defaults():
+    """恢复所有阈值到出厂默认值"""
+    try:
+        from . import screener as _scr
+        return envelope(data=_scr.reset_thresholds())
+    except Exception as e:
+        return envelope(error=f"reset-defaults 失败: {e}")
 
 
 class _ScreenerToggleReq(BaseModel):
@@ -3289,11 +3425,14 @@ async def api_screener_snapshot_now():
 
 
 # R30: 重算候选池 — 用户按"⟳ 重算"按钮时真正重建
+class _ScreenerRebuildReq(BaseModel):
+    force: bool = True  # 默认强制重新拉行情，不走缓存
+
 @app.post("/api/screener/rebuild")
-async def api_screener_rebuild():
+async def api_screener_rebuild(req: _ScreenerRebuildReq = _ScreenerRebuildReq()):
     try:
         from . import screener as _scr
-        _scr._schedule_rebuild()
+        _scr._schedule_rebuild(force=req.force)
         return envelope(data={"ok": True, "msg": "已提交后台重建 (1-30s 完成)"})
     except Exception as e:
         return envelope(error=f"rebuild 失败: {e}")
@@ -3306,19 +3445,22 @@ async def api_screener_stream(_request: _Request):
     from . import screener as _scr
 
     async def gen():
-        # 订阅
+        # 订阅 (B3: 用 helper 函数 + RLock 包裹,避免并发竞态)
         loop = asyncio.get_event_loop()
-        q: asyncio.Queue = asyncio.Queue(maxsize=2)
-        _scr._SUBSCRIBERS.append(q)
+        q: asyncio.Queue = _scr.subscribe()
         try:
-            # 首帧: 立刻给一份 rule_status_enriched + 当前 result
-            init_status = _scr.rule_status_enriched()
-            init_result = _scr.current_results_multi(sort_spec="change_pct:desc", limit=50)
-            yield {"event": "init", "data": json.dumps({
-                "status": init_status,
-                "items":  init_result.get("items", []),
-                "ts":     init_result.get("ts", 0),
-            }, default=str)}
+            # 首帧: 优先用 last-known-good 缓存 (rebuild 期间避免空白)
+            last = _scr.get_last_broadcast()
+            if last:
+                yield {"event": "init", "data": json.dumps(last, default=str)}
+            else:
+                init_status = _scr.rule_status_enriched()
+                init_result = _scr.current_results_multi(sort_spec="change_pct:desc", limit=50)
+                yield {"event": "init", "data": json.dumps({
+                    "status": init_status,
+                    "items":  init_result.get("items", []),
+                    "ts":     init_result.get("ts", 0),
+                }, default=str)}
             while True:
                 if await _request.is_disconnected():
                     break
@@ -3329,10 +3471,7 @@ async def api_screener_stream(_request: _Request):
                     # 心跳 (防止 CDN/proxy 切断)
                     yield {"event": "ping", "data": json.dumps({"ts": time.time()})}
         finally:
-            try:
-                _scr._SUBSCRIBERS.remove(q)
-            except Exception:
-                pass
+            _scr.unsubscribe(q)
 
     return EventSourceResponse(gen(), ping=15)
 
@@ -5482,7 +5621,10 @@ async def api_review_integrity():
       - ok:            discrepancy 绝对值 ≤0.01 + 无 dirty → True
     """
     try:
-        trades = await to_thread(_review.live_trades, limit=500)
+        # R-fix-2026-07-15: 之前 limit=500,持仓 >500 笔时 group_sum 用 500 笔算 vs portfolio 用全部算,
+        # discrepancy 永远不为 0,badge 必然误报。改 limit=99999 几乎覆盖所有持仓,
+        # 与 _review.portfolio_overview(None) 同源 → 对账可靠。
+        trades = await to_thread(_review.live_trades, limit=99999)
         # 1) portfolio 单源真值
         port = await to_thread(_review.portfolio_overview, None)
         portfolio_total = float(port.get("total_pnl") or 0)
@@ -5514,7 +5656,6 @@ async def api_review_integrity():
         try:
             from .. import cache_db as _cdb
             conn = _cdb._thread_conn()
-            placeholders = ",".join("?" * len(grp))
             codes_list = list(grp.keys())
             if codes_list:
                 rs = conn.execute(
@@ -6081,9 +6222,11 @@ async def api_review_parse_trade_image(request: Request, file: UploadFile = File
     """截图 → AI 解析(失败自动 OCR) → 返回 trade 字段列表供前端批量预填。
     返回:{ok, data:{trades:[...], source:"ai"|"ocr", confidence:0..1}}
 
-    R-sec-015: 加单 IP 滑动窗 (15 req/60s) + 单文件 6MB 上限, 防 SCANer OOM。
+    R-sec-015: 加单 IP 滑动窗 (15 req/60s) + 单文件 16MB 上限, 防 SCANer OOM。
     R-sec-033: 加 Content-Length 头预检 + magic bytes 嗅探, 防伪扩展名/超大声明。
+    C5: 上限从 6MB → 16MB,高分屏长截图常超 6MB。
     """
+    _MAX_IMG_BYTES = 16 * 1024 * 1024
     # 1) 单 IP 滑动窗限频
     ip = request.client.host if request.client else "?"
     now = time.monotonic()
@@ -6097,14 +6240,14 @@ async def api_review_parse_trade_image(request: Request, file: UploadFile = File
 
     # 2) R-sec-033: Content-Length 头预检 — 客户端声明太大直接拒(不读 body)
     cl = request.headers.get("content-length")
-    if cl and cl.isdigit() and int(cl) > 6 * 1024 * 1024:
-        return envelope(error="图片超过 6MB,请压缩后再试", status_code=400)
+    if cl and cl.isdigit() and int(cl) > _MAX_IMG_BYTES:
+        return envelope(error=f"图片超过 16MB,请压缩后再试", status_code=413)
 
     content = await file.read()
     if not content:
         return envelope(error="空文件", status_code=400)
-    if len(content) > 6 * 1024 * 1024:
-        return envelope(error="图片超过 6MB,请压缩后再试", status_code=400)
+    if len(content) > _MAX_IMG_BYTES:
+        return envelope(error=f"图片超过 16MB,请压缩后再试", status_code=413)
     mime = (file.content_type or "").split(";")[0].strip()
     if mime not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
         name = (file.filename or "").lower()
@@ -6180,7 +6323,9 @@ async def api_review_update_trade(trade_id: int, payload: dict):
 
 
 @app.delete("/api/review/trades/{trade_id}")
-async def api_review_delete_trade(trade_id: int):
+async def api_review_delete_trade(request: Request, trade_id: int):
+    if not _check_admin_token(request):
+        return envelope(error="需要 X-Admin-Token 头", status_code=401)
     try:
         ok = _review.delete_trade(trade_id)
         return envelope(data={"deleted": ok})
@@ -6189,10 +6334,12 @@ async def api_review_delete_trade(trade_id: int):
 
 
 @app.delete("/api/review/positions/{code}")
-async def api_review_delete_position(code: str):
+async def api_review_delete_position(request: Request, code: str):
     """删除某只股票的全部交易记录(用于清理误录入 / 移出持仓)。
     不可逆 — 同时清理 trade_reviews。
     """
+    if not _check_admin_token(request):
+        return envelope(error="需要 X-Admin-Token 头", status_code=401)
     try:
         deleted = _review.delete_trades_by_code(code)
         return envelope(data={"deleted": deleted, "code": code})
@@ -6202,11 +6349,13 @@ async def api_review_delete_position(code: str):
 
 
 @app.delete("/api/review/trades_all")
-async def api_review_delete_all_trades(confirm: str = Query("", description="必须传 'YES' 才执行")):
+async def api_review_delete_all_trades(request: Request, confirm: str = Query("", description="必须传 'YES' 才执行")):
     """R12-A: 一键删除所有交易记录(用于清库重测 / 重新开始)。
     不可逆 — 同时清理 trade_reviews。
     安全护栏: 必须传 confirm=YES 才执行, 否则 400。
     """
+    if not _check_admin_token(request):
+        return envelope(error="需要 X-Admin-Token 头", status_code=401)
     if confirm != "YES":
         return envelope(error="必须传 confirm=YES 才允许清空", status_code=400)
     try:
@@ -6295,62 +6444,62 @@ async def api_review_stats(since_days: int = 90):
 
 
 @app.get("/api/review/next_picks")
-async def api_review_next_picks(force: int = 0):
+async def api_review_next_picks(force: int = 0, relax: int = 0):
     """次日选股 + 用户错模式风险。
 
     R50-SPEED: 缓存 TTL 30s → 300s;
     无缓存时秒回空 picks + 后台异步算 (用户永不空等);
     有缓存时 300s 内秒回;陈旧缓存时回返 + 后台异步刷;
     加 _inflight 锁避免并发时多线程重算。
+
+    R-relax-2026-07-14: relax=0/1/2 3 档 (默认 / 放宽 / 极宽松),每档独立缓存。
+    默认 relax=0 不放宽,只有用户手动点按钮才传 1/2。
     """
-    cached = _NEXT_PICKS_CACHE.get("default")
+    # 每 relax 档独立缓存 (放宽 / 默认 不互相污染)
+    cache_key = f"relax{relax}"
+    cached = _NEXT_PICKS_CACHE.get(cache_key)
     now_ts = time.time()
     if not force and cached and (now_ts - cached["ts"]) < 300:
-        return envelope(data=cached["data"], meta={"cache_hit": True, "age_seconds": int(now_ts - cached["ts"])})
+        return envelope(data=cached["data"], meta={"cache_hit": True, "age_seconds": int(now_ts - cached["ts"]), "relax": relax})
     # 防并发:已经在跑 → 直接回陈旧 (不阻塞)
-    if _NEXT_PICKS_INFLIGHT.get("default"):
+    if _NEXT_PICKS_INFLIGHT.get(cache_key):
         if cached:
             return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"]), "in_flight": True})
         return envelope(data={"picks": [], "user_patterns": []}, meta={"in_flight": True})
 
     async def _bg_compute():
         """后台异步算,完成后写缓存。"""
-        _NEXT_PICKS_INFLIGHT["default"] = True
+        _NEXT_PICKS_INFLIGHT[cache_key] = True
         try:
-            result = await asyncio.wait_for(to_thread(_review.next_day_picks), timeout=10)
+            # relax≥1 会走 screen(8s)→ 全A兜底(qt.gtimg curl ~5s),给 22s 让兜底跑完
+            _to = 22 if relax >= 1 else 12
+            result = await asyncio.wait_for(to_thread(_review.next_day_picks, relax), timeout=_to)
             if result:
-                _NEXT_PICKS_CACHE["default"] = {"data": result, "ts": time.time()}
-                log.info(f"next_picks 后台计算完成 ({len(result.get('picks', []))} picks)")
+                _NEXT_PICKS_CACHE[cache_key] = {"data": result, "ts": time.time()}
+                log.info(f"next_picks relax={relax} 后台计算完成 ({len(result.get('picks', []))} picks)")
         except asyncio.TimeoutError:
-            log.warning("next_picks 后台超时 10s,占位缓存 30s 后允许重试")
+            log.warning(f"next_picks relax={relax} 后台超时,占位缓存 30s 后允许重试")
             if not cached:
-                _NEXT_PICKS_CACHE["default"] = {"data": {"picks": [], "user_patterns": []}, "ts": now_ts}
+                _NEXT_PICKS_CACHE[cache_key] = {"data": {"picks": [], "user_patterns": []}, "ts": now_ts}
         except Exception as e:
-            log.warning(f"next_picks 后台失败: {e}")
+            log.warning(f"next_picks relax={relax} 后台失败: {e}")
         finally:
-            _NEXT_PICKS_INFLIGHT["default"] = False
+            _NEXT_PICKS_INFLIGHT[cache_key] = False
 
-    # 有 force → 同步等一次 (用户主动刷新)
+    # 有 force → 后台重算 (不阻塞前端);立即返回:有缓存回缓存,无则空+computing。
+    # 前端点按钮后秒回,随后用 force=0 轮询读缓存直到 picks 就绪。
     if force:
-        _NEXT_PICKS_INFLIGHT["default"] = True
-        try:
-            result = await asyncio.wait_for(to_thread(_review.next_day_picks), timeout=10)
-            if result:
-                _NEXT_PICKS_CACHE["default"] = {"data": result, "ts": now_ts}
-            return envelope(data=result or {"picks": []})
-        except asyncio.TimeoutError:
-            log.warning("next_picks 强制刷新超时 10s")
-            if cached:
-                return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"])})
-            return envelope(data={"picks": [], "user_patterns": []}, meta={"timeout": True})
-        finally:
-            _NEXT_PICKS_INFLIGHT["default"] = False
+        if not _NEXT_PICKS_INFLIGHT.get(cache_key):
+            asyncio.ensure_future(_bg_compute())
+        if cached:
+            return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"]), "computing": True, "relax": relax})
+        return envelope(data={"picks": [], "user_patterns": []}, meta={"computing": True, "relax": relax})
 
     # 无 force 时:后台异步算,前端秒回 (陈旧/空 picks)
     asyncio.ensure_future(_bg_compute())
     if cached:
-        return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"]), "refreshing": True})
-    return envelope(data={"picks": [], "user_patterns": []}, meta={"refreshing": True})
+        return envelope(data=cached["data"], meta={"stale_seconds": int(now_ts - cached["ts"]), "refreshing": True, "relax": relax})
+    return envelope(data={"picks": [], "user_patterns": []}, meta={"refreshing": True, "relax": relax})
 
 
 _NEXT_PICKS_CACHE: dict = {}
@@ -7180,8 +7329,7 @@ async def _preheat_cache_on_startup():
         ("/api/stock/000977",    10),  # AI 算力 (多 6 个并行数据源)
         ("/api/stock/000524",    8),   # 杂毛
         ("/api/laws",            5),
-        # 2026-07-13 Round 10: 三大板块页也进预热,确保用户首屏秒开
-        ("/api/hotspot",         20),
+        # 2026-07-14: /api/hotspot 已删,板块页预热移除
         ("/api/all_stocks/board?page_size=30", 20),  # 全 A 风向首屏 (R16: 默认 30)
     ]
 
@@ -7216,8 +7364,12 @@ async def _continuous_warmer():
     base = f"http://{bind_host}:{bind_port}"
     paths = [
         ("/api/dragons", 20),
-        ("/api/hotspot", 20),
         ("/api/market/overview", 8),
+        # R18 (2026-07-14): 全 A 风向常用 sort 保活,避免切 sort 触发 5s cold-start
+        ("/api/all_stocks/board?sort=amount&order=desc&page_size=30",            15),
+        ("/api/all_stocks/board?sort=change_pct&order=desc&page_size=30",       15),
+        ("/api/all_stocks/board?sort=turnover&order=desc&page_size=30",         15),
+        ("/api/all_stocks/board?sort=main_fund_inflow&order=desc&page_size=30",  15),
     ]
     interval = 60.0
     await asyncio.sleep(10)  # 让启动预热先跑完
@@ -7425,6 +7577,12 @@ def main():
 
     if use_h2:
         import asyncio
+        # uvloop: Linux/macOS 原生加速,~60% 更高吞吐(uvloop 0.22+ 稳定)
+        try:
+            import uvloop
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        except ImportError:
+            pass
         cfg = HCConfig()
         cfg.bind = [f"{args.host}:{args.port}"]
         cfg.loglevel = "warning"
@@ -7805,118 +7963,9 @@ async def api_stream_review(request: Request, trade_id: int):
 
 
 # ═══════════════════════════════════════════
-# 热点龙头板块打分 (/api/hotspot) — 2026-07-12 新增
-# 数据来源 web.rotation: fetch_board_list / fetch_components /
-# fetch_lhb_rows_for_securities / score_hotspot
+# /api/hotspot 已删除 (2026-07-14 应用户要求)
+# 数据源 web/rotation.py 也已删除
 # ═══════════════════════════════════════════
-from . import rotation as _rotation
-from .. import config as _config
-
-
-@app.get("/api/hotspot")
-async def hotspot_endpoint(
-    sectors: str = "",
-    period: str = "1d",
-    refresh: int = 0,
-    top_n: int = 0,
-):
-    """当前热点龙头板块打分排名(资金 40 + 游资 35 + 行情 25)。"""
-    from .rotation import (
-        fetch_board_list, fetch_components,
-        fetch_lhb_rows_for_securities, score_hotspot,
-    )
-    # 2026-07-12: 上 to_thread + wait_for + 90s 内存缓存,避免阻塞 event loop
-    cache_key = ("hotspot", period, bool(refresh), top_n)
-    cached = _HOTSPOT_CACHE.get(cache_key)
-    now_ts = time.time()
-    if cached:
-        age = now_ts - cached["ts"]
-        # 2026-07-13 Round 8: SWR — 90s fresh, 90-600s 陈旧秒回 + 后台刷新
-        if age < 90:
-            return envelope(data=cached["data"])
-        if age < 600:
-            async def _bg():
-                try:
-                    r = await asyncio.wait_for(to_thread(_compute), timeout=20)
-                    if r:
-                        _HOTSPOT_CACHE[cache_key] = {"data": r, "ts": time.time()}
-                        log.info(f"api/hotspot 后台刷新完成 (age={int(age)}s)")
-                except Exception as e:
-                    log.debug(f"api/hotspot 后台刷新失败: {e}")
-            asyncio.ensure_future(_bg())
-            return envelope(data=cached["data"], meta={"stale_seconds": int(age), "refreshing": True})
-    def _compute():
-        boards_raw = fetch_board_list(force=bool(refresh))
-        industry = boards_raw.get("industry") or []
-        concept  = boards_raw.get("concept")  or []
-        candidates = industry + concept
-        # 拉成份股代码(给龙虎榜用),只取前 30 个热点候选
-        for b in candidates[:30]:
-            b["component_codes"] = fetch_components(b["name"], max_n=8)
-        # 收集所有成份股代码去重
-        code_set: set[str] = set()
-        for b in candidates:
-            for c in (b.get("component_codes") or []):
-                code_set.add(c)
-        rows = fetch_lhb_rows_for_securities(
-            sorted(code_set),
-            days=_config.HOTSPOT_LHB_LOOKBACK_DAYS,
-        )
-        lhb_by_code: dict[str, list] = {}
-        for r in rows:
-            lhb_by_code.setdefault(r["code"], []).append(r)
-        names_filter = {s.strip() for s in sectors.split(",") if s.strip()}
-        target = [b for b in candidates
-                  if not names_filter or b["name"] in names_filter]
-        ranked = score_hotspot(
-            target, lhb_by_code,
-            top_n=top_n or _config.HOTSPOT_TOP_N,
-        )
-        return {
-            "period":     period,
-            "weights": {
-                "fund":     _config.HOTSPOT_FUND_WEIGHT,
-                "seat":     _config.HOTSPOT_SEAT_WEIGHT,
-                "momentum": _config.HOTSPOT_MOMENTUM_WEIGHT,
-            },
-            "tier_label": {
-                "core_main": "核心主线龙头",
-                "secondary": "次级跟风热点",
-                "pulse":     "脉冲短期题材",
-                "cold":      "冷门弱势板块",
-            },
-            "tier_color": {
-                "core_main": _config.ROTATION_LINE_COLORS["main_switch"],
-                "secondary": _config.ROTATION_LINE_COLORS["themed_in"],
-                "pulse":     _config.ROTATION_LINE_COLORS["pulse"],
-                "cold":      "#666",
-            },
-            "boards":     ranked,
-            "ts":         time.time(),
-        }
-        # 2026-07-13 Round 15: hotspot boards 加 taxonomy
-        try:
-            from .sector_taxonomy import classify_sector_name
-            for row in (out.get("boards") or []):
-                if row and "taxonomy" not in row:
-                    row["taxonomy"] = classify_sector_name(row.get("name") or row.get("board") or "")
-        except Exception as e:
-            log.debug(f"hotspot taxonomy 注入失败: {e}")
-    try:
-        out = await asyncio.wait_for(to_thread(_compute), timeout=20)
-    except asyncio.TimeoutError:
-        log.warning("api/hotspot 超时 20s")
-        if cached:
-            log.info(f"api/hotspot 返回陈旧缓存 ({int(time.time() - cached['ts'])}s)")
-            return envelope(data=cached["data"], meta={"stale_seconds": int(time.time() - cached["ts"])})
-        return envelope(error="热点龙头打分超时 20s", data={
-            "boards": [], "weights": {}, "tier_label": {}, "tier_color": {},
-        })
-    _HOTSPOT_CACHE[cache_key] = {"data": out, "ts": time.time()}
-    return envelope(data=out)
-
-
-_HOTSPOT_CACHE: dict = {}
 
 
 if __name__ == "__main__":

@@ -24,6 +24,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/tokens.css" />
 <link rel="stylesheet" href="/static/style.css?v=__CSS_V__" />
+  <link rel="preload" as="script" href="/static/core.js">
+  <!-- R-fix-2026-07-15: ECharts 本地化 fallback — 之前 CDN 慢/挂时白屏静默; 现在主用本地 vendor, CDN 失败时由 view-stock.js _ensureECharts 兜底 -->
+  <link rel="preload" as="script" href="/static/vendor/echarts.min.js">
 </head>
 <body>
 
@@ -37,6 +40,15 @@
 <!-- 全局加载条 (2026-07-12) — 长操作顶部进度条 -->
 <div class="top-loading" id="top-loading" aria-hidden="true">
   <div class="top-loading-bar"></div>
+</div>
+
+<!-- C3: 全屏遮罩 loading overlay (回测/批量复盘 >5s 时显示) -->
+<div class="loading-overlay" id="loading-overlay" hidden aria-hidden="true" role="alert" aria-live="assertive">
+  <div class="loading-overlay-card">
+    <div class="loading-spinner"></div>
+    <div class="loading-overlay-label" id="loading-overlay-label">处理中…</div>
+    <div class="loading-overlay-sub" id="loading-overlay-sub"></div>
+  </div>
 </div>
 
 <!-- 桌面侧边栏 (替换 toptabs) -->
@@ -69,11 +81,6 @@
   <div class="sidebar-item" data-jump="watchlist">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3.5 2.5h9v11l-4.5-2.5-4.5 2.5z"/></svg></span>
     <span>自选</span>
-    <span class="sb-num">05</span>
-  </div>
-  <div class="sidebar-item" data-jump="sector_hotspot">
-    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M8 1.5l1.8 4 4.2.4-3.2 2.8 1 4.3L8 10.6 4.2 13l1-4.3L2 5.9l4.2-.4z"/></svg></span>
-    <span>热点龙头</span>
     <span class="sb-num">05</span>
   </div>
   <div class="sidebar-item" data-jump="screener">
@@ -327,7 +334,7 @@
         <div class="qh-tags" id="qh-tags">
           <span class="qh-tag" id="qh-source">数据源</span>
         </div>
-        <!-- Sparkline: 近 1M 收盘价折线 + 5/20 日均线 + 现价竖线 -->
+        <!-- Sparkline: 近 120 日收盘价折线 + 5/20 日均线 + 现价竖线 · 点击跳分时 -->
         <div class="qh-spark" id="qh-spark-wrap" hidden>
           <svg id="qh-spark" viewBox="0 0 200 44" preserveAspectRatio="none" aria-hidden="true">
             <defs>
@@ -498,17 +505,17 @@
     <div class="grid grid-2 mt-16">
       <article class="card">
         <div class="card-eyebrow">TODAY · 当日明细</div>
-        <div class="kv" id="q-today-kv">
-          <div class="kv-row"><span>开盘</span><b id="q-open">—</b></div>
-          <div class="kv-row"><span>昨收</span><b id="q-prev">—</b></div>
-          <div class="kv-row"><span>最高</span><b id="q-high">—</b></div>
-          <div class="kv-row"><span>最低</span><b id="q-low">—</b></div>
-          <div class="kv-row"><span>涨停价</span><b id="q-lu-d">—</b></div>
-          <div class="kv-row"><span>跌停价</span><b id="q-ld-d">—</b></div>
-          <div class="kv-row"><span>成交量</span><b id="q-vol-d">—</b></div>
-          <div class="kv-row"><span>成交额</span><b id="q-amt-d">—</b></div>
-          <div class="kv-row"><span>20日涨跌</span><b id="q-20d-d">—</b></div>
-          <div class="kv-row"><span>5日均量</span><b id="q-v5">—</b></div>
+        <div class="kv" id="q-today-kv" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px">
+          <div class="kv-row" style="padding:.25rem 0"><span>开</span><b id="q-open">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>昨收</span><b id="q-prev">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>高</span><b id="q-high">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>低</span><b id="q-low">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>涨停价</span><b id="q-lu-d">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>跌停价</span><b id="q-ld-d">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>成交额</span><b id="q-amt-d">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>换手率</span><b id="q-turnover-d">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>5日涨跌</span><b id="q-5d-d">—</b></div>
+          <div class="kv-row" style="padding:.25rem 0"><span>20日涨跌</span><b id="q-20d-d">—</b></div>
         </div>
       </article>
       <article class="card">
@@ -518,9 +525,9 @@
     </div>
 
     <div class="tabs mt-32">
-      <button class="tab active" data-tab="flow">资金流向</button>
+      <button class="tab" data-tab="flow">资金流向</button>
       <button class="tab" data-tab="kline">K 线</button>
-      <button class="tab" data-tab="intraday5d">5 日分时</button>
+      <button class="tab active" data-tab="intraday">分时</button>
       <button class="tab" data-tab="seats">游资席位</button>
       <button class="tab" data-tab="news">📰 新闻</button>
       <button class="tab" data-tab="sectors">📊 板块</button>
@@ -531,8 +538,8 @@
     </div>
 
     <article class="card mt-16">
-      <div class="card-eyebrow" data-tab-title>资本动向</div>
-      <div data-tab-pane="flow">
+      <div class="card-eyebrow" data-tab-title>当日分时 · 成交数据</div>
+      <div data-tab-pane="flow" hidden>
         <p class="caption dim" id="flow-empty" style="margin: 0 0 .5rem">请先在上方搜索一只股票</p>
         <div class="kpi-grid" id="flow-kpi"></div>
         <div id="flow-chart" style="height:340px; margin-top:1rem"></div>
@@ -549,8 +556,9 @@
           <div class="kt-group">
             <span class="kt-label">周期</span>
             <div class="kt-pills" id="kline-period">
-              <button class="kt-pill active" data-days="22">1M</button>
+              <button class="kt-pill" data-days="22">1M</button>
               <button class="kt-pill" data-days="66">3M</button>
+              <button class="kt-pill active" data-days="120">近 120 日</button>
               <button class="kt-pill" data-days="132">6M</button>
               <button class="kt-pill" data-days="250">1Y</button>
               <button class="kt-pill" data-days="400">2Y</button>
@@ -576,33 +584,18 @@
         <div class="kpi-grid" id="kline-kpi"></div>
         <div id="kline-chart" class="kline-chart-area"></div>
       </div>
-      <div data-tab-pane="intraday5d" hidden>
-        <p class="caption dim" style="margin: 0 0 .75rem">5 日日线 + 当日分时 tick · 封成比=封单金额/成交额</p>
-        <div class="kpi-grid" id="intra-kpi"></div>
-        <div class="table-wrap">
-          <table class="data-table" id="intraday5d-table">
-            <thead><tr>
-              <th>日期</th><th>开</th><th>高</th><th>低</th><th>收</th><th>涨幅%</th>
-              <th>涨停</th><th>连板</th><th>封成比%</th><th>封单(亿)</th><th>炸板</th>
-              <th>首封</th><th>量能</th><th>板块</th>
-            </tr></thead>
-            <tbody><tr><td colspan="14" class="empty">查询后显示</td></tr></tbody>
-          </table>
-        </div>
-        <div id="intraday5d-chart" style="height:280px; margin-top:1.25rem"></div>
-        <p class="caption dim" id="intraday5d-note" style="margin-top:.5rem"></p>
-
-        <hr style="margin:1.5rem 0; border:0; border-top:1px dashed var(--line)">
+      <div data-tab-pane="intraday">
         <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
-          <span class="caption dim" style="margin:0">📅 分时回看（任意交易日）</span>
-          <button class="btn btn-mini" id="intra-day-prev" title="上一个交易日">‹</button>
+          <span class="caption dim" style="margin:0">📅 当日分时 · 成交数据</span>
+          <button class="btn btn-mini" id="intra-day-prev" title="上一个交易日">‹ 上一天</button>
           <input type="date" id="intra-day-pick" style="padding:.3rem .5rem; font-size:.85rem">
-          <button class="btn btn-mini" id="intra-day-next" title="下一个交易日">›</button>
+          <button class="btn btn-mini" id="intra-day-next" title="下一个交易日">下一天 ›</button>
+          <button class="btn btn-mini" id="intra-day-today" title="回到今天">今天</button>
           <button class="btn btn-mini" id="intra-day-load" title="加载该日分时">加载</button>
           <span class="dim" id="intra-day-label" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
         <div id="intra-day-kpi" class="kpi-grid"></div>
-        <div id="intra-day-chart" style="height:320px; margin-top:.5rem"></div>
+        <div id="intra-day-chart" style="height:400px; margin-top:.5rem"></div>
         <p class="caption dim" id="intra-day-note" style="margin-top:.5rem"></p>
       </div>
       <div data-tab-pane="seats" hidden>
@@ -805,6 +798,7 @@
         <div class="wl-toolbar">
           <button class="btn btn-mini" id="wl-refresh-quote">↻ 刷新行情</button>
           <button class="btn btn-mini" id="wl-batch-ai">✨ 批量 AI 建议</button>
+          <button class="btn btn-mini" id="wl-clear-all" style="color:#e84545" title="清空全部自选股">🗑 清空</button>
           <span class="caption dim" id="wl-ts">—</span>
         </div>
       </div>
@@ -881,37 +875,6 @@
           <tbody><tr><td colspan="4" class="empty">加载中 …</td></tr></tbody>
         </table>
       </div>
-    </article>
-
-    <article class="card mt-32">
-      <div class="card-eyebrow">BACKTEST · 历史回测</div>
-      <p class="lede">用过去一段时间的真实数据回放流水线 · 验证参数稳健性</p>
-      <div class="bt-toolbar">
-        <label>起<input id="bt-start" type="date" value="2025-01-01"></label>
-        <label>止<input id="bt-end" type="date" value="2026-06-30"></label>
-        <label>Top N<input id="bt-top" type="number" value="3" min="1" max="10"></label>
-        <label>持仓(天)<input id="bt-hold" type="number" value="5" min="1" max="20"></label>
-        <label>采样<input id="bt-sample" type="number" value="200" min="20" max="2000"></label>
-        <label>卖出
-          <select id="bt-sell">
-            <option value="rule">规则止盈/止损</option>
-            <option value="hold">持有到期</option>
-          </select>
-        </label>
-        <button class="btn btn-primary" id="run-bt">
-          <span>开始回测</span><span class="btn-arrow">↗</span>
-        </button>
-      </div>
-      <div class="kpi-grid mt-16" id="bt-kpis"></div>
-      <div id="bt-risk-host" class="mt-16"></div>
-      <div id="equity-chart" style="height:280px; margin-top:1rem"></div>
-      <div class="table-wrap mt-16">
-        <table id="bt-monthly" class="data-table">
-          <thead><tr><th>月份</th><th>笔数</th><th>胜率</th><th>月均收益</th><th>月收益</th><th>最佳</th><th>最差</th></tr></thead>
-          <tbody><tr><td colspan="7" class="empty">回测后显示</td></tr></tbody>
-        </table>
-      </div>
-      <div id="bt-risk-actions-host" class="mt-16"></div>
     </article>
   </section>
 
@@ -1208,9 +1171,16 @@
     <article class="card mt-16">
       <div class="card-eyebrow flex-between">
         <span>NEXT DAY · 次日选股 · 错模式预警</span>
-        <button class="btn btn-mini" id="review-next-pick-refresh">↻ 重生成</button>
+        <span class="np-relax-group">
+          <button class="btn-mini np-relax-btn on" data-relax="0" title="严格筛选 (默认 5 只)">严格</button>
+          <button class="btn-mini np-relax-btn" data-relax="1" title="放宽筛选 (15 只)">放宽</button>
+          <button class="btn-mini np-relax-btn" data-relax="2" title="极宽松 (50 只,适合 market 安静 / screen 拉空时兜底)">极宽松</button>
+          <span class="sep"></span>
+          <button class="btn btn-mini" id="review-next-pick-refresh">↻ 重生成</button>
+        </span>
       </div>
       <p class="caption dim" id="review-next-meta" style="margin:.25rem 0 .5rem">—</p>
+      <p class="caption dim" id="review-next-relax-info" style="margin:.2rem 0 .4rem">当前筛选档:<b>严格</b> (默认 5 只)</p>
       <ol class="next-pick-list" id="review-next-pick-list"></ol>
     </article>
 
@@ -1333,31 +1303,36 @@
             <span class="badge" id="scr-clock-badge">加载中</span>
           </div>
         </div>
-        <div class="toolbar" style="margin:0">
-          <button id="scr-reload" title="强制重算候选池">⟳ 重算</button>
-          <button id="scr-snapshot" title="立刻存一帧">📸 存快照</button>
-          <button id="scr-toggle-rules">📋 规则</button>
-          <button id="scr-toggle-history">⏪ 历史</button>
-          <button id="scr-toggle-backtest" class="hl">🧪 一键回测</button>
-          <button id="scr-toggle-sell">🛡 卖出</button>
+        <div class="toolbar" style="margin:0;flex-wrap:wrap;gap:4px;align-items:center">
+          <label class="toggle-label" title="打开显示筛选规则阈值面板, 关闭使用尾盘战法默认规则">
+            <input type="checkbox" id="scr-custom-toggle">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-text">自定规则</span>
+          </label>
+          <span class="sep"></span>
+          <span class="pill" id="conn-state">连接中…</span>
+          <span class="pill" id="cnt-pill">0 行</span>
+          <span class="pill" id="took-pill" hidden>—</span>
+          <span class="pill" id="pass-rate-pill" hidden>通过 0</span>
         </div>
       </header>
 
       <!-- 规则面板 (默认展开) -->
       <div class="rule-panel" id="rule-panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-size:12px;color:#888;font-weight:600">7 条规则 1:1 视频原文 · 默认全开, 阈值即视频原话</div>
-          <div style="font-size:11px;color:#666">提示: 默认值即杨永新原话, 改即变种 (谨慎) · 点 dot 关规则</div>
+          <div style="font-size:12px;color:var(--ink-3);font-weight:600">7 条规则 1:1 视频原文 · 默认全开, 阈值即视频原话</div>
+          <div style="font-size:11px;color:var(--ink-4)">提示: 默认值即杨永新原话, 改即变种 (谨慎) · 点 dot 关规则</div>
         </div>
         <div class="rule-row" id="rule-chips"></div>
       </div>
 
-      <!-- 工具栏 -->
+      <!-- 工具栏 (排序 + 筛选) -->
       <div class="toolbar" id="main-toolbar">
         <span class="label">排序</span>
         <div class="sort-spec" id="sort-spec">
           <span class="swatch" data-i="0">
             <select data-role="field">
+              <option value="pass_count">得分</option>
               <option value="change_pct">涨幅</option>
               <option value="volume_ratio">量比</option>
               <option value="turnover">换手</option>
@@ -1373,20 +1348,37 @@
             <span class="x" data-role="del">×</span>
           </span>
           <button id="sort-add" data-role="add" style="padding:2px 8px;font-size:11px">+ 次级</button>
-          <span class="sep"></span>
         </div>
         <span class="label">只显示规则通过</span>
         <button id="filter-pass-all" class="">全显示</button>
+      </div>
+
+      <!-- 快速搜索 + 筛选行 -->
+      <div class="scr-filter-row">
+        <div class="scr-search-box">
+          <span class="qs-icon">⌕</span>
+          <input type="text" id="scr-qs-input" placeholder="搜代码 / 名称" autocomplete="off" />
+          <span class="qs-clear" id="scr-qs-clear" hidden>✕</span>
+        </div>
         <span class="sep"></span>
-        <span class="label">SSE</span>
-        <button id="sse-toggle" class="">关</button>
+        <span class="label">通过规则数</span>
+        <select id="scr-filter-pass-min" class="scr-filter-select">
+          <option value="0">≥0</option>
+          <option value="1">≥1</option>
+          <option value="2">≥2</option>
+          <option value="3">≥3</option>
+          <option value="4">≥4</option>
+          <option value="5">≥5</option>
+          <option value="6">≥6</option>
+          <option value="7">=7</option>
+        </select>
         <span class="sep"></span>
-        <span class="label">传输</span>
-        <span class="pill" id="conn-state">连接中…</span>
-        <span class="pill" id="last-ts">—</span>
-        <span class="pill" id="cnt-pill">0 行</span>
-        <span class="pill" id="took-pill" hidden>—</span>
-        <span class="pill" id="pass-rate-pill" hidden>通过 0</span>
+        <span class="label">涨幅</span>
+        <input type="number" id="scr-filter-chg-min" class="scr-filter-num" placeholder="下限" value="" step="0.1" style="width:54px">
+        <span class="dim">~</span>
+        <input type="number" id="scr-filter-chg-max" class="scr-filter-num" placeholder="上限" value="" step="0.1" style="width:54px">
+        <span class="sep"></span>
+        <button id="scr-filter-reset" class="btn-mini" title="重置全部筛选">重置筛选</button>
       </div>
 
       <!-- 主表 -->
@@ -1430,12 +1422,12 @@
       <div class="sub-panel collapsed" id="backtest-panel">
         <h3>
           <span class="open-icon">▾</span>
-          🧪 一键回测 — T 日选股 → T+1 9:30-10:00 卖 (S1 正均价 · S2 最大值 · S3 负均价 · open 开盘)
+          🧪 一键回测 — 9 策略: S1翻红卖 · avg_up翻红均价 · max95最佳 ×95% · tp2止盈2% · twap · half半仓 · open开盘 · close收盘 · low最差
         </h3>
         <div class="preview">
-          <span class="badge">📊 5 窗口</span>
-          <span class="badge">1周/2周/1月/2月/半年</span>
-          <span style="color:#888">推荐 S1 (正收益分钟均值)</span>
+          <span class="badge">📊 6 窗口</span>
+          <span class="badge">1周/2周/1月/2月/半年/1年</span>
+          <span style="color:#888">推荐策略 = 跨窗口月均最强</span>
         </div>
         <div class="body">
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
@@ -1445,10 +1437,31 @@
             <label class="bt-period-label"><input type="checkbox" name="bt-p" value="1月"> 1月</label>
             <label class="bt-period-label"><input type="checkbox" name="bt-p" value="2月"> 2月</label>
             <label class="bt-period-label"><input type="checkbox" name="bt-p" value="半年" checked> 半年</label>
+            <label class="bt-period-label"><input type="checkbox" name="bt-p" value="1年"> 1年</label>
             <button id="bt-run">▶ 开始回测</button>
+            <button id="bt-stats-run" title="统计层回测 (KPI/分位数/7 套退场场景/板块/持仓天数分布)">🧮 统计层回测</button>
             <span class="pill" id="bt-progress">未运行</span>
             <span class="pill" id="bt-elapsed" hidden>0s</span>
           </div>
+
+          <!-- 2026-07-15: 统计层回测 mount — 由 app.js renderBacktestResults 填 -->
+          <div id="bt-stats-mount" style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+            <div id="bt-kpis" class="kpi-grid"></div>
+            <div id="bt-risk-host"></div>
+            <div id="bt-monthly-wrap">
+              <table id="bt-monthly" class="data-table">
+                <thead><tr><th>月</th><th>笔数</th><th>胜率</th><th>月均收益</th><th>月度累计</th><th>最佳</th><th>最差</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="bt-risk-actions-host"></div>
+            <canvas id="bt-equity-chart" style="height:200px;width:100%"></canvas>
+            <div id="bt-percentiles-host"></div>
+            <div id="bt-scenarios-host"></div>
+            <div id="bt-exit-host"></div>
+            <div id="bt-sector-host"></div>
+          </div>
+
           <div id="bt-summary" style="display:none"></div>
           <div id="bt-result" style="overflow-x:auto"></div>
           <div class="bt-progress-bar" id="bt-progress-bar"><div class="fill"></div></div>
@@ -1521,13 +1534,26 @@
           { key:'vwap',          label:'VWAP价',     sortable:false, fmt: v => v?.toFixed(2) ?? '—', title:'当前累计均价 (数据源已算好的 VWAP)', hideTablet:true, hideMobile:true },
           { key:'pass_count',    label:'通过',       sortable:true,  fmt: v => `${v}/8`, cellType:'passcnt' },
           { key:'taxonomy',      label:'板块',       sortable:false, cellType:'tax', css:'left', hideTablet:true },
+          { key:"last30_label",  label:"标记",       sortable:false, cellType:"last30_label", css:"left", title:"尾盘30分钟模式标记" },
+          { key:"last30_desc",   label:"走势",       sortable:false, cellType:"last30_desc", css:"left dim", title:"尾盘走势描述", hideTablet:true, hideMobile:true },
         ];
+
+        // ═══════ 尾盘 5 条规则 → 颜色 CSS (与后端 _LAST30_LABELS["..."]["color"] 对齐) ═══════
+        const LAST30_LABEL_CSS = {
+          '主力抢跑':       'last30-red',
+          '做多意愿弱':     'last30-amber',
+          '次日大概率异动': 'last30-green',
+          '承接力强':       'last30-blue',
+          '洗盘阶段':       'last30-gray',
+          '—缺':           'last30-miss',
+          '—少':           'last30-miss',
+        };
 
         const RULE_DEFS = [
           { key:'main_board',    name:'主板',          hint:'剔除 创业板/科创板/北交所/ST' },
           { key:'change_pct',    name:'涨幅',          hint:'[%, %] 闭区间', thr:'change_pct_min,change_pct_max' },
           { key:'volume_ratio',  name:'量比',          hint:'≥',                 thr:'volume_ratio_min' },
-          { key:'mcap',          name:'总市值(亿)',    hint:'≤',                  thr:'mcap_yi_max' },
+          { key:'mcap',          name:'总市值(亿)',    hint:'[亿,亿] 闭区间',      thr:'mcap_yi_min,mcap_yi_max' },
           { key:'turnover',      name:'换手',          hint:'[%, %] 闭区间',     thr:'turnover_min,turnover_max' },
           { key:'zt_20d',        name:'20d涨停',       hint:'≥',                  thr:'zt_20d_min' },
           { key:'above_vwap',    name:'均价之上占比',  hint:'≥ % (视频"全天"=100%)', thr:'above_vwap_min_pct' },
@@ -1540,7 +1566,7 @@
         let HIST_DATE = '';
         let REPLAY_MODE = false;
         let REPLAY_FILTER = null;        // 当前回放的快照 code→row 索引
-        let CURRENT_SORT = [{field:'change_pct', dir:'desc'}];
+        let CURRENT_SORT = [{field:'pass_count', dir:'desc'}];
         let FILTER_PASS_ALL_ONLY = false;
         let LIVE_MODE = 'sse';           // 'sse' | 'poll'
         let SSE = null;
@@ -1754,15 +1780,39 @@
           // 只显示通过
           if (FILTER_PASS_ALL_ONLY) items = items.filter(r => r.pass_all);
 
+          // ── 客户端筛选 (搜索 + 通过数 + 涨幅范围) ──
+          const q = ($('#scr-qs-input')?.value || '').trim().toLowerCase();
+          if (q) {
+            items = items.filter(r => {
+              const code = String(r.code || '').toLowerCase();
+              const name = String(r.name || '').toLowerCase();
+              return code.includes(q) || name.includes(q);
+            });
+          }
+          const passMin = parseInt($('#scr-filter-pass-min')?.value || '0', 10);
+          if (passMin > 0) {
+            items = items.filter(r => {
+              const fails = (r.fail_rules || []).filter(f => !f.endsWith('_soft_missing'));
+              return (8 - fails.length) >= passMin;
+            });
+          }
+          const chgMin = parseFloat($('#scr-filter-chg-min')?.value || '');
+          const chgMax = parseFloat($('#scr-filter-chg-max')?.value || '');
+          if (!isNaN(chgMin) || !isNaN(chgMax)) {
+            items = items.filter(r => {
+              const v = parseFloat(r.change_pct);
+              if (isNaN(v)) return false;
+              if (!isNaN(chgMin) && v < chgMin) return false;
+              if (!isNaN(chgMax) && v > chgMax) return false;
+              return true;
+            });
+          }
+
           if (!items.length) {
-            const emptyMsg = REPLAY_MODE ? '该时间点无数据 (可能数据源未通)' : '当前无满足规则的标的';
-            const emptyHint = REPLAY_MODE ? '试试别的日期或时间点' : (STATUS.reason === 'before_open' ? '未到 14:30 启, 启后会自动刷新' : (STATUS.reason === 'non_trade_day' ? '今日非交易日' : '可在右侧关规则 / 改阈值放宽'));
-            tb.innerHTML = `<tr><td colspan="${cols.length}" class="scr-empty">
-              <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
-                <div class="glyph">∅</div>
-                <div style="font-size:16px;color:#bbb;font-weight:500">${emptyMsg}</div>
-                <div class="hint">${emptyHint}</div>
-              </div>
+            const emptyMsg = REPLAY_MODE ? '该时间点无数据' : '无满足规则的标的';
+            const emptyHint = REPLAY_MODE ? '试试别的日期或时间点' : (STATUS.reason === 'before_open' ? '14:30 启, 会自动刷新' : (STATUS.reason === 'non_trade_day' ? '今日非交易日' : '可关规则 / 改阈值'));
+            tb.innerHTML = `<tr><td colspan="${cols.length}" style="text-align:center;padding:2rem;color:#888;font-size:13px">
+              ${emptyMsg}<br><span style="font-size:11px;color:#666">${emptyHint}</span>
             </td></tr>`;
             $('#cnt-pill').textContent = `0 行`;
             $('#pass-rate-pill').hidden = true;
@@ -1807,6 +1857,15 @@
           if (c.key === 'pass_count') {
             const f = (r.fail_rules || []).filter(x => !x.endsWith('_soft_missing')).length;
             return `<td class="${hide}"><span class="pass-count${f? ' miss':''}">${8-f}/8</span></td>`;
+          }
+          if (c.key === 'last30_label') {
+            const lbl = r.last30_label || '—缺';
+            const cls = LAST30_LABEL_CSS[lbl] || '';
+            const tip = r.last30_desc ? `title="${esc(r.last30_desc)}"` : '';
+            return `<td class="${hide}"><span class="last30-chip ${cls}" ${tip}>${esc(lbl)}</span></td>`;
+          }
+          if (c.key === 'last30_desc') {
+            return `<td class="${hide} last30-desc">${esc(r.last30_desc || '—')}</td>`;
           }
           if (c.key === 'taxonomy') {
             const tx = r.taxonomy || {};
@@ -1858,9 +1917,10 @@
             const isOn = star.classList.contains('on');
             if (isOn) {
               const r = await api(`/api/watchlist/${encodeURIComponent(code)}`, { method: 'DELETE' });
-              if (r?.data?.ok) {
+              if (r?.data?.removed) {
                 star.classList.remove('on'); star.textContent = '☆';
                 WATCHLIST_CODES.delete(code);
+                if (typeof _watchlistLoaded !== 'undefined') { _watchlistLoaded = false; }
                 toast(`已移除自选: ${name || code}`);
               } else {
                 toast(r?.error || '移除失败', 2400);
@@ -1870,6 +1930,7 @@
               if (r?.data?.code) {
                 star.classList.add('on'); star.textContent = '★';
                 WATCHLIST_CODES.add(code);
+                if (typeof _watchlistLoaded !== 'undefined') { _watchlistLoaded = false; }
                 toast(`${name || code} 已加自选`);
               } else {
                 toast(r?.error || '加自选失败', 2400);
@@ -1883,14 +1944,20 @@
             window.open(`/?code=${cd.dataset.code}`, '_blank', 'noopener');
             return;
           }
-          // 板块跳转
+          // 板块跳转 (R18 2026-07-14: 同 app 切换 view,不开新窗口)
           const tx = e.target.closest('[data-l2],[data-l3],[data-l4]');
           if (tx) {
             const p = new URLSearchParams();
             if (tx.dataset.l3) p.set('l3', tx.dataset.l3);
             else if (tx.dataset.l2) p.set('l2', tx.dataset.l2);
             else if (tx.dataset.l4) p.set('l4', tx.dataset.l4);
-            window.open(`/all_stocks?${p.toString()}`, '_blank', 'noopener');
+            // 进入 all_stocks view + 应用 deep-link
+            const qs = p.toString();
+            history.replaceState(null, '', '/#all_stocks' + (qs ? '?' + qs : ''));
+            showView('all_stocks');
+            if (typeof applyAllStocksDeepLink === 'function') {
+              applyAllStocksDeepLink(qs);
+            }
             return;
           }
         });
@@ -1930,7 +1997,7 @@
             if (d.items && !REPLAY_MODE) {
               LAST_ITEMS = d.items;
               renderTable();
-              $('#last-ts').textContent = `${nowStr()} · ${d.items.length}`;
+              $('#conn-state').textContent = `${nowStr()} · ${d.items.length}`;
             }
             renderClock();
           });
@@ -1941,8 +2008,8 @@
               LAST_ITEMS = d.items;
               renderTable();
               const ts = d.ts ? new Date(d.ts * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : nowStr();
-              $('#last-ts').textContent = ts;
-              $('#last-ts').title = `服务端推送时间: ${ts} · 本地时间: ${nowStr()}`;
+              // last-ts removed
+              // last-ts title removed
               $('#took-pill').hidden = false;
               $('#took-pill').textContent = `${d.took_ms ?? '?'}ms`;
               $('#took-pill').title = '回测/评估耗时 (毫秒)';
@@ -1953,10 +2020,9 @@
           });
           SSE.addEventListener('ping', () => { /* keep-alive */ });
           SSE.onerror = () => {
+            // SSE 掉线, 切轮询兜底
             if (LIVE_MODE === 'sse') {
-              // 切回轮询
               LIVE_MODE = 'poll';
-              $('#sse-toggle').textContent = '关'; $('#sse-toggle').classList.remove('on');
               startLiveLoad();
             }
           };
@@ -1975,7 +2041,7 @@
             if (j?.data?.items) {
               LAST_ITEMS = j.data.items;
               renderTable();
-              $('#last-ts').textContent = `${nowStr()} · ${j.data.count ?? LAST_ITEMS.length}`;
+              $('#conn-state').textContent = `${nowStr()} · ${j.data.count ?? LAST_ITEMS.length}`;
               $('#took-pill').textContent = `${j.data.took_ms ?? '?'}ms`;
               $('#took-pill').hidden = false;
             }
@@ -2013,27 +2079,10 @@
           // 2. 拉首屏
           pollOnce();
 
-          // 3. SSE/轮询 toggle (R27: race condition 修复 — 标志位防重入)
-          let sseToggling = false;
-          $('#sse-toggle').addEventListener('click', () => {
-            if (sseToggling) return;
-            sseToggling = true;
-            setTimeout(() => { sseToggling = false; }, 300);
-            if (LIVE_MODE === 'sse') {
-              LIVE_MODE = 'poll'; sseStop();
-              $('#sse-toggle').textContent = '关'; $('#sse-toggle').classList.remove('on');
-              startLiveLoad();
-            } else {
-              LIVE_MODE = 'sse';
-              $('#sse-toggle').textContent = '开'; $('#sse-toggle').classList.add('on');
-              if (POLL_TIMER) { clearTimeout(POLL_TIMER); POLL_TIMER = null; }
-              sseStart();
-            }
-            renderClock();
-          });
-          // 默认开 SSE
-          $('#sse-toggle').textContent = '开'; $('#sse-toggle').classList.add('on');
+          // 3. 默认开 SSE (自动推送)
           sseStart();
+
+
 
           // 4. 通过过滤
           $('#filter-pass-all').addEventListener('click', e => {
@@ -2042,6 +2091,34 @@
             e.currentTarget.classList.toggle('on', FILTER_PASS_ALL_ONLY);
             renderTable();
           });
+
+          // 4b. 筛选输入绑定 (搜索 + 通过数 + 涨幅范围)
+          const _filterInputs = ['scr-qs-input', 'scr-filter-pass-min', 'scr-filter-chg-min', 'scr-filter-chg-max'];
+          _filterInputs.forEach(id => {
+            const el = $(`#${id}`);
+            if (!el) return;
+            el.addEventListener('input', () => renderTable());
+            el.addEventListener('change', () => renderTable());
+          });
+          // 搜索清空
+          const qsClear = $('#scr-qs-clear');
+          const qsInput = $('#scr-qs-input');
+          if (qsClear && qsInput) {
+            qsInput.addEventListener('input', () => { qsClear.hidden = !qsInput.value; });
+            qsClear.addEventListener('click', () => { qsInput.value = ''; qsClear.hidden = true; renderTable(); });
+          }
+          // 重置筛选
+          const resetBtn = $('#scr-filter-reset');
+          if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+              if (qsInput) qsInput.value = '';
+              if (qsClear) qsClear.hidden = true;
+              const passMin = $('#scr-filter-pass-min'); if (passMin) passMin.value = '0';
+              const chgMin = $('#scr-filter-chg-min'); if (chgMin) chgMin.value = '';
+              const chgMax = $('#scr-filter-chg-max'); if (chgMax) chgMax.value = '';
+              renderTable();
+            });
+          }
 
           // R50: 行 hover 显示通过/失败规则明细 (高亮 cell)
           $('#scr-tbody').addEventListener('mouseover', e => {
@@ -2093,46 +2170,42 @@
 
           loadPanelState();
 
-          // 6. 顶栏 toggle 按钮
-          $('#scr-toggle-rules').addEventListener('click', () => {
+          // 6. 自定规则 toggle — 开关 + 全量重筛
+          const customToggle = $('#scr-custom-toggle');
+          if (customToggle) {
+            customToggle.addEventListener('change', async () => {
+              const p = $('#rule-panel');
+              if (p) p.style.display = customToggle.checked ? '' : 'none';
+              savePanelState();
+              if (customToggle.checked) {
+                // ON: 用面板当前阈值从全量重筛
+                toast('自定规则: 从全量重筛…', 2000);
+                try {
+                  await api('/api/screener/rebuild', { method:'POST', body: JSON.stringify({force:true}) });
+                } catch (_) {}
+              } else {
+                // OFF: 恢复出厂默认阈值 + 回到默认池
+                toast('默认规则', 1200);
+                try {
+                  await api('/api/screener/reset-defaults', { method: 'POST' });
+                  const rs = await api('/api/screener/rule_status');
+                  if (rs?.data?.thresholds) {
+                    THRESHOLDS = rs.data.thresholds;
+                    renderRulePanel();
+                  }
+                  await api('/api/screener/rebuild', { method:'POST', body: JSON.stringify({force:true}) });
+                } catch (_) {}
+              }
+            });
+            // 默认关 (默认规则)
+            customToggle.checked = false;
             const p = $('#rule-panel');
-            p.style.display = p.style.display === 'none' ? '' : 'none';
-            savePanelState();
-          });
-          $('#scr-toggle-backtest').addEventListener('click', () => {
-            $('#backtest-panel').classList.toggle('collapsed');
-            savePanelState();
-          });
+            if (p) p.style.display = 'none';
+          }
           $$('.sub-panel h3').forEach(h => h.addEventListener('click', () => {
             h.parentElement.classList.toggle('collapsed');
             savePanelState();
           }));
-
-          // 7. 重算候选池 (重建 _CANDIDATE_POOL) — R30 真正提交后台重建
-          $('#scr-reload').addEventListener('click', async () => {
-            const btn = $('#scr-reload');
-            btn.disabled = true; btn.textContent = '⏳ 计算中…';
-            toast('重算候选池中…');
-            try {
-              const r = await api('/api/screener/rebuild', { method: 'POST' });
-              if (r?.data?.ok) {
-                toast('已提交, 1-30s 完成 · SSE 自动推送新数据');
-                // 30s 后复位按钮
-                setTimeout(() => { btn.disabled = false; btn.textContent = '⟳ 重算'; }, 30000);
-              } else {
-                toast(r?.error || '重算失败', 2400);
-                btn.disabled = false; btn.textContent = '⟳ 重算';
-              }
-            } catch (e) {
-              toast(`重算异常: ${e.message}`, 2400);
-              btn.disabled = false; btn.textContent = '⟳ 重算';
-            }
-          });
-          $('#scr-snapshot').addEventListener('click', async () => {
-            const r = await api('/api/screener/snapshot_now', { method:'POST' });
-            if (r?.data?.ok) toast(`已存快照 · ${r.data.iso}`);
-            else toast(r?.error || '存快照失败', 2400);
-          });
 
           // 8. 历史回放
           $('#hist-load').addEventListener('click', () => loadHistList());
@@ -2249,14 +2322,15 @@
 
         function btRenderSummary(s) {
           if (!s) return '';
-          const best = s.best_strategy || '?';
+          const best = s.best_strategy || 'S1';
           const avg = s.avg_monthly_by_strategy || {};
-          const avgStr = ['S1','S2','S3','open'].map(k => `${k}<b style="color:${k===best?'#f4d384':'#888'}">${(avg[k]||0).toFixed(2)}%</b>`).join(' · ');
+          const showKeys = ['S1','avg_up','max95','tp2','twap','half','open','close','low'];
+          const avgStr = showKeys.map(k => `${k}<b style="color:${k===best?'#f4d384':'#888'}">${(avg[k]||0).toFixed(2)}%</b>`).join(' · ');
           return `<div class="bt-trade-summary">
             <b>📊 跨窗口月均 (复利):</b> ${avgStr}
             <span class="bt-best-badge">推荐 ${best}</span>
             <br>
-            <span style="font-size:11px;color:#888">${s.recommend_reason || ''} · ${s.date_range || ''} · universe ${s.universe_size || 0} 只 · 分钟对 ${s.n_intraday_pairs||0}/${s.n_intraday_ok||0}</span>
+            <span style="font-size:11px;color:#888">${s.recommend_reason || ''} · ${s.date_range || ''} · ${s.universe_size || 0} 只 · 翻红率 ${s.recovery_rate||0}% · 实际流水线筛股 · ${s.data_source||''}</span>
           </div>`;
         }
 
@@ -2266,22 +2340,44 @@
           if (!wins.length) {
             return btRenderSummary(sum) + '<div style="color:#888;padding:8px">无窗口结果</div>';
           }
-          const stratKeys = ['S1','S2','S3','open'];
-          const stratLabel = {S1:'正均价 S1', S2:'最大值 S2', S3:'负均价 S3', open:'T+1 开盘'};
-          const stratDesc  = {
-            S1:'正收益分钟的平均涨幅 (主推)',
-            S2:'正收益分钟的最大涨幅 (激进)',
-            S3:'负收益分钟的平均 (兜底)',
-            open:'次日开盘价 (基线)',
+          // 主策略 (表头显示), 含参考策略
+          const stratKeys = ['S1','avg_up','max95','tp2','twap','half','open','close','low'];
+          const stratLabel = {
+            S1:'翻红卖', avg_up:'翻红均价', max95:'最佳×95%',
+            tp2:'止盈2%', twap:'TWAP', half:'半仓',
+            open:'T+1开盘', close:'收盘参考', low:'最差',
+          };
+          const stratDesc = {
+            S1:'翻红→平盘卖; 没翻红→10:00卖(≈收盘价)',
+            avg_up:'翻红后正收益分钟均值 ≈ (开盘+最高)/2',
+            max95:'最高价×95% (30分窗口 benchmark)',
+            tp2:'翻红→2%止盈; 没翻红→10:00卖',
+            twap:'时间加权均价 (open+close)/2 — 机构执行基准',
+            half:'50%开盘卖+50%翻红均价卖 — 降低择时风险',
+            open:'T+1 开盘价卖 (真实日线铁律)',
+            close:'T+1 收盘价 (全天参考)',
+            low:'T+1 日内最低价 (最差情况)',
           };
           const best = sum.best_strategy || 'S1';
           // 头表
           let html = btRenderSummary(sum);
-          html += `<table class="bt-win-table"><thead><tr><th>窗口</th><th>笔数</th><th>月份</th>`;
+          html += `<div style="font-size:10.5px;color:#666;margin:4px 0 6px">${sum.disclaimer||''} · 数据源 ${sum.data_source||'?'}</div>`;
+
+          // ── 市场过滤信息 ──
+          const mf = r.market_filter || {};
+          if (mf.total_dates) {
+            html += `<div class="bt-risk" style="margin-bottom:8px;border-color:#f0c075">
+              <span class="bt-risk-label">📊 大盘涨跌比过滤</span>
+              <span class="bt-risk-stat"><b style="color:${mf.skip_rate > 30 ? '#ef4444' : '#4ade80'}">${mf.skipped_market}</b> 天跳过 (过滤率 ${mf.skip_rate}%)</span>
+              <span class="bt-risk-stat">实盘 <b>${mf.traded_dates}</b> 天 / ${mf.total_dates} 天 · 阈值 ${mf.threshold_desc || '?'}</span>
+            </div>`;
+          }
+
+          html += `<table class="bt-win-table"><thead><tr><th>窗口</th><th>笔数</th><th>翻红率</th><th title="因大盘涨跌比不足跳过">跳过📊</th>`;
           stratKeys.forEach(k => html += `<th title="${stratDesc[k]}">${stratLabel[k]}<br><span style="font-size:9.5px;color:#666">月均 (复利)</span></th>`);
-          html += `<th>胜率(open)</th></tr></thead><tbody>`;
+          html += `<th>S1赢率</th></tr></thead><tbody>`;
           wins.forEach(w => {
-            html += `<tr><td>${w.window}</td><td>${w.trades||0}</td><td>${w.months||0}</td>`;
+            html += `<tr><td>${w.window}</td><td>${w.trades||0}</td><td>${w.recovery_rate||0}%</td><td style="color:${(w.skipped_market||0)>5?'#ef4444':'#888'};font-size:11px">${w.skipped_market||0}天</td>`;
             stratKeys.forEach(k => {
               const sk = w[k] || {};
               const m = sk.monthly;
@@ -2289,17 +2385,17 @@
               const bestCls = (k === best) ? ' best' : '';
               html += `<td class="${cls}${bestCls}">${m == null ? '—' : (m > 0 ? '+' : '') + m.toFixed(2) + '%'}</td>`;
             });
-            html += `<td>${w.win_rate_open || 0}%</td></tr>`;
+            html += `<td>${w.win_rate_S1||0}%</td></tr>`;
           });
           html += '</tbody></table>';
 
-          // 顶部胜出策略的详细交易 (取第 1 个窗口作为代表)
+          // 详细交易 (取第 1 个窗口作为代表)
           const first = wins.find(w => w.detail && w.detail.length) || wins[0];
           if (first && first.detail && first.detail.length) {
             html += `<div style="margin-top:12px;font-size:11.5px;color:#aaa"><b>${first.window} 详细交易 (前 ${first.detail.length} 笔):</b></div>`;
             html += `<table class="bt-trade-table"><thead><tr>
               <th>日期</th><th>代码</th><th>名称</th><th>评分</th>
-              <th>买入</th><th>开盘</th><th>S1</th><th>S2</th><th>S3</th>
+              <th>买入</th><th>open</th><th>翻红</th><th>S1</th><th>avg_up</th><th>max95</th><th>tp2</th><th>twap</th><th>half</th><th>close</th><th>low</th>
             </tr></thead><tbody>`;
             first.detail.forEach(t => {
               const f2 = (v) => v == null ? '<span style="color:#888">—</span>' :
@@ -2311,19 +2407,84 @@
                 <td>${esc(t.name||'')}</td>
                 <td>${(t.score||0).toFixed(1)}</td>
                 <td>${(t.buy_price||0).toFixed(2)}</td>
-                <td>${(t.sell_open||0).toFixed(2)} <span style="color:${t.ret_open>0?'#4ade80':'#f87171'}">${(t.ret_open>0?'+':'')+t.ret_open.toFixed(2)}%</span></td>
+                <td class="${cls(t.open)}">${f2(t.open)}</td>
+                <td>${t.recovered ? '✓' : '✗'}</td>
                 <td class="${cls(t.S1)}">${f2(t.S1)}</td>
-                <td class="${cls(t.S2)}">${f2(t.S2)}</td>
-                <td class="${cls(t.S3)}">${f2(t.S3)}</td>
+                <td class="${cls(t.avg_up)}">${f2(t.avg_up)}</td>
+                <td class="${cls(t.max95)}">${f2(t.max95)}</td>
+                <td class="${cls(t.tp2)}">${f2(t.tp2)}</td>
+                <td class="${cls(t.twap)}">${f2(t.twap)}</td>
+                <td class="${cls(t.half)}">${f2(t.half)}</td>
+                <td class="${cls(t.close)}">${f2(t.close)}</td>
               </tr>`;
             });
             html += '</tbody></table>';
-            const lastTrade = first.detail[first.detail.length - 1];
-            if (lastTrade && lastTrade.sell) {
-              const ns = lastTrade.sell;
-              html += `<div style="font-size:10.5px;color:#777;margin-top:4px">最近一笔分钟统计: ${ns.n_pos||0} 正 / ${ns.n_neg||0} 负 / ${ns.n_total||0} 总 (9:30-10:00 = 30 分钟)</div>`;
-            }
           }
+          // ── 场景分析 (按市场状态分组) ──
+          const sc = r.scenarios || {};
+          const regimeKeys = ['全面牛市','正常','弱势','熊市','股灾'];
+          const hasSc = regimeKeys.some(k => sc[k]);
+          if (hasSc) {
+            const sKeys = ['open','S1','avg_up','max95','close','tp2','half','twap','low'];
+            html += `<div class="card mt-16" style="font-size:12px">
+              <h3 style="margin:0 0 8px;color:#f4d384">🌪 极端场景分析 — 按市场状态分组</h3>
+              <p style="margin:0 0 8px;color:#888;font-size:11px">
+                按当日全市场涨跌比分类 · 涨跌比=${(r.market_filter?.threshold_pct||60)}% 以下的交易日已过滤
+              </p>`;
+            html += `<table class="data-table" style="width:100%"><thead><tr>
+              <th>市场状态</th><th class="num">笔数</th>
+              <th class="num" title="T+1 开盘卖 (铁律)"><b>open</b></th>
+              <th class="num" title="S1翻红卖"><b>S1</b></th>
+              <th class="num" title="avg_up翻红均价"><b>avg_up</b></th>
+              <th class="num" title="max95最佳×95%"><b>max95</b></th>
+              <th class="num" title="close收盘"><b>close</b></th>
+              <th class="num" title="half半仓"><b>half</b></th>
+            </tr></thead><tbody>`;
+            regimeKeys.forEach(k => {
+              const d = sc[k];
+              if (!d || !d.trades) return;
+              const fmtP = (v) => v == null ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+              const cls = (v) => v > 0 ? 'win' : v < 0 ? 'loss' : '';
+              const bestKey = (() => {
+                let best = '', bestV = -999;
+                sKeys.forEach(sk => { const avg = d[sk]?.avg_pct; if (avg != null && avg > bestV) { bestV = avg; best = sk; } });
+                return best;
+              })();
+              html += `<tr>
+                <td><b>${k}</b></td>
+                <td class="num">${d.trades}</td>`;
+              sKeys.forEach(sk => {
+                const v = d[sk]?.avg_pct;
+                const isBest = sk === bestKey;
+                html += `<td class="num ${cls(v)}${isBest?' best':''}">${fmtP(v)}<br><span style="font-size:9px;color:#666">胜率${d[sk]?.win_rate||0}%</span></td>`;
+              });
+              html += `</tr>`;
+            });
+            html += `</tbody></table>
+              <p class="caption dim" style="margin:.5em 0 0">
+                <b>怎么读:</b> "<b>全面牛市</b>" 列验证顺风时能否赚够、"<b>熊市/股灾</b>" 列验证风控是否有效。<br>
+                <b>最佳列</b> (加粗) 显示该市场状态下哪种卖出策略表现最好 — 顺风/twap 慢出、逆风/开盘铁律快跑。
+              </p>
+            </div>`;
+          }
+
+          // ── 跳过原因汇总 ──
+          const totalSkipped = wins.reduce((acc, w) => acc + (w.skipped_market||0) + (w.skipped_no_pick||0) + (w.skipped_data||0), 0);
+          if (totalSkipped > 0) {
+            html += `<details style="margin-top:8px;font-size:11px;color:#888">
+              <summary style="cursor:pointer">🗂 跳过明细 (共 ${totalSkipped} 天)</summary>
+              <table class="data-table" style="margin-top:6px;width:auto">
+                <thead><tr><th>窗口</th><th class="num">大盘过滤跳过</th><th class="num">无候选跳过</th><th class="num">数据缺失</th></tr></thead>
+                <tbody>${wins.map(w => `<tr>
+                  <td>${w.window}</td>
+                  <td class="num">${w.skipped_market||0}</td>
+                  <td class="num">${w.skipped_no_pick||0}</td>
+                  <td class="num">${w.skipped_data||0}</td>
+                </tr>`).join('')}</tbody>
+              </table>
+            </details>`;
+          }
+
           return html;
         }
 
@@ -2416,6 +2577,144 @@
     </script>
   </section>
 
+  <!-- ─── 全 A 风向 (inline, 2026-07-14 从 all_stocks.html 迁入,跟主 app shell 视觉一致) ─── -->
+  <section class="view view-all_stocks" data-view="all_stocks" hidden>
+    <header class="view-head as-head">
+      <div class="as-head-left">
+        <p class="caption">ALL STOCKS · 个股全景 · 4 层 taxonomy + 实时</p>
+        <h1 class="display">全 A 风向 <span class="accent">5400+</span></h1>
+        <p class="lede">点击集群 chip / 申万 / 产业链 / 细分 / AI 主战场 → 5 类行情列联表</p>
+      </div>
+      <div class="toolbar as-toolbar">
+        <div class="quick-search" id="as-quick-search">
+          <span class="qs-icon">⌕</span>
+          <input type="text" id="as-qs-input" placeholder="搜代码 / 名称" autocomplete="off" />
+          <span class="qs-clear" id="as-qs-clear" hidden>✕</span>
+        </div>
+        <select id="as-sort" class="multi-select" style="min-width:140px">
+          <option value="amount"            data-order="desc">成交额 ↓</option>
+          <option value="change_pct"        data-order="desc">涨幅 ↓</option>
+          <option value="change_pct"        data-order="asc">涨幅 ↑</option>
+          <option value="change_amt"        data-order="desc">涨跌额 ↓</option>
+          <option value="turnover"          data-order="desc">换手 ↓</option>
+          <option value="volume_ratio"      data-order="desc">量比 ↓</option>
+          <option value="main_fund_inflow"  data-order="desc">主力净流入 ↓</option>
+          <option value="mcap"              data-order="desc">市值 ↓</option>
+          <option value="amplitude"         data-order="desc">振幅 ↓</option>
+        </select>
+        <button class="btn btn-ghost" id="as-btn-reset" title="重置所有筛选">重置</button>
+        <button class="btn" id="as-btn-refresh" title="刷新数据">刷新</button>
+        <div class="col-toggle" id="as-col-toggle">
+          <button class="col-toggle-btn" id="as-col-toggle-btn" title="列显隐">⊞ 列</button>
+          <div class="col-toggle-menu" id="as-col-toggle-menu"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- L1 集群 chip row — 由 /api/all_stocks/filters 动态渲染 -->
+    <div class="as-cluster-row" id="as-cluster-row">
+      <span class="cluster-chip active" data-l1=""><span class="dot" style="background:var(--accent-grad-rainbow);"></span>全部</span>
+    </div>
+
+    <!-- L2/L3/L4/domain 多选 + meta-bar -->
+    <div class="as-filter-strip">
+      <div class="filter-group">
+        <label>L2 申万</label>
+        <select id="as-l2" class="multi-select" multiple size="1" placeholder="选择申万…"></select>
+      </div>
+      <div class="filter-group">
+        <label>L3 产业链</label>
+        <select id="as-l3" class="multi-select" multiple size="1" placeholder="选择产业链…"></select>
+      </div>
+      <div class="filter-group">
+        <label>L4 细分</label>
+        <select id="as-l4" class="multi-select" multiple size="1" placeholder="选择细分…"></select>
+      </div>
+      <div class="filter-group">
+        <label>领域</label>
+        <select id="as-domain" class="multi-select" multiple size="1" placeholder="选择 AI 主战场…"></select>
+      </div>
+      <div class="as-meta-bar">
+        <div id="as-meta-count">— · 加载中</div>
+        <div class="right" id="as-active-filters"></div>
+      </div>
+    </div>
+
+    <!-- 主表 + scroll sentinel -->
+    <div class="table-card as-table-card">
+      <div class="table-scroll" id="as-table-scroll">
+        <table class="stocks-table" id="as-stocks-table">
+          <thead>
+            <tr>
+              <th class="cat"                data-col="自选"   rowspan="1" title="加自选"></th>
+              <th class="cat sticky-left"    data-col="代码"   rowspan="1">代码</th>
+              <th class="cat sticky-left-2"  data-col="名称"   rowspan="1">名称</th>
+              <th class="cat chip-domain-head" data-col="领域" rowspan="1">领域</th>
+              <th class="num sortable" data-col="涨幅"     data-sort="change_pct"       data-order="desc">涨幅<span class="arrow"></span></th>
+              <th class="num sortable" data-col="涨跌额"   data-sort="change_amt"       data-order="desc">涨跌额<span class="arrow"></span></th>
+              <th class="num sortable" data-col="换手"     data-sort="turnover"         data-order="desc">换手%<span class="arrow"></span></th>
+              <th class="num sortable" data-col="量比"     data-sort="volume_ratio"     data-order="desc">量比<span class="arrow"></span></th>
+              <th class="num sortable" data-col="振幅"     data-sort="amplitude"        data-order="desc">振幅%<span class="arrow"></span></th>
+              <th class="num cat-mid sortable" data-col="成交额" data-sort="amount"        data-order="desc">成交额(亿)<span class="arrow"></span></th>
+              <th class="num cat-mid sortable" data-col="市值"  data-sort="mcap"           data-order="desc">总市值(亿)<span class="arrow"></span></th>
+              <th class="num cat-mid"         data-col="PE">PE</th>
+              <th class="num cat-mid sortable" data-col="主力净流入" data-sort="main_fund_inflow" data-order="desc">主力净流入(万)<span class="arrow"></span></th>
+              <th class="cat-mid" data-col="L1">L1 集群</th>
+              <th class="cat-mid" data-col="L2">L2 申万</th>
+              <th class="cat-mid" data-col="L3">L3 产业链</th>
+              <th class="cat-mid" data-col="L4">L4 细分</th>
+              <th class="cat-mid" data-col="来源"   title="数据来源标记">来源</th>
+              <th class="cat-mid" data-col="涨停">涨停</th>
+              <th class="cat-mid" data-col="同链涨停" title="此股所在 L2 申万/L3 产业链/各 L4 细分 今日涨停家数 (多股性同时显示)">同链涨停</th>
+            </tr>
+          </thead>
+          <tbody id="as-stocks-tbody">
+            <tr><td colspan="20" class="loading">加载中…</td></tr>
+          </tbody>
+        </table>
+        <div id="as-scroll-sentinel" class="as-scroll-sentinel" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!-- R17: 滚回顶部 FAB -->
+    <button class="scroll-top-fab" id="as-scroll-top-fab" title="滚回顶部" aria-label="滚回顶部">↑</button>
+
+    <!-- R3: 移动端 sticky 底部操作栏 -->
+    <div class="mobile-action-bar" id="as-mobile-action-bar">
+      <button class="mab-btn" id="as-mab-filters" title="筛选">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="6" x2="14" y2="6"></line><circle cx="17" cy="6" r="2"></circle>
+          <line x1="20" y1="12" x2="11" y2="12"></line><circle cx="8" cy="12" r="2"></circle>
+          <line x1="4" y1="18" x2="14" y2="18"></line><circle cx="17" cy="18" r="2"></circle>
+        </svg>
+        <span class="mab-label">筛选</span>
+        <span class="mab-count" id="as-mab-filter-count"></span>
+      </button>
+      <button class="mab-btn" id="as-mab-sort" title="排序">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="6" y1="3" x2="6" y2="15"></line><polyline points="3 12 6 15 9 12"></polyline>
+          <line x1="18" y1="9" x2="18" y2="21"></line><polyline points="15 18 18 21 21 18"></polyline>
+        </svg>
+        <span class="mab-label" id="as-mab-sort-label">排序</span>
+      </button>
+      <button class="mab-btn mab-primary" id="as-mab-refresh" title="刷新">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+        <span class="mab-label">刷新</span>
+      </button>
+      <button class="mab-btn" id="as-mab-reset" title="重置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+          <path d="M10 11v6M14 11v6"></path>
+        </svg>
+        <span class="mab-label">重置</span>
+      </button>
+    </div>
+  </section>
+
   <!-- ─── AI 复盘子页面 (复盘主页 → 点 AI 复盘进入,左上角返回) ─── -->
   <section class="view view-ai-review" data-view="ai-review" hidden>
     <header class="view-head airv-head">
@@ -2457,8 +2756,11 @@
 <!-- toast -->
 <div class="toast" id="toast" hidden></div>
 
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-<script src="/static/app.js?v=__JS_V__" defer></script>
+<script src="/static/core.js?v=__JS_V__" defer></script>
+<script src="/static/view-dash.js?v=__JS_V__" defer></script>
+<script src="/static/view-stock.js?v=__JS_V__" defer></script>
+<script src="/static/view-other.js?v=__JS_V__" defer></script>
+<script src="/static/view-all-stocks.js?v=__JS_V__" defer></script>
 <script>
 // R17: 主页 smart-back — 从其他页(全A/板块层/选股)跳过来时,左上角显示"← 全A"等
 (function setupSmartBack() {
@@ -2476,7 +2778,6 @@
     const params = new URLSearchParams(location.search);
     const from = params.get('from');
     if (from === 'all_stocks') prev = { url: '/all_stocks', label: '全 A 风向' };
-    else if (from === 'sector_hotspot') prev = { url: '/sector_hotspot', label: '热点龙头' };
     else if (from === 'screener') prev = { url: '/screener', label: '尾盘战法' };
   }
 
@@ -2489,7 +2790,6 @@
         if (opPath && opPath !== location.pathname) {
           let opLabel = '上一页';
           if (opPath.startsWith('/all_stocks')) opLabel = '全 A 风向';
-          else if (opPath.startsWith('/sector_hotspot')) opLabel = '热点龙头';
           else if (opPath.startsWith('/screener')) opLabel = '尾盘战法';
           prev = { url: opPath, label: opLabel };
         }
