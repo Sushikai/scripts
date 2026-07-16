@@ -112,21 +112,21 @@
   </div>
 </aside>
 
-<!-- R10-A: 移动端汉堡菜单按钮(只在 ≤980px 显示) -->
-<button class="menu-btn" id="menu-btn" aria-label="打开菜单" aria-controls="sidebar" aria-expanded="false">
-  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-    <line x1="3" y1="6"  x2="17" y2="6"/>
-    <line x1="3" y1="10" x2="17" y2="10"/>
-    <line x1="3" y1="14" x2="17" y2="14"/>
-  </svg>
-</button>
-
 <!-- 移动端 sidebar 背景遮罩 -->
 <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
 <!-- top bar -->
 <header class="topbar">
   <div class="topbar-inner">
+    <!-- R-fix-2026-07-16: 汉堡按钮移进 topbar (原本 fixed 定位,在大屏≤480px 时溢出 topbar
+         高度遮挡 timestamp/refresh; 现在作为 topbar 第一项 flex item,brand 跟在后面) -->
+    <button class="menu-btn" id="menu-btn" aria-label="打开菜单" aria-controls="sidebar" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <line x1="3" y1="6"  x2="17" y2="6"/>
+        <line x1="3" y1="10" x2="17" y2="10"/>
+        <line x1="3" y1="14" x2="17" y2="14"/>
+      </svg>
+    </button>
     <div class="brand">
       <span class="brand-mark">退学</span><span class="brand-mark-2">v3</span>
       <span class="brand-sub">TUIXUE · 操作台</span>
@@ -376,6 +376,26 @@
       </div>
     </div>
 
+    <!-- 2026-07-16: tabs + 10 个图表 pane 视觉合并为一个统一卡片 → 用户反馈「tabs 的框应该跟分时图在一个框」 -->
+    <!-- 顶级排序: 价格 → 资金 → 持仓 → 风控 → AI → 题材 -->
+    <div class="chart-unified mt-16">
+      <div class="chart-tabs" id="stock-tabs">
+        <button class="chart-tab active" data-tab="intraday">分时</button>
+        <button class="chart-tab" data-tab="kline">K 线</button>
+        <span class="chart-tab-sep"></span>
+        <button class="chart-tab" data-tab="flow">资金流向</button>
+        <button class="chart-tab" data-tab="seats">游资席位</button>
+        <button class="chart-tab" data-tab="holders">散户/主力</button>
+        <span class="chart-tab-sep"></span>
+        <button class="chart-tab" data-tab="crash">砸盘风险</button>
+        <button class="chart-tab" data-tab="ai">AI 铁律</button>
+        <span class="chart-tab-sep"></span>
+        <button class="chart-tab" data-tab="news">新闻</button>
+        <button class="chart-tab" data-tab="sectors">板块</button>
+        <button class="chart-tab" data-tab="related">相关个股</button>
+      </div>
+      <div class="chart-panes">
+
     <!-- 当日明细 + 涨停/跌停价 + 连板历史 -->
     <article class="card mt-16" id="stock-limit-up-card">
       <div class="card-eyebrow">🔥 LIMIT-UP · 连板梯队 + 板块联动</div>
@@ -488,17 +508,17 @@
     </div>
 
     <div class="grid-4 mt-16">
-      <article class="card" style="grid-column: span 2">
-        <div class="card-eyebrow">SECTOR · 所属板块 / 行业</div>
-        <div id="q-sector-board" class="kv"></div>
-        <div id="q-sector-industries" class="stock-tags" style="margin-top:.5rem"></div>
+      <article class="card mt-16" id="stock-sector-card">
+        <div class="card-eyebrow">板块 · 情绪 + 最新新闻</div>
+        <!-- 行 1: 市场规则 (市场/前缀/涨跌幅/门槛) -->
+        <div id="q-sector-board" class="kv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px 14px"></div>
+        <!-- 行 2: 板块 chips -->
+        <div id="q-sector-industries" class="stock-tags" style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <!-- 行 3: 板块情绪 4 KPI -->
+        <div id="q-sector-sentiment" class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-top:.75rem"></div>
         <p class="caption dim" id="q-sector-source" style="margin:.5rem 0 0"></p>
-      </article>
-      <article class="card" style="grid-column: span 2">
-        <div class="card-eyebrow">SECTOR SENTIMENT · 板块情绪 + 相关新闻</div>
-        <div id="q-sector-sentiment" class="kpi-grid"></div>
-        <hr style="margin:.75rem 0; border:0; border-top:1px dashed var(--line)">
-        <div id="q-related-news"></div>
+        <!-- 行 4: 最新 1 条新闻 (跳新闻 tab 看全部) -->
+        <div id="q-related-news" style="margin-top:.5rem"></div>
       </article>
     </div>
 
@@ -507,69 +527,13 @@
       <div id="q-streak-host"><p class="caption dim" style="margin: 0">无近 10 日涨停记录</p></div>
     </article>
 
-    <div class="tabs mt-32">
-      <button class="tab" data-tab="flow">资金流向</button>
-      <button class="tab" data-tab="kline">K 线</button>
-      <button class="tab active" data-tab="intraday">分时</button>
-      <button class="tab" data-tab="seats">游资席位</button>
-      <button class="tab" data-tab="news">📰 新闻</button>
-      <button class="tab" data-tab="sectors">📊 板块</button>
-      <button class="tab" data-tab="holders">👥 散户/主力</button>
-      <button class="tab" data-tab="ai">AI 分析 · 铁律</button>
-      <button class="tab" data-tab="crash">🚨 砸盘风险</button>
-      <button class="tab" data-tab="related">🔗 相关个股</button>
-    </div>
+    <!-- 每个 tab 一个独立 card → title 永远跟显示在一起 (顶级 UX) -->
 
-    <article class="card mt-16">
-      <div class="card-eyebrow" data-tab-title>当日分时 · 成交数据</div>
-      <div data-tab-pane="flow" hidden>
-        <p class="caption dim" id="flow-empty" style="margin: 0 0 .5rem">请先在上方搜索一只股票</p>
-        <div class="kpi-grid" id="flow-kpi"></div>
-        <div id="flow-chart" style="height:340px; margin-top:1rem"></div>
-        <div class="table-wrap mt-16" id="flow-detail-wrap" hidden>
-          <table class="data-table" id="flow-detail-table">
-            <thead><tr><th>日期</th><th>主力净</th><th>超大单</th><th>大单</th><th>中单</th><th>小单</th><th>成交额</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <div data-tab-pane="kline" hidden>
-        <!-- K线工具栏 -->
-        <div class="kline-toolbar">
-          <div class="kt-group">
-            <span class="kt-label">周期</span>
-            <div class="kt-pills" id="kline-period">
-              <button class="kt-pill" data-days="22">1M</button>
-              <button class="kt-pill" data-days="66">3M</button>
-              <button class="kt-pill active" data-days="120">近 120 日</button>
-              <button class="kt-pill" data-days="132">6M</button>
-              <button class="kt-pill" data-days="250">1Y</button>
-              <button class="kt-pill" data-days="400">2Y</button>
-            </div>
-          </div>
-          <div class="kt-group">
-            <span class="kt-label">指标</span>
-            <div class="kt-chips" id="kline-indicators">
-              <button class="kt-chip active" data-ind="ma">MA</button>
-              <button class="kt-chip" data-ind="macd">MACD</button>
-              <button class="kt-chip" data-ind="kdj">KDJ</button>
-              <button class="kt-chip" data-ind="boll">BOLL</button>
-            </div>
-          </div>
-          <div class="kt-group kt-right">
-            <span class="kt-readout" id="kline-readout">
-              <span class="kr-date">—</span>
-              <span class="kr-ohlc">—</span>
-            </span>
-          </div>
-        </div>
-
-        <div class="kpi-grid" id="kline-kpi"></div>
-        <div id="kline-chart" class="kline-chart-area"></div>
-      </div>
-      <div data-tab-pane="intraday">
-        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
-          <span class="caption dim" style="margin:0">📅 当日分时 · 成交数据</span>
+    <!-- 1) 分时 (默认) -->
+    <article class="card chart-pane" data-tab-pane="intraday">
+      <div class="card-eyebrow flex-between">
+        <span>当日分时 · 分钟走势</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
           <button class="btn btn-mini" id="intra-day-prev" title="上一个交易日" aria-label="上一个交易日">‹ 上一天</button>
           <input type="date" id="intra-day-pick" style="padding:.3rem .5rem; font-size:.85rem">
           <button class="btn btn-mini" id="intra-day-next" title="下一个交易日" aria-label="下一个交易日">下一天 ›</button>
@@ -577,182 +541,249 @@
           <button class="btn btn-mini" id="intra-day-load" title="加载该日分时">加载</button>
           <span class="dim" id="intra-day-label" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
-        <div id="intra-day-kpi" class="kpi-grid"></div>
-        <div id="intra-day-chart" style="height:400px; margin-top:.5rem"></div>
-        <p class="caption dim" id="intra-day-note" style="margin-top:.5rem"></p>
       </div>
-      <div data-tab-pane="seats" hidden>
-        <div class="kpi-grid" id="seats-kpi"></div>
+      <div id="intra-day-kpi" class="kpi-grid" style="margin-top:.5rem"></div>
+      <div id="intra-day-chart" style="height:400px; margin-top:.5rem"></div>
+      <p class="caption dim" id="intra-day-note" style="margin-top:.5rem"></p>
+    </article>
 
-        <!-- 资金成分: 6 类席位 + 占比 + 风险 -->
-        <section class="seat-breakdown" id="seat-breakdown" hidden>
-          <header class="bd-head">
-            <h3 class="bd-title">💰 资金成分</h3>
-            <div class="bd-meta">
-              <span class="bd-sub" id="bd-last-date">—</span>
-              <span class="bd-sub" id="bd-total-amt">—</span>
-            </div>
-          </header>
+    <!-- 2) K 线 -->
+    <article class="card chart-pane" data-tab-pane="kline" hidden>
+      <div class="card-eyebrow">K 线 · 长周期走势</div>
+      <div class="kline-toolbar">
+        <div class="kt-group">
+          <span class="kt-label">周期</span>
+          <div class="kt-pills" id="kline-period">
+            <button class="kt-pill" data-days="22">1M</button>
+            <button class="kt-pill" data-days="66">3M</button>
+            <button class="kt-pill active" data-days="120">近 120 日</button>
+            <button class="kt-pill" data-days="132">6M</button>
+            <button class="kt-pill" data-days="250">1Y</button>
+            <button class="kt-pill" data-days="400">2Y</button>
+          </div>
+        </div>
+        <div class="kt-group">
+          <span class="kt-label">指标</span>
+          <div class="kt-chips" id="kline-indicators">
+            <button class="kt-chip active" data-ind="ma">MA</button>
+            <button class="kt-chip" data-ind="macd">MACD</button>
+            <button class="kt-chip" data-ind="kdj">KDJ</button>
+            <button class="kt-chip" data-ind="boll">BOLL</button>
+          </div>
+        </div>
+        <div class="kt-group kt-right">
+          <span class="kt-readout" id="kline-readout">
+            <span class="kr-date">—</span>
+            <span class="kr-ohlc">—</span>
+          </span>
+        </div>
+      </div>
 
-          <div class="bd-tags" id="bd-tags"></div>
-          <div class="bd-risks" id="bd-risks"></div>
+      <div class="kpi-grid" id="kline-kpi" style="margin-top:.5rem"></div>
+      <div id="kline-chart" class="kline-chart-area"></div>
+    </article>
 
-          <div class="bd-intraday" id="bd-intraday">
-            <div class="bd-ir-block">
-              <div class="bd-ir-label">主力</div>
-              <div class="bd-ir-bar"><span class="bd-ir-buy" id="bd-mb-bar"></span></div>
-              <div class="bd-ir-nums">
-                <span class="bd-buy" id="bd-mb-pct">—</span> /
-                <span class="bd-sell" id="bd-ms-pct">—</span>
-              </div>
-            </div>
-            <div class="bd-ir-block">
-              <div class="bd-ir-label">散户</div>
-              <div class="bd-ir-bar"><span class="bd-ir-buy" id="bd-rb-bar"></span></div>
-              <div class="bd-ir-nums">
-                <span class="bd-buy" id="bd-rb-pct">—</span> /
-                <span class="bd-sell" id="bd-rs-pct">—</span>
-              </div>
-            </div>
-            <div class="bd-ir-block bd-ir-main-net">
-              <div class="bd-ir-label">主力净额</div>
-              <div class="bd-ir-net" id="bd-mn-pct">—</div>
+    <!-- 3) 资金流向 -->
+    <article class="card chart-pane" data-tab-pane="flow" hidden>
+      <div class="card-eyebrow">资金流向 · 主力 / 超大 / 大 / 中 / 小单</div>
+      <p class="caption dim" id="flow-empty" style="margin: 0 0 .5rem">请先在上方搜索一只股票</p>
+      <div class="kpi-grid" id="flow-kpi"></div>
+      <div id="flow-chart" style="height:340px; margin-top:1rem"></div>
+      <div class="table-wrap mt-16" id="flow-detail-wrap" hidden>
+        <table class="data-table" id="flow-detail-table">
+          <thead><tr><th>日期</th><th>主力净</th><th>超大单</th><th>大单</th><th>中单</th><th>小单</th><th>成交额</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </article>
+
+    <!-- 4) 游资席位 -->
+    <article class="card chart-pane" data-tab-pane="seats" hidden>
+      <div class="card-eyebrow">游资席位 · 龙虎榜 + 资金成分</div>
+      <div class="kpi-grid" id="seats-kpi" style="margin-top:.5rem"></div>
+
+      <section class="seat-breakdown" id="seat-breakdown" hidden>
+        <header class="bd-head">
+          <h3 class="bd-title">💰 资金成分</h3>
+          <div class="bd-meta">
+            <span class="bd-sub" id="bd-last-date">—</span>
+            <span class="bd-sub" id="bd-total-amt">—</span>
+          </div>
+        </header>
+
+        <div class="bd-tags" id="bd-tags"></div>
+        <div class="bd-risks" id="bd-risks"></div>
+
+        <div class="bd-intraday" id="bd-intraday">
+          <div class="bd-ir-block">
+            <div class="bd-ir-label">主力</div>
+            <div class="bd-ir-bar"><span class="bd-ir-buy" id="bd-mb-bar"></span></div>
+            <div class="bd-ir-nums">
+              <span class="bd-buy" id="bd-mb-pct">—</span> /
+              <span class="bd-sell" id="bd-ms-pct">—</span>
             </div>
           </div>
-          <p class="caption dim" style="margin:.25rem 0 0">主力/散户实时买卖为净额拆分近似(akshare 未提供逐笔买卖分时)</p>
+          <div class="bd-ir-block">
+            <div class="bd-ir-label">散户</div>
+            <div class="bd-ir-bar"><span class="bd-ir-buy" id="bd-rb-bar"></span></div>
+            <div class="bd-ir-nums">
+              <span class="bd-buy" id="bd-rb-pct">—</span> /
+              <span class="bd-sell" id="bd-rs-pct">—</span>
+            </div>
+          </div>
+          <div class="bd-ir-block bd-ir-main-net">
+            <div class="bd-ir-label">主力净额</div>
+            <div class="bd-ir-net" id="bd-mn-pct">—</div>
+          </div>
+        </div>
+        <p class="caption dim" style="margin:.25rem 0 0">主力/散户实时买卖为净额拆分近似(akshare 未提供逐笔买卖分时)</p>
 
-          <div class="table-wrap mt-8">
+        <div class="table-wrap mt-8">
           <table class="bd-cats" id="bd-cats">
             <thead>
               <tr>
-                <th>类别</th>
-                <th>买入 (万)</th>
-                <th>卖出 (万)</th>
-                <th>净额</th>
-                <th>买占</th>
-                <th>卖占</th>
-                <th>总占</th>
-                <th>净额占</th>
-                <th>席位数</th>
+                <th>类别</th><th>买入 (万)</th><th>卖出 (万)</th><th>净额</th><th>买占</th><th>卖占</th><th>总占</th><th>净额占</th><th>席位数</th>
               </tr>
             </thead>
             <tbody id="bd-cats-body">
               <tr><td colspan="9" class="empty">查询后显示</td></tr>
             </tbody>
           </table>
-          </div>
-          <p class="caption dim" style="margin-top:.5rem">占比 = 类别金额 ÷ 个股当日总成交额 (万)</p>
-        </section>
+        </div>
+        <p class="caption dim" style="margin-top:.5rem">占比 = 类别金额 ÷ 个股当日总成交额 (万)</p>
+      </section>
 
-        <div class="table-wrap mt-16">
-          <table id="seats-table" class="data-table">
-            <thead><tr><th>日期</th><th>席位</th><th>方向</th><th>买/卖(万)</th><th>质量组</th><th>标签</th></tr></thead>
-            <tbody><tr><td colspan="6" class="empty">查询后显示</td></tr></tbody>
-          </table>
-        </div>
+      <div class="table-wrap mt-16">
+        <table id="seats-table" class="data-table">
+          <thead><tr><th>日期</th><th>席位</th><th>方向</th><th>买/卖(万)</th><th>质量组</th><th>标签</th></tr></thead>
+          <tbody><tr><td colspan="6" class="empty">查询后显示</td></tr></tbody>
+        </table>
       </div>
-      <div data-tab-pane="holders" hidden>
-        <p class="caption dim" style="margin:0 0 .75rem">📅 数据源：东财季报披露（每年 4/8/10 月更新）· 户均持股按自由流通股算</p>
-        <div class="kpi-grid" id="holders-kpi"></div>
-        <div class="table-wrap mt-16">
-          <table class="data-table" id="holders-table">
-            <thead><tr><th>报告期</th><th>股东户数</th><th>环比</th><th>户均持股</th><th>集中度</th><th>前10大占比</th></tr></thead>
-            <tbody><tr><td colspan="6" class="empty">查询后显示</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-      <div data-tab-pane="ai" hidden>
-        <!-- 三市场环境(A股/美股/韩股) — 任一不佳→verdict 强制 ≤ 观望 -->
-        <div id="ai-mkts" class="ai-mkts">
-          <div class="mkt-card" id="mkt-cn"><div class="mkt-cap">A股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
-          <div class="mkt-card" id="mkt-us"><div class="mkt-cap">美股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
-          <div class="mkt-card" id="mkt-kr"><div class="mkt-cap">韩股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
-        </div>
-        <div id="ai-panel" hidden>
-          <div class="ai-head">
-            <div class="ai-verdict-block">
-              <span class="ai-verdict-label">AI 判定</span>
-              <span class="ai-verdict" id="ai-verdict">…</span>
-              <span class="ai-status" id="ai-status">调用中</span>
-            </div>
-            <div class="ai-conviction-block">
-              <span class="ai-conviction-label">确信度</span>
-              <span class="ai-conviction-num" id="ai-conviction">— / 100</span>
-              <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="ai-conviction-bar" style="width:0%"></div></div>
-            </div>
-            <div class="ai-actions">
-              <button class="btn-mini ai-btn" id="ai-btn-refresh" title="失效缓存强制重跑,约 30-60s">🔄 重新评估</button>
-              <button class="btn-mini ai-btn" id="ai-btn-history" title="查看近 N 日 verdict 演变">📜 历史</button>
-              <span class="ai-btn-hint" id="ai-btn-hint"></span>
-            </div>
-          </div>
-          <p class="ai-summary" id="ai-summary"></p>
-          <div class="ai-detail" id="ai-detail"></div>
-          <div class="ai-history-bar" id="ai-history-bar" hidden>
-            <span class="ahb-label">历史判定 →</span>
-            <div class="ahb-pills" id="ai-history-pills"></div>
-          </div>
-        </div>
-      </div>
+    </article>
 
-      <!-- 砸盘风险检测 (量化席位 + 对倒 + 虚假流动性 + 尾盘异动 + 5 层资金背离) -->
-      <div data-tab-pane="crash" hidden>
-        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
-          <span class="caption dim" style="margin:0">🚨 量化砸盘风险检测 — 盘面 / 席位 / 资金 三路信号 + 铁律联动</span>
+    <!-- 5) 散户/主力 -->
+    <article class="card chart-pane" data-tab-pane="holders" hidden>
+      <div class="card-eyebrow">散户 / 主力 · 持仓结构 (季报)</div>
+      <p class="caption dim" style="margin:.5rem 0 .75rem">📅 数据源：东财季报披露（每年 4/8/10 月更新）· 户均持股按自由流通股算</p>
+      <div class="kpi-grid" id="holders-kpi"></div>
+      <div class="table-wrap mt-16">
+        <table class="data-table" id="holders-table">
+          <thead><tr><th>报告期</th><th>股东户数</th><th>环比</th><th>户均持股</th><th>集中度</th><th>前10大占比</th></tr></thead>
+          <tbody><tr><td colspan="6" class="empty">查询后显示</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+
+    <!-- 6) 砸盘风险 -->
+    <article class="card chart-pane" data-tab-pane="crash" hidden>
+      <div class="card-eyebrow flex-between">
+        <span>砸盘风险 · 量化 / 对倒 / 虚假流动性 / 尾盘异动 / 5 层资金背离</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
           <button class="btn btn-mini" id="crash-refresh-btn" title="失效缓存强制重跑,约 30-60s">🔄 重新检测</button>
           <span class="ai-btn-hint" id="crash-btn-hint"></span>
           <span class="dim" id="crash-meta" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
-        <div id="crash-panel">
-          <div class="ai-head">
-            <div class="ai-verdict-block">
-              <span class="ai-verdict-label">砸盘风险</span>
-              <span class="ai-verdict" id="crash-risk">…</span>
-              <span class="ai-status" id="crash-status">检测中</span>
-            </div>
-            <div class="ai-conviction-block">
-              <span class="ai-conviction-label">确信度</span>
-              <span class="ai-conviction-num" id="crash-conviction">— / 100</span>
-              <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="crash-conviction-bar" style="width:0%"></div></div>
-            </div>
-            <div class="ai-actions">
-              <span class="ai-btn-hint" id="crash-verdict-tag"></span>
-            </div>
+      </div>
+      <div id="crash-panel" style="margin-top:.5rem">
+        <div class="ai-head">
+          <div class="ai-verdict-block">
+            <span class="ai-verdict-label">砸盘风险</span>
+            <span class="ai-verdict" id="crash-risk">…</span>
+            <span class="ai-status" id="crash-status">检测中</span>
           </div>
-          <p class="ai-summary" id="crash-summary"></p>
-          <div class="ai-detail" id="crash-detail"></div>
-          <div id="crash-pre-scan"></div>
+          <div class="ai-conviction-block">
+            <span class="ai-conviction-label">确信度</span>
+            <span class="ai-conviction-num" id="crash-conviction">— / 100</span>
+            <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="crash-conviction-bar" style="width:0%"></div></div>
+          </div>
+          <div class="ai-actions">
+            <span class="ai-btn-hint" id="crash-verdict-tag"></span>
+          </div>
+        </div>
+        <p class="ai-summary" id="crash-summary"></p>
+        <div class="ai-detail" id="crash-detail"></div>
+        <div id="crash-pre-scan"></div>
+      </div>
+    </article>
+
+    <!-- 7) AI 铁律 -->
+    <article class="card chart-pane" data-tab-pane="ai" hidden>
+      <div class="card-eyebrow flex-between">
+        <span>AI 分析 · 退学铁律综合判定</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
+          <button class="btn-mini ai-btn" id="ai-btn-refresh" title="失效缓存强制重跑,约 30-60s">🔄 重新评估</button>
+          <button class="btn-mini ai-btn" id="ai-btn-history" title="查看近 N 日 verdict 演变">📜 历史</button>
+          <span class="ai-btn-hint" id="ai-btn-hint"></span>
         </div>
       </div>
-
-      <!-- 相关个股推荐 — 同概念/同板块/同 chain -->
-      <div data-tab-pane="related" hidden>
-        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
-          <span class="caption dim" style="margin:0">🔗 同概念/同 chain 个股 — 按板块/产业链维度拉相关标的</span>
-          <button class="btn btn-mini" id="related-refresh-btn" title="刷新">🔄</button>
-          <span class="dim" id="related-meta" style="font-size:.8rem; margin-left:.25rem"></span>
-        </div>
-        <div id="related-by-concept"></div>
+      <!-- 三市场环境(A股/美股/韩股) — 任一不佳→verdict 强制 ≤ 观望 -->
+      <div id="ai-mkts" class="ai-mkts" style="margin-top:.5rem">
+        <div class="mkt-card" id="mkt-cn"><div class="mkt-cap">A股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
+        <div class="mkt-card" id="mkt-us"><div class="mkt-cap">美股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
+        <div class="mkt-card" id="mkt-kr"><div class="mkt-cap">韩股</div><div class="mkt-val">—</div><div class="mkt-status">检测中</div></div>
       </div>
+      <div id="ai-panel" hidden>
+        <div class="ai-head">
+          <div class="ai-verdict-block">
+            <span class="ai-verdict-label">AI 判定</span>
+            <span class="ai-verdict" id="ai-verdict">…</span>
+            <span class="ai-status" id="ai-status">调用中</span>
+          </div>
+          <div class="ai-conviction-block">
+            <span class="ai-conviction-label">确信度</span>
+            <span class="ai-conviction-num" id="ai-conviction">— / 100</span>
+            <div class="ai-conv-bar-wrap"><div class="ai-conv-bar" id="ai-conviction-bar" style="width:0%"></div></div>
+          </div>
+          <div class="ai-actions">
+            <span class="ai-btn-hint"></span>
+          </div>
+        </div>
+        <p class="ai-summary" id="ai-summary"></p>
+        <div class="ai-detail" id="ai-detail"></div>
+        <div class="ai-history-bar" id="ai-history-bar" hidden>
+          <span class="ahb-label">历史判定 →</span>
+          <div class="ahb-pills" id="ai-history-pills"></div>
+        </div>
+      </div>
+    </article>
 
-      <div data-tab-pane="news" hidden>
-        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
-          <span class="caption dim" style="margin:0">📰 财经新闻  ·  AI 资金引爆潜力评分（申万行业）</span>
+    <!-- 8) 新闻 -->
+    <article class="card chart-pane" data-tab-pane="news" hidden>
+      <div class="card-eyebrow flex-between">
+        <span>财经新闻 · AI 资金引爆潜力评分（申万行业）</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
           <button class="btn btn-mini" id="news-refresh-btn" title="重新抓取 + AI 评分">🔄 刷新</button>
           <span class="dim" id="news-meta" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
-        <div id="news-list" class="news-list"></div>
       </div>
+      <div id="news-list" class="news-list" style="margin-top:.5rem"></div>
+    </article>
 
-      <div data-tab-pane="sectors" hidden>
-        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
-          <span class="caption dim" style="margin:0">📊 申万 31 行业  ·  新闻聚合情绪（利好数/利空数/平均分）</span>
+    <!-- 9) 板块 -->
+    <article class="card chart-pane" data-tab-pane="sectors" hidden>
+      <div class="card-eyebrow flex-between">
+        <span>板块情绪 · 申万 31 行业（利好数 / 利空数 / 平均分）</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
           <button class="btn btn-mini" id="sectors-refresh-btn" title="刷新">🔄</button>
           <span class="dim" id="sectors-meta" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
-        <div id="sectors-list" class="sectors-list"></div>
       </div>
+      <div id="sectors-list" class="sectors-list" style="margin-top:.5rem"></div>
     </article>
+
+    <!-- 10) 相关个股 -->
+    <article class="card chart-pane" data-tab-pane="related" hidden>
+      <div class="card-eyebrow flex-between">
+        <span>相关个股 · 同概念 / 同 chain / 同板块</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
+          <button class="btn btn-mini" id="related-refresh-btn" title="刷新">🔄</button>
+          <span class="dim" id="related-meta" style="font-size:.8rem; margin-left:.25rem"></span>
+        </div>
+      </div>
+      <div id="related-by-concept" style="margin-top:.5rem"></div>
+    </article>
+      </div><!-- /.chart-panes -->
+    </div><!-- /.chart-unified -->
   </section>
 
   <!-- ─── WATCHLIST · 自选股池 ─── -->
@@ -1096,6 +1127,8 @@
           </span>
           <button class="btn-mini" id="review-fix-dirty" hidden title="检测到 DB 残留历史脏数据,一键清空重录" style="margin-left:8px">⚠ 修复脏数据</button>
           <button class="btn-mini primary" id="review-bulk-ai" title="后台顺序 AI 复盘我的所有交易 (≈60s/笔,不阻塞浏览)" style="margin-left:8px">⚡ 一键 AI 复盘全部</button>
+          <button class="btn-mini" id="review-toggle-all" title="一键折叠 / 展开所有股票明细" style="margin-left:8px">📂 全部折叠</button>
+          <input id="review-quick-filter" class="search-input" placeholder="快速选股 · 代码/名称" style="width:9em;margin-left:8px;vertical-align:middle;font-size:inherit;padding:3px 8px" />
           <button class="btn-mini danger" id="review-clear-all" title="清空所有交易记录(用于重新开始)" style="margin-left:8px">🗑 清空全部</button>
         </span>
       </div>
@@ -1109,17 +1142,18 @@
         <table class="data-table review-table" id="review-table">
           <thead>
             <tr>
-              <th class="rv-sticky-1">代码 · 名称</th>
-              <th>方向</th>
-              <th>买入日期</th>
-              <th>买入价</th>
-              <th>成交时刻</th>
-              <th>股数</th>
-              <th>今日盈亏</th>
-              <th class="rv-hide-tablet">累计盈亏</th>
-              <th class="rv-hide-tablet">累计盈亏比</th>
+              <th class="rv-sticky-1 sortable" data-sort="name">代码 · 名称 <span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="direction">方向 <span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="date">买入日期 <span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="price">买入价 <span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="time">成交时刻 <span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="shares">股数 <span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="today">今日盈亏 <span class="sort-arrow"></span></th>
+              <th class="rv-hide-tablet sortable" data-sort="cum">累计盈亏 <span class="sort-arrow"></span></th>
+              <th class="rv-hide-tablet sortable" data-sort="cumPct">累计盈亏比 <span class="sort-arrow"></span></th>
               <th class="rv-hide-tablet">铁律错在哪</th>
               <th class="rv-hide-mobile">AI 复盘</th>
+              <th class="rv-star-col">自选</th>
             </tr>
           </thead>
           <tbody id="review-tbody">
@@ -1441,16 +1475,57 @@
               <option value="2000">2000 只</option>
               <option value="3000">3000 只</option>
             </select>
+            <span class="label" title="大盘红线 (硬底): 全 A 红的股票 < 该值 当天不交易 (0=禁用)">硬底</span>
+            <select id="bt-breadth" style="background:#1a1612;color:#e8e1d4;border:1px solid #2a241c;border-radius:4px;padding:3px 6px;font-size:11.5px" title="全 A 红盘数下限 — 低于此值的交易日跳过">
+              <option value="0" selected>关闭</option>
+              <option value="1500">≥1500 只红 (≥28%)</option>
+              <option value="2000">≥2000 只红 (≥37%)</option>
+              <option value="2500">≥2500 只红 (≥46%)</option>
+              <option value="3000">≥3000 只红 (≥56%)</option>
+            </select>
+            <span class="label" title="大盘软线 (叠加): 红盘在 [硬底, 软线) 之间时, 仅交易 pick 板块当日热门">软线</span>
+            <select id="bt-breadth-soft" style="background:#1a1612;color:#e8e1d4;border:1px solid #2a241c;border-radius:4px;padding:3px 6px;font-size:11.5px" title="软线 — 与硬底配合, 中间区间仅交易热门板块">
+              <option value="0" selected>关闭</option>
+              <option value="3000">[硬底,3000) 区间叠加热门</option>
+              <option value="3500">[硬底,3500) 区间叠加热门</option>
+              <option value="4000">[硬底,4000) 区间叠加热门</option>
+            </select>
+            <span class="label" title="热门板块 top N (软线叠加用)">热门Top</span>
+            <select id="bt-sector-hot" style="background:#1a1612;color:#e8e1d4;border:1px solid #2a241c;border-radius:4px;padding:3px 6px;font-size:11.5px" title="热门板块 top N (按当日板块 avg change_pct 排名)">
+              <option value="0" selected>关闭</option>
+              <option value="3">Top 3</option>
+              <option value="5">Top 5</option>
+              <option value="8">Top 8</option>
+              <option value="10">Top 10</option>
+            </select>
+            <span class="label" title="资金净流入板块 top N (按 amount_ratio 估)">资金流入Top</span>
+            <select id="bt-sector-inflow" style="background:#1a1612;color:#e8e1d4;border:1px solid #2a241c;border-radius:4px;padding:3px 6px;font-size:11.5px" title="资金净流入板块 top N — 仅交易这些板块的 pick">
+              <option value="0" selected>关闭</option>
+              <option value="3">Top 3</option>
+              <option value="5">Top 5</option>
+              <option value="8">Top 8</option>
+              <option value="10">Top 10</option>
+            </select>
+            <label style="font-size:10.5px;color:#888;cursor:pointer;margin-left:4px" title="只选尾盘形态>次日大概率异动< 的股票 (日线代理: 收盘在高位+放量)">
+              <input type="checkbox" id="bt-surge-label" style="vertical-align:text-bottom"> 异动标签
+            </label>
             <button id="bt-run">▶ 开始回测</button>
             <span class="pill" id="bt-progress">未运行</span>
             <span class="pill" id="bt-elapsed" hidden>0s</span>
             <span class="pill" id="bt-meta" hidden></span>
           </div>
+          <div class="bt-presets" style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+            <span style="font-size:10px;color:#888;margin-right:4px;white-space:nowrap">场景预设:</span>
+            <button class="bt-preset" data-p0="" data-p1="" data-p2="0" data-p3="0" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">基线无过滤</button>
+            <button class="bt-preset" data-p0="1500" data-p1="3000" data-p2="5" data-p3="0" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">大盘+热门Top5</button>
+            <button class="bt-preset" data-p0="0" data-p1="0" data-p2="0" data-p3="3" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">资金流入Top3</button>
+            <button class="bt-preset" data-p0="0" data-p1="0" data-p2="0" data-p3="5" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">资金流入Top5</button>
+            <button class="bt-preset" data-p0="1500" data-p1="3000" data-p2="5" data-p3="5" style="background:#3a2c1a;color:#f4d384;border:1px solid #5a4a2a;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">全叠最强</button>
 
           <!-- v4: 单 mount, 由 btRenderV4(data) 整体渲染 -->
           <div id="bt-mount" style="display:flex;flex-direction:column;gap:14px;margin-top:14px">
             <!-- 顶部 KPI 网格 (placeholder, v4 自填) -->
-            <div id="bt-kpis" class="kpi-grid"></div>
+            <div id="bt-kpis" class="bt-kpis"></div>
 
             <!-- 9 套退场胜率横表 (用户核心要求) -->
             <div id="bt-scenarios-9-host"></div>
@@ -1481,6 +1556,15 @@
 
             <!-- 跨窗口对比 -->
             <div id="bt-windows-host"></div>
+
+            <!-- 5min 翻红概率 + actual_10 重算 (2026-07-16 新增: 多源分时 K 线) -->
+            <div class="bt-row4" style="display:flex;gap:12px;flex-wrap:wrap">
+              <div style="flex:1;min-width:340px" id="bt-5min-host"></div>
+              <div style="flex:1;min-width:340px" id="bt-actual10-host"></div>
+            </div>
+
+            <!-- 各退场策略卖出点对比 (top N 水下交易的价格区间 + 触发时刻) -->
+            <div id="bt-exits-compare-host"></div>
           </div>
 
           <div class="bt-progress-bar" id="bt-progress-bar"><div class="fill"></div></div>
@@ -2341,24 +2425,42 @@
         const BT_S9_LABELS = {
           open:   '开盘卖',
           S1:     'S1 翻红卖',
-          avg_up: 'avg_up 翻红均价',
-          max95:  'max95 最佳×95%',
-          tp2:    'tp2 止盈 2%',
-          twap:   'twap 时间加权',
-          half:   'half 半仓',
-          close:  'close 收盘',
-          low:    'low 日内最差',
+          S2:     'S2 10:00 决策',
+          S2_trail80:'S2+追涨80%',
+          S2_tp2: 'S2+2%止盈',
+          S2_avg_up:'S2+翻红均价',
+          S3_trail80: 'S3 追涨80%',
+          trail50:'追涨50%',
+          gap_target:'跳空高开',
+          gap_cut_2pct:'低开割',
+          bull_candle:'阳线跟涨',
+          avg_up: '翻红均价',
+          max95:  '最佳×95%',
+          tp2:    '2%止盈',
+          twap:   '时间加权',
+          half:   '半仓',
+          close:  '收盘',
+          low:    '日内最差',
         };
         const BT_S9_DESCS = {
-          open:   'T+1 开盘价卖 (用户铁律基线)',
+          open:   'T+1 开盘价卖 (基线)',
           S1:     '翻红→开盘卖; 没翻红→收盘卖 (主推)',
-          avg_up: '翻红后 (open+high)/2 卖',
-          max95:  '当日最高 × 95% (30分窗口可达)',
-          tp2:    '翻红且触及 +2% → 锁 2%; 否则 close',
+          S2:     '10:00 前必卖 — 翻红→开盘; 没翻红→水下均价 (open+low)/2',
+          S2_trail80:'翻红→追涨80%止盈; 没翻红→水下均价止损 (S2+trail80混合)',
+          S2_tp2: '翻红→2%锁利; 没翻红→水下均价止损',
+          S2_avg_up:'翻红→(open+high)/2; 没翻红→水下均价止损',
+          S3_trail80: '翻红后取最高80% (max_gain×0.8), 未翻红→close',
+          trail50:'翻红后取最高50% (max_gain×0.5), 未翻红→close',
+          gap_target:'跳空高开 ≥2%→跟涨avg_up; 否则close',
+          gap_cut_2pct:'低开 ≥2%→开盘割; 否则close (防大面)',
+          bull_candle:'T+1收阳→avg_up; 收阴→close (看K线形态)',
+          avg_up: '(open+high)/2 翻红后均价卖',
+          max95:  '最高 × 95% (30分窗口可达)',
+          tp2:    '触及 +2% → 锁2%; 否则close',
           twap:   '(open+close)/2 — 机构执行基准',
           half:   '50% open + 50% avg_up',
-          close:  'T+1 收盘价 (全天参考)',
-          low:    'T+1 日内最低价 (风控下限)',
+          close:  '收盘价 (全天参考)',
+          low:    '日内最低价 (风控下限)',
         };
         const BT_S7_LABELS = {
           best:       '理论最佳 (期内最高)',
@@ -2387,7 +2489,7 @@
         // ── 9 套退场胜率横表 (用户核心要求) — 顶级版: 胜率 + 累计/年化/月化 四列并排 ──
         function btRenderScenarios9(sc, best) {
           // 排序: 引擎推荐第一, 其他按累计复利降序
-          const keys = ['open','S1','avg_up','max95','tp2','twap','half','close','low'];
+          const keys = ['open','S1','S2','S2_trail80','S2_tp2','S2_avg_up','S3_trail80','trail50','gap_target','gap_cut_2pct','bull_candle','avg_up','max95','tp2','twap','half','close','low'];
           const sorted = [...keys].sort((a, b) => {
             if (a === best) return -1;
             if (b === best) return 1;
@@ -2432,9 +2534,33 @@
               · <b>引擎推荐</b> <span style="color:#f4d384;font-weight:600">${sc._best_strategy}</span>
               ${periodStr}
             </div>` : '';
+          const strategyDesc = `<span style="cursor:help;font-size:10.5px;color:#888" title="
+📌 策略分类 (18 套):
+━━━━━━━━━━━━━━━━━━━━━
+🏁 基线
+  open=开盘卖 · close=收盘卖 · low=日内最低
+
+📊 S1 规则 (翻红判)
+  S1=翻红开/不翻红收  ·  S2=10:00决策
+  S2_trail80=翻红追涨80%/不翻红水下
+  S2_tp2=翻红2%锁/不翻红水下
+  S2_avg_up=翻红avg_up/不翻红水下
+
+🔥 S3 追涨 (只看高)
+  S3_trail80=最高×80% · trail50=最高×50%
+  gap_target=跳空≥2%跟涨
+
+⚡ 形态条件
+  gap_cut_2pct=低开≥2%割止损
+  bull_candle=阳线跟涨/阴线收
+
+📐 统计参考
+  avg_up=(open+high)/2 · max95=最高×95%
+  tp2=触及+2%锁 · twap=(open+close)/2 · half=半仓
+">❓ 策略说明</span>`;
           return `<div class="card mt-16">
-            <div class="card-eyebrow">9 套退场胜率 / 收益对比 — <span style="color:#f4d384">★ 用户核心要求</span></div>
-            <h3 class="card-h">T+1 单日持仓 · 9 种卖出方式横评 · ★1 = 引擎推荐 · 4 大核心列 = 胜率 / 累计 / 年化 / 月化</h3>
+            <div class="card-eyebrow">18 套退场胜率 / 收益对比 — ${strategyDesc} — <span style="color:#f4d384">★ 用户核心要求</span></div>
+            <h3 class="card-h">T+1 单日持仓 · 18 种卖出方式横评 · ★1 = 引擎推荐 · 4 大核心列 = 胜率 / 累计 / 年化 / 月化</h3>
             <div class="table-wrap" style="overflow-x:auto"><table class="data-table bt-s9-table">
               <thead><tr>
                 <th title="按累计复利排名,#1 = 推荐">#</th>
@@ -2451,13 +2577,16 @@
                 <th class="num" title="单笔最佳">最佳</th>
                 <th class="num" title="单笔最差">最差</th>
               </tr></thead>
-              <tbody>${rows || '<tr><td colspan="14" class="empty">无交易</td></tr>'}</tbody>
+              <tbody>${rows || '<tr><td colspan="15" class="empty">无交易</td></tr>'}</tbody>
             </table></div>
             <p class="caption dim" style="margin-top:.6em">
               <b>怎么读:</b> 4 大核心列必须 <b style="color:#f4d384">胜率高 + 累计/年化/月化都正</b> 才是真能用的策略。
-              <b>open</b> = 开盘卖 (杨永新铁律); <b>S1</b> = 翻红卖否则平盘卖; <b>avg_up</b> = 翻红后 (open+high)/2;
-              <b>max95</b> = 当日最高 × 95%; <b>tp2</b> = 翻红且触及 +2% 才锁; <b>twap</b> = (open+close)/2;
-              <b>half</b> = 拆单; <b>close</b> = 收盘; <b>low</b> = 日内最差 (风控下限)
+              <b>open</b> = 开盘卖; <b>S1</b> = 翻红卖否则平盘卖; <b>S2</b> = 10:00 前必卖;
+              <b>S2_trail80</b> = 翻红→追涨80% / 不翻红→水下止损; <b>S2_tp2</b> = 翻红→2%锁 / 不翻红→水下;
+              <b>S2_avg_up</b> = 翻红→avg_up / 不翻红→水下; <b>S3_trail80</b> = 翻红取最高80%;
+              <b>gap_cut_2pct</b> = 低开≥2%割; <b>bull_candle</b> = 阳线跟涨;
+              <b>avg_up</b> = (open+high)/2; <b>max95</b> = 最高×95%; <b>tp2</b> = 触及+2%锁;
+              <b>twap</b> = (open+close)/2; <b>half</b> = 拆单; <b>close</b> = 收盘; <b>low</b> = 最差
             </p>${gap}
           </div>`;
         }
@@ -2653,7 +2782,7 @@
         function btRenderWindows(wins) {
           const host = $('#bt-windows-host'); if (!host) return;
           if (!wins?.length) { host.innerHTML = ''; return; }
-          const stratKeys = ['open','S1','avg_up','max95','tp2','twap','half','close','low'];
+          const stratKeys = ['open','S1','S2','S3_trail80','trail50','gap_target','avg_up','max95','tp2','twap','half','close','low'];
           const head = `<tr><th>窗口</th><th class="num">笔数</th><th class="num">翻红率</th>` +
             stratKeys.map(k => `<th class="num" title="${BT_S9_DESCS[k]}">${BT_S9_LABELS[k]}</th>`).join('') +
             `<th class="num">S1胜率</th></tr>`;
@@ -2681,8 +2810,143 @@
           </div>`;
         }
 
-        // ── 资金曲线 (echarts, 复用 view-stock.js 的样式) ──
-        function btDrawEquity(points) {
+        // ── 5min 翻红概率 (2026-07-16) ──
+        function btRender5MinRecovery(rec) {
+          const host = $('#bt-5min-host'); if (!host) return;
+          if (!rec || !rec.n_underwater) { host.innerHTML = ''; return; }
+          const n = rec.n_underwater;
+          const ok9  = rec.recovered_9_10 || 0;
+          const ok10 = rec.recovered_10_1130 || 0;
+          const ok13 = rec.recovered_13_15 || 0;
+          const never = rec.never_recovered || 0;
+          const failed = rec.fetch_failed || 0;
+          const srcs = Object.entries(rec.sources || {}).map(([k,v]) => `${k}:${v}`).join(', ') || 'none';
+          const maxBar = Math.max(ok9, ok10, ok13, never, 1);
+          const bar = (n, color, label) => {
+            const pct = (n / maxBar) * 100;
+            return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0">
+              <div style="width:160px;font-size:.85em;color:#aaa">${label}</div>
+              <div style="flex:1;background:#2a2825;height:18px;border-radius:3px;position:relative">
+                <div style="width:${pct}%;background:${color};height:100%;border-radius:3px"></div>
+                <span style="position:absolute;left:8px;top:1px;font-size:.75em;color:#fff;font-weight:600">${n}</span>
+              </div>
+              <div style="width:60px;text-align:right;font-size:.85em;color:#bbb">${(n/Math.max(1,n)*100).toFixed(1)}%</div>
+            </div>`;
+          };
+          host.innerHTML = `<div class="card" style="height:100%">
+            <div class="card-eyebrow">5min 翻红概率 · N=${n} 笔水下开盘</div>
+            <h3 class="card-h">9:30 开盘水下后, 多久翻回买入价 — 多源拉取 (${srcs})</h3>
+            <div style="padding:8px 4px">
+              ${bar(ok9,  '#4ade80', '9:30-10:00 (30 分钟内)')}
+              ${bar(ok10, '#f4d384', '10:00-11:30 (1 小时内)')}
+              ${bar(ok13, '#fb923c', '13:00-15:00 (尾盘)')}
+              ${bar(never,'#ef4444', '全天未翻红')}
+            </div>
+            ${failed ? `<p class="caption" style="color:#888">⚠️ ${failed} 笔数据拉取失败 (网络/限频)</p>` : ''}
+            <p class="caption dim" style="margin-top:.5em">
+              <b>怎么读:</b> 9:30 开盘水下的票里, 30 分钟内 ${(rec.recovered_9_10_pct||0).toFixed(1)}% 翻回买入价
+              → 你是不是应该等 10:00 再判死? 而不是 9:30 一看见低开就砍?
+            </p>
+          </div>`;
+        }
+
+        // ── actual_10 重算对比 (2026-07-16) ──
+        function btRenderActual10(a10) {
+          const host = $('#bt-actual10-host'); if (!host) return;
+          if (!a10 || !a10.n_underwater) { host.innerHTML = ''; return; }
+          const n = a10.n_underwater;
+          const enrich = a10.n_enriched || 0;
+          const failed = a10.n_failed || 0;
+          const base = a10.baseline_same_n || {};
+          const act  = a10.actual_10 || {};
+          const diffS3 = a10.diff_S3_trail80;
+          const diffC  = a10.diff_close;
+          const srcs = Object.entries(a10.src_counter || {}).map(([k,v]) => `${k}:${v}`).join(', ') || 'none';
+          const row = (label, baseK, actK) => {
+            const b = base[baseK] || {};
+            const a = act[actK] || {};
+            if (!b.trades && !a.trades) return `<tr><td colspan="4" class="empty">无数据</td></tr>`;
+            const dc = (a.cum_return_pct != null && b.cum_return_pct != null)
+                       ? (a.cum_return_pct - b.cum_return_pct) : 0;
+            return `<tr>
+              <td><b>${label}</b></td>
+              <td class="num">cum=<b style="color:${btColorFor(b.cum_return_pct||0)}">${btFmtPct(b.cum_return_pct)}</b><br>胜=${(b.win_rate_pct||0).toFixed(1)}%</td>
+              <td class="num">cum=<b style="color:${btColorFor(a.cum_return_pct||0)}">${btFmtPct(a.cum_return_pct)}</b><br>胜=${(a.win_rate_pct||0).toFixed(1)}%</td>
+              <td class="num" style="color:${btColorFor(dc)}"><b>${dc >= 0 ? '+' : ''}${dc.toFixed(2)}pp</b></td>
+            </tr>`;
+          };
+          host.innerHTML = `<div class="card" style="height:100%">
+            <div class="card-eyebrow">actual_10 vs open 代理 · ${enrich}/${n} 笔用真实 10:00 价格重算</div>
+            <h3 class="card-h">如果用 10:00 真实价退场, S3_trail80 / close 能跑赢 "open 代理" 多少?</h3>
+            <div class="table-wrap"><table class="data-table">
+              <thead><tr>
+                <th>场景</th><th class="num">open 代理 (基准)</th><th class="num">真实 10:00 重算</th><th class="num">差异 pp</th>
+              </tr></thead>
+              <tbody>
+                ${row('S3 trail80 (推荐)', 'S3_trail80', 'S3_actual10_trail80')}
+                ${row('close (末日均价)',   'close',      'S_actual10_close')}
+              </tbody>
+            </table></div>
+            ${(diffS3 != null) ? `<p class="caption" style="color:#bbb;margin-top:.5em">
+              💡 S3_trail80 用 10:00 真价比 open 代理 <b style="color:${btColorFor(diffS3)}">${diffS3 >= 0 ? '+' : ''}${diffS3.toFixed(2)} pp</b>
+              (数据源: ${srcs})</p>` : ''}
+            ${failed ? `<p class="caption" style="color:#888">⚠️ ${failed} 笔拉取失败</p>` : ''}
+          </div>`;
+        }
+
+        // ── 各退场策略对比 (2026-07-16 新增) ──
+        function btRenderExitsCompare(trades) {
+          const host = $('#bt-exits-compare-host'); if (!host) return;
+          if (!trades || !trades.length) { host.innerHTML = ''; return; }
+          const strats = [
+            { k: 'S1',           n: '次日开盘兑现',     when: '09:30',         ret: t => t.S1 },
+            { k: 'S3_trail80',   n: 'trail80 移动止盈', when: '日内最高 ×0.8',  ret: t => t.S3_trail80 },
+            { k: 'tp2',          n: '固定 +2% 止盈',    when: 'high ≥ buy×1.02', ret: t => t.tp2 },
+            { k: 'avg_up',       n: '均价止盈',         when: '(open+high)/2', ret: t => t.avg_up },
+            { k: 'max95',        n: '高点 -5%',          when: 'high × 0.95',   ret: t => t.max95 },
+            { k: 'close',        n: '末日收盘',          when: '15:00 收盘',    ret: t => t.close },
+            { k: 'gap_target',   n: '开盘冲高止盈',     when: 'open ≥ buy×1.02', ret: t => t.gap_target },
+            { k: 'bull_candle',  n: '阳线均价',          when: 'close > open',  ret: t => t.bull_candle },
+            { k: 'half',         n: 'open+high 平均',    when: '(open+high)/2', ret: t => t.half },
+            { k: 'low',          n: '末日最低',          when: '15:00 最低',    ret: t => t.low },
+            { k: 'S3_actual10',  n: '★ 真实 10:00 trail80', when: '★ 多源 5min K', ret: t => t.S3_actual10_trail80 },
+            { k: 'S_actual10',   n: '★ 真实 10:00 close',   when: '★ 多源 5min K', ret: t => t.S_actual10_close },
+          ];
+          const rows = strats.map(s => {
+            const rets = trades.map(t => s.ret(t)).filter(r => typeof r === 'number');
+            if (!rets.length) return '';
+            const wins = rets.filter(r => r > 0).length;
+            const wr = wins / rets.length * 100;
+            const cum = rets.reduce((a, r) => a * (1 + r/100), 1);
+            const cumPct = (cum - 1) * 100;
+            const avg = rets.reduce((a,b)=>a+b,0) / rets.length;
+            const sorted = [...rets].sort((a,b)=>a-b);
+            const q25 = sorted[Math.floor(sorted.length*0.25)] || 0;
+            const q75 = sorted[Math.floor(sorted.length*0.75)] || 0;
+            return `<tr>
+              <td><b>${s.k}</b><br><span style="font-size:.75em;color:#888">${s.n}</span></td>
+              <td style="font-size:.85em;color:#aaa">${s.when}</td>
+              <td class="num" style="color:${btColorFor(wr-50)}">${wr.toFixed(1)}%</td>
+              <td class="num" style="color:${btColorFor(avg)}">${avg.toFixed(2)}%</td>
+              <td class="num"><b style="color:${btColorFor(cumPct)}">${btFmtPct(cumPct)}</b></td>
+              <td class="num" style="color:#bbb;font-size:.85em">${q25.toFixed(2)} ~ ${q75.toFixed(2)}%</td>
+            </tr>`;
+          }).filter(Boolean).join('');
+          host.innerHTML = `<div class="card mt-16">
+            <div class="card-eyebrow">退场策略对比 · N=${trades.length} 笔 trade · 同一笔用不同卖出规则分别计算</div>
+            <h3 class="card-h">★ = 用了多源 5min K 的 "真实 10:00 价格" (其余用日线近似)</h3>
+            <div class="table-wrap" style="overflow-x:auto"><table class="data-table">
+              <thead><tr>
+                <th>策略</th><th>卖出时刻</th>
+                <th class="num">胜率</th><th class="num">均值</th>
+                <th class="num hero-col">累计复利</th><th class="num">Q1 ~ Q3</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table></div>
+          </div>`;
+        }
+
+                function btDrawEquity(points) {
           const dom = $('#bt-equity-chart'); if (!dom) return;
           // 卸载旧实例
           if (window.echartsCharts?.bt) { window.echartsCharts.bt.dispose(); }
@@ -2749,9 +3013,21 @@
           // 跨窗口
           btRenderWindows(r.windows);
 
+          // 5min 翻红 + actual_10 重算 (2026-07-16 新增)
+          btRender5MinRecovery(r.recovery_5min);
+          btRenderActual10(r.actual_10_stats);
+
+          // 退场策略对比 (同一笔 trade 用不同卖出规则分别算)
+          btRenderExitsCompare(r.trades);
+
           // meta
           const cfg = r.config || {};
-          $('#bt-meta').textContent = `${r.engine_version||'v4'} · ${(r.took_sec||0).toFixed(1)}s · ${cfg.period_keys?.join('+')||'?'} · hold=${cfg.hold_days||3} · top${cfg.top_n||1} · ${cfg.sample_size||'?'}/${cfg.universe_size||'?'}`;
+          let meta = `${r.engine_version||'v4'} · ${(r.took_sec||0).toFixed(1)}s · ${cfg.period_keys?.join('+')||'?'} · hold=${cfg.hold_days||3} · top${cfg.top_n||1} · ${cfg.sample_size||'?'}/${cfg.universe_size||'?'}`;
+          if (cfg.breadth_min) meta += ` · 硬底≥${cfg.breadth_min}`;
+          if (cfg.breadth_min_soft) meta += `+软${cfg.breadth_min_soft}${cfg.sector_hot_topn ? '·top' + cfg.sector_hot_topn : ''}`;
+          if (cfg.sector_inflow_topn) meta += ` · 资金流入Top${cfg.sector_inflow_topn}`;
+          if (cfg.require_surge_label) meta += ` · 异动标签✓`;
+          $('#bt-meta').textContent = meta;
           $('#bt-meta').hidden = false;
         }
 
@@ -2759,9 +3035,14 @@
         async function btStart() {
           const periods = btPickedPeriods();
           if (!periods.length) { toast('至少勾选一个周期', 2000); return; }
-          const hold_days = parseInt($('#bt-hold')?.value || '3', 10);
-          const top_n     = parseInt($('#bt-topn')?.value || '1', 10);
-          const sample    = parseInt($('#bt-sample')?.value || '1000', 10);
+          const hold_days         = parseInt($('#bt-hold')?.value || '3', 10);
+          const top_n             = parseInt($('#bt-topn')?.value || '1', 10);
+          const sample            = parseInt($('#bt-sample')?.value || '1000', 10);
+          const breadth_min       = parseInt($('#bt-breadth')?.value || '0', 10);
+          const breadth_min_soft  = parseInt($('#bt-breadth-soft')?.value || '0', 10);
+          const sector_hot_topn   = parseInt($('#bt-sector-hot')?.value || '0', 10);
+          const sector_inflow_topn = parseInt($('#bt-sector-inflow')?.value || '0', 10);
+          const require_surge_label = !!$('#bt-surge-label')?.checked;
 
           $('#bt-run').disabled = true;
           $('#bt-progress').textContent = '启动…';
@@ -2777,7 +3058,7 @@
           try {
             const r = await api('/api/screener/backtest', {
               method: 'POST',
-              body: JSON.stringify({ periods, hold_days, top_n, sample }),
+              body: JSON.stringify({ periods, hold_days, top_n, sample, breadth_min, breadth_min_soft, sector_hot_topn, sector_inflow_topn, require_surge_label }),
             });
             if (r.error) {
               toast(r.error, 3500);
@@ -2846,6 +3127,23 @@
 
         $('#bt-run').addEventListener('click', btStart);
 
+        // 场景预设: 填参数 + 自动开始
+        document.querySelector('.bt-presets')?.addEventListener('click', (e) => {
+          const btn = e.target.closest('.bt-preset');
+          if (!btn) return;
+          const p0 = btn.dataset.p0, p1 = btn.dataset.p1;
+          const p2 = btn.dataset.p2, p3 = btn.dataset.p3;
+          const bth = document.getElementById('bt-breadth');
+          const bts = document.getElementById('bt-breadth-soft');
+          const hott = document.getElementById('bt-sector-hot');
+          const inflow = document.getElementById('bt-sector-inflow');
+          if (bth) bth.value = p0 || '0';
+          if (bts) bts.value = p1 || '0';
+          if (hott) hott.value = p2 || '0';
+          if (inflow) inflow.value = p3 || '0';
+          btStart();
+        });
+
       })();
     </script>
   </section>
@@ -2853,70 +3151,81 @@
   <!-- ─── 全 A 风向 (inline, 2026-07-14 从 all_stocks.html 迁入,跟主 app shell 视觉一致) ─── -->
   <section class="view view-all_stocks" data-view="all_stocks" hidden>
     <header class="view-head as-head">
-      <div class="as-head-left">
-        <p class="caption">ALL STOCKS · 个股全景 · 4 层 taxonomy + 实时</p>
-        <h1 class="display">全 A 风向 <span class="accent">5400+</span></h1>
-        <p class="lede">点击集群 chip / 申万 / 产业链 / 细分 / AI 主战场 → 5 类行情列联表</p>
-      </div>
-      <div class="toolbar as-toolbar">
-        <div class="quick-search" id="as-quick-search">
-          <span class="qs-icon">⌕</span>
-          <input type="text" id="as-qs-input" placeholder="搜代码 / 名称" autocomplete="off" />
-          <span class="qs-clear" id="as-qs-clear" hidden>✕</span>
-        </div>
-        <select id="as-sort" class="multi-select" style="min-width:140px">
-          <option value="amount"            data-order="desc">成交额 ↓</option>
-          <option value="change_pct"        data-order="desc">涨幅 ↓</option>
-          <option value="change_pct"        data-order="asc">涨幅 ↑</option>
-          <option value="change_amt"        data-order="desc">涨跌额 ↓</option>
-          <option value="turnover"          data-order="desc">换手 ↓</option>
-          <option value="volume_ratio"      data-order="desc">量比 ↓</option>
-          <option value="main_fund_inflow"  data-order="desc">主力净流入 ↓</option>
-          <option value="mcap"              data-order="desc">市值 ↓</option>
-          <option value="amplitude"         data-order="desc">振幅 ↓</option>
-        </select>
-        <button class="btn btn-ghost" id="as-btn-reset" title="重置所有筛选">重置</button>
-        <button class="btn" id="as-btn-refresh" title="刷新数据">刷新</button>
-        <div class="col-toggle" id="as-col-toggle">
-          <button class="col-toggle-btn" id="as-col-toggle-btn" title="列显隐">⊞ 列</button>
-          <div class="col-toggle-menu" id="as-col-toggle-menu"></div>
-        </div>
-      </div>
+      <p class="caption">ALL STOCKS · 02 · 个股全景</p>
+      <h1 class="display">全 A 风向 <span class="accent">5400+</span></h1>
+      <p class="lede">点击集群 chip / 申万 / 产业链 / 细分 / AI 主战场 → 5 类行情列联表</p>
     </header>
 
-    <!-- L1 集群 chip row — 由 /api/all_stocks/filters 动态渲染 -->
-    <div class="as-cluster-row" id="as-cluster-row">
-      <span class="cluster-chip active" data-l1=""><span class="dot" style="background:var(--accent-grad-rainbow);"></span>全部</span>
+    <!-- Hero KPI strip — 跟 screener 9 套退场同款 kpi-group 卡片 -->
+    <div id="as-kpis" class="bt-kpis" aria-label="全 A 风向概览">
+      <!-- 由 initAllStocks() 异步填充 5 个 kpi-group: 总数 / 涨家 / 跌家 / 涨停 / 主力净流入 -->
     </div>
 
-    <!-- L2/L3/L4/domain 多选 + meta-bar -->
-    <div class="as-filter-strip">
-      <div class="filter-group">
-        <label>L2 申万</label>
-        <select id="as-l2" class="multi-select" multiple size="1" placeholder="选择申万…"></select>
+    <!-- 筛选条 · 紧凑 3 行: caption+工具行 / L1 chips / 4 联级联 -->
+    <article class="card mt-16 as-filter-card">
+      <div class="card-eyebrow as-eyebrow-row">
+        <span>FILTERS · L1→L4 + 领域</span>
+        <div class="right as-eyebrow-tools">
+          <div class="quick-search qs-sm" id="as-quick-search">
+            <span class="qs-icon">⌕</span>
+            <input type="text" id="as-qs-input" placeholder="搜代码/名称" autocomplete="off" />
+            <span class="qs-clear" id="as-qs-clear" hidden>✕</span>
+          </div>
+          <select id="as-sort" class="mini-select" title="排序">
+            <option value="amount"            data-order="desc">成交额 ↓</option>
+            <option value="change_pct"        data-order="desc">涨幅 ↓</option>
+            <option value="change_pct"        data-order="asc">涨幅 ↑</option>
+            <option value="change_amt"        data-order="desc">涨跌额 ↓</option>
+            <option value="turnover"          data-order="desc">换手 ↓</option>
+            <option value="volume_ratio"      data-order="desc">量比 ↓</option>
+            <option value="main_fund_inflow"  data-order="desc">主力净流入 ↓</option>
+            <option value="mcap"              data-order="desc">市值 ↓</option>
+            <option value="amplitude"         data-order="desc">振幅 ↓</option>
+          </select>
+          <div class="col-toggle" id="as-col-toggle">
+            <button class="col-toggle-btn mini" id="as-col-toggle-btn" title="列显隐">⊞</button>
+            <div class="col-toggle-menu" id="as-col-toggle-menu"></div>
+          </div>
+          <button class="btn btn-mini" id="as-btn-reset" title="重置所有筛选">↻</button>
+          <button class="btn btn-mini" id="as-btn-refresh" title="刷新数据">⟳</button>
+          <span class="caption dim" id="as-ts" style="margin-left:4px">—</span>
+        </div>
       </div>
-      <div class="filter-group">
-        <label>L3 产业链</label>
-        <select id="as-l3" class="multi-select" multiple size="1" placeholder="选择产业链…"></select>
-      </div>
-      <div class="filter-group">
-        <label>L4 细分</label>
-        <select id="as-l4" class="multi-select" multiple size="1" placeholder="选择细分…"></select>
-      </div>
-      <div class="filter-group">
-        <label>领域</label>
-        <select id="as-domain" class="multi-select" multiple size="1" placeholder="选择 AI 主战场…"></select>
-      </div>
-      <div class="as-meta-bar">
-        <div id="as-meta-count">— · 加载中</div>
-        <div class="right" id="as-active-filters"></div>
-      </div>
-    </div>
 
-    <!-- 主表 + scroll sentinel -->
-    <div class="table-card as-table-card">
-      <div class="table-scroll" id="as-table-scroll">
-        <table class="stocks-table" id="as-stocks-table">
+      <!-- L1 集群 chip row (单行,横滚) -->
+      <div class="as-cluster-row" id="as-cluster-row">
+        <span class="cluster-chip active" data-l1=""><span class="dot" style="background:var(--accent-grad-rainbow);"></span>全部</span>
+      </div>
+
+      <!-- L2/L3/L4/domain · 单行 4 个 compact select -->
+      <div class="as-filter-strip">
+        <label class="as-fg filter-group"><span class="fg-label">L2 申万</span>
+          <select id="as-l2" class="mini-select multi-select" multiple size="1" placeholder="选择申万…"></select>
+        </label>
+        <label class="as-fg filter-group"><span class="fg-label">L3 产业链</span>
+          <select id="as-l3" class="mini-select multi-select" multiple size="1" placeholder="选择产业链…"></select>
+        </label>
+        <label class="as-fg filter-group"><span class="fg-label">L4 细分</span>
+          <select id="as-l4" class="mini-select multi-select" multiple size="1" placeholder="选择细分…"></select>
+        </label>
+        <label class="as-fg filter-group"><span class="fg-label">领域</span>
+          <select id="as-domain" class="mini-select multi-select" multiple size="1" placeholder="选择 AI 主战场…"></select>
+        </label>
+        <div class="as-meta-inline">
+          <span id="as-meta-count" class="dim">— 只</span>
+          <span id="as-active-filters" class="as-active-filters"></span>
+        </div>
+      </div>
+    </article>
+
+    <!-- 主表 (跟 watchlist/optimize 同款: card-eyebrow + table-wrap + data-table) -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>BOARD · 个股行情 · 点击行跳转个股页</span>
+        <span class="caption dim" id="as-meta-load">— · 加载中</span>
+      </div>
+      <div class="table-wrap" id="as-table-scroll">
+        <table class="data-table as-stocks-table" id="as-stocks-table">
           <thead>
             <tr>
               <th class="cat"                data-col="自选"   rowspan="1" title="加自选"></th>
@@ -2947,7 +3256,10 @@
         </table>
         <div id="as-scroll-sentinel" class="as-scroll-sentinel" aria-hidden="true"></div>
       </div>
-    </div>
+      <p class="caption dim" style="margin-top:.5rem">
+        💡 排序/筛选实时生效;行点击 → 跳个股页 (view-stock) 触发 AI 复盘
+      </p>
+    </article>
 
     <!-- R17: 滚回顶部 FAB -->
     <button class="scroll-top-fab" id="as-scroll-top-fab" title="滚回顶部" aria-label="滚回顶部">↑</button>
@@ -3009,6 +3321,7 @@
   <button class="tabbar-item" data-jump="dragons"><span class="tabbar-glyph">★</span><span class="tabbar-label">龙头</span></button>
   <button class="tabbar-item" data-jump="stock"><span class="tabbar-glyph">◇</span><span class="tabbar-label">个股</span></button>
   <button class="tabbar-item" data-jump="watchlist"><span class="tabbar-glyph">☆</span><span class="tabbar-label">自选</span></button>
+  <button class="tabbar-item" data-jump="all_stocks"><span class="tabbar-glyph">⊞</span><span class="tabbar-label">全A</span></button>
   <button class="tabbar-item" data-jump="screener"><span class="tabbar-glyph">⊕</span><span class="tabbar-label">尾盘战法</span></button>
   <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span class="tabbar-label">心法</span></button>
   <button class="tabbar-item" data-jump="review"><span class="tabbar-glyph">⤓</span><span class="tabbar-label">复盘</span></button>
@@ -3020,10 +3333,11 @@
   <button class="toptab" data-jump="dragons">02 · 龙头</button>
   <button class="toptab" data-jump="stock">03 · 个股</button>
   <button class="toptab" data-jump="watchlist">04 · 自选</button>
-  <button class="toptab" data-jump="screener">05 · 尾盘战法</button>
-  <button class="toptab" data-jump="laws">06 · 心法</button>
-  <button class="toptab" data-jump="review">07 · 复盘</button>
-  <button class="toptab" data-jump="optimize">08 · 调优</button>
+  <button class="toptab" data-jump="all_stocks">05 · 全A风向</button>
+  <button class="toptab" data-jump="screener">06 · 尾盘战法</button>
+  <button class="toptab" data-jump="laws">07 · 心法</button>
+  <button class="toptab" data-jump="review">08 · 复盘</button>
+  <button class="toptab" data-jump="optimize">09 · 调优</button>
 </nav>
 
 <!-- toast — aria-live=polite 让屏幕阅读器自动朗读成功/错误信息 -->
