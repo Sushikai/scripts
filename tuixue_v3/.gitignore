@@ -35,3 +35,18 @@ review-page.png
 *.key
 cookies/
 .bilibili_cookies.json
+
+# Runtime caches (重建成本高,不入仓;本地调试需要)
+data/backups/
+data/daily_cache/
+data/intraday_cache/
+data/screener_snapshots/
+
+# Tunnel runtime state (跨进程 IPC)
+tunnel_*.txt
+stock_page.txt
+
+# Random binary (wechat 截图等不入仓)
+*.jpg
+!web/static/**/*.jpg
+!web/static/**/*.png
