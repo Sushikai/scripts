@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import requests as _requests
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, BackgroundTasks, Body, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -152,6 +152,41 @@ def _check_admin_token(request) -> bool:
 _last_tunnel_start_ts: float = 0.0
 
 
+# P1-5 (2026-07-15) · tunnel 自愈 loop 状态 — 进程内, 重启清零
+#  - _tunnel_last_method: 上次成功的 method, 重启时优先
+#  - _tunnel_heal_attempts: 当前连续自愈失败次数 (>=3 → TG 推送失败并停一段时间)
+#  - _tunnel_heal_paused_until: 上次 push 失败后, 等 30min 再重启 loop
+#  - _tunnel_last_health_ok_ts: 最近一次 HEAD /api/health 200 的时间 (用于探测"假活")
+_tunnel_heal_state: dict = {
+    "last_method": "",
+    "attempts": 0,
+    "paused_until": 0.0,
+    "last_health_ok_ts": 0.0,
+    "last_heal_at": 0.0,
+}
+
+
+def _tunnel_files() -> tuple[str, str, str]:
+    """返回 url/method/pid 文件路径"""
+    base = os.path.dirname(__file__)
+    return (
+        os.path.join(base, "..", "tunnel_url.txt"),
+        os.path.join(base, "..", "tunnel_method.txt"),
+        os.path.join(base, "..", "tunnel_pid.txt"),
+    )
+
+
+def _read_tunnel_url_pair() -> tuple[str, str]:
+    """同步读 url + method, 失败返空。线程安全 (只读)"""
+    try:
+        url_f, method_f, _ = _tunnel_files()
+        url = open(url_f, encoding="utf-8").read().strip() if os.path.exists(url_f) else ""
+        method = open(method_f, encoding="utf-8").read().strip() if os.path.exists(method_f) else ""
+    except Exception:
+        url, method = "", ""
+    return url, method
+
+
 def _get_lan_ip() -> str:
     """C4: 取局域网 IP — 扫所有非 lo/awdl/utun 接口,取首个非空 IP。
     全失败时回 UDP-connect 拿本机外网 IP,再失败回 127.0.0.1。"""
@@ -233,6 +268,7 @@ app.add_middleware(
         # ngrok / cloudflared 隧道域(在环境变量里加白名单)
         *_validated_extra_origins(),
     ],
+    allow_origin_regex=r"https?://.*\.(ngrok-free\.dev|trycloudflare\.com|loca\.lt|ngrok\.io|ngrok\.app|serveo\.net)(:\d+)?",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Trace-Id"],
@@ -847,7 +883,9 @@ async def _origin_check_middleware(request, call_next):
         pass
     # CORSMiddleware 是 app.add_middleware 注册的,直接读 .allow_origins (FastAPI 内部 _origins 列表)
     allowed = _CORS_ALLOWED_ORIGINS  # 在模块加载时一次性快照
-    if origin not in allowed:
+    # 也放行常见隧道域名（ngrok / cloudflared / localhost.run 等）
+    _tunnel_suffixes = (".ngrok-free.dev", ".trycloudflare.com", ".lhr.life", "localhost.run")
+    if origin not in allowed and not origin.startswith("http://localhost:") and not origin.startswith("http://127.0.0.1:") and not origin.endswith(_tunnel_suffixes):
         log.warning(f"[origin_check] 拒收 {request.method} {request.url.path} origin={origin!r}")
         return JSONResponse(
             {"ok": False, "error": "origin not allowed", "trace_id": getattr(request.state, "trace_id", "-")},
@@ -1268,6 +1306,17 @@ async def tunnel_status():
     except Exception:
         pass
 
+    # P1-5 · 自愈 loop 状态 (前端可见, 让用户知道 "是后台在重连, 不是坏了")
+    heal = _tunnel_heal_state
+    heal_info = {
+        "attempts":      heal["attempts"],
+        "paused_until":  heal["paused_until"],
+        "paused_remaining_sec": max(0, int(heal["paused_until"] - time.time())),
+        "last_method":   heal["last_method"] or method,
+        "last_health_ok_ts": heal["last_health_ok_ts"],
+        "last_heal_at":  heal["last_heal_at"],
+    }
+
     return envelope(data={
         "url":        url,
         "method":     method,
@@ -1276,6 +1325,7 @@ async def tunnel_status():
         "running":    running,
         "state":      tunnel_state,         # online / starting / offline
         "sentinels":  sentinels,            # 2026-07-12 新增:TG-bot / MQTT 提示
+        "heal":       heal_info,            # P1-5 · 自愈 loop 状态
         "ts":         datetime.datetime.now().isoformat(timespec="seconds"),
     })
 
@@ -1409,11 +1459,220 @@ async def tunnel_start():
     })
 
 
+def _tunnel_health_check_sync(url: str, timeout: float = 4.0) -> bool:
+    """HEAD /api/health — 假活 (URL 写出但 tunnel 已死) 检测。3s 超时。"""
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(url.rstrip("/") + "/api/health", method="HEAD")
+        with _ur.urlopen(req, timeout=timeout) as r:
+            return 200 <= r.status < 400
+    except Exception:
+        return False
+
+
+# P1-5 · HEAD 探测只在「真直连代理」域名上跑。ntfy/mqtt/tg-bot 是 sentinel 通道,
+# HEAD 它们自身首页不会返 ok=true,会误判假活 → 多余自愈。集中列表 = 信任名单。
+_TUNNEL_DIRECT_PROXY_SUFFIXES = (
+    ".trycloudflare.com",
+    ".ngrok-free.dev",
+    ".ngrok.io",
+    ".lhr.life",
+    ".lhr.rocks",
+    ".serveousercontent.com",
+    ".ts.net",
+    ".localhost.run",
+    "127.0.0.1",
+    "localhost:",
+)
+
+
+def _is_direct_proxy_url(url: str) -> bool:
+    """只对「真代理到本机 server 的直连 URL」跑 HEAD, 其余(ntfy/mqtt/sentinel)直接视为存活。"""
+    if not url:
+        return False
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return False
+    try:
+        from urllib.parse import urlparse as _up
+        h = _up(url).hostname or ""
+        for sfx in _TUNNEL_DIRECT_PROXY_SUFFIXES:
+            if sfx.startswith(".") and h.endswith(sfx):
+                return True
+            if sfx in (h, h + ":" + str(_up(url).port or "")):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _tunnel_heal_one_attempt(timeout_sec: float = 60.0) -> tuple[bool, str, str]:
+    """spawn start_tunnel_only.sh 一次, 等 URL 写出, 最长 timeout_sec。返 (ok, url, method)"""
+    import subprocess as _sp
+
+    script = os.path.join(os.path.dirname(__file__), "start_tunnel_only.sh")
+    if not os.path.exists(script):
+        return False, "", ""
+    url_f, method_f, _ = _tunnel_files()
+
+    # 先清旧 URL 文件 + 5min 冷却 (避免和手动 start 互相打架)
+    global _last_tunnel_start_ts
+    _last_tunnel_start_ts = time.time()
+    for fp in (url_f, method_f):
+        try:
+            if os.path.exists(fp):
+                os.remove(fp)
+        except Exception:
+            pass
+
+    try:
+        _sp.Popen(
+            ["bash", script],
+            stdin=_sp.DEVNULL,
+            stdout=open("/tmp/tuixue_tunnel_start.log", "a"),
+            stderr=_sp.STDOUT,
+            start_new_session=True,
+        )
+    except Exception as e:
+        log.warning(f"[tunnel-heal] spawn failed: {e}")
+        return False, "", ""
+
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        time.sleep(1.0)
+        url, method = _read_tunnel_url_pair()
+        if url and (url.startswith("http://") or url.startswith("https://")):
+            return True, url, method
+    return False, "", ""
+
+
+async def _tunnel_heal_loop() -> None:
+    """P1-5 · tunnel 自愈后台 task — 30s 一轮。
+
+    触发条件 (debounce 5s):
+      - url 文件缺失 (state=offline) 持续 ≥5s
+      - url 还在但 HEAD /api/health 不通 (假活) 持续 ≥5s
+
+    行为:
+      - 单轮尝试 1 次 spawn (60s 内拿 URL 即可), 失败 attempts++
+      - 成功 → reset attempts + 记 method + TG 轻量通知
+      - 连续 3 次失败 → TG 推失败详情, paused_until + 30min 后再试
+    """
+    s = _tunnel_heal_state
+    while True:
+        try:
+            # 1) 暂停期跳过 (避免 spam)
+            if time.time() < s["paused_until"]:
+                await asyncio.sleep(30)
+                continue
+
+            url, method = await to_thread(_read_tunnel_url_pair)
+            healthy = False
+            if _is_direct_proxy_url(url):
+                # HEAD 探测 (4s 超时, 不阻塞太久) — 只在直连代理域跑
+                healthy = await to_thread(_tunnel_health_check_sync, url, 4.0)
+                if healthy:
+                    s["last_health_ok_ts"] = time.time()
+                    if method and method != s["last_method"]:
+                        s["last_method"] = method
+            elif url:
+                # 哨兵类 URL (ntfy/mqtt/tg-bot) — 文件存在即视为存活, 不做 HEAD
+                s["last_health_ok_ts"] = time.time()
+
+            # 2) 30s 间隔
+            await asyncio.sleep(30)
+
+            # 3) 判定 — 需要自愈?
+            url2, method2 = await to_thread(_read_tunnel_url_pair)
+            healthy2 = False
+            if _is_direct_proxy_url(url2):
+                healthy2 = await to_thread(_tunnel_health_check_sync, url2, 4.0)
+                if healthy2:
+                    s["last_health_ok_ts"] = time.time()
+                    s["attempts"] = 0
+            elif url2:
+                healthy2 = True   # 哨兵类 URL, 文件存在 = 存活
+                s["last_health_ok_ts"] = time.time()
+                s["attempts"] = 0
+
+            if healthy2:
+                continue   # 真活, 跳到下轮
+
+            # 不健康 (无 url 或 url 不通)
+            # debounce: 5s 内重启中 → skip
+            now = time.time()
+            if now - s["last_heal_at"] < 5:
+                continue
+            # 已 spawn 但还没来 → skip (start_tunnel_only 内部要 ~25s 出 url)
+            if url2 and not method2:
+                # url 已写但 method 没写 → 脚本还在跑中等最后一步
+                continue
+
+            # 4) 触发自愈
+            log.info(f"[tunnel-heal] 不健康 (url={url2 or '<'} healthy={healthy2}) → 启动自愈, 第 {s['attempts']+1} 次")
+            s["last_heal_at"] = now
+            s["attempts"] += 1
+            try:
+                ok, new_url, new_method = await to_thread(_tunnel_heal_one_attempt, 60.0)
+            except Exception as e:
+                log.warning(f"[tunnel-heal] attempt 调用异常: {e}")
+                ok, new_url, new_method = False, "", ""
+
+            if ok and new_url:
+                # 成功 — TG 通知 (静默, 只推一次)
+                s["attempts"] = 0
+                if new_method:
+                    s["last_method"] = new_method
+                log.info(f"[tunnel-heal] ✓ 自愈成功 url={new_url} method={new_method}")
+                try:
+                    def _send():
+                        lines = [
+                            "🔧 退学 v3 · tunnel 自愈成功", "",
+                            f"🌐 新 URL: {new_url}",
+                            f"🛠 机制: {new_method or '?'}",
+                            f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        ]
+                        from ..lib_common import send_telegram as _stg
+                        return _stg("\n".join(lines), parse_mode="text", silent=True)
+                    await to_thread(_send)
+                except Exception as e:
+                    log.debug(f"[tunnel-heal] TG 推送成功通知失败 (non-fatal): {e}")
+            else:
+                # 失败 — 第 N 次
+                log.warning(f"[tunnel-heal] ✗ 第 {s['attempts']} 次自愈失败")
+                if s["attempts"] >= 3:
+                    # 兜底告警 — 推 TG + 暂停 30min
+                    s["paused_until"] = time.time() + 1800
+                    log.warning(f"[tunnel-heal] ✗ 连续 3 次失败 → 暂停 30min + TG 告警")
+                    try:
+                        def _send_fail():
+                            lines = [
+                                "⚠️ 退学 v3 · tunnel 自愈失败", "",
+                                f"已连续 3 次 (共 ~3 分钟) 重连失败",
+                                f"机制优先: {s['last_method'] or '(未指定,按 start_tunnel_only 默认顺序)'}",
+                                "可能原因: 全局 DNS 劫持 / 运营商封端口",
+                                "恢复方式: 等 30min 后再试,或手动 /api/tunnel/stop + /api/tunnel/start",
+                                f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                            ]
+                            from ..lib_common import send_telegram as _stg
+                            return _stg("\n".join(lines), parse_mode="text", silent=False)
+                        await to_thread(_send_fail)
+                    except Exception as e:
+                        log.debug(f"[tunnel-heal] TG 失败告警推送失败 (non-fatal): {e}")
+                    s["attempts"] = 0   # 重置, paused_until 控制频率
+        except asyncio.CancelledError:
+            log.info("[tunnel-heal] task 被取消 (server 退出)")
+            return
+        except Exception as e:
+            log.warning(f"[tunnel-heal] loop 异常: {e}")
+            await asyncio.sleep(30)
+
+
 @app.post("/api/tunnel/stop")
 async def tunnel_stop():
     """停掉所有 tunnel 进程（不动 server）。三种机制都杀: cloudflared / ngrok / ssh-reverse."""
     import os
     import subprocess as _sp
+    global _last_tunnel_start_ts
     try:
         port = int(os.environ.get("TUIXUE_PORT", "7799"))
         for pat in (f"cloudflared tunnel --url",
@@ -1421,7 +1680,8 @@ async def tunnel_stop():
                     f"ssh -tt -R 80:localhost:{port}"):
             _sp.Popen(["pkill", "-f", pat], stdin=_sp.DEVNULL,
                       stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-        # 清 URL 文件
+        # 清 URL 文件 + 重置启动冷却,让"重启"能立即 start
+        _last_tunnel_start_ts = 0.0
         for fname in ("tunnel_url.txt", "tunnel_method.txt", "tunnel_pid.txt"):
             p = os.path.join(os.path.dirname(__file__), "..", fname)
             try:
@@ -2607,7 +2867,48 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
         except Exception as e:
             log.info(f"tencent minute 失败: {e}")
 
-    out["note"] = f"{date_str} 分时拉取失败(akshare + sina + tencent 三源全挂,可能是网络层 DNS 劫持或非交易日)"
+    # 4) efinance 5min K 兜底 (2026-07-16 新增)
+    #    akshare + sina + tencent 三源全挂时启用,东财轻封装, threading + join 硬超时
+    #    不带历史 date,只补今日 / 单日分时 → 仍可作为当日分钟 fallback
+    try:
+        import threading as _thr_ef
+        ef_box = {"df": None, "err": ""}
+        def _ef_run():
+            try:
+                import efinance as ef
+                ef_box["df"] = ef.stock.get_quote_history(
+                    code, beg=ymd, end=ymd, klt=5, fqt=1)
+            except Exception as e:
+                ef_box["err"] = f"{type(e).__name__}: {str(e)[:60]}"
+        t_ef = _thr_ef.Thread(target=_ef_run, daemon=True)
+        t_ef.start()
+        t_ef.join(timeout=6)
+        df_ef = ef_box["df"]
+        if df_ef is not None and not df_ef.empty:
+            ticks = []
+            for _, r in df_ef.iterrows():
+                t = str(r.get("时间", r.get("日期", "")))
+                ticks.append({
+                    "time":        t,
+                    "price":       _safe_float(r.get("收盘", r.get("最新价"))),
+                    "volume_hand": _safe_float(r.get("成交量")),
+                    "amount":      _safe_float(r.get("成交额")),
+                    "open":        _safe_float(r.get("开盘")),
+                    "high":        _safe_float(r.get("最高")),
+                    "low":         _safe_float(r.get("最低")),
+                    "side":        "",
+                })
+            if ticks:
+                out["ticks"] = ticks
+                out["ticks_n"] = len(ticks)
+                out["source"] = "efinance_5min"
+                return out
+        elif ef_box["err"]:
+            log.info(f"efinance 5min 失败: {ef_box['err']}")
+    except Exception as e:
+        log.info(f"efinance 5min 兜底层异常: {e}")
+
+    out["note"] = f"{date_str} 分时拉取失败(akshare + sina + tencent + efinance 四源全挂,可能是网络层 DNS 劫持或非交易日)"
     return out
 
 
@@ -2771,8 +3072,9 @@ async def news_list(refresh: bool = Query(False, description="是否强制刷新
             item = dict(n)
             item["ai"] = ai.get(n["id"]) or None
             out.append(item)
-        # 按 AI 分数降序(无 AI 的排最后,保持时间倒序)
-        out.sort(key=lambda x: ((x.get("ai") or {}).get("score") or 0), reverse=True)
+        # 2026-07-16: 用户反馈「新闻好像抓的不是最新的,最新的放在前面」→ 改 ctime 倒序
+        # (AI 评分排序会把几天前的重磅新闻顶上来,但用户更在意时效性)
+        out.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
         return {
             "fetched_at":  cache.get("fetched_at") or 0,
             "analyzed_at": cache.get("analyzed_at") or 0,
@@ -2904,7 +3206,7 @@ async def api_limitup_per_code(req: dict):
 @app.get("/api/stock/{code}/related_news")
 async def stock_related_news(code: str):
     """
-    与个股相关的新闻(按 AI 评分降序):
+    与个股相关的新闻(按 ctime 倒序,最新在前):
     - 该股所在申万行业被新闻 sectors 包含
     - 或新闻 stocks 列表里包含此 code
     """
@@ -2931,7 +3233,7 @@ async def stock_related_news(code: str):
             item["ai"] = a
             item["hit_reason"] = " · ".join(hit_reason)
             matched.append(item)
-        matched.sort(key=lambda x: x["ai"].get("score") or 0, reverse=True)
+        matched.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
         return {
             "code": code,
             "sector": sec,
@@ -3489,10 +3791,15 @@ _BT_RUN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bt-run"
 
 
 class _BacktestReq(BaseModel):
-    periods:   list[str] = []   # 子集 eg ["1周","1月"]; 空 = 跑默认
-    hold_days: int = 3          # 持仓天数 (次级 7 套退场对比)
-    top_n:     int = 1          # 每日 Top N
-    sample:    int = 1200       # 主板采样数 (0=全量, 慢)
+    periods:           list[str] = []  # 子集 eg ["1周","1月"]; 空 = 跑默认
+    hold_days:         int = 3         # 持仓天数 (次级 7 套退场对比)
+    top_n:             int = 1         # 每日 Top N
+    sample:            int = 1200      # 主板采样数 (0=全量, 慢)
+    breadth_min:       int = 0         # 大盘红线 (硬底) — 全 A 红 < 该值 当天空仓 (0=禁用)
+    breadth_min_soft:  int = 0         # 大盘软线 — 红盘介于 [硬, 软) 区间时只交易热门板块
+    sector_hot_topn:   int = 0         # 热门板块 top N (软线叠加使用)
+    sector_inflow_topn: int = 0        # 资金净流入板块 top N (amount_ratio 估)
+    require_surge_label: bool = False  # 只选"次日大概率异动"标签
 
 
 def _bt_period_resolver(periods: list[str]) -> list[str]:
@@ -3510,7 +3817,9 @@ def _bt_period_resolver(periods: list[str]) -> list[str]:
     return out or [w for w, _ in _bt.WINDOWS]
 
 
-def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, sample: int) -> None:
+def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, sample: int,
+               breadth_min: int = 0, breadth_min_soft: int = 0, sector_hot_topn: int = 0,
+               sector_inflow_topn: int = 0, require_surge_label: bool = False) -> None:
     from . import backtest_screener as _bt
     try:
         def _cb(msg: str) -> None:
@@ -3522,6 +3831,11 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             hold_days=hold_days,
             top_n=top_n,
             sample=sample,
+            breadth_min=breadth_min,
+            breadth_min_soft=breadth_min_soft,
+            sector_hot_topn=sector_hot_topn,
+            sector_inflow_topn=sector_inflow_topn,
+            require_surge_label=require_surge_label,
             progress_cb=_cb,
         )
         with _BT_RUN_LOCK:
@@ -3564,6 +3878,11 @@ async def api_screener_backtest(req: _BacktestReq):
             max(1, min(req.hold_days, 10)),
             max(1, min(req.top_n, 5)),
             max(0, min(req.sample, 5000)),
+            max(0, min(req.breadth_min, 5400)),
+            max(0, min(req.breadth_min_soft, 5400)),
+            max(0, min(req.sector_hot_topn, 50)),
+            max(0, min(req.sector_inflow_topn, 50)),
+            req.require_surge_label,
         )
     except Exception as e:
         with _BT_RUN_LOCK:
@@ -3572,7 +3891,12 @@ async def api_screener_backtest(req: _BacktestReq):
                 _BT_RUNS[run_id]["error"] = str(e)
         return envelope(error=f"提交失败: {e}")
     return envelope(data={"ok": True, "run_id": run_id, "periods": period_keys,
-                          "hold_days": req.hold_days, "top_n": req.top_n, "sample": req.sample})
+                          "hold_days": req.hold_days, "top_n": req.top_n, "sample": req.sample,
+                          "breadth_min": req.breadth_min,
+                          "breadth_min_soft": req.breadth_min_soft,
+                          "sector_hot_topn": req.sector_hot_topn,
+                          "sector_inflow_topn": req.sector_inflow_topn,
+                          "require_surge_label": req.require_surge_label})
 
 
 @app.get("/api/screener/backtest")
@@ -5620,7 +5944,7 @@ async def api_review_get_settings():
 
 
 @app.post("/api/review/settings")
-async def api_review_set_settings(payload: dict, request: Request):
+async def api_review_set_settings(request: Request, payload: dict = Body({})):
     """保存复盘设置。payload: {total_capital}"""
     # P0-audit-2026-07-15: 写操作,加 admin token (否则外网隧道可污染 total_capital 拖垮所有用户复盘)
     if not _check_admin_token(request):
@@ -5743,7 +6067,7 @@ async def api_review_time_points(code: str, date: str | None = None, price: floa
 
 
 @app.post("/api/review/trades")
-async def api_review_record_trade(payload: dict, request: Request):
+async def api_review_record_trade(request: Request, payload: dict = Body({})):
     """记 1 笔或批量记多笔交易。
 
     payload 兼容两种形状:
@@ -7362,7 +7686,11 @@ async def _preheat_cache_on_startup():
         ("/api/stock/000524",    8),   # 杂毛
         ("/api/laws",            5),
         # 2026-07-14: /api/hotspot 已删,板块页预热移除
-        ("/api/all_stocks/board?page_size=30", 20),  # 全 A 风向首屏 (R16: 默认 30)
+        ("/api/all_stocks/board?page_size=30", 20),                  # 全 A 风向首屏 (默认成交额↓)
+        # R10-perf (2026-07-15): 预热 3 个常用排序,避免用户首次切换时 cold-start
+        ("/api/all_stocks/board?page_size=30&sort=change_pct", 18),  # 涨幅↓
+        ("/api/all_stocks/board?page_size=30&sort=turnover", 18),    # 换手↓
+        ("/api/all_stocks/board?page_size=30&sort=main_fund_inflow", 18),  # 主力净流入↓
     ]
 
     # 等 server 真起来了再发
@@ -7492,6 +7820,10 @@ def _startup_dependency_check() -> None:
         log.info("[启动预热] 已跳过 (--no-preheat),poller 正常运行中")
     else:
         asyncio.create_task(_preheat_cache_on_startup())
+
+    # P1-5 · tunnel 自愈 loop (30s 轮询, tunnel 死了自动重连)
+    app.state._tunnel_heal_task = asyncio.create_task(_tunnel_heal_loop())
+    log.info("[tunnel-heal] 后台自愈 loop 已注册")
     # 3) R3: 后台 TTL 扫描线程 (60s 一次清理过期 + 记录统计)
     import threading as _t
     def _sweeper():
@@ -7576,6 +7908,10 @@ def main():
     p.add_argument("--server", choices=["auto", "uvicorn", "hypercorn"], default="auto",
                    help="HTTP server: auto=hypercorn (HTTP/2 + h2) 优先,uvicorn fallback")
     args = p.parse_args()
+
+    # 把当前端口加入 CORS 白名单 — 否则非 GET 请求(如录入 POST)会被 origin 校验拦下
+    _CORS_ALLOWED_ORIGINS.add(f"http://localhost:{args.port}")
+    _CORS_ALLOWED_ORIGINS.add(f"http://127.0.0.1:{args.port}")
 
     if args.no_preheat:
         app._skip_preheat = True
