@@ -3993,12 +3993,108 @@ async def api_screener_stream(_request: _Request):
 #   - GET  /api/screener/backtest?run_id=...  查状态 + 结果
 #   - 同一 run_id 全局串行, 防 _EXECUTOR 并发打架
 # ═════════════════════════════════════════════════════════════════
-_BT_RUNS: dict[str, dict] = {}   # run_id → {status, progress, result, error, started_at, finished_at}
-_BT_RUN_LOCK = threading.Lock()
+_BT_RUNS: dict[str, dict] = {}   # R51: 已迁 cache_store, 此 dict 仅作本地 fast-path 缓存 (跨 worker 不可见)
+_BT_RUN_LOCK = threading.Lock()   # R51: 本地锁 — 保护 fast-path cache + 序列化 cache_store 写
 _BT_RUN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bt-run")
 _BT_RUN_TTL_SEC = 3600  # R2: GC 1 小时清理已完成回测的结果集,防 memory leak
 _BT_TIMEOUT_SEC = 300  # R9: 单次回测上限 5 分钟; 超时直接终止 _BT_RUN_EXECUTOR 线程
-_BT_CANCELLED: set[str] = set()  # R97: 取消标记
+
+
+# ═════════════════════════════════════════════════════════════════
+# R51: 跨进程 state helpers (cache_store 后端, 多 worker 共享)
+# ═════════════════════════════════════════════════════════════════
+def _bt_k_run(run_id: str) -> str:
+    return cache_store.K.BT_RUN.format(run_id=run_id)
+
+def _bt_k_cancel(run_id: str) -> str:
+    return cache_store.K.BT_CANCEL.format(run_id=run_id)
+
+def _bt_get(run_id: str) -> dict | None:
+    """跨 worker 读 BT_RUN hash (返 {field: value} 或 None)"""
+    if not run_id:
+        return None
+    try:
+        return cache_store.get_store().hgetall(_bt_k_run(run_id)) or None
+    except Exception as e:
+        log.debug(f"[bt-store] hgetall err: {e}")
+        return None
+
+def _bt_put_fields(run_id: str, **fields) -> bool:
+    """跨 worker 写多个 fields (status/progress/result/error/started_at/finished_at/periods)"""
+    if not run_id or not fields:
+        return False
+    try:
+        store = cache_store.get_store()
+        ok = True
+        for k, v in fields.items():
+            # 跨进程共享的 result 字段可能很大 (json.dumps + b64), 用 store 自己的编码
+            if not store.hset(_bt_k_run(run_id), k, v, ttl=_BT_RUN_TTL_SEC):
+                ok = False
+        return ok
+    except Exception as e:
+        log.debug(f"[bt-store] hset err: {e}")
+        return False
+
+def _bt_init(run_id: str, **fields) -> bool:
+    """初始化一个 run (status=running, periods, started_at) — 替代 _BT_RUNS[run_id] = {...}"""
+    return _bt_put_fields(run_id, status="running", progress="排队中…", **fields)
+
+def _bt_drop(run_id: str) -> None:
+    """删 run hash + cancel 标记 — GC 用"""
+    try:
+        store = cache_store.get_store()
+        store.delete(_bt_k_run(run_id))
+        store.delete(_bt_k_cancel(run_id))
+    except Exception as e:
+        log.debug(f"[bt-store] delete err: {e}")
+
+def _bt_is_cancelled(run_id: str) -> bool:
+    """检查 run_id 是否被标记取消 — 跨 worker 可见"""
+    try:
+        return bool(cache_store.get_store().exists(_bt_k_cancel(run_id)))
+    except Exception:
+        return False
+
+def _bt_mark_cancelled(run_id: str) -> None:
+    """标记 run_id 取消 — TTL 10min 后自动清"""
+    try:
+        cache_store.get_store().set(_bt_k_cancel(run_id), 1, ttl=600)
+    except Exception as e:
+        log.debug(f"[bt-store] mark cancel err: {e}")
+
+def _bt_lock_acquire(run_id: str, ttl: int = _BT_TIMEOUT_SEC) -> bool:
+    """原子获取全局 BT 锁 — 返回 True=拿到(可启动), False=已有回测在跑"""
+    try:
+        return bool(cache_store.get_store().set_nx(cache_store.K.BT_LOCK, run_id, ttl=ttl))
+    except Exception as e:
+        log.debug(f"[bt-store] lock acquire err: {e}")
+        return False
+
+def _bt_lock_release() -> None:
+    """释放全局 BT 锁 — done/error/cancel/timeout 时调用"""
+    try:
+        cache_store.get_store().delete(cache_store.K.BT_LOCK)
+    except Exception as e:
+        log.debug(f"[bt-store] lock release err: {e}")
+
+def _bt_lock_held() -> str | None:
+    """查询当前持锁 run_id (无则 None) — 用于 SSE 启动时确认"""
+    try:
+        v = cache_store.get_store().get(cache_store.K.BT_LOCK)
+        return v if isinstance(v, str) else None
+    except Exception:
+        return None
+
+def _bt_active_run_ids() -> list[str]:
+    """SCAN 所有 bt:run:* — 用于 GC 巡检"""
+    try:
+        keys = cache_store.get_store().scan("bt:run:*")
+        return [k.replace("bt:run:", "", 1) for k in keys if k.startswith("bt:run:")]
+    except Exception as e:
+        log.debug(f"[bt-store] scan err: {e}")
+        return []
+
+_BT_CANCELLED: set[str] = set()  # R51 兼容: 仍保留本地 set (R97 旧代码兼容),新代码用 _bt_is_cancelled() 跨进程
 
 
 class _BacktestReq(BaseModel):
@@ -4042,17 +4138,20 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
 
     # R97: progress_cb 检查取消标记,每步检查一次
     # R28: 200ms debounce — progress_cb 调用 22+ 次/回测, 锁竞争拖慢主线程
+    # R51: 取消标记迁 cache_store (跨 worker 可见)
     _cb_last = [0.0]
     _cb_last_msg = [""]
     def _cb(msg: str) -> None:
-        if run_id in _BT_CANCELLED:
+        if _bt_is_cancelled(run_id):
             raise KeyboardInterrupt("user cancelled")
         now = time.time()
         if msg == _cb_last_msg[0] or (now - _cb_last[0]) < 0.2:
             return
         _cb_last[0] = now
         _cb_last_msg[0] = msg
+        # R51: 写 cache_store, 本地 fast-path cache 同步更新
         with _BT_RUN_LOCK:
+            _bt_put_fields(run_id, progress=msg)
             if run_id in _BT_RUNS:
                 _BT_RUNS[run_id]["progress"] = msg
     try:
@@ -4073,21 +4172,35 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             progress_cb=_cb,
         )
         with _BT_RUN_LOCK:
+            _bt_put_fields(run_id,
+                status="done", result=r, progress="完成", finished_at=time.time())
             if run_id in _BT_RUNS:
-                _BT_RUNS[run_id]["status"] = "done"
-                _BT_RUNS[run_id]["result"] = r
-                _BT_RUNS[run_id]["progress"] = "完成"
-                _BT_RUNS[run_id]["finished_at"] = time.time()
+                _BT_RUNS[run_id].update({
+                    "status": "done", "result": r, "progress": "完成",
+                    "finished_at": time.time(),
+                })
+        _bt_lock_release()  # R51: 释放全局锁
     except Exception as e:
         log.exception(f"backtest {run_id} fail")
+        cancelled = _bt_is_cancelled(run_id)
         with _BT_RUN_LOCK:
+            _bt_put_fields(run_id,
+                status="error",
+                error=f"{type(e).__name__}: {str(e)[:200]}",
+                progress="已取消" if cancelled else "出错",
+                finished_at=time.time())
             if run_id in _BT_RUNS:
-                _BT_RUNS[run_id]["status"] = "error"
-                _BT_RUNS[run_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-                _BT_RUNS[run_id]["progress"] = "出错" if run_id not in _BT_CANCELLED else "已取消"
-                _BT_RUNS[run_id]["finished_at"] = time.time()
-        if run_id in _BT_CANCELLED:
-            _BT_CANCELLED.discard(run_id)
+                _BT_RUNS[run_id].update({
+                    "status": "error",
+                    "error": f"{type(e).__name__}: {str(e)[:200]}",
+                    "progress": "已取消" if cancelled else "出错",
+                    "finished_at": time.time(),
+                })
+        if cancelled:
+            # R51: 跨进程 — cache_store TTL 600s 自动清, 本地 set 仅作 fast-path
+            with _BT_RUN_LOCK:
+                _BT_CANCELLED.discard(run_id)
+        _bt_lock_release()  # R51: 释放全局锁
 
 
 @app.post("/api/screener/backtest")
@@ -4095,9 +4208,11 @@ async def api_screener_backtest(req: _BacktestReq):
     """启动一次回测 (后台线程), 立即返 run_id"""
     period_keys = _bt_period_resolver(req.periods)
     run_id = f"bt-{int(time.time())}-{secrets.token_hex(3)}"
+    # R51: 跨进程互斥锁 — set_nx 原子, 避免 _BT_RUNS 多 worker race
+    if not _bt_lock_acquire(run_id, ttl=_BT_TIMEOUT_SEC):
+        holder = _bt_lock_held() or "unknown"
+        return envelope(error="已有回测在跑, 请先等待完成", data={"running": True, "holder": holder})
     with _BT_RUN_LOCK:
-        if any(r.get("status") == "running" for r in _BT_RUNS.values()):
-            return envelope(error="已有回测在跑, 请先等待完成", data={"running": True})
         _BT_RUNS[run_id] = {
             "status":      "running",
             "progress":    "排队中…",
@@ -4106,6 +4221,8 @@ async def api_screener_backtest(req: _BacktestReq):
             "result":      None,
             "error":       None,
         }
+    # R51: 同步写 cache_store (跨 worker 可见)
+    _bt_init(run_id, periods=period_keys, started_at=time.time(), result=None, error=None)
     try:
         _BT_RUN_EXECUTOR.submit(
             _bt_run_bg,
@@ -4131,6 +4248,10 @@ async def api_screener_backtest(req: _BacktestReq):
                 _BT_RUNS[run_id]["error"] = str(e)
                 _BT_RUNS[run_id]["finished_at"] = time.time()  # R13: 立刻 GC,不靠 1h TTL
                 _BT_RUNS[run_id]["progress"] = "提交失败"
+        # R51: 同步写 cache_store + 释放锁
+        _bt_put_fields(run_id, status="error", error=str(e),
+                       finished_at=time.time(), progress="提交失败")
+        _bt_lock_release()
         return envelope(error=f"提交失败: {e}")
     return envelope(data={"ok": True, "run_id": run_id, "periods": period_keys,
                           "hold_days": req.hold_days, "top_n": req.top_n, "sample": req.sample,
@@ -4147,58 +4268,62 @@ async def api_screener_backtest(req: _BacktestReq):
 
 @app.get("/api/screener/backtest")
 async def api_screener_backtest_status(run_id: str = ""):
-    """查询回测状态 + 结果"""
-    with _BT_RUN_LOCK:
-        r = _BT_RUNS.get(run_id)
-        if not r:
-            # R14: status=missing 时不设 error (ok=true, status="missing"),
-            # 前端可读 status 判断,无需处理 envelope.error
-            return envelope(data={"status": "missing", "result": None})
-        out = {
-            "status":      r.get("status"),
-            "progress":    r.get("progress", ""),
-            "periods":     r.get("periods", []),
-            "started_at":  r.get("started_at", 0),
-            "finished_at": r.get("finished_at", 0),
-            "elapsed_sec": round((r.get("finished_at") or time.time()) - r.get("started_at", time.time()), 1),
-            "error":       r.get("error"),
-            "result":      r.get("result"),
-        }
+    """查询回测状态 + 结果 (R51: 跨 worker 可见 — 走 cache_store)"""
+    # R51: 优先 cache_store (跨 worker 可见), 本地 dict 仅 fast-path
+    r = _bt_get(run_id)
+    if not r:
+        # R14: status=missing 时不设 error (ok=true, status="missing"),
+        # 前端可读 status 判断,无需处理 envelope.error
+        return envelope(data={"status": "missing", "result": None})
+    started  = float(r.get("started_at")  or 0)
+    finished = float(r.get("finished_at") or 0)
+    out = {
+        "status":      r.get("status"),
+        "progress":    r.get("progress", ""),
+        "periods":     r.get("periods", []),
+        "started_at":  started,
+        "finished_at": finished,
+        "elapsed_sec": round((finished or time.time()) - started, 1) if started else 0,
+        "error":       r.get("error"),
+        "result":      r.get("result"),
+    }
     return envelope(data=out)
 
 
 # ─────────── R2: 1 小时 GC + R9: 5 分钟超时 (后台监控线程) ───────────
 def _bt_gc_loop() -> None:
-    """每 60s 巡检一次 _BT_RUNS:
-       - 完成/失败 status 且 finished_at > 1h → 删
+    """每 60s 巡检一次 BT runs (cache_store 后端, 跨 worker 共享):
+       - 完成/失败 status 且 finished_at > 1h → 删 (本地 fast-path + cache_store)
        - running status 且 started_at > _BT_TIMEOUT_SEC → 标 timeout
     """
     while True:
         try:
             now = time.time()
+            # R51: SCAN cache_store 拿所有活跃 run_id (跨 worker 可见)
+            active_ids = _bt_active_run_ids()
             with _BT_RUN_LOCK:
-                expired = []
-                timeout_ids = []
-                for rid, rec in list(_BT_RUNS.items()):
-                    finished = rec.get("finished_at") or 0
-                    started  = rec.get("started_at")  or 0
-                    if rec.get("status") in ("done", "error"):
+                for rid in active_ids:
+                    rec = _bt_get(rid) or {}
+                    finished = float(rec.get("finished_at") or 0)
+                    started  = float(rec.get("started_at")  or 0)
+                    status   = rec.get("status")
+                    if status in ("done", "error"):
                         if finished and (now - finished) > _BT_RUN_TTL_SEC:
-                            expired.append(rid)
-                    elif rec.get("status") == "running":
+                            log.debug(f"[bt-gc] rid={rid} 已过期, GC")
+                            _bt_drop(rid)
+                            _BT_RUNS.pop(rid, None)
+                    elif status == "running":
                         if started and (now - started) > _BT_TIMEOUT_SEC:
-                            timeout_ids.append(rid)
-                for rid in expired:
-                    rec = _BT_RUNS.get(rid, {})
-                    if rid in timeout_ids:
-                        rec["status"]     = "error"
-                        rec["error"]      = f"超时 (>{_BT_TIMEOUT_SEC}s) — 可能 actual_10 重算太长; 试试加 enable_actual_10=false 或缩 sample"
-                        rec["progress"]   = "超时"
-                        rec["finished_at"]= now
-                        log.warning(f"[bt-gc] rid={rid} 超时终止")
-                    else:
-                        log.debug(f"[bt-gc] rid={rid} 已过期, GC")
-                        _BT_RUNS.pop(rid, None)
+                            err_msg = f"超时 (>{_BT_TIMEOUT_SEC}s) — 可能 actual_10 重算太长; 试试加 enable_actual_10=false 或缩 sample"
+                            _bt_put_fields(rid, status="error", error=err_msg,
+                                           progress="超时", finished_at=now)
+                            if rid in _BT_RUNS:
+                                _BT_RUNS[rid].update({
+                                    "status": "error", "error": err_msg,
+                                    "progress": "超时", "finished_at": now,
+                                })
+                            log.warning(f"[bt-gc] rid={rid} 超时终止")
+                            _bt_lock_release()  # R51: 释放全局锁, 允许下次启动
         except Exception as e:
             log.debug(f"[bt-gc] err: {e}")
         time.sleep(60)
@@ -4212,26 +4337,28 @@ log.info(f"[bt] GC + 超时监控线程已启动 (TTL={_BT_RUN_TTL_SEC}s, TIMEOU
 # ─────────── R4: SSE 推送进度 (替代 1.5s poll) ───────────
 @app.get("/api/screener/backtest/stream")
 async def api_screener_backtest_stream(run_id: str = ""):
-    """SSE 推送 run_id 的状态变更 (idle → running → done/error). 客户端可继续轮询 /api/screener/backtest?run_id=... 取最终结果."""
+    """SSE 推送 run_id 的状态变更 (idle → running → done/error). 客户端可继续轮询 /api/screener/backtest?run_id=... 取最终结果.
+       R51: 跨 worker — 即使 POST 在 worker A,SSE 也可连 worker B 读到一致状态。"""
     import asyncio as _asyncio
 
     async def _gen():
         last_progress = None
         last_status   = None
         for _ in range(1200):  # 20 分钟上限
-            with _BT_RUN_LOCK:
-                rec = _BT_RUNS.get(run_id)
-                if not rec:
-                    yield "event: missing\ndata: {}\n\n"
-                    return
-                cur = {
-                    "status":   rec.get("status"),
-                    "progress": rec.get("progress", ""),
-                    "started_at":  rec.get("started_at", 0),
-                    "finished_at": rec.get("finished_at", 0),
-                    "elapsed_sec": round((rec.get("finished_at") or time.time()) - rec.get("started_at", time.time()), 1),
-                    "has_result": bool(rec.get("result")),
-                }
+            rec = _bt_get(run_id)  # R51: 跨 worker 读
+            if not rec:
+                yield "event: missing\ndata: {}\n\n"
+                return
+            started  = float(rec.get("started_at") or 0)
+            finished = float(rec.get("finished_at") or 0)
+            cur = {
+                "status":   rec.get("status"),
+                "progress": rec.get("progress", ""),
+                "started_at":  started,
+                "finished_at": finished,
+                "elapsed_sec": round((finished or time.time()) - started, 1) if started else 0,
+                "has_result": bool(rec.get("result")),
+            }
             if cur["status"] != last_status or cur["progress"] != last_progress:
                 import json as _json
                 yield f"data: {_json.dumps(cur, ensure_ascii=False)}\n\n"
@@ -4249,17 +4376,21 @@ async def api_screener_backtest_stream(run_id: str = ""):
 # ─────────── R97: 取消运行中的回测 ───────────
 @app.post("/api/screener/backtest/cancel")
 async def api_screener_backtest_cancel(run_id: str = ""):
-    """标记 run_id 为 cancelled; _bt_run_bg 的 _cb 检查到后抛 KeyboardInterrupt."""
+    """标记 run_id 为 cancelled; _bt_run_bg 的 _cb 检查到后抛 KeyboardInterrupt.
+       R51: 取消标记迁 cache_store (跨 worker 可见)"""
     if not run_id:
         return envelope(error="缺少 run_id")
+    rec = _bt_get(run_id)  # R51: 跨 worker 读
+    if not rec:
+        return envelope(error="run_id 不存在")
+    if rec.get("status") != "running":
+        return envelope(error=f"状态 {rec.get('status')} 不可取消")
+    _bt_mark_cancelled(run_id)  # R51: 写 cache_store (跨 worker 可见)
+    _bt_put_fields(run_id, progress="正在取消…")
     with _BT_RUN_LOCK:
-        rec = _BT_RUNS.get(run_id)
-        if not rec:
-            return envelope(error="run_id 不存在")
-        if rec.get("status") != "running":
-            return envelope(error=f"状态 {rec.get('status')} 不可取消")
-        _BT_CANCELLED.add(run_id)
-        rec["progress"] = "正在取消…"
+        _BT_CANCELLED.add(run_id)  # 本地 fast-path
+        if run_id in _BT_RUNS:
+            _BT_RUNS[run_id]["progress"] = "正在取消…"
     log.info(f"[bt-cancel] rid={run_id} 标记取消")
     return envelope(data={"ok": True, "run_id": run_id})
 
@@ -4693,6 +4824,501 @@ async def stock_overview(
 _STOCK_LAST_OK: dict[str, dict] = {}
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# R-fix-2026-07-18 A1+A2: /api/stock/{code}/full — 单端点预聚合个股页全部数据
+# 设计目标:
+#   - 一次 fetch 拿全 quote + kline + fund_flow + seats + sector + limit_up_ctx +
+#     strong_stocks + seat_breakdown + related_news + ai_status
+#   - 服务端 asyncio.gather 并行,per-task timeout,部分失败容忍
+#   - Redis 5s 缓存 (K.STOCK_FULL:{code}) — 行情 5s 内复用,跨进程共享
+#   - Single-flight 合并并发拉取,避免同一 code 在 5s 窗口内被 N 个请求各打一次
+#   - ai_status 只读不触发 LLM (LLM fire-and-forget 走 A5 单独处理)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/stock/{code}/full")
+async def stock_full(code: str, fresh: int = Query(0, ge=0, le=1), date: str = Query("")):
+    """个股页单端点预聚合 (5s 缓存)。
+
+    返回结构 (与 stock_overview data 字段对齐 + 扩展):
+      {
+        code, name,
+        quote, kline, fund_flow, seats, holders,        # 与 stock_overview 相同
+        sector,                                           # /api/stock/{code}/sector
+        limit_up_ctx,                                     # /api/stock/{code}/limit_up_context
+        strong_stocks,                                    # /api/stock/{code}/strong_stocks
+        seat_breakdown,                                   # /api/stock/{code}/seat_breakdown (8 类席位 + 标签)
+        related_news,                                     # /api/stock/{code}/related_news
+        ai_status,                                        # {ready, cached, model, ts, verdict, summary}
+        intraday,                                         # 今日分时 (凑齐首屏 4 张卡)
+        extras, is_historical, snapshot_date,             # 与 stock_overview 相同
+        _partial, _degraded_fields, _cache_hit, ts,
+      }
+    """
+    code = _require_valid_code(code)
+    _touch_recent(code)
+
+    cache_key = cache_store.K.STOCK_FULL.format(code=code)
+    if not fresh:
+        cached = _store_get(cache_key, ttl=5)
+        if cached:
+            cached["_cache_hit"] = True
+            return envelope(data=cached)
+
+    # Single-flight: 同一 code 5s 窗口内并发合并 (避免雪崩打 akshare)
+    out = await _singleflight_stock_full(code, date)
+    out["_cache_hit"] = False
+
+    # 写 Redis 5s
+    _store_set(cache_key, out, ttl=5)
+    return envelope(data=out)
+
+
+def _singleflight_stock_full(code: str, date: str):
+    """合并并发:同一 code 5s 内的多个请求共享同一份预聚合结果。
+
+    用 SingleFlight (process-local),Redis 已经做了 5s 跨进程去重,
+    这里主要是防 redis miss + N 个请求同时触发 _build_full 的开销。
+    """
+    key = ("stock_full", code)
+    inflight = _STOCK_FULL_INFLIGHT.get(key)
+    if inflight is not None and not inflight.done():
+        return inflight
+    fut = asyncio.ensure_future(_build_stock_full(code, date))
+    _STOCK_FULL_INFLIGHT[key] = fut
+    fut.add_done_callback(lambda f: _STOCK_FULL_INFLIGHT.pop(key, None))
+    return fut
+
+
+_STOCK_FULL_INFLIGHT: dict = {}
+
+
+async def _build_stock_full(code: str, date: str) -> dict:
+    """真实预聚合:asyncio.gather 并行 + per-task timeout + 部分失败容忍"""
+    from . import sector_classify as _sc
+    from . import news_lookup as _nl
+    from . import limit_up_context as _lu_ctx
+    from . import seat_classify as _seat_clf
+    from .sector_taxonomy import classify_taxonomy as _classify_tax
+    import datetime as _dt
+
+    target_date = (date or "").strip().replace("/", "-")
+    today_yyyymmdd = _dt.date.today().strftime("%Y-%m-%d")
+    is_historical = bool(target_date) and target_date < today_yyyymmdd
+
+    # ─── 子任务定义 ────────────────────────────────────────────────────────────
+    # 1) 主包 (quote + kline + flow + seats + holders) — 复用 stock_overview 的 _quote / 加载器
+    from .. import lib_common as lc
+    from .. import data_layer as dl
+
+    @cached(_cache_quote, key_fn=lambda c: ("quote", c))
+    def _quote(c):
+        return lc.fetch_realtime(c)
+
+    def _holders(c):
+        from . import holder_lookup
+        return holder_lookup.fetch_holder_info(c)
+
+    # 历史快照模式: 主包按 stock_overview 同样逻辑 (kline → 构造伪 quote + 截断 seats)
+    if is_historical:
+        def _hist_snapshot(code_, cutoff_date):
+            k = stock_kline_loader(code_, 250) or []
+            k.sort(key=lambda r: r.get("date") or "")
+            bar = None
+            for row in reversed(k):
+                rd = str(row.get("date") or "")[:10]
+                if rd <= cutoff_date:
+                    bar = row
+                    break
+            if not bar:
+                return {}, []
+            prev_c = 0
+            for row in k:
+                rd = str(row.get("date") or "")[:10]
+                if rd < cutoff_date:
+                    prev_c = float(row.get("close") or 0)
+            op = float(bar.get("open") or 0)
+            cl = float(bar.get("close") or 0)
+            hi = float(bar.get("high") or 0)
+            lo = float(bar.get("low") or 0)
+            ps = _quote_hist(code_, cutoff_date) or {}
+            q = {
+                "name": ps.get("name") or "",
+                "最新价": cl, "今开": op, "昨收": prev_c,
+                "最高": hi, "最低": lo, "涨跌幅": (cl / prev_c - 1) * 100 if prev_c else 0,
+                "涨跌额": cl - prev_c, "成交量": float(bar.get("volume") or 0),
+                "成交额": float(bar.get("amount") or 0),
+                "时间": bar.get("date"),
+                "换手率": 0, "振幅": ((hi - lo) / prev_c * 100) if prev_c else 0,
+                "流通市值": 0, "总市值": 0, "市盈率": 0,
+            }
+            return q, k
+
+        def _quote_hist(code_, cutoff_date):
+            return _quote(code_) or {}  # fallback 实在拿不到就用实时
+
+        def _hist_flow(code_, cutoff_date):
+            try:
+                f = fund_flow.get_combined(code_, 60) or {}
+                today_v = (f.get("today") or {})
+                if today_v:
+                    today_d = str(today_v.get("date") or "")[:10]
+                    if today_d > cutoff_date:
+                        f["today"] = None
+                hist = f.get("history") or []
+                f["history"] = [r for r in hist if str(r.get("date") or "")[:10] <= cutoff_date]
+                return f
+            except Exception:
+                return {"code": code_, "today": None, "history": []}
+
+        def _hist_seats(code_, cutoff_date):
+            try:
+                sd = seat_lookup.get_stock_seats(code_, 60) or {}
+                rows = sd.get("rows") or []
+                rows = [r for r in rows if str(r.get("date") or "")[:10] <= cutoff_date]
+                sd["rows"] = rows
+                sd["is_historical"] = True
+                sd["snapshot_date"] = cutoff_date
+                return sd
+            except Exception:
+                return {"code": code_, "rows": [], "is_historical": True, "snapshot_date": cutoff_date}
+
+        snapshot_t = to_thread(_hist_snapshot, code, target_date)
+        flow_t     = to_thread(_hist_flow, code, target_date)
+        seats_t    = to_thread(_hist_seats, code, target_date)
+        holders_t  = to_thread(_holders, code)
+        quote_t    = None
+        kline_t    = None
+    else:
+        quote_t   = to_thread(_quote, code)
+        flow_t    = to_thread(fund_flow.get_combined, code, 60)
+        seats_t   = to_thread(seat_lookup.get_stock_seats, code, 10)
+        kline_t   = to_thread(stock_kline_loader, code, 120)
+        holders_t = to_thread(_holders, code)
+        snapshot_t = None
+
+    # 2) sector / limit_up / strong / news / seat_breakdown / ai_status (并行预拉)
+    sector_t  = to_thread(_sc.get_sector, code)
+    lu_t      = to_thread(_lu_ctx.get_limit_up_context, code, None)  # 先不带 sector,获取原始
+    strong_t  = to_thread(_fetch_strong_rows_global)  # 全局共享 (5min)
+    seat_bd_t = to_thread(_seat_clf.build_breakdown, code)
+    news_t    = to_thread(_nl.load_cache)
+    ai_t      = to_thread(_get_ai_status, code, today_yyyymmdd)
+    intraday_t = to_thread(_fetch_intraday_today, code)
+
+    # 3) per-task timeout, 部分失败容忍 (失败返 None,后续 _ok 兜底)
+    async def _wt(coro, sec):
+        if coro is None:
+            return None
+        try:
+            return await asyncio.wait_for(coro, timeout=sec)
+        except asyncio.TimeoutError:
+            log.warning(f"stock_full 上游超时 {sec}s (code={code})")
+            return None
+        except Exception as e:
+            log.warning(f"stock_full 上游异常: {e} (code={code})")
+            return None
+
+    # 4) 一次性 gather 所有任务 (主包 + 子包), 12s 强等 + 6s 弱等
+    gather_coro = asyncio.gather(
+        _wt(snapshot_t, 8) if snapshot_t else _wt(quote_t, 5),
+        _wt(flow_t, 6),
+        _wt(seats_t, 4),
+        _wt(kline_t, 5) if kline_t else _wt(snapshot_t, 8),  # 主路径用 kline_t,历史模式用 snapshot
+        _wt(holders_t, 6),
+        _wt(sector_t, 4),
+        _wt(lu_t, 6),
+        _wt(strong_t, 4),
+        _wt(seat_bd_t, 10),
+        _wt(news_t, 3),
+        _wt(ai_t, 2),
+        _wt(intraday_t, 5),
+    )
+    try:
+        results = await asyncio.wait_for(gather_coro, timeout=12)
+    except asyncio.TimeoutError:
+        log.warning(f"stock_full {code} 12s 弱超时 → 再 6s")
+        try:
+            results = await asyncio.wait_for(gather_coro, timeout=6)
+        except asyncio.TimeoutError:
+            log.warning(f"stock_full {code} 18s 仍超时 → 部分降级")
+            stale = _STOCK_LAST_OK.get(code)
+            if stale and (time.time() - stale["ts"]) < 1800:
+                age = int(time.time() - stale["ts"])
+                # 用陈旧主包数据,子包字段保留空
+                out = dict(stale["data"])
+                out.update({"_partial": True, "_degraded_fields": ["flow", "seats", "sector", "lu", "strong", "seat_bd", "news", "ai"], "_stale_seconds": age, "ts": time.time()})
+                return out
+            results = (None,) * 12  # 全部 None
+
+    # 5) 解构结果 (主包)
+    if is_historical and snapshot_t is not None:
+        snap = results[0] if isinstance(results[0], tuple) else ({}, [])
+        quote, kline = snap
+        flow = results[1]
+        seats = results[2]
+        holders = results[3]
+    else:
+        quote = results[0]
+        flow = results[1]
+        seats = results[2]
+        kline = results[3]
+        holders = results[4]
+
+    sector      = results[5]
+    lu_ctx      = results[6]
+    strong      = results[7]
+    seat_bd     = results[8]
+    news_raw    = results[9]
+    ai_status   = results[10]
+    intraday    = results[11]
+
+    # 6) news 过滤 (按 sector + code 命中)
+    related_news = _filter_news_for_stock(news_raw, code, sector)
+
+    # 7) 补 sectorName 给 lu_ctx (如子包未带 sector,基于 sector 字段补一次)
+    sector_name = (sector or {}).get("sw") or (sector or {}).get("csrc") or (sector or {}).get("gics") or ""
+    if lu_ctx and sector_name and not lu_ctx.get("sector_name_used"):
+        # lu_ctx 已 get_limit_up_context(code, None),若需要 sector_name 增强,这里覆盖
+        try:
+            lu_ctx = _lu_ctx.get_limit_up_context(code, sector_name)
+        except Exception:
+            pass
+
+    # 8) strong_stocks 包装 (与 /api/stock/{code}/strong_stocks 格式一致)
+    if strong is not None and isinstance(strong, list):
+        # 计算本股的 tax (在主线程外可能已 cache 在 _STRONG_TAX_CACHE)
+        tax_l1, tax_l2, tax_l3, tax_l4 = "", sector_name, "", []
+        tax_key = f"tax:{code}"
+        tax_cached = _STRONG_TAX_CACHE.get(tax_key)
+        if tax_cached and (time.time() - tax_cached.get("ts", 0)) < 3600:
+            tax_l1, tax_l2, tax_l3, tax_l4 = tax_cached["l1"], tax_cached["l2"], tax_cached["l3"], tax_cached["l4"]
+        else:
+            try:
+                tax = _classify_tax(code, sector_name or None) or {}
+                tax_l1 = (tax.get("level1_cluster") or "").strip()
+                tax_l2 = (tax.get("level2_sw") or sector_name or "").strip()
+                tax_l3 = (tax.get("level3_chain") or "").strip()
+                tax_l4 = list(tax.get("level4_subconcept") or [])
+                _STRONG_TAX_CACHE[tax_key] = {"l1": tax_l1, "l2": tax_l2, "l3": tax_l3, "l4": tax_l4, "ts": time.time()}
+            except Exception:
+                pass
+        strong_stocks = {
+            "rows": strong,
+            "count": len(strong),
+            "code": code,
+            "tax_l1": tax_l1,
+            "tax_l2": tax_l2,
+            "tax_l3": tax_l3,
+            "tax_l4": tax_l4,
+            "ts": time.time(),
+        }
+    else:
+        strong_stocks = {"rows": [], "count": 0, "code": code, "tax_l1": "", "tax_l2": sector_name, "tax_l3": "", "tax_l4": []}
+
+    # 9) 兜底默认值 (与 stock_overview 一致)
+    def _ok(v, default):
+        if isinstance(v, BaseException) or v is None:
+            return default
+        return v
+    quote = _ok(quote, {})
+    flow  = _ok(flow, {"code": code, "today": None, "history": []})
+    seats = _ok(seats, {"code": code, "rows": [], "blacklisted": False,
+                         "seat_count": 0, "total_lhb_rows": 0, "known_groups": [],
+                         "buy_total_wan": None, "sell_total_wan": None})
+    kline = _ok(kline, [])
+    holders = _ok(holders, None)
+    sector = _ok(sector, {"code": code})
+    lu_ctx = _ok(lu_ctx, {"code": code, "today": None, "recent_5d": [], "sector_today": [], "summary": ""})
+    seat_bd = _ok(seat_bd, {"code": code, "rows": [], "categories": [], "intraday": {}, "risks": [], "signals": {"positive": [], "warning": []}, "tags": []})
+    related_news = _ok(related_news, [])
+    ai_status = _ok(ai_status, {"ready": False, "cached": False, "model": "MiniMax-M3", "ts": 0})
+    intraday = _ok(intraday, {"code": code, "minutes": [], "date": today_yyyymmdd})
+
+    # 10) name 字段修正
+    cur_name = (quote.get("name") or "").strip()
+    if not cur_name or cur_name == code or (cur_name.isdigit() and len(cur_name) == 6):
+        try:
+            for c, n in dl.fetch_stock_list_all() or []:
+                if c == code:
+                    quote["name"] = n
+                    break
+        except Exception as e:
+            log.warning(f"[name-lookup] error for {code}: {e}")
+    if not quote.get("name"):
+        quote["name"] = code
+
+    # 11) 计算 extras (与 stock_overview 同样的逻辑)
+    quote = _normalize_quote(quote)
+    price = float(quote.get("最新价") or 0)
+    high = float(quote.get("最高") or 0)
+    low = float(quote.get("最低") or 0)
+    open_p = float(quote.get("今开") or 0)
+    prev_close = float(quote.get("昨收") or 0)
+    amplitude = ((high - low) / prev_close * 100) if (high and low and prev_close) else 0
+
+    kline5 = (kline or [])[-5:] if kline else []
+    pct_5d = None
+    pct_20d = None
+    vol_5d_avg = None
+    streak_history = []
+    if kline5:
+        closes_5 = [float(k.get("close") or 0) for k in kline5]
+        if closes_5[0] and closes_5[-1]:
+            pct_5d = round((closes_5[-1] / closes_5[0] - 1) * 100, 2)
+        if kline:
+            closes_all = [float(k.get("close") or 0) for k in kline]
+            if len(closes_all) >= 20 and closes_all[-20] and closes_all[-1]:
+                pct_20d = round((closes_all[-20] / closes_all[-1] - 1) * 100, 2)  # 修正:20天前→今天
+                pct_20d = round((closes_all[-1] / closes_all[-20] - 1) * 100, 2)
+            vols = [float(k.get("volume") or 0) for k in kline[-5:]]
+            vol_5d_avg = int(sum(vols) / len(vols)) if vols else None
+        prev_c = 0
+        for k in kline[-12:]:
+            cl = float(k.get("close") or 0)
+            hi = float(k.get("high") or 0)
+            if prev_c <= 0:
+                prev_c = cl
+                continue
+            chg = (cl / prev_c - 1) * 100 if prev_c else 0
+            limit_pct = 0.20 if code.startswith(("300", "301", "688")) else 0.10
+            limit_th = 19.0 if limit_pct >= 0.20 else 9.0
+            if chg >= limit_th and abs(hi - cl) < 0.02 * cl:
+                streak_history.append({"date": k.get("date"), "change_pct": round(chg, 2), "limit_pct": int(limit_pct * 100)})
+            prev_c = cl
+
+    is_kc = code.startswith(("300", "301", "688"))
+    limit_pct = 0.20 if is_kc else 0.10
+    limit_up_price = round(prev_close * (1 + limit_pct), 2) if prev_close else None
+    limit_dn_price = round(prev_close * (1 - limit_pct), 2) if prev_close else None
+
+    out = {
+        "code": code,
+        "name": quote.get("name") or code,
+        "quote": quote or {},
+        "fund_flow": flow,
+        "seats": seats,
+        "kline": kline or [],
+        "holders": holders,
+        "main_exit": None,
+        "extras": {
+            "amplitude_pct":     round(amplitude, 2),
+            "pct_5d":            pct_5d,
+            "pct_20d":           pct_20d,
+            "vol_5d_avg":        vol_5d_avg,
+            "limit_up_price":    limit_up_price,
+            "limit_dn_price":    limit_dn_price,
+            "limit_pct":         limit_pct * 100,
+            "streak_history":    streak_history,
+            "is_chinext_star":   is_kc,
+        },
+        "is_historical":   is_historical,
+        "snapshot_date":   target_date or "",
+        # ─── 新增子包 ────────────────────────────────────────────────────────
+        "sector":          sector,
+        "limit_up_ctx":    lu_ctx,
+        "strong_stocks":   strong_stocks,
+        "seat_breakdown":  seat_bd,
+        "related_news":    related_news,
+        "ai_status":       ai_status,
+        "intraday":        intraday,
+        # ─── 状态 ──────────────────────────────────────────────────────────────
+        "_partial":        False,
+        "_degraded_fields": [],
+        "ts":              time.time(),
+    }
+    # 写陈旧兜底
+    if not is_historical and quote:
+        _STOCK_LAST_OK[code] = {"data": out, "ts": time.time()}
+    return out
+
+
+def _fetch_intraday_today(code: str) -> dict:
+    """今日分时 — 复用 _fetch_intraday_for_date 逻辑"""
+    try:
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        minutes = _fetch_intraday_for_date(code, today) or []
+        return {"code": code, "date": today, "minutes": minutes}
+    except Exception:
+        return {"code": code, "minutes": [], "date": ""}
+
+
+def _filter_news_for_stock(news_cache, code, sector) -> list:
+    """从 news_lookup 全量 cache 中过滤与本股相关的新闻 (与 stock_related_news 同逻辑)"""
+    try:
+        if not news_cache:
+            return []
+        sw = (sector or {}).get("sw") or ""
+        news = news_cache.get("news") or []
+        ai = news_cache.get("ai") or {}
+        matched = []
+        for n in news:
+            a = ai.get(n.get("id"))
+            if not a:
+                continue
+            hit_reason = []
+            if code in (a.get("stocks") or []):
+                hit_reason.append("提及该股")
+            if sw and sw in (a.get("sectors") or []):
+                hit_reason.append(f"行业={sw}")
+            if hit_reason:
+                matched.append({**n, "ai": a, "hit_reason": " · ".join(hit_reason)})
+        return matched[:8]
+    except Exception:
+        return []
+
+
+def _get_ai_status(code: str, trade_date: str) -> dict:
+    """只读 AI 状态 — 不触发 LLM。
+
+    返回:
+      - ready:   bool (有缓存即可用)
+      - cached:  bool (来自缓存)
+      - model:   模型名
+      - ts:      最后更新时间
+      - verdict: AI verdict (有缓存时填)
+      - summary: 摘要 (有缓存时填)
+    """
+    try:
+        from . import cache_db as _cdb
+        ai = _cdb.get_cached_ai(trade_date, code, "MiniMax-M3") or {}
+        if ai and ai.get("verdict"):
+            return {
+                "ready": True,
+                "cached": True,
+                "model": "MiniMax-M3",
+                "ts": int(ai.get("ts_updated") or 0),
+                "verdict": ai.get("verdict") or "",
+                "summary": ai.get("summary") or "",
+                "conviction": ai.get("conviction") or 0,
+            }
+    except Exception as e:
+        log.warning(f"ai_status read fail: {e}")
+    return {"ready": False, "cached": False, "model": "MiniMax-M3", "ts": 0, "verdict": "", "summary": ""}
+
+
+# ─── Redis K.STOCK_FULL helpers ────────────────────────────────────────────────
+
+def _store_get(key: str, ttl: int = 5):
+    """从 Redis 读缓存,带 ttl (秒) 新鲜度判断。失败返 None 不影响主路径。
+
+    简化:Redis SET 时已带 ex=ttl,过期自动删除。我们只 get 后看是否还在,
+    但 Redis 过期键直接 None → 自动透传到主路径再 build。
+    """
+    try:
+        return cache_store.get_store().get(key)
+    except Exception:
+        return None
+
+
+def _store_set(key: str, value, ttl: int = 5) -> bool:
+    """写 Redis 缓存,失败静默。"""
+    try:
+        cache_store.get_store().set(key, value, ttl=ttl)
+        return True
+    except Exception:
+        return False
+
+
 def stock_kline_loader(code: str, days: int = 120) -> list[dict]:
     from .. import lib_common as lc
     @cached(_cache_kline, key_fn=lambda c, d: ("kline", c, d))
@@ -4724,6 +5350,88 @@ def stock_kline_loader(code: str, days: int = 120) -> list[dict]:
             r["vol_ratio_5d"] = round(r["volume"] / v5, 2) if v5 else 0
         return rows
     return _load(code, days)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# R-fix-2026-07-18 B1+B2: 个股 SSE 增量推送
+#   - GET /api/stock/{code}/stream
+#   每 1s 推 quote_patch (价格/chg/volume hash 变化时);每 2s 扫 ai_ready / SSE
+#   长连接保持,前端 EventSource 订阅,_currentStockStream 切股时 close
+# ════════════════════════════════════════════════════════════════════════════════
+@app.get("/api/stock/{code}/stream")
+async def stock_stream(code: str, request: _Request):
+    """SSE: 个股页增量推送。
+    事件类型:
+      - quote_patch : quote hash 变化时推
+      - ai_ready    : 后台 LLM 完成时推 (从 cache_store ai_ready:{code} 读)
+      - intraday_tick : 分时新分钟 (启动时即刻推,后续每 60s 拉一次)
+      - ping        : 心跳 (10s 无事时)
+    """
+    code = _require_valid_code(code)
+    from sse_starlette.sse import EventSourceResponse
+
+    last_quote_hash = None
+    last_ai_ts_seen = 0
+    last_intraday_push = 0
+    t_start = time.time()
+
+    async def gen():
+        nonlocal last_quote_hash, last_ai_ts_seen, last_intraday_push
+        try:
+            # 首帧: 立即推送当前 quote (让前端第一帧就能 patch 价格)
+            q_now = _cache_quote.get(("quote", code)) if _cache_quote else None
+            if q_now:
+                yield {"event": "quote_patch", "data": json.dumps({
+                    "code": code, "quote": q_now, "ts": time.time()
+                }, default=str)}
+                last_quote_hash = hash((q_now.get("最新价"), q_now.get("涨跌额"), q_now.get("成交量")))
+            yield {"event": "ready", "data": json.dumps({"code": code, "ts": time.time()})}
+            while True:
+                if await request.is_disconnected():
+                    break
+                await asyncio.sleep(1.0)
+                pushed_any = False
+                # ── 1) quote_patch (1Hz)
+                try:
+                    q_now = _cache_quote.get(("quote", code)) if _cache_quote else None
+                    if q_now:
+                        h = hash((q_now.get("最新价"), q_now.get("涨跌额"), q_now.get("成交量")))
+                        if h != last_quote_hash:
+                            yield {"event": "quote_patch", "data": json.dumps({
+                                "code": code, "quote": q_now, "ts": time.time()
+                            }, default=str)}
+                            last_quote_hash = h
+                            pushed_any = True
+                except Exception:
+                    pass
+                # ── 2) ai_ready (cache_store key 监听)
+                try:
+                    from .. import cache_store as _cs_sse
+                    ai_data = _cs_sse.get_store().get(f"tx3:ai_ready:{code}")
+                    if ai_data and isinstance(ai_data, dict):
+                        ai_ts = ai_data.get("ts", 0)
+                        if ai_ts > last_ai_ts_seen and ai_ts > t_start - 5:
+                            yield {"event": "ai_ready", "data": json.dumps({
+                                "code": code,
+                                "verdict": ai_data.get("verdict"),
+                                "summary": ai_data.get("summary"),
+                                "conviction": ai_data.get("conviction"),
+                                "ts": ai_ts,
+                            }, default=str)}
+                            last_ai_ts_seen = ai_ts
+                            pushed_any = True
+                except Exception:
+                    pass
+                # ── 3) 心跳 (无事时每 10s 一次)
+                if not pushed_any and (time.time() - last_intraday_push > 10):
+                    yield {"event": "ping", "data": json.dumps({"ts": time.time()})}
+                    last_intraday_push = time.time()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.debug(f"[stock-stream] {code} gen err: {e}")
+
+    return EventSourceResponse(gen(), ping=15)
 
 
 # ───────────────────────────────────────────────────────────
@@ -5307,14 +6015,124 @@ def _safe_float(v, default=None):
         return default
 
 
+# R-fix-2026-07-18 A5: 后台跑 AI verdict,不阻塞前端,完成后写 cache_db 让前端 SSE/snapshot 看到
+async def _background_ai_task(code: str, date: str | None, run_id: str) -> None:
+    """fire-and-forget LLM 任务,完成时 1) 写 cache_db  2) 推 SSE (B 阶段用)。
+
+    失败 / 超时不报错 — 日志即可,主路径已经走 cache_db.get_cached_ai 兜底。
+    """
+    from .. import cache_db as _cdb
+    from . import ai_client
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    today_str = date or datetime.datetime.now().strftime("%Y%m%d")
+    t0 = time.time()
+    try:
+        log.info(f"[ai-bg] start {run_id} (code={code}, date={today_str})")
+        # 检查缓存 — 已经存在就跳过
+        hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3")
+        if hit and ai_client.is_valid_cached_verdict(hit):
+            log.info(f"[ai-bg] skip {run_id} — already cached")
+            return
+        if not api_key:
+            log.warning(f"[ai-bg] {run_id} skip — no MINIMAX_API_KEY")
+            return
+        # 复用 stock_ai_analysis 主路径 (内部有缓存 + 数据采集 + LLM)
+        # 直接调 _call_minimax 一行就够 (避免再走缓存检查的双重 round-trip)
+        # 组装 ctx
+        from .. import lib_common as lc
+        from . import limit_up_context as _limit_up_ctx
+        from .sector_classify import get_sector as _get_sector
+        def _q(): return lc.fetch_realtime(code)
+        q_t = to_thread(_q)
+        f_t = to_thread(fund_flow.get_combined, code, 60)
+        s_t = to_thread(seat_lookup.get_stock_seats, code, 10)
+        k_t = to_thread(stock_kline_loader, code, 60)
+        def _lu(): return _limit_up_ctx.get_limit_up_context(code, sector_name=None)
+        def _sc(): return _get_sector(code)
+        lu_t = to_thread(_lu)
+        sc_t = to_thread(_sc)
+        async def _wt(coro, sec):
+            try: return await asyncio.wait_for(coro, timeout=sec)
+            except Exception: return None
+        try:
+            quote, flow, seats, kline, lu_, sector_ = await asyncio.wait_for(
+                asyncio.gather(_wt(q_t, 4), _wt(f_t, 6), _wt(s_t, 4), _wt(k_t, 6), _wt(lu_t, 6), _wt(sc_t, 5)),
+                timeout=14,
+            )
+        except asyncio.TimeoutError:
+            log.warning(f"[ai-bg] {run_id} upstream timeout")
+            return
+        def _ok(v, default): return default if isinstance(v, BaseException) or v is None else v
+        quote = _ok(quote, {})
+        flow = _ok(flow, {"code": code, "today": None, "history": []})
+        seats = _ok(seats, {"code": code, "rows": [], "blacklisted": False})
+        kline = _ok(kline, [])
+        lu_ = _ok(lu_, {"code": code, "today": None, "recent_5d": [], "sector_today": []})
+        sector_ = _ok(sector_, {"code": code, "sw": None})
+        if (not kline) and (not quote):
+            log.warning(f"[ai-bg] {run_id} upstream empty")
+            return
+        ctx = {"quote": quote, "fund_flow": flow, "seats": seats, "kline": kline, "limit_up": lu_, "sector": sector_}
+        loop = asyncio.get_event_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(_EXECUTOR, functools.partial(_call_minimax, api_key, code, ctx)),
+                timeout=35,
+            )
+        except asyncio.TimeoutError:
+            log.warning(f"[ai-bg] {run_id} LLM 35s timeout")
+            return
+        if not result:
+            log.warning(f"[ai-bg] {run_id} LLM empty")
+            return
+        # 写 cache_db
+        sector_name = (sector_ or {}).get("sw") or ""
+        _cdb.upsert_ai(today_str, code, "MiniMax-M3", result, sector=sector_name)
+        log.info(f"[ai-bg] {run_id} done in {time.time()-t0:.1f}s, verdict={result.get('verdict')}")
+        # 通知前端 — 通过 Redis pub (B 阶段 SSE 订阅会用上)
+        try:
+            from .. import cache_store as _cs_pub
+            _cs_pub.get_store().set(f"ai_ready:{code}", {"ts": time.time(), "verdict": result.get("verdict"), "summary": result.get("summary")[:100], "conviction": result.get("conviction")}, ttl=600)
+        except Exception:
+            pass
+    except Exception as e:
+        log.exception(f"[ai-bg] {run_id} fail: {e}")
+    except Exception:
+        return default
+
+
 @app.get("/api/stock/{code}/ai_analysis")
-async def stock_ai_analysis(code: str, date: str | None = Query(None, description="YYYYMMDD;空=今日")):
+@app.post("/api/stock/{code}/ai_analysis")
+async def stock_ai_analysis(code: str, date: str | None = Query(None, description="YYYYMMDD;空=今日"),
+                            background: int = Query(0, description="1=fire-and-forget,立刻返,不阻塞前端")):
     """基于铁律的 AI 买入判断. 需配置 MINIMAX_API_KEY 环境变量.
 
-    2026-07-11: 加 date 参数支持历史 verdict 回看(供 AI 面板历史对比条用)。
+    2026-07-11: 加 date 参数支持历史 verdict 回看。
+    2026-07-18 A5: 加 background=1 — 前端 fire-and-forget 触发,后台任务跑 LLM 写 cache_db,
+                  立刻返 {queued: True, run_id} 不阻塞前端。
     """
     code = _require_valid_code(code)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+
+    # R-fix-2026-07-18 A5: background=1 → 后台 fire-and-forget 跑 LLM,立刻返
+    # 防抖:同一只 5 分钟内最多 1 次,避免每次切页面都打 LLM
+    if background:
+        from .. import cache_store as _cs_ai
+        lock_key = f"ai_bg_lock:{code}"
+        got = _cs_ai.get_store().set_nx(lock_key, datetime.datetime.now().isoformat(), ttl=300)
+        if not got:
+            return envelope(data={"queued": False, "reason": "debounced", "code": code})
+        run_id = f"{code}-{datetime.datetime.now().strftime('%H%M%S%f')}"
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_background_ai_task(code, date, run_id))
+        except RuntimeError:
+            log.warning("[ai-bg] no running loop, sync fallback")
+            try:
+                await _background_ai_task(code, date, run_id)
+            except Exception as e:
+                log.warning(f"[ai-bg] sync fallback fail: {e}")
+        return envelope(data={"queued": True, "run_id": run_id, "code": code, "eta_sec": 25})
 
     # 1) 先查 SQLite 日内缓存 — 命中直接返(避免每次都打 25-35s LLM)
     from .. import cache_db as _cdb
@@ -8444,10 +9262,8 @@ def main():
         use_h2 = False
 
     if not use_h2:
-        # R51: workers=1 临时方案 — _BT_RUNS 是 in-process dict, 多 worker 时
-        # POST 落 worker A 但 SSE/GET 落 worker B → 永远返回 "missing".
-        # 待 _BT_RUNS 迁 cache_store (跨进程共享) 后再恢复 workers=4
-        print(f"  · {runner_name} (HTTP/1.1) ·  1 worker ·  keep-alive 300s (R51 workers=1)")
+        # R51: workers=4 恢复 — _BT_RUNS 已迁 cache_store (Redis 共享), 跨 worker 状态一致
+        print(f"  · {runner_name} (HTTP/1.1) ·  4 workers ·  keep-alive 300s (R51 cache_store)")
         print()
         uvicorn.run(
             "tuixue_v3.web.server:app",
@@ -8455,7 +9271,7 @@ def main():
             port=args.port,
             reload=args.reload,
             log_level="warning",
-            workers=1,
+            workers=4,
             timeout_keep_alive=300,
         )
         return

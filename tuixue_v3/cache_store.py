@@ -272,6 +272,10 @@ class CacheStore:
         self._sqlite_ops = 0
         self._latency_ms = 0.0
 
+        # P-perf: 热路径跳过 ping — 成功 ping 30s 内不再发 ping
+        self._last_ping_ok_ts = 0.0
+        self._PING_SKIP_WINDOW = 30.0
+
         # 后台探活
         self._stop_event = threading.Event()
         self._bg_thread: threading.Thread | None = None
@@ -320,17 +324,24 @@ class CacheStore:
             self._bg_thread.join(timeout=2)
 
     def _try_redis(self) -> bool:
-        """Inline ping (cheap, 0.5s timeout)。所有 get/set 入口调用。"""
+        """Inline ping (cheap, 0.5s timeout)。所有 get/set 入口调用。
+        P-perf: 最近 _PING_SKIP_WINDOW 秒内成功过 → 跳过 ping,直走 Redis。
+        """
         if not self._redis:
             return False
+        now = systime.monotonic()
+        # 热路径:30s 内成功过则跳过 ping
+        if self._redis_available and now - self._last_ping_ok_ts < self._PING_SKIP_WINDOW:
+            return True
         try:
-            t0 = systime.monotonic()
+            t0 = now
             self._redis.ping()
             self._latency_ms = (systime.monotonic() - t0) * 1000
             if not self._redis_available:
                 log.info("CacheStore: Redis 已恢复,切回主用")
             self._redis_available = True
             self._ping_fail_count = 0
+            self._last_ping_ok_ts = systime.monotonic()
             return True
         except (RedisConnError, RedisTimeoutError, OSError) as e:
             self._ping_fail_count += 1
@@ -435,6 +446,33 @@ class CacheStore:
                 ok = True
             except Exception as e:
                 log.debug(f"Redis delete {k} 失败: {e}")
+        if self.fallback:
+            self.fallback.delete(k)
+            self._record_sqlite()
+            ok = True
+        return ok
+
+    def set_nx(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
+        """SETNX: 原子 — 仅当 key 不存在时设置。返回 True=设置成功, False=key 已存在。
+        用于跨进程互斥锁 (如 _BT_RUNS 启动前的 '已有回测在跑' 检查)。"""
+        k = self._k(key)
+        v = self._encode(value)
+        if self._try_redis():
+            try:
+                ok = bool(self._redis.set(k, v, nx=True, ex=ttl if ttl > 0 else None))
+                self._record_redis()
+                return ok
+            except Exception as e:
+                log.debug(f"Redis set_nx {k} 失败: {e}")
+        if self.fallback:
+            with self.fallback._lock:
+                existing = self.fallback.get(k)
+                if existing is not None:
+                    return False
+                self.fallback.set(k, v, ttl)
+            self._record_sqlite()
+            return True
+        return False
         if self.fallback:
             self.fallback.delete(k)
             self._record_sqlite()
@@ -766,6 +804,9 @@ class K:
     SPOT_ALL = "spot:all"                     # TTL 60s
     # K线
     KLINE = "kline:{code}:{days}"             # TTL 300s
+    # R-fix-2026-07-18 A1+A2: 个股页 /full 端点预聚合缓存 (key=code, value={quote, kline, sector, ...})
+    STOCK_FULL = "stock_full:{code}"          # TTL 5s (实时数据)
+    STOCK_FULL_DATE = "stock_full:{code}:{date}"  # 历史快照 TTL 60s
     # 全球情绪
     GLOBAL_SENTIMENT = "global:sentiment"     # TTL 60s
     # AI verdict (Hash: model → json)
@@ -775,6 +816,8 @@ class K:
     WATCHLIST_AI = "watchlist_ai:{code}"      # TTL 至 23:59
     # 资金结构
     CAPITAL = "capital:{code}"                # TTL 60s
+    # 预计算K线 (含MA)
+    KLINE_PRE = "kline_pre:{code}:{days}"     # TTL 4h
     # 新闻
     NEWS = "news:cache"                       # TTL 30min
     # 板块映射
@@ -785,6 +828,13 @@ class K:
     # 交易 (双写)
     TRADE = "trade:{id}"                      # 永久
     REVIEW = "review:{trade_id}"              # 永久
+    # R51: 跨进程回测状态 (替代 in-process _BT_RUNS dict)
+    BT_RUN = "bt:run:{run_id}"                # Hash {status, progress, periods, ...}, TTL 1h
+    BT_LOCK = "bt:lock"                       # String 当前运行 run_id, TTL 5min (超时自动释放)
+    BT_CANCEL = "bt:cancel:{run_id}"          # String 存在即取消, TTL 10min (废弃 run_id 自动清)
+    # R-fix-2026-07-18 A5: LLM fire-and-forget 防抖锁 + 完成通知
+    AI_BG_LOCK = "ai_bg_lock:{code}"          # String SETNX lock, TTL 300s (每只 5min 最多 1 次)
+    AI_READY = "ai_ready:{code}"              # 完成后写,前端 SSE 订阅看到, TTL 600s
 
 
 def ttl_until_midnight() -> int:
