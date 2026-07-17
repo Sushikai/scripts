@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import functools
 import json
+import re as _re
 import logging
 import os
 import secrets
@@ -79,6 +80,23 @@ def _safe_dumps(obj, **kw):
 
 
 json.dumps = _safe_dumps
+
+
+# ───────────────────────────────────────────────────────────
+# Path-param 校验: A 股代码必须 6 位数字, 拼下游 SQL/URL/subprocess 之前必过此关
+# ───────────────────────────────────────────────────────────
+_CODE_RE = _re.compile(r"^\d{6}$")
+
+
+def _require_valid_code(code: str) -> str:
+    """必须 6 位纯数字; 否则 422. 自动 strip + zfill. 返回归一化后的 6 位 code."""
+    if not isinstance(code, str):
+        raise HTTPException(status_code=422, detail="股票代码必须是字符串")
+    code = code.strip().zfill(6)
+    if not _CODE_RE.fullmatch(code):
+        raise HTTPException(status_code=422, detail=f"无效的股票代码: {code!r} (需 6 位数字)")
+    return code
+
 
 # ───────────────────────────────────────────────────────────
 # 应用
@@ -302,6 +320,16 @@ async def _security_headers_middleware(request, call_next):
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     # 我们同源 API 为主, 不向外暴露完整 URL 参数
     resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    # 2026-07-16: ngrok 6024 警告页兜底 — 给所有响应注入 abuse_interstitial cookie
+    # value=host 是 ngrok free tier 实际期望的格式 (Playwright 实测抓出来的)
+    # 30 天有效期; 与 ngrok traffic policy 互补 — 任一处生效都能 bypass 6024
+    # 注意: 404/401/405 等错误响应也带 Set-Cookie, 反正客户端会忽略
+    host = request.headers.get("host", "")
+    if host.endswith(".ngrok-free.dev") or host.endswith(".ngrok-free.app") or host.endswith(".ngrok.io"):
+        resp.headers.setdefault(
+            "Set-Cookie",
+            f"abuse_interstitial={host}; Path=/; Max-Age=2592000; Secure; SameSite=None"
+        )
     return resp
 
 
@@ -2448,7 +2476,7 @@ async def stock_search(q: str = Query(..., min_length=1, max_length=10)):
 
 @app.get("/api/stock/{code}/kline")
 async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
 
     # P-perf: 优先读预计算K线缓存(含MA),跨进程共享
     try:
@@ -2503,10 +2531,124 @@ async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
     return envelope(data={"code": code, "kline": kline or []})
 
 
+# ── 100-R3: 全A风向 5D sparkline 端点 — 返回最近 5 日收盘 + 涨跌幅,前端画 SVG ──
+# 缓存键以 (code, days=5) 走 _cache_kline,与 stock_kline 共享 TTL (120s 实际 8s)
+# 主源腾讯 fqkline (1req 全 A),akshare fallback (5 日慢但稳)
+def _fetch_sparkline_tencent(code: str, days: int) -> list:
+    """腾讯 fqkline 拉最近 N 日 K — 单次拿全 A 不卡,但 sandbox DNS 可能挂"""
+    import requests as _req
+    mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
+    url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+    params = {"param": f"{mkt}{code},day,,,{days+5},qfq"}
+    try:
+        r = _req.get(url, params=params, timeout=4,
+                     headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+        if r.status_code != 200:
+            return []
+        j = r.json()
+        # 路径: data -> {code: {qfqday: [[date, open, close, high, low, vol, ...], ...]}}
+        code_data = (j.get("data") or {}).get(f"{mkt}{code}") or {}
+        rows = code_data.get("qfqday") or code_data.get("day") or []
+        out = []
+        for r in rows[-days:]:
+            try:
+                out.append({
+                    "date":  str(r[0])[:10],
+                    "close": float(r[2]),
+                    "pct":   float(r[6]) if len(r) > 6 else 0,
+                })
+            except Exception:
+                continue
+        return out
+    except Exception:
+        return []
+
+
+@app.get("/api/stock/{code}/sparkline")
+async def stock_sparkline(code: str, days: int = Query(5, ge=3, le=10)):
+    code = _require_valid_code(code)
+
+    @cached(_cache_kline, key_fn=lambda c, d: ("spark", c, d))
+    def _load(code_, days_):
+        # 100-R3: 腾讯主源(快),akshare 兜底
+        rows = _fetch_sparkline_tencent(code_, days_)
+        if rows:
+            return rows
+        from .. import lib_common as lc
+        df = lc.fetch_daily(code_, days=days_)
+        if df is None or df.empty:
+            return []
+        out = []
+        for _, row in df.iterrows():
+            out.append({
+                "date":  str(row.get("日期", ""))[:10],
+                "close": _safe_float(row.get("收盘")),
+                "pct":   _safe_float(row.get("涨跌幅")),
+            })
+        return out
+    try:
+        rows = await asyncio.wait_for(to_thread(_load, code, days), timeout=8)
+    except asyncio.TimeoutError:
+        return envelope(data={"code": code, "sparkline": [], "_degraded": "upstream_timeout"})
+    return envelope(data={"code": code, "sparkline": rows or []})
+
+
+# ── 100-R3: 批量 sparkline — 全A风向 N 行一次性拉,避免 N×RTT ──
+@app.post("/api/stock/sparklines")
+async def stock_sparklines_batch(body: dict):
+    """body = {codes: ['600519','000001',...], days: 5} → {data: {code: [{date,close,pct}]}}
+    缓存键以 sorted tuple 走 _cache_kline;腾讯串行 + 单 code 失败不影响其他
+    """
+    codes = (body or {}).get("codes") or []
+    days  = int((body or {}).get("days") or 5)
+    if not isinstance(codes, list) or not codes:
+        return envelope(data={})
+    days = max(3, min(days, 10))
+    codes = [str(c).strip().zfill(6)[:6] for c in codes[:80]]  # 单次 ≤80 只
+
+    @cached(_cache_kline, key_fn=lambda codes_, d: ("spark_batch", tuple(sorted(codes_)), d))
+    def _batch(codes_, d):
+        out = {}
+        # 100-R3: 改串行→并行 — 4 threadpool 跑 (sandbox DNS 慢时还能凑出结果)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def _one(c):
+            try:
+                rows = _fetch_sparkline_tencent(c, d)
+                if not rows:
+                    from .. import lib_common as lc
+                    df = lc.fetch_daily(c, days=d)
+                    if df is not None and not df.empty:
+                        rows = []
+                        for _, row in df.iterrows():
+                            rows.append({
+                                "date":  str(row.get("日期", ""))[:10],
+                                "close": _safe_float(row.get("收盘")),
+                                "pct":   _safe_float(row.get("涨跌幅")),
+                            })
+                return c, rows or []
+            except Exception:
+                return c, []
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futures = [ex.submit(_one, c) for c in codes_]
+            for fut in as_completed(futures, timeout=25):
+                try:
+                    code_, rows_ = fut.result(timeout=10)
+                    out[code_] = rows_
+                except Exception:
+                    continue
+        return out
+
+    try:
+        data = await asyncio.wait_for(to_thread(_batch, codes, days), timeout=28)
+    except asyncio.TimeoutError:
+        return envelope(data={}, error="sparkline 批量超时")
+    return envelope(data=data)
+
+
 @app.get("/api/stock/{code}/fund_flow")
 async def stock_fund(code: str, days: int = Query(60, ge=10, le=180),
                      fresh: int = Query(0, ge=0, le=1)):
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     _touch_recent(code)
     if fresh:
         _cache_fund.invalidate(("fund_flow", code, days))
@@ -2523,7 +2665,7 @@ async def stock_fund(code: str, days: int = Query(60, ge=10, le=180),
 
 @app.get("/api/stock/{code}/seats")
 async def stock_seats(code: str, days: int = Query(30, ge=5, le=90)):
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     seats = await to_thread(seat_lookup.get_stock_seats, code, days)
     return envelope(data=seats or {"code": code, "rows": [], "blacklisted": False,
                                     "seat_count": 0, "total_lhb_rows": 0,
@@ -2541,7 +2683,7 @@ async def stock_seat_breakdown(code: str, fresh: int = Query(0, ge=0, le=1)):
     按用户字典 §五/§六 全部席位都挂 metadata.
     """
     from . import seat_classify
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     _touch_recent(code)
     _empty = {"code": code, "rows": [], "all_rows_count": 0, "last_date": None,
               "categories": [], "total_amount_wan": None,
@@ -2567,7 +2709,7 @@ async def stock_intraday_5d(code: str):
     - 今日分时 tick (akshare stock_intraday_em)
     历史分钟 K 走东财 RemoteDisconnected 拿不到,盘中分时 tick 兜底
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
 
     def _load():
         from .. import multi_source_fetchers as msf
@@ -2734,52 +2876,37 @@ async def stock_intraday_5d(code: str):
 
 def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") -> dict:
     """
-    拉取指定日期的 intraday tick。
-    - date_str 格式 YYYY-MM-DD
-    - prefer_source: "tencent" / "sina" / "" - 指定优先源(空 = 自动)
-      - today + "" 自动时:tencent > sina > akshare(取 1min 精度优先)
-      - 历史 + "" 自动时:sina > akshare
-    - 失败时返回空 ticks + note 字段说明原因
+    多源并行糅合 intraday tick — 2026-07-16 重写。
+    同时启动 akshare / tencent / sina / efinance 四源,各线程独立运行,
+    超时后收集全部结果,选 tick 数最多(粒度最细)的源为主数据,
+    多源均返回时打 blended 标签。
     """
     from datetime import datetime
-    import threading
-    out = {"code": code, "date": date_str, "ticks": [], "ticks_n": 0, "source": "", "note": ""}
+    import threading, time as _time
+    out = {"code": code, "date": date_str, "ticks": [], "ticks_n": 0, "source": "", "note": "", "prev_close": None}
     today_str = datetime.now().strftime("%Y-%m-%d")
     is_today = (date_str == today_str)
     ymd = date_str.replace("-", "")
 
-    # 1) akshare 主源 - DNS 劫持环境下会卡住 socket,用线程 + join timeout 强制 5s 上限
-    def _ak_call():
-        import akshare as ak
-        if is_today:
-            return ak.stock_intraday_em(symbol=code), "stock_intraday_em"
-        try:
-            return (ak.stock_zh_a_hist_min_em(symbol=code, period="1",
-                                              start_date=ymd, end_date=ymd, adjust="qfq"),
-                    "stock_zh_a_hist_min_em(1m)")
-        except Exception:
-            return (ak.stock_zh_a_hist_min_em(symbol=code, period="5",
-                                              start_date=ymd, end_date=ymd, adjust="qfq"),
-                    "stock_zh_a_hist_min_em(5m)")
+    TIMEOUT = 12     # 总超时 12s,并行各源共享
+    EARLY_EXIT_TICKS = 200  # ≥200 tick 即认为粒度够好,提前返回
+    mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
+    lock = threading.Lock()
+    done_early = threading.Event()
+    results = []  # [{source, ticks, prev_close}, ...]
 
-    ak_box = {"df": None, "src": ""}
-    def _ak_run():
-        try:
-            df, src = _ak_call()
-            if df is not None and not df.empty:
-                ak_box["df"] = df
-                ak_box["src"] = src
-        except Exception as e:
-            log.info(f"akshare intraday 内部异常: {e}")
+    def _push(src, ticks, pc):
+        with lock:
+            results.append({"source": src, "ticks": list(ticks), "prev_close": pc})
+            if len(ticks) >= EARLY_EXIT_TICKS:
+                done_early.set()
 
-    t = threading.Thread(target=_ak_run, daemon=True)
-    t.start()
-    t.join(timeout=5)
-    df = ak_box["df"]
-    if df is not None and not df.empty:
-        ticks = []
+    # ── helper: akshare tick 提取 ──
+    def _ak_parse(df, src_name):
+        tcks = []
+        pc = None
         for _, r in df.iterrows():
-            ticks.append({
+            tcks.append({
                 "time":        str(r.get("时间", "")),
                 "price":       _safe_float(r.get("成交价", r.get("收盘", r.get("最新价")))),
                 "open":        _safe_float(r.get("开盘", 0)) or None,
@@ -2789,126 +2916,207 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
                 "amount":      _safe_float(r.get("成交额", 0)) or None,
                 "side":        str(r.get("买卖盘性质", "")),
             })
-        out["ticks"] = ticks
-        out["ticks_n"] = len(ticks)
-        out["source"] = ak_box["src"]
-        return out
+            if r.get("昨收") is not None and pc is None:
+                pc = _safe_float(r.get("昨收"))
+        if pc is None and tcks:
+            for t in tcks:
+                if t.get("open") and t["open"] > 0:
+                    pc = t["open"]
+                    break
+        if tcks:
+            _push(src_name, tcks, pc)
 
-    # 2) sina 5min K(最多 480 根 ≈ 5 交易日,day 过滤到指定日期;今天/历史都走这条)
-    try:
-        import requests
-        mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
-        url = "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
-        r = requests.get(url, params={"symbol": f"{mkt}{code}", "scale": "5", "ma": "no", "datalen": "1440"},
-                         timeout=6, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"})
-        if r.status_code == 200 and r.text.strip().startswith("["):
-            import json as _json
+    # ── 1) akshare ──
+    def _ak_worker():
+        try:
+            import akshare as ak
+            if is_today:
+                df = ak.stock_intraday_em(symbol=code)
+                _ak_parse(df, "akshare_intraday_em")
+            else:
+                try:
+                    df = ak.stock_zh_a_hist_min_em(
+                        symbol=code, period="1", start_date=ymd, end_date=ymd, adjust="qfq")
+                    if df is not None and not df.empty:
+                        _ak_parse(df, "akshare_1m")
+                        return
+                except Exception:
+                    pass
+                df = ak.stock_zh_a_hist_min_em(
+                    symbol=code, period="5", start_date=ymd, end_date=ymd, adjust="qfq")
+                _ak_parse(df, "akshare_5m")
+        except Exception as e:
+            log.info(f"akshare 并行异常: {e}")
+
+    # ── 2) sina 5min K ──
+    def _sina_worker():
+        try:
+            import requests as _req, json as _json
+            url = "http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+            r = _req.get(url, params={"symbol": f"{mkt}{code}", "scale": "5", "ma": "no", "datalen": "1440"},
+                         timeout=8, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"})
+            if r.status_code != 200 or not r.text.strip().startswith("["):
+                return
             arr = _json.loads(r.text)
-            # 过滤到指定日期
-            day_prefix = date_str  # YYYY-MM-DD
-            ticks = []
+            tcks, pc = [], None
+            day_prefix = date_str
             for it in arr:
                 day = it.get("day", "")
                 if not day.startswith(day_prefix):
                     continue
-                ticks.append({
+                tcks.append({
                     "time":        day[11:19] if len(day) >= 19 else day,
                     "price":       _safe_float(it.get("close")),
                     "open":        _safe_float(it.get("open")) or None,
                     "high":        _safe_float(it.get("high")) or None,
                     "low":         _safe_float(it.get("low")) or None,
-                    "volume_hand": _safe_float(it.get("volume")),  # sina 返回股数
+                    "volume_hand": _safe_float(it.get("volume")),
                     "amount":      None,
                     "side":        "",
                 })
-            if ticks:
-                out["ticks"] = ticks
-                out["ticks_n"] = len(ticks)
-                out["source"] = "sina_5min_k"
-                return out
-    except Exception as e:
-        log.info(f"sina 5min 失败: {e}")
-
-    # 3) 腾讯分钟 K - 只用于今天(历史传 date 参数仍返回最新一天,不可靠)
-    if is_today:
-        try:
-            import requests as _req
-            mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
-            url = "http://web.ifzq.gtimg.cn/appstock/app/minute/query"
-            params = {"code": f"{mkt}{code}"}
-            r = _req.get(url, params=params, timeout=6,
-                         headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
-            if r.status_code == 200:
-                import json as _json
-                j = r.json()
-                data = (j.get("data") or {}).get(f"{mkt}{code}", {}).get("data") or {}
-                raw = data.get("data") or []
-                if raw:
-                    ticks = []
-                    for line in raw:
-                        parts = line.split(" ")
-                        if len(parts) < 3:
-                            continue
-                        t = parts[0]  # HHMM
-                        if len(t) == 4 and t.isdigit():
-                            t = f"{t[:2]}:{t[2:]}:00"
-                        ticks.append({
-                            "time":        t,
-                            "price":       _safe_float(parts[1]),
-                            "volume_hand": _safe_float(parts[2]) if len(parts) > 2 else None,
-                            "amount":      _safe_float(parts[3]) if len(parts) > 3 else None,
-                            "open": None, "high": None, "low": None, "side": "",
-                        })
-                    if ticks:
-                        out["ticks"] = ticks
-                        out["ticks_n"] = len(ticks)
-                        out["source"] = "tencent_minute"
-                        return out
+            if tcks:
+                for t in tcks:
+                    if t.get("open") and t["open"] > 0:
+                        pc = t["open"]
+                        break
+                _push("sina_5m", tcks, pc)
         except Exception as e:
-            log.info(f"tencent minute 失败: {e}")
+            log.info(f"sina 并行异常: {e}")
 
-    # 4) efinance 5min K 兜底 (2026-07-16 新增)
-    #    akshare + sina + tencent 三源全挂时启用,东财轻封装, threading + join 硬超时
-    #    不带历史 date,只补今日 / 单日分时 → 仍可作为当日分钟 fallback
-    try:
-        import threading as _thr_ef
-        ef_box = {"df": None, "err": ""}
-        def _ef_run():
-            try:
-                import efinance as ef
-                ef_box["df"] = ef.stock.get_quote_history(
-                    code, beg=ymd, end=ymd, klt=5, fqt=1)
-            except Exception as e:
-                ef_box["err"] = f"{type(e).__name__}: {str(e)[:60]}"
-        t_ef = _thr_ef.Thread(target=_ef_run, daemon=True)
-        t_ef.start()
-        t_ef.join(timeout=6)
-        df_ef = ef_box["df"]
-        if df_ef is not None and not df_ef.empty:
-            ticks = []
-            for _, r in df_ef.iterrows():
-                t = str(r.get("时间", r.get("日期", "")))
-                ticks.append({
-                    "time":        t,
-                    "price":       _safe_float(r.get("收盘", r.get("最新价"))),
+    # ── 3) 腾讯分钟 K (仅 today, 历史 date 不可靠) ──
+    def _tencent_worker():
+        if not is_today:
+            return
+        try:
+            import requests as _req, json as _json
+            url = "http://web.ifzq.gtimg.cn/appstock/app/minute/query"
+            r = _req.get(url, params={"code": f"{mkt}{code}"}, timeout=8,
+                         headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+            if r.status_code != 200:
+                return
+            j = r.json()
+            raw = (j.get("data") or {}).get(f"{mkt}{code}", {}).get("data", {}).get("data") or []
+            tcks = []
+            for line in raw:
+                parts = line.split(" ")
+                if len(parts) < 3:
+                    continue
+                t = parts[0]
+                if len(t) == 4 and t.isdigit():
+                    t = f"{t[:2]}:{t[2:]}:00"
+                p = _safe_float(parts[1])
+                if p is None or p == 0 or not t:
+                    continue
+                tcks.append({
+                    "time": t, "price": p,
+                    "volume_hand": _safe_float(parts[2]) if len(parts) > 2 else None,
+                    "amount":      _safe_float(parts[3]) if len(parts) > 3 else None,
+                    "open": None, "high": None, "low": None, "side": "",
+                })
+            if tcks:
+                # tencent 无 prev_close,留 None
+                _push("tencent_minute", tcks, None)
+        except Exception as e:
+            log.info(f"tencent 并行异常: {e}")
+
+    # ── 4) efinance 5min K 兜底 ──
+    def _ef_worker():
+        try:
+            import threading as _thr
+            bx = {"df": None}
+            def _run():
+                try:
+                    import efinance as ef
+                    bx["df"] = ef.stock.get_quote_history(code, beg=ymd, end=ymd, klt=5, fqt=1)
+                except Exception:
+                    pass
+            t = _thr.Thread(target=_run, daemon=True)
+            t.start()
+            t.join(timeout=8)
+            df = bx["df"]
+            if df is None or df.empty:
+                return
+            tcks, pc = [], None
+            for _, r in df.iterrows():
+                tm = str(r.get("时间", r.get("日期", "")))
+                tcks.append({
+                    "time": tm, "price": _safe_float(r.get("收盘", r.get("最新价"))),
                     "volume_hand": _safe_float(r.get("成交量")),
                     "amount":      _safe_float(r.get("成交额")),
                     "open":        _safe_float(r.get("开盘")),
                     "high":        _safe_float(r.get("最高")),
                     "low":         _safe_float(r.get("最低")),
-                    "side":        "",
+                    "side": "",
                 })
-            if ticks:
-                out["ticks"] = ticks
-                out["ticks_n"] = len(ticks)
-                out["source"] = "efinance_5min"
-                return out
-        elif ef_box["err"]:
-            log.info(f"efinance 5min 失败: {ef_box['err']}")
-    except Exception as e:
-        log.info(f"efinance 5min 兜底层异常: {e}")
+            if tcks:
+                for t in tcks:
+                    if t.get("open") and t["open"] > 0:
+                        pc = t["open"]
+                        break
+                _push("efinance_5m", tcks, pc)
+        except Exception as e:
+            log.info(f"efinance 并行异常: {e}")
 
-    out["note"] = f"{date_str} 分时拉取失败(akshare + sina + tencent + efinance 四源全挂,可能是网络层 DNS 劫持或非交易日)"
+    # ── 启动所有线程,轮询等待(early-exit 优化) ──
+    workers = [
+        threading.Thread(target=_ak_worker, daemon=True),
+        threading.Thread(target=_sina_worker, daemon=True),
+        threading.Thread(target=_tencent_worker, daemon=True),
+        threading.Thread(target=_ef_worker, daemon=True),
+    ]
+    deadline = _time.time() + TIMEOUT
+    for w in workers:
+        w.start()
+    # 轮询:每 0.5s 检查 early-exit 信号或 deadline
+    while _time.time() < deadline:
+        if done_early.is_set():
+            break
+        # 检查是否所有线程已结束
+        if all(not w.is_alive() for w in workers):
+            break
+        _time.sleep(0.5)
+    # 确保至少等所有线程启动后的第一次检查
+    for w in workers:
+        w.join(timeout=0.1)
+
+    # ── 选最佳: tick 数最多 = 粒度最细 ──
+    if not results:
+        out["note"] = (f"{date_str} 分时拉取失败"
+                       "(akshare/sina/tencent/efinance 四源并行全挂)")
+        return out
+
+    results.sort(key=lambda r: len(r["ticks"]), reverse=True)
+    best = results[0]
+    out["ticks"] = best["ticks"]
+    out["ticks_n"] = len(best["ticks"])
+    # prev_close: 优先用最佳源的;若无,从其他源补
+    out["prev_close"] = best["prev_close"]
+    if out["prev_close"] is None:
+        for r in results:
+            if r["prev_close"] is not None and r["prev_close"] > 0:
+                out["prev_close"] = r["prev_close"]
+                break
+    # 如多源均有数据且最佳源 < 次佳源 2 倍,才糅合去重
+    if len(results) >= 2:
+        second = results[1]
+        ratio = len(best["ticks"]) / max(len(second["ticks"]), 1)
+        # 当次佳源有 60%+ 有效数据 → 糅合标记
+        if ratio < 1.8:
+            srcs = [r["source"] for r in results[:3]]
+            out["source"] = "blended_" + "+".join(srcs)
+            # 去重 merge: 按 time 补缺失 tick (但不替代主源已有数据)
+            seen = {t["time"] for t in out["ticks"]}
+            for r in results[1:]:
+                for t in r["ticks"]:
+                    if t["time"] and t["time"] not in seen:
+                        out["ticks"].append(t)
+                        seen.add(t["time"])
+            out["ticks"].sort(key=lambda t: t.get("time", ""))
+            out["ticks_n"] = len(out["ticks"])
+        else:
+            out["source"] = best["source"]
+    else:
+        out["source"] = best["source"]
     return out
 
 
@@ -3030,7 +3238,7 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
     - 历史: stock_zh_a_hist_min_em 1min → 5min 兜底
     失败时返回空 ticks + note 字段说明原因
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     # 归一化 date
     d = (date or "").strip()
     if not d:
@@ -3161,7 +3369,7 @@ async def stock_sector(code: str):
     个股板块分类(交易所板块 + 4 套行业)
     """
     from .sector_classify import get_sector
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     def _load():
         return get_sector(code)
     try:
@@ -3211,7 +3419,7 @@ async def stock_related_news(code: str):
     - 或新闻 stocks 列表里包含此 code
     """
     from .sector_classify import get_sector
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     def _load():
         sec = get_sector(code)
         sw = sec.get("sw")
@@ -3788,10 +3996,13 @@ async def api_screener_stream(_request: _Request):
 _BT_RUNS: dict[str, dict] = {}   # run_id → {status, progress, result, error, started_at, finished_at}
 _BT_RUN_LOCK = threading.Lock()
 _BT_RUN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bt-run")
+_BT_RUN_TTL_SEC = 3600  # R2: GC 1 小时清理已完成回测的结果集,防 memory leak
+_BT_TIMEOUT_SEC = 300  # R9: 单次回测上限 5 分钟; 超时直接终止 _BT_RUN_EXECUTOR 线程
+_BT_CANCELLED: set[str] = set()  # R97: 取消标记
 
 
 class _BacktestReq(BaseModel):
-    periods:           list[str] = []  # 子集 eg ["1周","1月"]; 空 = 跑默认
+    periods:           list[str] = Field(default=[], max_length=12)  # R17: 上限 12 防恶意输入; 子集 eg ["1周","1月"]; 空 = 跑默认
     hold_days:         int = 3         # 持仓天数 (次级 7 套退场对比)
     top_n:             int = 1         # 每日 Top N
     sample:            int = 1200      # 主板采样数 (0=全量, 慢)
@@ -3800,6 +4011,11 @@ class _BacktestReq(BaseModel):
     sector_hot_topn:   int = 0         # 热门板块 top N (软线叠加使用)
     sector_inflow_topn: int = 0        # 资金净流入板块 top N (amount_ratio 估)
     require_surge_label: bool = False  # 只选"次日大概率异动"标签
+    # 2026-07-17 R1: actual_10 默认关闭 — 验证发现 100 只半年需 3 分钟
+    enable_actual_10:  bool = False    # 用真实 10:00 close 重算水下退场 (慢, 默认开)
+    index_late_up:     bool = False    # 2026-07-17 R21: 大盘尾盘强势 (14:30-15:00 红盘)
+    sector_late_up:    bool = False    # 2026-07-17 R22: 个股所在板块尾盘强势
+    tail_vol_ratio_min: float = 0.0    # 2026-07-17 R23: 个股尾盘 10min 量比 ≥ X% (0=禁用)
 
 
 def _bt_period_resolver(periods: list[str]) -> list[str]:
@@ -3819,13 +4035,27 @@ def _bt_period_resolver(periods: list[str]) -> list[str]:
 
 def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, sample: int,
                breadth_min: int = 0, breadth_min_soft: int = 0, sector_hot_topn: int = 0,
-               sector_inflow_topn: int = 0, require_surge_label: bool = False) -> None:
+               sector_inflow_topn: int = 0, require_surge_label: bool = False,
+               enable_actual_10: bool = False, index_late_up: bool = False,
+               sector_late_up: bool = False, tail_vol_ratio_min: float = 0.0) -> None:
     from . import backtest_screener as _bt
+
+    # R97: progress_cb 检查取消标记,每步检查一次
+    # R28: 200ms debounce — progress_cb 调用 22+ 次/回测, 锁竞争拖慢主线程
+    _cb_last = [0.0]
+    _cb_last_msg = [""]
+    def _cb(msg: str) -> None:
+        if run_id in _BT_CANCELLED:
+            raise KeyboardInterrupt("user cancelled")
+        now = time.time()
+        if msg == _cb_last_msg[0] or (now - _cb_last[0]) < 0.2:
+            return
+        _cb_last[0] = now
+        _cb_last_msg[0] = msg
+        with _BT_RUN_LOCK:
+            if run_id in _BT_RUNS:
+                _BT_RUNS[run_id]["progress"] = msg
     try:
-        def _cb(msg: str) -> None:
-            with _BT_RUN_LOCK:
-                if run_id in _BT_RUNS:
-                    _BT_RUNS[run_id]["progress"] = msg
         r = _bt.run_for_frontend(
             period_keys,
             hold_days=hold_days,
@@ -3836,6 +4066,10 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             sector_hot_topn=sector_hot_topn,
             sector_inflow_topn=sector_inflow_topn,
             require_surge_label=require_surge_label,
+            enable_actual_10=enable_actual_10,
+            index_late_up=index_late_up,
+            sector_late_up=sector_late_up,
+            tail_vol_ratio_min=tail_vol_ratio_min,
             progress_cb=_cb,
         )
         with _BT_RUN_LOCK:
@@ -3850,8 +4084,10 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             if run_id in _BT_RUNS:
                 _BT_RUNS[run_id]["status"] = "error"
                 _BT_RUNS[run_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-                _BT_RUNS[run_id]["progress"] = "出错"
+                _BT_RUNS[run_id]["progress"] = "出错" if run_id not in _BT_CANCELLED else "已取消"
                 _BT_RUNS[run_id]["finished_at"] = time.time()
+        if run_id in _BT_CANCELLED:
+            _BT_CANCELLED.discard(run_id)
 
 
 @app.post("/api/screener/backtest")
@@ -3883,12 +4119,18 @@ async def api_screener_backtest(req: _BacktestReq):
             max(0, min(req.sector_hot_topn, 50)),
             max(0, min(req.sector_inflow_topn, 50)),
             req.require_surge_label,
+            req.enable_actual_10,
+            req.index_late_up,
+            req.sector_late_up,
+            float(req.tail_vol_ratio_min or 0),
         )
     except Exception as e:
         with _BT_RUN_LOCK:
             if run_id in _BT_RUNS:
                 _BT_RUNS[run_id]["status"] = "error"
                 _BT_RUNS[run_id]["error"] = str(e)
+                _BT_RUNS[run_id]["finished_at"] = time.time()  # R13: 立刻 GC,不靠 1h TTL
+                _BT_RUNS[run_id]["progress"] = "提交失败"
         return envelope(error=f"提交失败: {e}")
     return envelope(data={"ok": True, "run_id": run_id, "periods": period_keys,
                           "hold_days": req.hold_days, "top_n": req.top_n, "sample": req.sample,
@@ -3896,7 +4138,11 @@ async def api_screener_backtest(req: _BacktestReq):
                           "breadth_min_soft": req.breadth_min_soft,
                           "sector_hot_topn": req.sector_hot_topn,
                           "sector_inflow_topn": req.sector_inflow_topn,
-                          "require_surge_label": req.require_surge_label})
+                          "require_surge_label": req.require_surge_label,
+                          "enable_actual_10": req.enable_actual_10,
+                          "index_late_up": req.index_late_up,
+                          "sector_late_up": req.sector_late_up,
+                          "tail_vol_ratio_min": req.tail_vol_ratio_min})
 
 
 @app.get("/api/screener/backtest")
@@ -3905,7 +4151,9 @@ async def api_screener_backtest_status(run_id: str = ""):
     with _BT_RUN_LOCK:
         r = _BT_RUNS.get(run_id)
         if not r:
-            return envelope(error="run_id 不存在或已清理", data={"status": "missing"})
+            # R14: status=missing 时不设 error (ok=true, status="missing"),
+            # 前端可读 status 判断,无需处理 envelope.error
+            return envelope(data={"status": "missing", "result": None})
         out = {
             "status":      r.get("status"),
             "progress":    r.get("progress", ""),
@@ -3917,6 +4165,103 @@ async def api_screener_backtest_status(run_id: str = ""):
             "result":      r.get("result"),
         }
     return envelope(data=out)
+
+
+# ─────────── R2: 1 小时 GC + R9: 5 分钟超时 (后台监控线程) ───────────
+def _bt_gc_loop() -> None:
+    """每 60s 巡检一次 _BT_RUNS:
+       - 完成/失败 status 且 finished_at > 1h → 删
+       - running status 且 started_at > _BT_TIMEOUT_SEC → 标 timeout
+    """
+    while True:
+        try:
+            now = time.time()
+            with _BT_RUN_LOCK:
+                expired = []
+                timeout_ids = []
+                for rid, rec in list(_BT_RUNS.items()):
+                    finished = rec.get("finished_at") or 0
+                    started  = rec.get("started_at")  or 0
+                    if rec.get("status") in ("done", "error"):
+                        if finished and (now - finished) > _BT_RUN_TTL_SEC:
+                            expired.append(rid)
+                    elif rec.get("status") == "running":
+                        if started and (now - started) > _BT_TIMEOUT_SEC:
+                            timeout_ids.append(rid)
+                for rid in expired:
+                    rec = _BT_RUNS.get(rid, {})
+                    if rid in timeout_ids:
+                        rec["status"]     = "error"
+                        rec["error"]      = f"超时 (>{_BT_TIMEOUT_SEC}s) — 可能 actual_10 重算太长; 试试加 enable_actual_10=false 或缩 sample"
+                        rec["progress"]   = "超时"
+                        rec["finished_at"]= now
+                        log.warning(f"[bt-gc] rid={rid} 超时终止")
+                    else:
+                        log.debug(f"[bt-gc] rid={rid} 已过期, GC")
+                        _BT_RUNS.pop(rid, None)
+        except Exception as e:
+            log.debug(f"[bt-gc] err: {e}")
+        time.sleep(60)
+
+
+_bt_gc_thread = threading.Thread(target=_bt_gc_loop, daemon=True, name="bt-gc")
+_bt_gc_thread.start()
+log.info(f"[bt] GC + 超时监控线程已启动 (TTL={_BT_RUN_TTL_SEC}s, TIMEOUT={_BT_TIMEOUT_SEC}s)")
+
+
+# ─────────── R4: SSE 推送进度 (替代 1.5s poll) ───────────
+@app.get("/api/screener/backtest/stream")
+async def api_screener_backtest_stream(run_id: str = ""):
+    """SSE 推送 run_id 的状态变更 (idle → running → done/error). 客户端可继续轮询 /api/screener/backtest?run_id=... 取最终结果."""
+    import asyncio as _asyncio
+
+    async def _gen():
+        last_progress = None
+        last_status   = None
+        for _ in range(1200):  # 20 分钟上限
+            with _BT_RUN_LOCK:
+                rec = _BT_RUNS.get(run_id)
+                if not rec:
+                    yield "event: missing\ndata: {}\n\n"
+                    return
+                cur = {
+                    "status":   rec.get("status"),
+                    "progress": rec.get("progress", ""),
+                    "started_at":  rec.get("started_at", 0),
+                    "finished_at": rec.get("finished_at", 0),
+                    "elapsed_sec": round((rec.get("finished_at") or time.time()) - rec.get("started_at", time.time()), 1),
+                    "has_result": bool(rec.get("result")),
+                }
+            if cur["status"] != last_status or cur["progress"] != last_progress:
+                import json as _json
+                yield f"data: {_json.dumps(cur, ensure_ascii=False)}\n\n"
+                last_status   = cur["status"]
+                last_progress = cur["progress"]
+            if cur["status"] in ("done", "error", "missing"):
+                return
+            await _asyncio.sleep(1.0)  # R23: 0.5s → 1s, 减少服务端 poll 次数
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ─────────── R97: 取消运行中的回测 ───────────
+@app.post("/api/screener/backtest/cancel")
+async def api_screener_backtest_cancel(run_id: str = ""):
+    """标记 run_id 为 cancelled; _bt_run_bg 的 _cb 检查到后抛 KeyboardInterrupt."""
+    if not run_id:
+        return envelope(error="缺少 run_id")
+    with _BT_RUN_LOCK:
+        rec = _BT_RUNS.get(run_id)
+        if not rec:
+            return envelope(error="run_id 不存在")
+        if rec.get("status") != "running":
+            return envelope(error=f"状态 {rec.get('status')} 不可取消")
+        _BT_CANCELLED.add(run_id)
+        rec["progress"] = "正在取消…"
+    log.info(f"[bt-cancel] rid={run_id} 标记取消")
+    return envelope(data={"ok": True, "run_id": run_id})
 
 
 @app.get("/api/sector/{name}")
@@ -4050,7 +4395,7 @@ async def stock_overview(
       - fund_flow.history / seats 全部截断到 <=date
       - 返回 is_historical=true 让前端加"历史快照"标签
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     _touch_recent(code)
 
     # ─── 解析 date 参数 + 判断是否历史快照模式 ───
@@ -4664,7 +5009,7 @@ async def stock_limit_up_context(code: str, sector: str | None = None):
         sector: 该股所属板块(可选)- 传入可拉板块内涨停清单
     """
     from . import limit_up_context as _lu_ctx
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
 
     def _load(c: str, s):
         return _lu_ctx.get_limit_up_context(c, sector_name=s)
@@ -4689,6 +5034,136 @@ async def stock_limit_up_context(code: str, sector: str | None = None):
         })
 
 
+@app.get("/api/stock/{code}/strong_stocks")
+async def stock_strong_stocks(code: str, sector: str | None = None):
+    """
+    强势股清单 — 个股页面「连板 · 近期涨停 / 强势股」卡片用。
+
+    数据源: akshare.stock_zt_pool_strong_em (全市场近 N 日多次涨停 / 60 日新高强势股,通常 50-60 只)
+    返回:
+      - rows:    全量强势股 [ {代码,名称,涨跌幅,最新价,涨停价,成交额,流通市值,总市值,
+                                换手率,涨速,是否新高,量比,涨停统计,入选理由,所属行业} ]
+      - tax_l2/l3/l4: 当前股的 L2/L3/L4 标签 (前端按此过滤匹配"同板块"强势股)
+      - date_used: 实际查询日期 (今日或上一交易日)
+
+    缓存策略 (2026-07-17 修复冷启动慢):
+      - **rows 全局共享缓存** (不按 code): 全市场 60 只强势股每日变,5 分钟一份够用
+      - **tax_l3/l4 按 code 缓存**: 单只股的板块分类变化慢,1 小时一份
+      - 这避免每个 code 都触发 akshare.stock_zt_pool_strong_em() 重拉 (单次 1-5s)
+
+    Threading 硬超时保护 sandbox DNS 劫持 hang
+    """
+    code = _require_valid_code(code)
+    import datetime as _dt
+    from .sector_taxonomy import classify_taxonomy as _classify_tax
+
+    # 1) 全局 rows 缓存 (所有 code 共享,5 分钟)
+    now = time.time()
+    rows_cached = _STRONG_ROWS_CACHE.get("rows_global")
+    date_used = today_compact = _dt.datetime.now().strftime("%Y%m%d")
+    if rows_cached and (now - rows_cached.get("ts", 0)) < 300:
+        rows = rows_cached["rows"]
+        date_used = rows_cached.get("date_used", today_compact)
+    else:
+        # 冷启 → 拉一次 (4s 硬超时),5 分钟内所有 code 复用
+        rows = _fetch_strong_rows_global()
+        _STRONG_ROWS_CACHE["rows_global"] = {
+            "rows": rows, "ts": now, "date_used": date_used
+        }
+
+    # 2) 按 code 缓存 tax (1 小时,板块分类变化慢)
+    tax_cache_key = f"tax:{code}"
+    tax_cached = _STRONG_TAX_CACHE.get(tax_cache_key)
+    if tax_cached and (now - tax_cached.get("ts", 0)) < 3600:
+        tax_l1, tax_l2, tax_l3, tax_l4 = tax_cached["l1"], tax_cached["l2"], tax_cached["l3"], tax_cached["l4"]
+    else:
+        try:
+            tax = _classify_tax(code, sector or None) or {}
+            tax_l1 = (tax.get("level1_cluster") or "").strip()
+            tax_l2 = (tax.get("level2_sw") or sector or "").strip()
+            tax_l3 = (tax.get("level3_chain") or "").strip()
+            tax_l4 = list(tax.get("level4_subconcept") or [])
+        except Exception:
+            tax_l1 = tax_l2 = ""; tax_l3 = ""; tax_l4 = []
+        _STRONG_TAX_CACHE[tax_cache_key] = {
+            "l1": tax_l1, "l2": tax_l2, "l3": tax_l3, "l4": tax_l4, "ts": now
+        }
+
+    payload = {
+        "rows": rows,
+        "count": len(rows),
+        "date_used": date_used,
+        "code": code,
+        "tax_l1": tax_l1,
+        "tax_l2": tax_l2,
+        "tax_l3": tax_l3,
+        "tax_l4": tax_l4,
+        "ts": now,
+    }
+    return envelope(data=payload)
+
+
+def _fetch_strong_rows_global() -> list:
+    """全局拉一次 akshare.stock_zt_pool_strong_em (5 天回退),返回标准化 rows。"""
+    import datetime as _dt
+    today_compact = _dt.datetime.now().strftime("%Y%m%d")
+    rows: list = []
+    date_used = today_compact
+
+    def _query_ak(date_str: str):
+        import akshare as ak
+        df = ak.stock_zt_pool_strong_em(date=date_str)
+        if df is None or df.empty:
+            return []
+        out = []
+        for _, r in df.iterrows():
+            out.append({
+                "code":     str(r.get("代码", "")).zfill(6),
+                "name":     str(r.get("名称", "")),
+                "change_pct": float(r.get("涨跌幅", 0) or 0),
+                "price":    float(r.get("最新价", 0) or 0),
+                "limit_price": float(r.get("涨停价", 0) or 0),
+                "amount":   float(r.get("成交额", 0) or 0),
+                "circ_mv":  float(r.get("流通市值", 0) or 0),
+                "total_mv": float(r.get("总市值", 0) or 0),
+                "turnover_pct": float(r.get("换手率", 0) or 0),
+                "speed":    float(r.get("涨速", 0) or 0),
+                "is_new_high": str(r.get("是否新高", "否")) in ("是", "True", "true", "1"),
+                "vol_ratio": float(r.get("量比", 0) or 0),
+                "zt_stats": str(r.get("涨停统计", "") or ""),
+                "reason":   str(r.get("入选理由", "") or ""),
+                "industry": str(r.get("所属行业", "") or ""),
+            })
+        return out
+
+    for offset in range(0, 5):
+        d = _dt.datetime.now() - _dt.timedelta(days=offset)
+        d_str = d.strftime("%Y%m%d")
+        if d.weekday() >= 5 and offset == 0:
+            continue
+        try:
+            ex = ThreadPoolExecutor(max_workers=1)
+            try:
+                fut = ex.submit(_query_ak, d_str)
+                rows = fut.result(timeout=4) or []
+            finally:
+                ex.shutdown(wait=False)
+            if rows:
+                date_used = d_str
+                break
+        except Exception as e:
+            log.warning(f"strong_stocks akshare {d_str} 失败: {e}")
+            rows = []
+            continue
+    return rows
+
+
+# 进程内缓存 (2026-07-17 修复冷启动):
+# rows_global 是全市场 60 只共享 (5min),按 code 切股的 tax 是 1h
+_STRONG_ROWS_CACHE: dict = {}
+_STRONG_TAX_CACHE: dict = {}
+
+
 @app.get("/api/stock/{code}/related_stocks")
 async def stock_related_stocks(code: str, limit: int = 24):
     """相关个股推荐 — 同 L3 产业链 / 同 L4 细分标签 / 同 sw。
@@ -4703,7 +5178,7 @@ async def stock_related_stocks(code: str, limit: int = 24):
     )
     from .sector_taxonomy import classify_taxonomy as _classify_taxonomy
 
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     limit = max(6, min(50, limit))
 
     def _scan():
@@ -4838,7 +5313,7 @@ async def stock_ai_analysis(code: str, date: str | None = Query(None, descriptio
 
     2026-07-11: 加 date 参数支持历史 verdict 回看(供 AI 面板历史对比条用)。
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
 
     # 1) 先查 SQLite 日内缓存 — 命中直接返(避免每次都打 25-35s LLM)
@@ -5333,7 +5808,7 @@ async def stock_ai_crash_risk(code: str, force: bool = False):
     """量化砸盘风险检测 — 复用铁律, 同时跑盘面/席位/资金三路信号预扫描,
     把"机器能算的"全部算好再喂给 LLM, 让 LLM 只做最终综合判定。
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
 
     # SQLite 缓存 key: crash_risk:{date}:{code}
@@ -5538,7 +6013,7 @@ async def api_stock_ai_history(code: str, days: int = Query(7, ge=1, le=30)):
     数据源: ai_verdict 表 (SQLite 兜底 + Redis 主用,cache_db.get_cached_ai)。
     跨日的 cache_db 不会自动返回,所以这里直接走 SQL 查近 N 日,避免缓存 TTL 干扰。
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     from .. import cache_db as _cdb
     def _load():
         try:
@@ -5581,7 +6056,7 @@ async def api_stock_ai_layer_detail(code: str):
     L3 形态: 5/10/20 日涨跌 + 连板 + 涨停池归属 + 资金 5 日累计
     L4 分时: 今日 tick 量价 + 5 日分时形态 + 异动
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     # 读缓存(3min TTL,纯计算)
     hit = _cache_layer.get(("ai_layer_detail", code))
     if hit:
@@ -5796,7 +6271,7 @@ async def api_stock_ai_layer_detail(code: str):
 @app.post("/api/stock/{code}/ai_refresh")
 async def api_stock_ai_refresh(code: str):
     """强制重跑 AI (失效 Redis + SQLite 缓存),不传 force,直接清缓存然后走原始调用链。"""
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
     if not api_key:
         return envelope(error="MINIMAX_API_KEY 未配置", data={"code": code})
@@ -5811,10 +6286,11 @@ async def api_stock_ai_refresh(code: str):
     except Exception as e:
         log.debug(f"ai_refresh Redis delete 失败 {code}: {e}")
     try:
-        conn = _cdb._thread_conn()
-        conn.execute("DELETE FROM ai_verdict WHERE date=? AND code=? AND model=?",
-                     (today_str, code, "MiniMax-M3"))
-        conn.commit()
+        _cdb.safe_write(lambda conn: (
+            conn.execute("DELETE FROM ai_verdict WHERE date=? AND code=? AND model=?",
+                         (today_str, code, "MiniMax-M3")),
+            conn.commit(),
+        ))
     except Exception as e:
         log.debug(f"ai_refresh SQLite delete 失败 {code}: {e}")
 
@@ -5876,15 +6352,22 @@ async def api_backtest(req: BacktestRequest, request: Request):
     from ..backtest import run_backtest
     # P1-audit-2026-07-15: 重型计算,加 admin token 防 DoS
     if not _check_admin_token(request):
-        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
+        # R11: 走 envelope 而非 HTTPException detail,前端可统一解析 {ok, error}
+        return envelope(error="admin token required")
     # 硬超时 90s: 数据源 / LLM 在沙箱挂时不能拖死 server(2026-07-12 audit 发现)
     try:
+        # R20: 用 _LONG_EXECUTOR 而非通用 to_thread (后者走 _EXECUTOR 20 worker,
+        # 长任务会占满影响其他快端点)
+        loop = asyncio.get_event_loop()
         result = await asyncio.wait_for(
-            to_thread(
-                run_backtest,
-                start=req.start, end=req.end,
-                top_n=req.top_n, hold_days=req.hold_days,
-                sell_mode=req.sell_mode, sample=req.sample,
+            loop.run_in_executor(
+                _LONG_EXECUTOR,
+                functools.partial(
+                    run_backtest,
+                    start=req.start, end=req.end,
+                    top_n=req.top_n, hold_days=req.hold_days,
+                    sell_mode=req.sell_mode, sample=req.sample,
+                ),
             ),
             timeout=90,
         )
@@ -5892,6 +6375,11 @@ async def api_backtest(req: BacktestRequest, request: Request):
         log.warning(f"backtest 超时 90s ({req.start}→{req.end})")
         return envelope(error="回测超时 90s, 请缩小样本或重试", data={
             "trades": [], "stats": {"reason": "timeout"},
+        })
+    except Exception as e:  # R12: 任何异常都走 envelope, 避免 500 抛 FastAPI default
+        log.exception(f"backtest 异常: {e}")
+        return envelope(error=f"回测异常: {e}", data={
+            "trades": [], "stats": {"reason": "exception"},
         })
     return envelope(data=result or {})
 
@@ -6713,10 +7201,14 @@ async def api_review_delete_all_trades(request: Request, confirm: str = Query(""
         return envelope(error="必须传 confirm=YES 才允许清空", status_code=400)
     try:
         from .. import cache_db as _cdb
-        conn = _cdb._thread_conn()
-        n_rev = conn.execute("DELETE FROM trade_reviews").rowcount
-        n_trd = conn.execute("DELETE FROM trades").rowcount
-        conn.commit()
+
+        def _do(conn):
+            n_rev = conn.execute("DELETE FROM trade_reviews").rowcount
+            n_trd = conn.execute("DELETE FROM trades").rowcount
+            conn.commit()
+            return n_rev, n_trd
+
+        n_rev, n_trd = _cdb.safe_write(_do)
         # 清 Redis AI 缓存避免污染
         try:
             from .. import cache_store as _cs
@@ -7031,7 +7523,7 @@ async def api_watchlist_analyze(code: str, force: bool = False):
       2) enrich_extras — 附加 5/10 日涨跌 + 主力散户占比 + 板块涨停数
       3) upsert_ai — 写入 watchlist_ai 表
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
     if not api_key:
         return envelope(error="MINIMAX_API_KEY 未配置", data={"code": code, "ai": None})
@@ -7886,8 +8378,9 @@ def main():
     if _env_sh.exists():
         try:
             import subprocess
+            # B-12: argv 传递路径,避免 $HOME 劫持导致 RCE (f-string 进 -c 是代码异味)
             r = subprocess.run(
-                ["bash", "-c", f"source {_env_sh} && env -0"],
+                ["bash", "-c", "source \"$1\" && env -0", "_", str(_env_sh)],
                 capture_output=True, timeout=5, text=True,
             )
             for line in (r.stdout or "").split("\x00"):
@@ -7944,38 +8437,45 @@ def main():
             use_h2 = False
 
     if use_h2:
-        import asyncio
-        # uvloop: Linux/macOS 原生加速,~60% 更高吞吐(uvloop 0.22+ 稳定)
-        try:
-            import uvloop
-            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        except ImportError:
-            pass
-        cfg = HCConfig()
-        cfg.bind = [f"{args.host}:{args.port}"]
-        cfg.loglevel = "warning"
-        cfg.keep_alive_timeout = 300   # 同 uvicorn,防 tunnel 闲置踢连
-        cfg.h2 = True                  # HTTP/2 多路复用
-        cfg.alpn_protocols = ["h2", "http/1.1"]
-        cfg.workers = 1
-        print(f"  ⚡ {runner_name} (HTTP/2 + h2 多路复用) ·  keep-alive 300s")
+        # hypercorn asyncio.serve() 不支持 workers 参数 (忽略 config.workers),
+        # 导致 1 worker 串行处理请求. 远端隧道下 1 个慢请求堵住所有并发 → 127 个 503/502/404.
+        # → 改用 uvicorn workers=4 (http/1.1, 但 ngrok 隧道用 HTTP/2 无意义)
+        print(f"  · {runner_name} 不支持多 worker,回落 uvicorn ·  keep-alive 300s")
+        use_h2 = False
+
+    if not use_h2:
+        # R51: workers=1 临时方案 — _BT_RUNS 是 in-process dict, 多 worker 时
+        # POST 落 worker A 但 SSE/GET 落 worker B → 永远返回 "missing".
+        # 待 _BT_RUNS 迁 cache_store (跨进程共享) 后再恢复 workers=4
+        print(f"  · {runner_name} (HTTP/1.1) ·  1 worker ·  keep-alive 300s (R51 workers=1)")
         print()
-        asyncio.run(hc_serve(app, cfg))
+        uvicorn.run(
+            "tuixue_v3.web.server:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            log_level="warning",
+            workers=1,
+            timeout_keep_alive=300,
+        )
         return
 
-    print(f"  · {runner_name} (HTTP/1.1) ·  keep-alive 300s")
+    import asyncio
+    try:
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    except ImportError:
+        pass
+    cfg = HCConfig()
+    cfg.bind = [f"{args.host}:{args.port}"]
+    cfg.loglevel = "warning"
+    cfg.keep_alive_timeout = 300
+    cfg.h2 = True
+    cfg.alpn_protocols = ["h2", "http/1.1"]
+    cfg.workers = 1
+    print(f"  ⚡ {runner_name} (HTTP/2 + h2 多路复用) · 1 worker · keep-alive 300s")
     print()
-    uvicorn.run(
-        "tuixue_v3.web.server:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        log_level="warning",
-        # keep-alive 默认 5s,免费隧道闲置 5s 就把连接踢了
-        # 手机下次请求又要重新建链(200-500ms 隧道开销)
-        # 拉到 300s 让浏览器复用 TCP 连接
-        timeout_keep_alive=300,
-    )
+    asyncio.run(hc_serve(app, cfg))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -7992,7 +8492,7 @@ def _fetch_capital_one(code: str) -> dict:
     关键: server 进程网络可能受限,用 subprocess 调独立 Python 拿数据(绕开 server 网络栈)
     公式: 占比 = 该档净额绝对值 / (主+超+大+中+小绝对值合计) × 100
     """
-    code = code.strip().zfill(6)
+    code = _require_valid_code(code)
 
     # 用独立子进程拿数据,避免 server 进程网络问题
     py = sys.executable  # 当前 server 用的 python
@@ -8120,8 +8620,13 @@ async def api_capital_flow(codes: str = Query(..., description="逗号分隔,最
     """批量资金结构(主力/散户/基金占比)。
     前端表格每 10s 调一次。
     性能:用 1 个 helper 子进程拿所有 code,3 源并发,避免每只 1 个 subprocess。
+
+    安全: codes 在拼接到 curl URL / Python -c 之前必须严格白名单 (数字 0-9),
+    否则下方 helper 里的 f-string 会让 `'; import os; ...'` 直接注入到 akshare 子进程 → RCE。
     """
-    code_list = [c.strip().zfill(6) for c in codes.split(",") if c.strip()][:20]
+    raw = [c.strip() for c in codes.split(",") if c.strip()][:20]
+    # 白名单: 只允许 1-6 位数字, 防止 URL / subprocess 注入
+    code_list = [c.zfill(6) for c in raw if _re.fullmatch(r"\d{1,6}", c)][:20]
     if not code_list:
         return envelope(data={"flows": []})
 
@@ -8158,9 +8663,15 @@ async def api_capital_flow(codes: str = Query(..., description="逗号分隔,最
 def _batch_capital_helper(codes: list[str]) -> list[dict]:
     """单子进程批量拉 N 只股票的资金结构(3 源降级:东财→腾讯→akshare)。
     用 curl 子进程 (系统 PATH 里有),不用 Python requests — 绕开 server 进程网络栈问题。
+
+    防御性: 此函数假设 caller 已做白名单; 再做一次保险,防止下游直接调用时漏检。
     """
     out = []
-    for code in codes:
+    for raw in codes:
+        # 二次白名单: 即便被直接调用也安全
+        if not _re.fullmatch(r"\d{6}", raw):
+            continue
+        code = raw
         result = {
             "code": code, "ts": int(time.time()),
             "main_pct": 0.0, "retail_pct": 0.0, "fund_pct": 0.0,
