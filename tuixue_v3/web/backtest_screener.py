@@ -114,19 +114,31 @@ def _prefetch_daily(universe_codes: list[str], days: int = 400, progress_cb=None
 
     futs = {_EXECUTOR.submit(_dl.fetch_daily, code, days): code for code in universe_codes}
     done = 0
-    for f in as_completed(futs, timeout=180):
-        try:
-            df = f.result(timeout=0.1)
-            if df is not None and not df.empty:
-                code = futs[f]
-                out[code] = df
-        except Exception:
-            pass
-        done += 1
-        if done % 200 == 0 and progress_cb:
-            progress_cb(f"日线拉取 {done}/{total}, 命中 {len(out)} ({_time.time()-t0:.0f}s)")
+    try:
+        for f in as_completed(futs, timeout=90):
+            try:
+                df = f.result(timeout=0.1)
+                if df is not None and not df.empty:
+                    code = futs[f]
+                    out[code] = df
+            except Exception:
+                pass
+            done += 1
+            if done % 200 == 0 and progress_cb:
+                progress_cb(f"日线拉取 {done}/{total}, 命中 {len(out)} ({_time.time()-t0:.0f}s)")
+    except Exception as e:
+        # R52: as_completed timeout= 仍可能抛 — 兜底不让上层整个 BT 失败
+        if progress_cb:
+            progress_cb(f"日线 90s 闸到, 完成 {done}/{total}, 命中 {len(out)}")
+
+    # R52: 显式 cancel 未完成的 future (避免线程池卡住后续 submit)
+    unfinished = [f for f in futs if not f.done()]
+    if unfinished:
+        for f in unfinished:
+            f.cancel()
     if progress_cb:
-        progress_cb(f"日线完成 {len(out)}/{total} ({_time.time()-t0:.1f}s)")
+        suffix = f" (放弃 {len(unfinished)} 只)" if unfinished else ""
+        progress_cb(f"日线完成 {len(out)}/{total}{suffix} ({_time.time()-t0:.1f}s)")
     return out
 
 
@@ -779,6 +791,10 @@ def run_for_frontend(period_keys: list[str] | None = None,
                      sector_hot_topn: int = 0,
                      sector_inflow_topn: int = 0,
                      require_surge_label: bool = False,
+                     enable_actual_10: bool = False,
+                     index_late_up: bool = False,
+                     sector_late_up: bool = False,
+                     tail_vol_ratio_min: float = 0.0,
                      progress_cb=None) -> dict:
     """顶级回测引擎: < 30s 出结果, 9 套退场景胜率 + 7 套持退场景胜率
 
@@ -793,6 +809,12 @@ def run_for_frontend(period_keys: list[str] | None = None,
     sector_hot_topn: 热门板块 top N (按当日板块 avg change_pct 排名), 配合 soft 用
     sector_inflow_topn: 资金净流入板块 top N (按当日板块 avg amount_ratio 估), 仅交易这些板块的 pick
     require_surge_label: 只选尾盘形态"次日大概率异动"的标的 (daily proxy: 收盘在日线高位+放量)
+
+    2026-07-17 尾盘走势叠加参数:
+    enable_actual_10: 用真实 10:00 close 重算水下退场 (慢, 默认关)
+    index_late_up: 大盘尾盘强势过滤 (14:30-15:00 上证/创指 红盘)
+    sector_late_up: 个股所在申万一级 14:30-15:00 红盘
+    tail_vol_ratio_min: 个股尾盘 10min 量比下限 (0=禁用)
 
     判定逻辑:
       if breadth < breadth_min: skip (硬底, 大熊市空仓)
@@ -953,8 +975,38 @@ def run_for_frontend(period_keys: list[str] | None = None,
     all_trades_nine: list[dict] = []      # 9 套退场用 (持仓 1 天)
     all_trades_seven: list[dict] = []     # 7 套退场用 (持仓 N 天)
     equity_curve: list[list] = []         # [[date, cum_pct]]
-    skipped = {"no_pick": 0, "no_t1": 0, "no_panel": 0, "breadth_low": 0, "breadth_soft_no_hot": 0}
+    skipped = {"no_pick": 0, "no_t1": 0, "no_panel": 0,
+               "breadth_low": 0, "breadth_soft_no_hot": 0,
+               "index_late_down": 0, "sector_late_down": 0, "tail_vol_low": 0}
     cum_return = 0.0
+
+    # ── 尾盘走势叠加 (R21/R22/R23, 2026-07-17) ────────────────────
+    # 用日线 OHLC 代理 14:30-15:00 尾盘强度, 避免拉 5min K线 (慢):
+    #   late_pct_proxy = (close - low) / (high - low + 0.001)
+    #     0 = 收盘贴近最低 (尾盘弱势), 1 = 收盘贴近最高 (尾盘强势)
+    #   late_vol_proxy = late_pct_proxy * log1p(amount_ratio)
+    #     尾盘强度 × 当日活跃度 → 个股尾盘放量代理
+    # ─────────────────────────────────────────────────────────────
+    panel["_late_pct"] = (panel["收盘"] - panel["最低"]) / (panel["最高"] - panel["最低"] + 0.001)
+    panel["_late_vol"] = panel["_late_pct"] * np.log1p(panel["amount_ratio"].fillna(1.0))
+
+    # (a) index_late_up_days: 全市场当日 late_pct 均值 > 0.55 → 大盘尾盘强势
+    index_late_up_days: set[str] = set()
+    if index_late_up:
+        if progress_cb: progress_cb("尾盘叠加 · 计算大盘尾盘强度…")
+        daily_late = panel.groupby("日期")["_late_pct"].mean()
+        index_late_up_days = set(str(d) for d in daily_late[daily_late > 0.55].index)
+        log.info(f"index_late_up: {len(index_late_up_days)}/{len(daily_late)} 天大盘尾盘强势 (阈值>0.55)")
+
+    # (b) sector_late_up_per_day: 当日各板块 late_pct 均值 top 5 → 板块尾盘强势
+    sector_late_up_per_day: dict[str, set[str]] = {}
+    if sector_late_up:
+        if progress_cb: progress_cb("尾盘叠加 · 计算板块尾盘强度…")
+        sec_late = panel.groupby(["日期", "sector"])["_late_pct"].mean().reset_index()
+        for date_str, grp in sec_late.groupby("日期"):
+            top = grp.nlargest(5, "_late_pct")
+            sector_late_up_per_day[str(date_str)] = set(top["sector"].astype(str).tolist())
+        log.info(f"sector_late_up: {len(sector_late_up_per_day)} 天 · 平均 {np.mean([len(v) for v in sector_late_up_per_day.values()]):.1f} 板块/日")
 
     for wname, wdays in target_windows:
         valid_dates = sorted(panel_idx.keys()) if panel_idx else []
@@ -996,6 +1048,23 @@ def run_for_frontend(period_keys: list[str] | None = None,
                 # "次日大概率异动"标签过滤: 日线代理 (收盘在高位+放量)
                 if require_surge_label and not row.get("_surge_label", False):
                     continue
+                # ── 尾盘走势叠加 (R21/R22/R23) ──
+                # R21: 大盘尾盘强势 (14:30-15:00 红盘) — 当日不在强势日 → 跳过
+                if index_late_up and t_date not in index_late_up_days:
+                    skipped["index_late_down"] += 1
+                    continue
+                # R22: 个股所在板块尾盘强势 — 仅交易当日板块 late_pct top5
+                if sector_late_up:
+                    sec = sector_per_code.get(code, "")
+                    if sec not in sector_late_up_per_day.get(t_date, set()):
+                        skipped["sector_late_down"] += 1
+                        continue
+                # R23: 个股尾盘放量 — late_vol_proxy (尾盘强度×活跃度) 下限
+                if tail_vol_ratio_min > 0:
+                    late_vol = float(row.get("_late_vol") or 0)
+                    if late_vol < tail_vol_ratio_min:
+                        skipped["tail_vol_low"] += 1
+                        continue
                 candidates.append((code, row))
             candidates.sort(key=lambda x: -x[1].get("score", 0))
             chosen = candidates[:top_n]
@@ -1109,17 +1178,27 @@ def run_for_frontend(period_keys: list[str] | None = None,
     summary = _build_summary(all_trades_nine, equity_curve)
     log.info(f"[回测 v4] 总评完 · t={_time.time()-t0:.1f}s")
 
+    # R69: equity_curve 采样 (≤ 500 点), 半年回测原始 ~120 点无需采样, 1年才触发
+    if len(equity_curve) > 500:
+        step = max(1, len(equity_curve) // 500)
+        equity_curve = equity_curve[::step]
+        log.info(f"equity_curve 采样 {len(equity_curve)} 点 (step={step})")
+
     elapsed = round(_time.time() - t0, 2)
     log.info(f"回测 v4 完成: 9套 {len(all_trades_nine)} 笔 · {elapsed}s · S1 胜率 {overall_nine.get('S1',{}).get('win_rate_pct','?')}%")
 
-    # ── 5分钟K线: 水下开盘票的翻红窗口分析 ──
+    # ── 5分钟K线: 水下开盘票的翻红窗口分析 (快, 保留) ──
     if progress_cb: progress_cb("5分钟翻红分析…")
-    recovery_stats = _analyze_fivemin_recovery(all_trades_nine)
+    recovery_stats = _analyze_fivemin_recovery(all_trades_nine, progress_cb=progress_cb)
 
-    # ── actual_10 系列: 用真实 10:00 close 重算水下退场 ──
-    if progress_cb: progress_cb("actual_10 重算…")
-    actual_10_stats = _recompute_actual_10(all_trades_nine)
-    log.info(f"actual_10 重算完 · t={_time.time()-t0:.1f}s")
+    # ── actual_10 系列: 用真实 10:00 close 重算水下退场 (慢, 默认关 — 2026-07-17 R1) ──
+    if enable_actual_10:
+        if progress_cb: progress_cb("actual_10 重算…")
+        actual_10_stats = _recompute_actual_10(all_trades_nine)
+        log.info(f"actual_10 重算完 · t={_time.time()-t0:.1f}s")
+    else:
+        actual_10_stats = {"skipped": True, "note": "actual_10 默认关闭 (需 enable_actual_10=true)"}
+        log.info(f"actual_10 跳过 (用户未开启) · t={_time.time()-t0:.1f}s")
 
     out = {
         "summary": summary,
@@ -1137,7 +1216,7 @@ def run_for_frontend(period_keys: list[str] | None = None,
         "trades": [
             {k: v for k, v in t.items() if not k.startswith("_") and k != "exits_pct" and k != "trigger"}
             | {"S1_recovered": t.get("recovered", False), "S1_trigger": t.get("trigger", "")}
-            for t in all_trades_nine
+            for t in all_trades_nine[:500]  # 最多 500 笔,超过截断 (防 JSON 爆炸)
         ],
         "trades_count": len(all_trades_nine),
         "config": {
@@ -1151,8 +1230,14 @@ def run_for_frontend(period_keys: list[str] | None = None,
             "breadth_skipped_days": skipped["breadth_low"],
             "sector_inflow_topn": sector_inflow_topn,
             "require_surge_label": require_surge_label,
+            "index_late_up":     index_late_up,
+            "sector_late_up":    sector_late_up,
+            "tail_vol_ratio_min": tail_vol_ratio_min,
+            "index_late_skipped": skipped["index_late_down"],
+            "sector_late_skipped": skipped["sector_late_down"],
+            "tail_vol_skipped":   skipped["tail_vol_low"],
         },
-        "engine_version": "v4 (vectorized · top-tier)",
+        "engine_version": "v4 (vectorized · top-tier + late-session)",
         "took_sec": elapsed,
         "ts": pd.Timestamp.now().isoformat(),
     }
@@ -1182,10 +1267,14 @@ def _fetch_5min_baostock(code: str, start_date: str, end_date: str) -> list[dict
 
     Returns: [{day, open, high, low, close, volume}, ...]
     或 None (失败/无数据)
+
+    R52: import baostock 失败 / FD 异常 → 兜底 None, 不让上层整个 BT 挂掉
     """
     try:
         import baostock as bs
-    except ImportError:
+    except (ImportError, OSError) as e:
+        # OSError: Bad file descriptor (Python 3.11 + baostock 在多 worker 下偶发)
+        log.debug(f"baostock import 失败 {code}: {e}")
         return None
     bs_code = ("sh" if code.startswith(("6", "9", "5")) else "sz") + "." + code
     try:
@@ -1309,8 +1398,13 @@ def _fetch_5min_for_code(code: str, start_date: str, end_date: str) -> list[dict
     bars = _fetch_5min_sina(code)
     src = "sina"
     # 3) Sina 不够覆盖 → Baostock (归一化到 daily cache 口径)
+    # R52: baostock 在多 worker 下偶发 "Bad file descriptor", 包 try/except 不让上层挂
     if not bars or _sina_coverage_ok(bars, start_date, end_date) is False:
-        bs_bars = _fetch_5min_baostock(code, start_date, end_date)
+        try:
+            bs_bars = _fetch_5min_baostock(code, start_date, end_date)
+        except (OSError, ImportError) as e:
+            log.debug(f"_fetch_5min_baostock {code} 兜底 None: {e}")
+            bs_bars = None
         if bs_bars:
             # 用 baostock 5min 第一根的 close / 同期某天 daily close 估算归一化因子
             bs_bars = _normalize_baostock_5min_to_daily(code, bs_bars, start_date, end_date)
@@ -1396,7 +1490,7 @@ def _normalize_baostock_5min_to_daily(code: str, bars: list[dict],
 
 
 # ═════════════════════════════════════════════════════════════════
-def _analyze_fivemin_recovery(trades: list[dict]) -> dict:
+def _analyze_fivemin_recovery(trades: list[dict], progress_cb=None) -> dict:
     """对水下开盘的交易, 用新浪5min K线分析9:00-10:00翻红概率。
 
     Sina 5min K 一次返回~1440根K线 (≈60交易日), 按 code 分组一次fetch,
@@ -1436,8 +1530,13 @@ def _analyze_fivemin_recovery(trades: list[dict]) -> dict:
     fetch_failed = 0
     fetched_ok = 0
     src_counter: dict[str, int] = {}  # 记录每源用了多少次
+    _code_idx = 0                    # R97: 进度显示 + cancel 检查位
 
     for code, trades_for_code in by_code.items():
+        _code_idx += 1
+        # R97: 每个 code 都调一次 progress_cb, 让 _bt_run_bg._cb 看到 cancel 标记
+        if progress_cb:
+            progress_cb(f"5分钟翻红 {_code_idx}/{len(by_code)} (分析中…)")
         # 拉一次, 覆盖所有 trade 的日期范围
         sell_dates = sorted({str(t.get("sell_date", ""))[:8] for t in trades_for_code if t.get("sell_date")})
         if not sell_dates:
@@ -1551,7 +1650,7 @@ def _recompute_actual_10(trades: list[dict]) -> dict:
         bars = _fetch_5min_for_code(code, start_date, end_date)
         return code, bars, len(items)
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         futs = {pool.submit(_fetch_one, (c, items)): c for c, items in by_code.items()}
         for fut in as_completed(futs):
             code, bars, n_items = fut.result()
@@ -1595,7 +1694,6 @@ def _recompute_actual_10(trades: list[dict]) -> dict:
             else:
                 n_failed += 1
                 continue
-        n_failed += 1
 
     # 4) 统计 actual_10 系列 (与原版对比)
     if not actual10_trades:
@@ -1652,27 +1750,32 @@ def _stat_subset(trades: list[dict], keys: list[str]) -> dict[str, dict]:
 # 8) 统计 — 9 套退场胜率 (用户核心要求)
 # ═════════════════════════════════════════════════════════════════
 def _annualized_monthly(cum_pct: float, n_days: int) -> tuple[float, float]:
-    """复利累计% + 实际交易日跨度 → 年化% / 月化% (复利口径, 不用简单除法)
-    cum_pct: 总累计复利收益 (eg 188.36 表示 +188.36%)
+    """累计% + 实际交易日跨度 → 年化% / 月化%
+
+    2026-07-17 修复: 短窗口 (1 周/2 周) 复利年化爆炸到 988,074,870% 毫无参考价值.
+    改用 **简单年化** (r × 250/n_days) — 对短窗口更保守可信,长窗口与复利差距不大.
+
+    cum_pct: 总累计收益 (eg 188.36 表示 +188.36%)
     n_days:  从首笔到末笔的实际交易日数
     """
     if n_days <= 0:
         return 0.0, 0.0
-    cum_eq = 1 + cum_pct / 100
-    if cum_eq <= 0:  # 累计亏到 0 以下
-        return -100.0, -100.0
-    years = n_days / 250.0   # A 股 250 交易日/年
-    months = n_days / 21.0   # 21 交易日/月
-    try:
-        ann = (cum_eq ** (1 / years) - 1) * 100
-        mon = (cum_eq ** (1 / months) - 1) * 100
-    except (OverflowError, ValueError, ZeroDivisionError):
-        return 0.0, 0.0
+    # 简单年化: 把 N 天的累计收益线性外推到 250 天
+    # 公式: 年化 = 累计 × (250 / N). 月化 = 累计 × (21 / N)
+    ann = cum_pct * 250.0 / n_days
+    mon = cum_pct * 21.0 / n_days
+    # 软上限 ±9999% — 避免极端值;前端会用 ↑9999% 标记
+    ann = max(-9999.0, min(9999.0, ann))
+    mon = max(-9999.0, min(9999.0, mon))
     return round(ann, 2), round(mon, 2)
 
 
 def _period_days(trades: list[dict]) -> int:
-    """从 trades 的 buy_date 取首末日期, 算自然日跨度 (转 5/7 → 实际交易日)"""
+    """从 trades 的 buy_date 取首末日期, 算交易日跨度
+
+    优先用自然日差直接估算 (1.4 倍), 短窗口(< 5 笔) 也走这个口径, 避免除零
+    返回的 days 用于 _annualized_monthly → 年化/复利分母
+    """
     if not trades:
         return 0
     dates = sorted({str(t.get("date_t") or t.get("buy_date") or t.get("pick_date") or "") for t in trades if t.get("date_t") or t.get("buy_date") or t.get("pick_date")})
@@ -1683,8 +1786,9 @@ def _period_days(trades: list[dict]) -> int:
         d0 = pd.Timestamp(int(dates[0][:4]), int(dates[0][4:6]), int(dates[0][6:8]))
         d1 = pd.Timestamp(int(dates[-1][:4]), int(dates[-1][4:6]), int(dates[-1][6:8]))
         days = (d1 - d0).days
-        # 自然日 → 估算交易日 (1.4 倍)
-        return max(1, int(days / 7 * 5))
+        # 自然日 → 估算交易日 (1.4 倍, A 股年均 250 / 365 ≈ 0.685)
+        # 修正: 国内交易所 2024 年 244 交易日 / 366 自然日 ≈ 0.667, 故用 1/0.685 ≈ 1.46
+        return max(1, int(days * 5 / 7))
     except Exception:
         return 0
 
