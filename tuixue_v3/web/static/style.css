@@ -159,6 +159,8 @@ body {
   /* 移动端保留安全区域 */
   padding-left: env(safe-area-inset-left, 0);
   padding-right: env(safe-area-inset-right, 0);
+  /* 2026-07-18: scrollIntoView 不会跨过 tabbar → 格子滚到 tabbar 下被挡 */
+  scroll-padding-bottom: calc(var(--tabbar-h, 56px) + 12px);
 }
 @media (max-width: 979px) {
   body { padding-bottom: var(--tabbar-h); }
@@ -257,7 +259,7 @@ input, select, textarea { font: inherit; color: inherit; }
   border-radius: 6px; border: 1px solid var(--line);
   background: var(--bg-card-2); color: var(--ink-2);
   font-size: 12px; font-weight: 500;
-  text-decoration: none; transition: all .15s;
+  text-decoration: none; transition: background-color .15s, border-color .15s, color .15s, transform .15s;
   max-width: 200px;
 }
 .smart-back[hidden] { display: none !important; }
@@ -426,8 +428,8 @@ input, select, textarea { font: inherit; color: inherit; }
   .view-screener .scr-table th,
   .view-screener .scr-table td { padding: 4px 6px !important; }
   /* Mobile: KPI 网格 */
-  .kpi-grid .kpi { padding: 8px 10px; }
-  .kpi-grid .kpi .kpi-value { font-size: 18px; }
+  .kpi-grid .kpi { padding: 6px 8px; }
+  .kpi-grid .kpi .kpi-value { font-size: 15px; }
   /* Mobile: 表格通用 */
   .data-table { font-size: 11px; }
   .data-table th, .data-table td { padding: 3px 6px; }
@@ -555,7 +557,7 @@ input, select, textarea { font: inherit; color: inherit; }
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 22px 24px;
+  padding: 14px 16px;
   box-shadow: var(--glass-shadow);
   contain: layout style;
   transition: background-color .35s var(--ease-soft),
@@ -577,16 +579,28 @@ input, select, textarea { font: inherit; color: inherit; }
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* 个股页紧凑: 更小 card padding */
+.view-stock .card {
+  padding: 14px 16px;
+}
+.view-stock .card-eyebrow {
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+.view-stock .mt-16 {
+  margin-top: 10px;
+}
 .card-eyebrow {
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: .14em;
   text-transform: uppercase;
   color: var(--ink-3);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  line-height: 1.3;
 }
 .card-title {
   font-family: var(--font-display);
@@ -692,7 +706,7 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--bg-2);
   color: var(--ink-3);
   border: 1px solid var(--line);
-  transition: all .25s ease;
+  transition: background-color .25s ease, border-color .25s ease, color .25s ease, transform .25s ease;
 }
 .signal-verdict.signal-allow    { background: var(--down-soft); color: var(--down); border-color: transparent; box-shadow: 0 0 0 0 transparent; }
 .signal-verdict.signal-cautious { background: hsla(38, 90%, 55%, .12); color: hsl(38, 80%, 38%); border-color: transparent; }
@@ -755,7 +769,7 @@ input, select, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all .3s var(--ease-glide);
+  transition: background-color .3s var(--ease-glide), border-color .3s var(--ease-glide), color .3s var(--ease-glide), transform .3s var(--ease-glide);
   overflow: hidden;
 }
 .hs-tile::before {
@@ -933,7 +947,7 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--bg-2);
   color: var(--ink-2);
   border: 1px solid var(--line);
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .pill:hover { background: var(--bg-1); border-color: var(--line-2); }
 
@@ -949,7 +963,7 @@ input, select, textarea { font: inherit; color: inherit; }
   font-weight: 600;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all .25s var(--ease-glide);
+  transition: background-color .25s var(--ease-glide), border-color .25s var(--ease-glide), color .25s var(--ease-glide), transform .25s var(--ease-glide);
   border: 1px solid transparent;
   white-space: nowrap;
   letter-spacing: .01em;
@@ -1002,7 +1016,7 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--glass-bg);
   color: var(--ink-2);
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .btn-mini:hover {
   background: var(--bg-1);
@@ -1036,7 +1050,7 @@ input, select, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 4px 4px 4px 16px;
-  transition: all .25s var(--ease);
+  transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
 }
 .searchbar:focus-within {
   border-color: var(--accent);
@@ -1066,7 +1080,7 @@ input, select, textarea { font: inherit; color: inherit; }
   font-size: 12.5px;
   color: var(--ink);
   outline: none;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .qb-input:focus {
   border-color: var(--accent);
@@ -1083,7 +1097,7 @@ input[type="number"], input[type="date"], select, textarea {
   font-size: 13px;
   color: var(--ink);
   outline: none;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 input[type="number"]:focus, input[type="date"]:focus, select:focus, textarea:focus {
   border-color: var(--accent);
@@ -1134,7 +1148,7 @@ input[type="number"]:focus-visible, input[type="date"]:focus-visible, select:foc
   font-variant-numeric: tabular-nums;
 }
 .data-table th, .data-table td {
-  padding: 12px 14px;
+  padding: 8px 10px;
   text-align: left;
   border-bottom: 1px solid var(--line-3);
 }
@@ -1255,7 +1269,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-full);
   color: var(--ink-2);
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .kt-pill:hover, .kt-chip:hover { color: var(--ink); }
 .kt-pill.active, .kt-chip.active {
@@ -1274,7 +1288,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-sm);
 }
 .kr-date { color: var(--ink-3); }
-.kline-chart-area { width: 100%; min-height: 380px; }
+.kline-chart-area { width: 100%; min-height: 250px; }
 .kt-right { margin-left: auto; }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1308,6 +1322,42 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   transition: opacity .25s var(--ease);
 }
 .kpi-group:hover::before { opacity: 1; }
+/* 100-R1: KPI 卡 label 前缀图标 — 用 currentColor 跟随主题,SVG 14×14 紧凑 */
+.kpi-group .kpi-label .kpi-ico {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: var(--ink-2);
+  opacity: .85;
+  transition: color .2s var(--ease), opacity .2s var(--ease);
+}
+.kpi-group:hover .kpi-label .kpi-ico {
+  color: var(--accent);
+  opacity: 1;
+}
+/* 100-R2: 涨/平/跌 3 段比例水平条 */
+.kpi-bars {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 6px 0 4px;
+  background: var(--line-3);
+}
+.kpi-bars .kb-seg {
+  display: block;
+  height: 100%;
+  transition: width .35s var(--ease-soft);
+}
+.kpi-bars .kb-up   { background: linear-gradient(90deg, var(--up, #e84545), rgba(232,69,69,.6)); }
+.kpi-bars .kb-flat { background: var(--ink-4, #6E7A8E); opacity: .55; }
+.kpi-bars .kb-down { background: linear-gradient(90deg, rgba(52,199,89,.6), var(--down, #34c759)); }
+.kpi-group .kpi-value .kpi-sep {
+  color: var(--ink-3);
+  margin: 0 2px;
+  font-weight: 400;
+  opacity: .6;
+}
 .kpi-group-label {
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -1387,12 +1437,35 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   font-weight: 600;
   background: rgba(244,211,132,.04);
 }
+/* ── 2026-07-16: 回测面板表格统一 min-width (与其他页面表格一致:scr-table 880 / stocks-table 1080) ── */
+.bt-s9-table  { min-width: 1080px; }
+.bt-s7-table  { min-width: 880px; }
+.bt-win-table { min-width: 1080px; }
+/* bt-mount 必须填满 .body,不能被前面的 .bt-presets 嵌套进 flex */
+#bt-mount { width: 100%; box-sizing: border-box; }
+/* R71-77: 导出条 (button + toast) */
+.bt-export-btn {
+  background: #2a241c; color: #e8e1d4;
+  border: 1px solid #3a3024; border-radius: 4px;
+  padding: 3px 9px; font-size: 11px; cursor: pointer;
+  transition: background .15s;
+}
+.bt-export-btn:hover { background: #3a3024; border-color: #5a4a2a; }
+/* R81-90: bt 表格移动端 — 跟 stocks-table 1080/scr-table 880 一致 */
 @media (max-width: 980px) {
   .kpi-group-row { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
   .kpi-hero .kpi-val { font-size: 18px !important; }
 }
+@media (max-width: 720px) {
+  .bt-export-bar { font-size: 10px !important; }
+  .bt-export-btn { padding: 4px 8px !important; font-size: 11px !important; }
+  .bt-s9-table { min-width: 920px; }
+  .bt-s7-table { min-width: 760px; }
+}
 @media (max-width: 640px) {
   .kpi-group-row { grid-template-columns: 1fr !important; }
+  .bt-export-bar { gap: 4px !important; }
+  .bt-export-bar > button { flex: 1 1 30%; }
 }
 .kpi-grid {
   display: grid;
@@ -1404,7 +1477,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  transition: all .25s var(--ease);
+  transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
   position: relative;
   overflow: hidden;
 }
@@ -1452,8 +1525,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
    ═══════════════════════════════════════════════════════════════════ */
 .quote-hero {
   position: relative;
-  margin-top: 16px;
-  padding: 28px 32px;
+  margin-top: 12px;
+  padding: 18px 22px;
   background:
     linear-gradient(135deg, hsla(212, 80%, 60%, .08), hsla(196, 76%, 58%, .04)),
     var(--glass-bg-strong);
@@ -1463,7 +1536,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-xl);
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 24px;
+  gap: 16px;
   align-items: center;
   overflow: hidden;
   box-shadow: var(--glass-shadow);
@@ -1478,31 +1551,31 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .quote-hero > * { position: relative; z-index: 1; }
 .qh-id {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; align-items: baseline; gap: 8px;
   flex-wrap: wrap;
 }
 .qh-name {
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: 22px;
+  font-size: 18px;
   letter-spacing: -.02em;
   color: var(--ink);
 }
 .qh-code {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   letter-spacing: .04em;
 }
-.qh-tags { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.qh-tags { margin-top: 6px; display: flex; gap: 5px; flex-wrap: wrap; }
 .qh-tag {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: .06em;
   text-transform: uppercase;
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: var(--radius-xs);
   background: var(--bg-2);
   color: var(--ink-3);
@@ -1511,7 +1584,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .qh-price-wrap { text-align: right; }
 .qh-price {
   font-family: var(--font-mono);
-  font-size: 44px;
+  font-size: 36px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -.03em;
@@ -1545,19 +1618,24 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   letter-spacing: .04em;
 }
 
-/* 价格 / 数字滚动闪烁 */
+/* 价格 / 数字滚动闪烁 — R21: 改 text-shadow→transform/opacity,paint 廉价化 */
 .is-animating.flash-up   { animation: qh-flash-up   .7s var(--ease-soft); }
 .is-animating.flash-down { animation: qh-flash-down .7s var(--ease-soft); }
+.qh-price, .qc-value.large { will-change: transform; }  /* R22: hero 数字 GPU 合成层 */
+/* R31: hero tags / sparkline / qh-chg-row 也常被 SSE patch,加 will-change 提示合成层 */
+.qh-tags, .qh-spark, .qh-chg-row { will-change: contents; }
 @keyframes qh-flash-up {
-  0%   { color: var(--ink); }
-  20%  { color: var(--up); text-shadow: 0 0 8px hsla(0, 100%, 50%, .35); }
-  100% { color: var(--ink); text-shadow: none; }
+  0%   { transform: scale(1); }
+  20%  { transform: scale(1.04); color: var(--up); }
+  100% { transform: scale(1); }
 }
 @keyframes qh-flash-down {
-  0%   { color: var(--ink); }
-  20%  { color: var(--down); text-shadow: 0 0 8px hsla(140, 100%, 35%, .35); }
-  100% { color: var(--ink); text-shadow: none; }
+  0%   { transform: scale(1); }
+  20%  { transform: scale(0.96); color: var(--down); }
+  100% { transform: scale(1); }
 }
+/* R36: 关掉 will-change 后释放 GPU 资源,避免内存爆 (40 个 qh-price 都 will-change 就不行) */
+.qh-price:not(.is-animating) { will-change: auto; }
 
 /* ─── hero · sparkline + 涨停距 + 风险标 ─── */
 .qh-spark {
@@ -1647,8 +1725,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .quote-bento {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 10px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 12px;
 }
 @media (max-width: 980px) {
   .quote-bento { grid-template-columns: repeat(3, 1fr); }
@@ -1662,6 +1740,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   .qc-value.large { font-size: 26px; }
   .qc-label { font-size: 10px; }
   .qc-sub { font-size: 10px; }
+  /* R-fix-2026-07-16: 2 列布局下,最后一行单格(14 cells) 跨满宽,不再留空 */
+  .quote-bento > .quote-cell:nth-child(14) { grid-column: span 2; }
 }
 @media (max-width: 380px) {
   .quote-bento { grid-template-columns: 1fr; }
@@ -1690,7 +1770,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .quote-cell {
   position: relative;
-  padding: 14px 16px;
+  padding: 10px 12px;
   background: var(--glass-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -1698,9 +1778,9 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-md);
   display: flex; flex-direction: column;
   overflow: hidden;
-  gap: 4px;
-  transition: all .3s var(--ease-glide);
-  min-height: 88px;
+  gap: 3px;
+  transition: background-color .3s var(--ease-glide), border-color .3s var(--ease-glide), color .3s var(--ease-glide), transform .3s var(--ease-glide);
+  min-height: 68px;
   justify-content: space-between;
 }
 .quote-cell:hover {
@@ -1712,8 +1792,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .quote-cell.large {
   grid-column: span 2;
   grid-row: span 2;
-  padding: 22px;
-  min-height: 188px;
+  padding: 16px;
+  min-height: 148px;
   background:
     linear-gradient(135deg, hsla(212, 80%, 60%, .08), hsla(196, 76%, 58%, .04)),
     var(--glass-bg-strong);
@@ -1724,7 +1804,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .qc-label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -1732,7 +1812,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .qc-value {
   font-family: var(--font-mono);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: -.01em;
   color: var(--ink);
@@ -1740,7 +1820,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   line-height: 1.1;
 }
 .qc-value.large {
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 600;
   letter-spacing: -.02em;
   background: var(--accent-grad);
@@ -1749,24 +1829,24 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   color: transparent;
 }
 .qc-unit {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--ink-3);
   margin-left: 2px;
 }
 .qc-sub {
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: var(--ink-3);
 }
 .qc-icon {
-  position: absolute; top: 10px; right: 10px;
-  width: 26px; height: 26px;
+  position: absolute; top: 8px; right: 8px;
+  width: 22px; height: 22px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-2);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -.02em;
@@ -1779,8 +1859,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 
 /* 紧急度小点 (左上角) */
 .qc-dot {
-  position: absolute; top: 12px; left: 12px;
-  width: 6px; height: 6px;
+  position: absolute; top: 8px; left: 8px;
+  width: 5px; height: 5px;
   border-radius: 50%;
   background: var(--accent);
   opacity: 0;
@@ -1792,9 +1872,9 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 
 /* 大格内的 qc-icon 默认更大一些 */
 .quote-cell.large .qc-icon {
-  width: 36px; height: 36px;
-  font-size: 16px;
-  border-radius: 10px;
+  width: 30px; height: 30px;
+  font-size: 14px;
+  border-radius: 8px;
 }
 @media (max-width: 980px) {
   .quote-bento { grid-template-columns: repeat(3, 1fr); }
@@ -1825,7 +1905,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   color: var(--ink-2);
   cursor: pointer;
   white-space: nowrap;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
   position: relative;
 }
 .tab:hover { color: var(--ink); background: var(--bg-2); }
@@ -1848,16 +1928,18 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .chart-tabs {
   display: flex; align-items: center; flex-wrap: wrap;
-  padding: 0 .75rem;
+  padding: 0 .5rem;
   border-bottom: 1px solid var(--line);
   background: var(--bg-1);
-  position: sticky; top: calc(var(--topbar-h) + var(--ticker-h) + 4px); z-index: 5;
-  backdrop-filter: saturate(180%) blur(8px);
-  -webkit-backdrop-filter: saturate(180%) blur(8px);
+  /* 2026-07-17: 去掉 sticky — 用户反馈 tab 栏浮在分时图上挡住数据 */
+  /* 2026-07-17: 移动端 10 个 tab 双行换行浪费首屏,改横向滚动 + 隐藏滚动条 */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.chart-tabs::-webkit-scrollbar { display: none; }
 .chart-tab {
-  padding: 12px 14px;
-  font-size: 13px;
+  padding: 8px 10px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--ink-2);
   border-bottom: 2px solid transparent;
@@ -1874,12 +1956,12 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .chart-tab-sep {
   width: 1px;
-  height: 16px;
+  height: 14px;
   background: var(--line);
-  margin: 0 4px;
+  margin: 0 3px;
   flex: 0 0 auto;
 }
-.chart-panes { padding: 1rem 1.25rem 1.25rem; }
+.chart-panes { padding: .75rem .85rem .85rem; }
 .chart-pane {
   margin-top: 0 !important;  /* 取消 mt-16 (现在包在 .chart-unified 内) */
   border: none;
@@ -1888,7 +1970,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   padding: 0;
 }
 .chart-pane[hidden] { display: none; }
-.chart-pane .kpi-grid { margin-top: .75rem; }
+.chart-pane .kpi-grid { margin-top: .5rem; }
 /* 分组分隔条 — 顶级 UX: 价格/资金/风控/题材 四组 */
 .tab-sep {
   display: inline-flex;
@@ -1988,7 +2070,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   font-size: 13.5px;
   font-weight: 500;
   position: relative;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .sidebar-item:hover {
   background: var(--bg-2);
@@ -2169,7 +2251,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   word-break: break-all;
   flex: 1;
   min-width: 0;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .tunnel-url:hover {
   border-color: var(--accent);
@@ -2374,7 +2456,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-full);
   font-size: 12px;
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .stock-history .sh-pill:hover {
   background: hsla(212, 80%, 60%, .08);
@@ -2604,7 +2686,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-sm);
   font-size: 13px;
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .ai-layer:hover {
   border-color: var(--accent);
@@ -2649,7 +2731,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   background: var(--bg-2);
   border: 1px solid var(--line-3);
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .ai-rule-section li::before {
   position: absolute;
@@ -2684,7 +2766,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-sm);
   color: var(--accent);
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
   font-weight: 600;
 }
 .ai-btn:hover {
@@ -2740,7 +2822,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid var(--line);
   white-space: nowrap;
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .ahb-pill:hover { border-color: var(--accent); }
 .ahb-pill-date { color: var(--ink-3); }
@@ -2899,7 +2981,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   padding: 4px 10px;
   line-height: 1;
   border-radius: var(--radius-xs);
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .rule-modal .rm-close:hover { color: var(--accent); background: var(--bg-2); }
 .rule-modal .rm-all-rules { list-style: none; padding: 0; margin: 0; }
@@ -2911,7 +2993,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   font-family: var(--font-mono);
   margin-bottom: 4px;
   cursor: pointer;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
   display: flex;
   gap: 8px;
 }
@@ -3004,7 +3086,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all .3s var(--ease-glide);
+  transition: background-color .3s var(--ease-glide), border-color .3s var(--ease-glide), color .3s var(--ease-glide), transform .3s var(--ease-glide);
   position: relative;
   overflow: hidden;
 }
@@ -3062,7 +3144,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all .3s var(--ease-glide);
+  transition: background-color .3s var(--ease-glide), border-color .3s var(--ease-glide), color .3s var(--ease-glide), transform .3s var(--ease-glide);
   display: flex; flex-direction: column;
   gap: 10px;
 }
@@ -3140,30 +3222,30 @@ th.sortable:hover .sort-arrow { opacity: 1; }
    Seat breakdown · 资金成分
    ═══════════════════════════════════════════════════════════════════ */
 .seat-breakdown {
-  margin-top: 16px;
-  padding: 18px 20px;
+  margin-top: 12px;
+  padding: 12px 14px;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
 }
 .bd-head {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 .bd-title {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--ink);
   letter-spacing: -.01em;
 }
-.bd-meta { display: flex; gap: 12px; font-size: 11.5px; color: var(--ink-3); }
+.bd-meta { display: flex; gap: 10px; font-size: 10.5px; color: var(--ink-3); }
 .bd-sub { font-family: var(--font-mono); }
 
-.bd-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.bd-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
 .bd-tag {
-  font-size: 11px;
-  padding: 3px 10px;
+  font-size: 10px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
   background: var(--bg-1);
   color: var(--ink-2);
@@ -3174,10 +3256,10 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .bd-tag.tag-good { background: var(--down-soft); color: var(--down); border-color: transparent; }
 .bd-tag.tag-bad  { background: var(--up-soft); color: var(--up); border-color: transparent; }
 
-.bd-risks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.bd-risks { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .bd-risk {
-  font-size: 11px;
-  padding: 3px 10px;
+  font-size: 10px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
   background: hsla(38, 90%, 55%, .12);
   color: hsl(38, 80%, 38%);
@@ -3187,19 +3269,19 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .bd-intraday {
   display: grid;
   grid-template-columns: 1fr 1fr 120px;
-  gap: 14px;
-  margin: 14px 0;
+  gap: 10px;
+  margin: 10px 0;
 }
-.bd-ir-block { display: flex; flex-direction: column; gap: 6px; }
+.bd-ir-block { display: flex; flex-direction: column; gap: 4px; }
 .bd-ir-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: .04em;
   color: var(--ink-3);
   font-weight: 600;
 }
 .bd-ir-bar {
-  height: 8px;
+  height: 6px;
   background: var(--bg-3);
   border-radius: var(--radius-full);
   overflow: hidden;
@@ -3215,18 +3297,18 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .bd-ir-nums {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 .bd-buy  { color: var(--up); font-weight: 600; }
 .bd-sell { color: var(--down); }
 .bd-ir-main-net {
   display: flex; flex-direction: column; justify-content: center;
-  min-width: 100px;
+  min-width: 80px;
 }
 .bd-ir-net {
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -.01em;
@@ -3401,7 +3483,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all .25s var(--ease);
+  transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
 }
 .pos-card:hover {
   border-color: var(--accent);
@@ -3436,7 +3518,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   line-height: 1;
   padding: 0 6px;
   border-radius: var(--radius-xs);
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .pos-del:hover {
   color: var(--down);
@@ -3628,7 +3710,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   flex-wrap: wrap;
-  transition: all .25s var(--ease);
+  transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
 }
 .next-pick-list li:hover {
   border-color: var(--accent);
@@ -3664,7 +3746,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 /* R13: 股票代码可点击跳个股详情 */
 .review-table .rv-nm a.np-code {
   display: inline-block; text-decoration: none; cursor: pointer;
-  padding: 1px 5px; border-radius: 4px; transition: all .15s var(--ease);
+  padding: 1px 5px; border-radius: 4px; transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
   border: 1px solid transparent;
 }
 .review-table .rv-nm a.np-code:hover {
@@ -3676,7 +3758,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 /* R13: 股票名可点击编辑 */
 .review-table .rv-nm .np-name[data-edit-name] {
   cursor: text; padding: 1px 5px; border-radius: 4px;
-  border-bottom: 1px dashed transparent; transition: all .15s var(--ease);
+  border-bottom: 1px dashed transparent; transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .review-table .rv-nm .np-name[data-edit-name]:hover {
   border-bottom-color: var(--accent);
@@ -3714,7 +3796,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   margin-right: 6px;
   padding: 0;
   font-family: inherit;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .review-table .rv-expand-btn:hover { background: hsla(212, 80%, 60%, .18); color: var(--ink); }
 .review-table .rv-expand-btn.open { background: hsla(212, 80%, 60%, .22); color: var(--accent); }
@@ -3765,7 +3847,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: 999px; font-size: 11px; font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
   background: var(--bg-card-2); border: 1px solid var(--line);
-  color: var(--ink-3); cursor: help; transition: all .2s var(--ease);
+  color: var(--ink-3); cursor: help; transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .integrity-badge .ib-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .integrity-badge[data-state="ok"] {
@@ -3908,7 +3990,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-radius: var(--radius-full);
   color: var(--ink-2);
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .snap-tab:hover { color: var(--ink); }
 .snap-tab.active {
@@ -3930,7 +4012,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   padding: 32px;
   text-align: center;
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .snap-drop:hover, .snap-drop.dragover {
   border-color: var(--accent);
@@ -4093,18 +4175,18 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 
 .laws-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
-  margin-top: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
 }
 .law-card {
-  padding: 18px 20px;
+  padding: 12px 14px;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   position: relative;
   overflow: hidden;
-  transition: all .3s var(--ease-glide);
+  transition: background-color .3s var(--ease-glide), border-color .3s var(--ease-glide), color .3s var(--ease-glide), transform .3s var(--ease-glide);
 }
 .law-card:hover {
   border-color: var(--accent);
@@ -4151,6 +4233,42 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   left: 0; top: 14px;
   width: 6px; height: 1px;
   background: var(--accent);
+}
+
+/* R-6-2026-07-18: <ol class="law-list"> 配套样式 — 修 card 5 (20 条) grid 坍塌 */
+ol.law-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: law-counter;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+ol.law-list li {
+  counter-increment: law-counter;
+  padding: 6px 0 6px 28px;
+  position: relative;
+  border-bottom: 1px dashed var(--line);
+}
+ol.law-list li:last-child { border-bottom: none; }
+ol.law-list li::before {
+  content: counter(law-counter);
+  position: absolute;
+  left: 0; top: 7px;
+  width: 22px; height: 18px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: hsla(212, 80%, 60%, .08);
+  border-radius: 3px;
+  text-align: center;
+  line-height: 18px;
+}
+ol.law-list li > strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .card-koujue {
@@ -4204,7 +4322,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   text-align: left;
   font-family: var(--font-body);
   font-size: 13px;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .compliance-cat:hover { border-color: var(--line-2); background: var(--bg-3); }
 .compliance-cat[aria-expanded="true"] {
@@ -4276,7 +4394,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .airv-back:hover {
   background: hsla(212, 80%, 60%, .1);
@@ -4399,7 +4517,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   text-align: center;
-  transition: all .25s var(--ease);
+  transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
 }
 .role-cell:hover {
   border-color: var(--accent);
@@ -4591,7 +4709,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   text-decoration: none;
   color: var(--ink);
   font-size: 12px;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .related-item:hover {
   border-color: var(--accent);
@@ -4646,7 +4764,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  transition: all .25s var(--ease);
+  transition: background-color .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
   cursor: pointer;
 }
 .news-card:hover {
@@ -4771,9 +4889,24 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
 }
 .error-card .er-retry:hover { border-color: var(--accent); color: var(--accent); }
+
+/* R71 (Batch 8): 个股页骨架屏 — 冷启无任何缓存时显示
+   min-height 匹配实际渲染高度,避免 CLS (R74) */
+.stock-skeleton .card { opacity: .85; }
+.stock-skeleton .stock-skel-hero { min-height: 140px; }
+.stock-skeleton .stock-skel-quote { min-height: 100px; }
+.stock-skeleton .stock-skel-chart { min-height: 260px; }
+
+/* R77 (Batch 8): 全页错误卡 (与 .error-card 共享样式) */
+.stock-error-card .error-card {
+  border-left-color: var(--down);  /* 错误用 down 红,与 .up 区分 */
+}
+.stock-error-card .error-card .er-msg b { color: var(--down); }
+.stock-error-card .error-card { padding: 24px; flex-direction: column; align-items: flex-start; }
+.stock-error-card .er-retry { margin-top: 8px; }
 
 .retry-link {
   color: var(--accent);
@@ -5219,7 +5352,7 @@ button:active:not(:disabled) { transform: scale(0.97); }
   color: var(--ink);
   cursor: pointer;
   align-items: center; justify-content: center;
-  transition: all .15s var(--ease-soft);
+  transition: background-color .15s var(--ease-soft), border-color .15s var(--ease-soft), color .15s var(--ease-soft), transform .15s var(--ease-soft);
 }
 .menu-btn:active { transform: scale(0.94); }
 .menu-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -5423,12 +5556,12 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   .view-stock .view-head { overflow-x: auto; /* iOS 13+ 已默认 momentum-scroll,不需要 webkit-overflow-scrolling */ white-space: nowrap; }
   .view-stock .view-head::-webkit-scrollbar { height: 2px; }
   .view-stock .view-head::-webkit-scrollbar-thumb { background: var(--ink-3, #555); border-radius: 4px; }
-  .card { padding: 16px 16px !important; border-radius: 14px !important; }
-  .card-h { font-size: 16px !important; margin-bottom: 10px !important; }
-  .card-eyebrow { font-size: 10px !important; margin-bottom: 6px !important; }
-  .signal-col { padding: 18px 18px 16px !important; }
-  .signal-col .sig-pct { font-size: 28px !important; }
-  .signal-news li { font-size: 12.5px !important; padding: 7px 0 !important; }
+  .card { padding: 12px 14px !important; border-radius: 12px !important; }
+  .card-h { font-size: 15px !important; margin-bottom: 8px !important; }
+  .card-eyebrow { font-size: 10px !important; margin-bottom: 5px !important; }
+  .signal-col { padding: 13px 14px 12px !important; }
+  .signal-col .sig-pct { font-size: 23px !important; }
+  .signal-news li { font-size: 12.5px !important; padding: 6px 0 !important; }
 }
 
 /* ─── Round 16-20: 表格触摸体验 ─── */
@@ -5469,10 +5602,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 /* ─── Round 26-30: 图表 / ECharts 移动端 ─── */
 @media (max-width: 768px) {
   .echart, [id$="-chart"] { max-height: 50vh; }
-  #flow-chart { height: 300px !important; }
-  #kline-chart { height: 360px !important; }
-  #intra-day-chart { height: 320px !important; }
-  #intraday5d-chart { height: 260px !important; }
+  #flow-chart { height: 200px !important; }
+  #kline-chart { height: 250px !important; }
+  #intra-day-chart { height: 220px !important; }
+  #intraday5d-chart { height: 180px !important; }
   #equity-chart { height: 240px !important; }
   /* R-fix 2026-07-15: 图表突破卡片 padding 占满屏幕宽度 — 数值/KPI 留卡片内,画布用负 margin 抵掉 card padding */
   .view-stock [data-tab-pane="flow"]    #flow-chart,
@@ -5523,10 +5656,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   .hs-tile .hs-meta { font-size: 10.5px !important; }
   /* role-row 单列 */
   .role-row { grid-template-columns: 1fr !important; }
-  /* searchbar 紧凑 */
-  .searchbar { flex-direction: column; gap: 8px; align-items: stretch; }
-  .searchbar .search-input { width: 100% !important; }
-  .searchbar .btn { width: 100%; }
+  /* searchbar 紧凑 — 2026-07-16: 改回横向,按钮不再 100% 宽太大突兀 */
+  .searchbar { flex-direction: row; gap: 8px; align-items: center; }
+  .searchbar .search-input { flex: 1; min-width: 0; }
+  .searchbar .btn { flex: 0 0 auto; padding: 8px 14px; font-size: 12.5px; }
   /* next-pick list 紧凑 */
   .next-pick-list .np-row { padding: 8px 10px !important; gap: 8px !important; }
 }
@@ -5605,8 +5738,14 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 
 /* ─── ≤480px (iPhone SE 1 代 / 小米) 极致紧凑 ─── */
 @media (max-width: 480px) {
-  .canvas { padding: 12px 6px 28px !important; }
-  .card { padding: 14px 14px !important; border-radius: 12px !important; }
+  .canvas { padding: 12px 6px 16px !important; }
+  .card { padding: 12px 12px !important; border-radius: 10px !important; }
+  #intra-day-chart { height: 180px !important; }
+  #kline-chart { height: 200px !important; }
+  #flow-chart { height: 160px !important; }
+  /* 2026-07-17: 移动端 10 个 chart-tab 一行,横向滚动,不再 2 行换行浪费首屏 */
+  .chart-tabs { flex-wrap: nowrap !important; overflow-x: auto !important; }
+  .chart-tab { padding: 8px 9px !important; font-size: 11.5px !important; flex: 0 0 auto; }
   /* R-fix 2026-07-15: 极窄屏图表突破更彻底 (card padding 也只有 14) */
   .view-stock [data-tab-pane="flow"]    #flow-chart,
   .view-stock [data-tab-pane="kline"]   #kline-chart,
@@ -5616,10 +5755,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
     width: calc(100% + 28px) !important;
   }
   .view-head .display { font-size: 20px !important; }
-  .signal-col { padding: 14px 14px !important; }
+  .signal-col { padding: 11px 12px !important; }
   /* R-fix-2026-07-15: 极窄屏 .view-actions (含个股 #stock-tags-host chips) 不换行,改横向滚动 */
   .view-actions { flex-wrap: nowrap !important; overflow-x: auto !important; scrollbar-width: thin; padding-bottom: 4px; }
-  .signal-col .sig-pct { font-size: 24px !important; }
+  .signal-col .sig-pct { font-size: 20px !important; }
   .quote-bento { grid-template-columns: repeat(2, 1fr) !important; }
   .quote-cell.large { grid-column: span 2 !important; }
   .quote-cell { padding: 10px 10px !important; min-height: 64px !important; }
@@ -5668,7 +5807,11 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 /* ─── 尾盘战法 inline view: 复用主 app shell 视觉 ─── */
 .view-screener {
   background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
+.view-screener .scr-inner { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
 
 /* ═══════════════════════════════════════════════════════════════
  * 尾盘战法 view-screener 样式 (2026-07-14 从 screener.html 迁入)
@@ -5744,7 +5887,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .toolbar input[type=date]::-webkit-calendar-picker-indicator { filter: none; opacity: .5; }
 .toolbar button { padding: 5px 11px; border-radius: 6px; font-size: 12px;
                   background: var(--bg-2); border: 1px solid var(--line-2);
-                  color: var(--ink-2); cursor: pointer; transition: all .15s; }
+                  color: var(--ink-2); cursor: pointer; transition: background-color .15s, border-color .15s, color .15s, transform .15s; }
 .toolbar button:hover { background: var(--bg-3); border-color: var(--accent); color: var(--accent); }
 .toolbar button.on  { background: hsla(212,80%,56%,.15); border-color: var(--accent); color: var(--accent); }
 .toolbar button.hl  { background: hsla(212,80%,56%,.12); border-color: var(--accent); color: var(--accent); }
@@ -5759,12 +5902,43 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .toolbar .sep { width: 1px; align-self: stretch; background: var(--line-2); }
 
 /* 表格 */
-.scr-table-wrap { overflow-x: auto; border-radius: 8px;
-                  border: 1px solid var(--line); background: var(--glass-bg); }
-.scr-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; min-width: 880px; }
+.scr-table-wrap { overflow-x: auto; overflow-y: auto; border-radius: 8px;
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+                  border: 1px solid var(--line); background: var(--glass-bg);
+                  max-height: calc(100vh - 360px); }
+#main-area { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.view-screener { display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.view-screener .scr-inner { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+/* ── 2026-07-17 stale 数据预览 banner ── */
+.stale-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin-bottom: 10px;
+  background: linear-gradient(90deg, rgba(212,160,86,0.10), rgba(212,160,86,0.04));
+  border: 1px solid rgba(212,160,86,0.30);
+  border-radius: 8px;
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.5;
+}
+.stale-banner .sb-icon { font-size: 18px; flex-shrink: 0; }
+.stale-banner .sb-text { flex: 1; }
+.stale-banner .sb-text b { color: var(--ink); }
+.stale-banner .sb-refresh {
+  padding: 5px 12px; background: var(--accent); color: #fff;
+  border: none; border-radius: 5px; cursor: pointer; font-size: 12px;
+  font-weight: 600;
+}
+.stale-banner .sb-refresh:hover { background: var(--accent-2); }
+.scr-table td.cell-na { color: var(--ink-3); opacity: .55; background: rgba(150,150,150,0.06); }
+.scr-table td.cell-na::after { content: ' —非交易时段'; font-size: 10px; opacity: .7; margin-left: 2px; }
+@media (max-width: 640px) {
+  .stale-banner { flex-wrap: wrap; }
+  .stale-banner .sb-refresh { width: 100%; }
+  .scr-table td.cell-na::after { display: none; }
+}
+.scr-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; min-width: 880px; flex: 1; }
 .scr-table th, .scr-table td { padding: 7px 9px; text-align: right;
                                border-bottom: 1px solid var(--line-3);
                                white-space: nowrap; }
+.scr-table tbody tr { content-visibility: auto; contain-intrinsic-size: 32px; }
 .scr-table th { position: sticky; top: 0; z-index: 3; background: var(--bg-2);
                 backdrop-filter: blur(8px); font-weight: 600; color: var(--ink-2);
                 cursor: pointer; user-select: none; }
@@ -5839,7 +6013,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .scr-table .last30-blue   { background: rgba(59,130,246,.12); color: #2563eb; border-color: rgba(59,130,246,.3); }
 .scr-table .last30-gray   { background: var(--bg-3); color: var(--ink-3); border-color: var(--line); }
 .scr-table .last30-miss   { background: var(--bg-3); color: var(--ink-4); border-color: var(--line-3); }
-.scr-table td.last30-desc { font-size: 11px; color: var(--ink-3); max-width: 420px;
+.scr-table td.last30-desc { font-size: 11px; color: var(--ink-3); max-width: 220px;
+                            white-space: normal; line-height: 1.3; overflow: hidden;
+                            text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2;
+                            -webkit-box-orient: vertical; }
                             white-space: normal; line-height: 1.45;
                             text-align: left !important; }
 .scr-table .pass-count { font-size: 10px; padding: 1px 5px; border-radius: 3px;
@@ -5883,13 +6060,13 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .bt-period-label { display: inline-flex; align-items: center; gap: 4px;
                    padding: 4px 10px; border-radius: 5px; cursor: pointer;
                    background: var(--bg-2); border: 1px solid var(--line);
-                   font-size: 12px; transition: all .15s; user-select: none; }
+                   font-size: 12px; transition: background-color .15s, border-color .15s, color .15s, transform .15s; user-select: none; }
 .bt-period-label:has(input:checked) { background: var(--accent-grad-soft); border-color: var(--accent); color: var(--accent); }
 .bt-period-label:hover { background: var(--bg-3); }
 #bt-run { padding: 6px 14px; font-size: 12px; font-weight: 600;
           background: linear-gradient(135deg, var(--accent), var(--accent-2));
           color: #fff; border: none; border-radius: 6px;
-          cursor: pointer; transition: all .25s; box-shadow: 0 4px 12px -2px rgba(59,130,246,.35); }
+          cursor: pointer; transition: background-color .25s, transform .25s, opacity .25s; box-shadow: 0 4px 12px -2px rgba(59,130,246,.35); }
 #bt-run:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -4px rgba(59,130,246,.5); }
 #bt-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
@@ -5899,8 +6076,18 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
                    transition: opacity .3s; opacity: 0; }
 .bt-progress-bar.show { opacity: 1; }
 .bt-progress-bar .fill { height: 100%; width: 0%;
-                         background: linear-gradient(90deg, var(--accent), var(--accent-2));
-                         transition: width .5s ease; }
+                         background:
+                           linear-gradient(135deg,
+                             rgba(255,255,255,.15) 25%, transparent 25%,
+                             transparent 50%, rgba(255,255,255,.15) 50%,
+                             rgba(255,255,255,.15) 75%, transparent 75%, transparent) 0 0 / 24px 24px,
+                           linear-gradient(90deg, var(--accent), var(--accent-2));
+                         transition: width .5s ease;
+                         animation: bt-progress-stripes 1s linear infinite; }
+@keyframes bt-progress-stripes {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 24px 0, 0 0; }
+}
 .bt-progress-bar.indeterminate .fill {
   width: 30% !important;
   animation: bt-indet 1.4s ease-in-out infinite;
@@ -5909,6 +6096,26 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
 }
+
+/* R9: bt-mount skeleton loading (回测启动后到第一帧结果前的占位) */
+.bt-skeleton-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.bt-skeleton-cell {
+  flex: 1; height: 56px; border-radius: 6px;
+  background: linear-gradient(90deg,
+    var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+  background-size: 200% 100%;
+  animation: bt-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+.bt-skeleton-cell.tall { height: 180px; }
+.bt-skeleton-cell.short { height: 24px; }
+@keyframes bt-skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.bt-skeleton-cell.dim-1 { animation-delay: 0s; }
+.bt-skeleton-cell.dim-2 { animation-delay: 0.2s; }
+.bt-skeleton-cell.dim-3 { animation-delay: 0.4s; }
+.bt-skeleton-cell.dim-4 { animation-delay: 0.6s; }
 
 /* R20: sub-panel 折叠时显示简短预览 */
 .sub-panel .preview { font-size: 11px; color: var(--ink-3); padding: 6px 0 0;
@@ -5994,6 +6201,9 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 @media (max-width: 480px) {
   .toast { bottom: 60px; left: 12px; right: 12px; max-width: 100%; font-size: 13px; padding: 11px 16px; }
 }
+/* 2026-07-18: .toast [hidden] 默认 display:none 但被 .toast{display:flex} 覆盖 → hidden 状态下还拦截点击 */
+.toast[hidden] { display: none !important; }
+.toast:not(.show) { pointer-events: none; }
 
 /* 响应式 */
 @media (max-width: 980px) {
@@ -6040,6 +6250,14 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   .sell-list { grid-template-columns: 1fr; }
   .bt-period-label { padding: 4px 8px; font-size: 11px; }
   #bt-run { padding: 5px 12px; font-size: 11px; }
+  /* R37: 移动端 bt-presets 单列 */
+  .bt-presets { flex-direction: column !important; align-items: stretch !important; }
+  .bt-presets .bt-preset { width: 100%; text-align: left; }
+  /* R37: 回测工具栏移动端单列 */
+  #backtest-panel .body > div:first-child { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
+  #backtest-panel .body > div:first-child > * { width: 100%; }
+  #backtest-panel .body > div:first-child select,
+  #backtest-panel .body > div:first-child input[type=number] { width: 100% !important; }
   .toolbar button { padding: 4px 8px; font-size: 11px; }
   .toolbar .pill { font-size: 10px; padding: 3px 7px; }
   .scr-table th.col-hide-mobile, .scr-table td.col-hide-mobile { display: none; }
@@ -6115,6 +6333,31 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   color: transparent;
   font-style: italic;
 }
+/* 2026-07-16: 标题里挂的「板块名 + 均涨%」chip */
+.view-all_stocks .as-head .as-title-pct {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--hairline, rgba(255,255,255,0.10));
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.view-all_stocks .as-head .as-title-pct-label {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.view-all_stocks .as-head .as-title-pct-val {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .view-all_stocks .as-head .lede {
   font-size: 13px;
   color: var(--ink-2);
@@ -6147,7 +6390,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   border: 1px solid var(--line);
   cursor: pointer;
   user-select: none;
-  transition: all .2s var(--ease);
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
   color: var(--ink-2);
   font-weight: 600;
   flex-shrink: 0;
@@ -6250,7 +6493,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   border-radius: 999px;
   font-weight: 700;
   font-size: 10.5px;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .view-all_stocks .chip-active:hover { background: hsla(212,80%,60%,.16); }
 .view-all_stocks .chip-active .x {
@@ -6266,9 +6509,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   overflow: hidden;
 }
 .view-all_stocks #as-table-scroll {
-  max-height: calc(100vh - 380px);
-  overflow: auto;
-  /* iOS 13+ 已默认 momentum-scroll,不需要 webkit-overflow-scrolling */
+  /* 2026-07-16: 用户要求表格禁止上下滚动,只允许左右 — 整页滚动即可
+     !important 是为了盖过 .table-wrap 基类的 `overflow: auto` shorthand */
+  overflow-x: auto !important;
+  overflow-y: visible !important;
   scroll-behavior: smooth;
 }
 .view-all_stocks .as-table-card::before,
@@ -6335,6 +6579,24 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .view-all_stocks .stocks-table thead th.num   { text-align: right; }
 .view-all_stocks .stocks-table thead th.cat   { border-left: 2px solid var(--accent); background: hsla(212,80%,60%,.04); }
 .view-all_stocks .stocks-table thead th.cat-mid { background: hsla(212,80%,60%,.02); }
+
+/* 100-R5: 连板天 pill — 5 级色阶 (L1=浅红 → L5+=深红+脉冲动画) */
+.zt-tag.zt-l1 { background: hsla(355, 78%, 52%, .12); color: #e84545; border-color: hsla(355, 78%, 52%, .35); }
+.zt-tag.zt-l2 { background: hsla(355, 80%, 48%, .22); color: #d63030; border-color: hsla(355, 80%, 48%, .5); font-weight: 600; }
+.zt-tag.zt-l3 { background: hsla(20, 90%, 50%, .28); color: #ff6b1a; border-color: hsla(20, 90%, 50%, .55); font-weight: 700; }
+.zt-tag.zt-l4 { background: linear-gradient(135deg, hsla(45, 95%, 50%, .35), hsla(20, 90%, 45%, .4)); color: #ffa500; border-color: hsla(45, 95%, 50%, .6); font-weight: 700; box-shadow: 0 0 8px hsla(45,95%,50%,.3); }
+.zt-tag.zt-l5 { background: linear-gradient(135deg, #ffd700, #ff6b1a); color: #2a0000; border-color: #ffd700; font-weight: 800; box-shadow: 0 0 12px hsla(45,100%,50%,.55); animation: zt-pulse 1.6s ease-in-out infinite; }
+@keyframes zt-pulse {
+  0%, 100% { box-shadow: 0 0 12px hsla(45,100%,50%,.55); }
+  50%      { box-shadow: 0 0 20px hsla(45,100%,50%,.85); }
+}
+.view-all_stocks .stocks-table tbody td.pct-tier-deep-up   { color: #ff2d2d; font-weight: 700; text-shadow: 0 0 1px rgba(255,45,45,.4); }
+.view-all_stocks .stocks-table tbody td.pct-tier-light-up  { color: #f57584; font-weight: 600; }
+.view-all_stocks .stocks-table tbody td.pct-tier-zero      { color: var(--ink-3); }
+.view-all_stocks .stocks-table tbody td.pct-tier-light-down{ color: #62c392; font-weight: 600; }
+.view-all_stocks .stocks-table tbody td.pct-tier-deep-down { color: #1aaa5a; font-weight: 700; text-shadow: 0 0 1px rgba(26,170,90,.4); }
+[data-theme="light"] .view-all_stocks .stocks-table tbody td.pct-tier-deep-up   { color: #d60000; }
+[data-theme="light"] .view-all_stocks .stocks-table tbody td.pct-tier-deep-down { color: #007a3d; }
 
 /* —— sticky 首 2 列 —— */
 .view-all_stocks .stocks-table tbody td.sticky-left,
@@ -6573,7 +6835,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   .kpi-grid .kpi { padding: 12px 16px; }
   .kpi-grid .kpi .kpi-value { font-size: 22px; }
   /* 复盘页桌面端 */
-  .view-review .review-card { padding: 12px 16px; }
+  .view-review .review-card { padding: 10px 14px; }
   .view-review .review-trade-item { padding: 6px 10px; }
   .view-review .review-table-wrap { font-size: 12px; }
   .view-review .review-table-wrap th,
@@ -6783,7 +7045,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   font-weight: 600;
   font-family: var(--font-mono);
   letter-spacing: .04em;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .view-all_stocks .col-toggle-btn:hover {
   border-color: var(--accent);
@@ -6842,7 +7104,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   font-weight: 600;
   letter-spacing: .04em;
   margin-right: 4px;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .view-all_stocks .chip-l1 {
   background: var(--chip-bg, hsla(212,80%,60%,.10));
@@ -6858,7 +7120,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 }
 .view-all_stocks .chip-click {
   cursor: pointer;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .view-all_stocks .chip-click:hover {
   filter: brightness(.95);
@@ -6930,7 +7192,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   opacity: 0;
   transform: translateY(8px);
   pointer-events: none;
-  transition: all .25s var(--ease-spring);
+  transition: opacity .25s var(--ease-spring), transform .25s var(--ease-spring);
 }
 .scroll-top-fab.show {
   opacity: 1;
@@ -7083,7 +7345,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   color: var(--ink);
   font-family: inherit;
   font-weight: 500;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .multi-trigger:hover { border-color: var(--accent); }
 .multi-trigger-count {
@@ -7215,7 +7477,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   color: var(--ink-2);
   font-family: inherit;
   font-weight: 600;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
   position: relative;
 }
 .mab-btn:active { background: var(--bg-hover); transform: scale(.96); }
@@ -7329,7 +7591,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .15s var(--ease);
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
 }
 .sheet-cluster-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
 .sheet-cluster-chip.active {
@@ -7387,9 +7649,6 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 
 /* —— 响应式断点 (与 style.css 主规则一致: 980/768/480) —— */
 @media (max-width: 980px) {
-  .view-all_stocks #as-table-scroll {
-    max-height: calc(100vh - 360px);
-  }
   .view-all_stocks .stocks-table {
     font-size: 11.5px;
   }
@@ -7543,6 +7802,9 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
     gap: 10px;
   }
   .view-all_stocks .as-head .display { font-size: 20px; }
+  /* 移动端: chip 字号缩小,避免长 sector 名撑爆标题 */
+  .view-all_stocks .as-head .as-title-pct { font-size: 12px; padding: 2px 8px; margin-left: 6px; }
+  .view-all_stocks .as-head .as-title-pct-val { font-size: 13px; }
   .view-all_stocks .as-toolbar { width: 100%; }
   .view-all_stocks .as-filter-strip {
     flex-direction: column;
@@ -7569,10 +7831,11 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   .view-all_stocks .stocks-table tbody td {
     padding: 6px 6px;
   }
-  .view-all_stocks #as-table-scroll {
-    max-height: calc(100vh - 380px);
-  }
-  .mobile-action-bar { display: flex; }
+  /* 2026-07-16: 移除 max-height,让表格自然向下延伸,整页滚动 */
+  /* 2026-07-16: 隐藏移动底部操作栏 + bottom-sheet — 用户反馈"弹窗要去掉,显示跟其它tab一样"
+     现在所有筛选/排序 inline 在卡片顶部,跟 watchlist/optimize 视觉一致 */
+  .mobile-action-bar { display: none !important; }
+  .bottom-sheet, .bottom-sheet-backdrop { display: none !important; }
   /* 触摸目标 ≥44px (Apple HIG) — 桌面端 30px,移动端 44px */
   .view-all_stocks .cluster-chip {
     min-height: 44px;
@@ -7621,7 +7884,24 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 @media (max-width: 480px) {
   .view-all_stocks .stocks-table {
     font-size: 10.5px;
-    min-width: 1080px;
+    width: auto;  /* R76-80: 不强制 min-width,table-layout:fixed + explicit col width = 精确列宽 */
+    min-width: 0; /* 覆盖 (max-width: 768px) 里的 min-width:720px */
+  }
+  /* R71-75 (2026-07-17): col-toggle 菜单移动端 — full-width 浮在上方,避免溢出 */
+  .view-all_stocks .col-toggle {
+    position: static;
+  }
+  .view-all_stocks .col-toggle-menu {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+  .view-all_stocks .col-toggle.open .col-toggle-menu {
+    /* 移动端菜单高度更大,容易点 */
+    max-height: 70vh;
   }
   .view-all_stocks .stocks-table thead th,
   .view-all_stocks .stocks-table tbody td {
@@ -7636,6 +7916,100 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   .view-all_stocks .stocks-table td[data-col="成交额"] {
     width: 72px;
     min-width: 72px;
+    /* R76-80: 移动端默认隐藏成交额,留在未隐藏列表里可显式开启 */
+    display: none;
+  }
+  /* R61-65 (2026-07-17): 移动端缩窄 AI 战场 chip + 序号列,让 涨幅 立即可见
+     原: ⭐52 + 代61 + 名64 + chip180 = 357px > 328 viewport → 涨幅被挤出可视
+     新: ⭐36 + 代52 + 名56 + chip84 = 228px → 涨幅 (66px) 进入可视,共 294px */
+  .view-all_stocks .stocks-table th[data-col="自选"],
+  .view-all_stocks .stocks-table td[data-col="自选"] {
+    width: 36px;
+    min-width: 36px;
+  }
+  .view-all_stocks .stocks-table th[data-col="代码"],
+  .view-all_stocks .stocks-table td[data-col="代码"],
+  .view-all_stocks .stocks-table th.sticky-left,
+  .view-all_stocks .stocks-table td.sticky-left {
+    width: 52px;
+    min-width: 52px;
+    left: 0;
+  }
+  .view-all_stocks .stocks-table th[data-col="名称"],
+  .view-all_stocks .stocks-table td[data-col="名称"],
+  .view-all_stocks .stocks-table th.sticky-left-2,
+  .view-all_stocks .stocks-table td.sticky-left-2 {
+    width: 56px;
+    min-width: 56px;
+    left: 52px;
+  }
+  .view-all_stocks .stocks-table th[data-col="AI战场"],
+  .view-all_stocks .stocks-table td[data-col="AI战场"] {
+    width: 84px;
+    min-width: 84px;
+    max-width: 84px;
+  }
+  .view-all_stocks .stocks-table .chip-domain {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 4px;
+  }
+  /* R76-80 (2026-07-17): 移动端 table-layout:fixed + 显式列宽 — 防止 21 列 auto 拉伸把 涨幅 拉到 165px */
+  .view-all_stocks .stocks-table {
+    table-layout: fixed;
+  }
+  /* R76-80: 进一步隐藏成交额 / 同链涨停,留下 7 列 (368px) ≈ 移动端 viewport (390px),
+     默认可见不掉列,scrollable 看更多 */
+  .view-all_stocks .stocks-table th[data-col="成交额"],
+  .view-all_stocks .stocks-table td[data-col="成交额"],
+  .view-all_stocks .stocks-table th[data-col="同链涨停"],
+  .view-all_stocks .stocks-table td[data-col="同链涨停"] { display: none; }
+  .view-all_stocks .stocks-table th[data-col="涨幅"],
+  .view-all_stocks .stocks-table td[data-col="涨幅"] {
+    width: 64px;
+    min-width: 64px;
+  }
+  .view-all_stocks .stocks-table th[data-col="5D走势"],
+  .view-all_stocks .stocks-table td[data-col="5D走势"] {
+    width: 40px;
+    min-width: 40px;
+  }
+  .view-all_stocks .stocks-table th[data-col="涨停"],
+  .view-all_stocks .stocks-table td[data-col="涨停"] {
+    width: 36px;
+    min-width: 36px;
+  }
+  /* R76-80 (2026-07-17): 加大右侧渐变 fade (40→56px) + 加 sticky 列 box-shadow,
+     让用户明显看到"还能右滚"和"我已经滚过 sticky 列" */
+  .table-wrap.has-overflow-x::after {
+    width: 56px;
+  }
+  .view-all_stocks .stocks-table th.sticky-left,
+  .view-all_stocks .stocks-table td.sticky-left {
+    box-shadow: 2px 0 4px hsla(0,0%,0%,.18);
+  }
+  .view-all_stocks .stocks-table th.sticky-left-2,
+  .view-all_stocks .stocks-table td.sticky-left-2 {
+    box-shadow: 3px 0 6px hsla(0,0%,0%,.18);
+  }
+  /* R81-85 (2026-07-17): 行高 + 字号再压紧 — 移动端表格每屏多容 2 行
+     padding 5×4 → 4×3 · 字号 10.5→10 · line-height 同步 */
+  .view-all_stocks .stocks-table {
+    --as-row-h: 30px;
+    font-size: 10px;
+  }
+  .view-all_stocks .stocks-table thead th,
+  .view-all_stocks .stocks-table tbody td {
+    padding: 4px 3px;
+    line-height: 1.2;
+  }
+  .view-all_stocks .stocks-table td.pct-tier-deep-up,
+  .view-all_stocks .stocks-table td.pct-tier-deep-down {
+    text-shadow: none;  /* 移动端 text-shadow 模糊、费 GPU */
   }
 }
 
@@ -7650,7 +8024,13 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 @media (prefers-reduced-motion: reduce) {
   .view-all_stocks *,
   .view-all_stocks *::before,
-  .view-all_stocks *::after {
+  .view-all_stocks *::after,
+  .view-stock *,
+  .view-stock *::before,
+  .view-stock *::after,
+  .view-dash *,
+  .view-dash *::before,
+  .view-dash *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }

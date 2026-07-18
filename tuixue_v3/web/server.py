@@ -1185,6 +1185,21 @@ async def meta_cache_stats():
     }
 
 
+@app.get("/api/_meta/error_stats")
+async def meta_error_stats():
+    """R80 (Batch 8): 错误率监控 — 5min 滚动窗口
+    返回各端点的 (calls, errors, timeout, error_rate)
+    """
+    try:
+        from . import error_stats as _es
+        snap = _es.snapshot()
+        return {"ok": True, "stats": snap, "ts": datetime.datetime.now().isoformat(timespec="seconds")}
+    except ImportError:
+        return {"ok": False, "error": "error_stats module not loaded", "stats": {}}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120], "stats": {}}
+
+
 @app.post("/api/_meta/cache_clear")
 async def meta_cache_clear(scope: str = Query("ttl", pattern="^(ttl|redis|all)$"),
                             confirm: str = ""):
@@ -2761,6 +2776,8 @@ async def stock_intraday_5d(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
     code = _require_valid_code(code)
     _touch_recent(code)
+    from . import error_stats as _es
+    _es.record("/api/stock/{code}/intraday_5d")
 
     cache_key_today = cache_store.K.INTRADAY_5D_TODAY.format(code=code)
     cache_key_hist  = cache_store.K.INTRADAY_5D_HIST.format(code=code)
@@ -4382,6 +4399,8 @@ class _BacktestReq(BaseModel):
     # 2026-07-18 R57+: VWAP 严格过滤开关 (默认 False = 软通, 数据不全时跳过)
     #   True = 必须 VWAP 验证 (需要 48 根 5min K, 历史覆盖率 < 5%, 慎用)
     require_vwap_strict: bool = False
+    # WIN_RATE_V2 双策略对比: 自动跑 baseline + 主策略并排展示
+    compare_to_baseline: bool = False
 
 
 def _bt_period_resolver(periods: list[str]) -> list[str]:
@@ -4406,7 +4425,8 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
                sector_late_up: bool = False, tail_vol_ratio_min: float = 0.0,
                strategy_id: str = "baseline",
                late_high_discount: float = 1.0,
-               require_vwap_strict: bool = False) -> None:
+               require_vwap_strict: bool = False,
+               compare_to_baseline: bool = False) -> None:
     from . import backtest_screener as _bt
 
     # R97: progress_cb 检查取消标记,每步检查一次
@@ -4428,25 +4448,53 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             if run_id in _BT_RUNS:
                 _BT_RUNS[run_id]["progress"] = msg
     try:
-        r = _bt.run_for_frontend(
-            period_keys,
-            hold_days=hold_days,
-            top_n=top_n,
-            sample=sample,
-            breadth_min=breadth_min,
-            breadth_min_soft=breadth_min_soft,
-            sector_hot_topn=sector_hot_topn,
-            sector_inflow_topn=sector_inflow_topn,
-            require_surge_label=require_surge_label,
-            enable_actual_10=enable_actual_10,
-            index_late_up=index_late_up,
-            sector_late_up=sector_late_up,
-            tail_vol_ratio_min=tail_vol_ratio_min,
-            strategy_id=strategy_id,
-            late_high_discount=late_high_discount,
-            require_vwap_strict=require_vwap_strict,
-            progress_cb=_cb,
-        )
+        # WIN_RATE_V2 双策略并跑: 一次请求出 baseline + 主策略对比
+        if compare_to_baseline and strategy_id != "baseline":
+            dual = _bt.run_dual_strategy(
+                compare_to_baseline=True,
+                period_keys=period_keys,
+                hold_days=hold_days,
+                top_n=top_n,
+                sample=sample,
+                breadth_min=breadth_min,
+                breadth_min_soft=breadth_min_soft,
+                sector_hot_topn=sector_hot_topn,
+                sector_inflow_topn=sector_inflow_topn,
+                require_surge_label=require_surge_label,
+                enable_actual_10=enable_actual_10,
+                index_late_up=index_late_up,
+                sector_late_up=sector_late_up,
+                tail_vol_ratio_min=tail_vol_ratio_min,
+                strategy_id=strategy_id,
+                late_high_discount=late_high_discount,
+                require_vwap_strict=require_vwap_strict,
+                progress_cb=_cb,
+            )
+            r = dual.get("primary", {})
+            bl = dual.get("baseline")
+            if bl:
+                r["_baseline_result"] = bl
+                if _cb: _cb("对比完成 ✓")
+        else:
+            r = _bt.run_for_frontend(
+                period_keys,
+                hold_days=hold_days,
+                top_n=top_n,
+                sample=sample,
+                breadth_min=breadth_min,
+                breadth_min_soft=breadth_min_soft,
+                sector_hot_topn=sector_hot_topn,
+                sector_inflow_topn=sector_inflow_topn,
+                require_surge_label=require_surge_label,
+                enable_actual_10=enable_actual_10,
+                index_late_up=index_late_up,
+                sector_late_up=sector_late_up,
+                tail_vol_ratio_min=tail_vol_ratio_min,
+                strategy_id=strategy_id,
+                late_high_discount=late_high_discount,
+                require_vwap_strict=require_vwap_strict,
+                progress_cb=_cb,
+            )
         with _BT_RUN_LOCK:
             _bt_put_fields(run_id,
                 status="done", result=r, progress="完成", finished_at=time.time())
@@ -4519,6 +4567,7 @@ async def api_screener_backtest(req: _BacktestReq):
             req.strategy_id,
             float(req.late_high_discount if 0.0 < req.late_high_discount <= 1.0 else 1.0),
             req.require_vwap_strict,
+            req.compare_to_baseline,
         )
     except Exception as e:
         with _BT_RUN_LOCK:
@@ -4807,6 +4856,8 @@ async def stock_overview(
     """
     code = _require_valid_code(code)
     _touch_recent(code)
+    from . import error_stats as _es
+    _es.record("/api/stock/{code}")
 
     # ─── 解析 date 参数 + 判断是否历史快照模式 ───
     target_date = ""
@@ -5116,6 +5167,8 @@ async def stock_core(request: _Request, code: str, date: str = Query("")):
     """
     from .. import lib_common as _lc
     from .. import data_layer as _dl
+    from . import error_stats as _es
+    _es.record("/api/stock/{code}/core")
 
     code = _require_valid_code(code)
     _touch_recent(code)
@@ -5201,6 +5254,8 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
     """
     code = _require_valid_code(code)
     _touch_recent(code)
+    from . import error_stats as _es
+    _es.record("/api/stock/{code}/full")
 
     cache_key = cache_store.K.STOCK_FULL.format(code=code)
     if not fresh:
@@ -5212,7 +5267,11 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
             return json_etag_response(request, envelope(data=cached), max_age=5)
 
     # Single-flight: 同一 code 5s 窗口内并发合并 (避免雪崩打 akshare)
-    out = await _singleflight_stock_full(code, date)
+    try:
+        out = await _singleflight_stock_full(code, date)
+    except Exception as _e:
+        _es.record("/api/stock/{code}/full", error=True)
+        raise
     out["_cache_hit"] = False
 
     # 写 Redis 5s

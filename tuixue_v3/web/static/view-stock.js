@@ -726,6 +726,9 @@ async function loadStockDetail(code, date) {
     _stockAuxCache.inflight = null;
     _stockAuxCache.ts = 0;
   }
+  // R71 (Batch 8): 冷启无任何缓存 → 显示 skeleton 占位,避免空白闪烁
+  // 必须在 setQuickbarEnabled 之前 — quickbar 也要显示 skeleton 行
+  _showStockSkeleton(code);
   // 启用快速工具栏 (含 default 日期),先 await 确保 stock-date 有值
   await _setQuickbarEnabled(code);
   // 日期参数优先级: 调用方传入 > 当前 stock-date input > 空(今日)
@@ -743,6 +746,7 @@ async function loadStockDetail(code, date) {
     _recordHit('mem');
     try { renderStockDetail(code, cached); }
     catch (e) { console.debug('[stock-cache] render fail:', e.message); }
+    _hideStockSkeleton();  // R72 (Batch 8): 缓存命中也要清 skeleton
     return;  // 内存 hit 直接返,不再走 fetch (即时返回)
   }
   cached = _stockCacheLoad(code, dateParam);
@@ -751,6 +755,7 @@ async function loadStockDetail(code, date) {
     _memFullSet(code, dateParam, cached);  // 顺手灌进 L1 内存,下次 0ms
     try { renderStockDetail(code, cached); }
     catch (e) { console.debug('[stock-cache] render fail:', e.message); }
+    _hideStockSkeleton();  // R72 (Batch 8)
   }
 
   // R5: inflight dedup — 同 (code,date) 短时间内重复调,共用一个 promise
@@ -770,6 +775,7 @@ async function loadStockDetail(code, date) {
         const coreRender = { code, quote: coreData.quote, kline: coreData.kline || [], _core: true };
         renderStockDetail(code, coreRender);
         _recordHit('redis');
+        _hideStockSkeleton();  // R-fix-B8: /core 拿到 quote 即可首屏,立即去 skeleton
       }
     } catch (e) {
       console.debug('[core] failed:', e.message);
@@ -796,6 +802,7 @@ async function loadStockDetail(code, date) {
     _recordHit('network');
     try { renderStockDetail(code, data); }
     catch (e) { console.error('renderStockDetail failed:', e); toast(`渲染失败:${e.message}`, 'error'); }
+    _hideStockSkeleton();  // R72 (Batch 8): 首次成功 render 后移除 skeleton
     // 记录到历史
     const name = (data.quote && data.quote.name) || (data.name) || code;
     _addHist(code, name);
@@ -819,8 +826,11 @@ async function loadStockDetail(code, date) {
       console.warn('[stock] 网络失败,使用缓存:', e.message);
     } else {
       toast(`加载失败：${e.message}`, 'error');
+      // R77 (Batch 8): 无缓存 + 网络失败 → 显示错误卡 + 重试按钮
+      _showStockError(code, e.message || '网络异常');
     }
   } finally {
+    _hideStockSkeleton();  // R72 (Batch 8): 兜底清 skeleton (避免永久闪烁)
     // R5: 200ms 后清 inflight key,允许同 key 在失败重试时复用
     setTimeout(() => {
       if (_stockDetailInflightKey === inflightKey) {
@@ -2971,6 +2981,111 @@ function errorCard(msg, onRetry) {
     ${retry}
   </div>`;
 }
+
+// R71 (Batch 8): 个股页骨架屏 — 冷启时注入 5 个 card shimmer 占位
+// 高度匹配实际渲染,避免 CLS (R74)
+// 被 _hideStockSkeleton 移除;首次 render 或任意缓存命中后自动消失
+function _showStockSkeleton(code) {
+  // 避免重复注入
+  if ($('#stock-skeleton')) return;
+  // 检查是否有任何 cache hit — 有就直接不显示 skeleton
+  const cached = _memFullGet(code, '') || _stockCacheLoad(code, '');
+  if (cached) return;
+  const host = $('.view-stock') || document.body;
+  const skel = document.createElement('div');
+  skel.id = 'stock-skeleton';
+  skel.className = 'stock-skeleton';
+  // 5 张占位 card: hero / quote / sector / chart / news (按实际比例)
+  skel.innerHTML = `
+    <article class="card mt-16 stock-skel-hero">
+      <div class="skeleton skeleton-line xl" style="width:40%;margin-bottom:.6rem"></div>
+      <div class="skeleton skeleton-line lg" style="width:60%"></div>
+      <div class="skeleton skeleton-line" style="width:80%;margin-top:.4rem"></div>
+    </article>
+    <article class="card mt-16 stock-skel-quote">
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:.6rem">
+        ${Array.from({length:4}, () => `<div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line lg" style="width:80%;margin-top:.4rem"></div></div>`).join('')}
+      </div>
+    </article>
+    <article class="card mt-16 stock-skel-sector" style="min-height:140px">
+      <div class="skeleton skeleton-line" style="width:35%;margin-bottom:.8rem"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${Array.from({length:6}, () => '<div class="skeleton skeleton-line" style="width:60px;height:24px;border-radius:12px"></div>').join('')}
+      </div>
+    </article>
+    <article class="card mt-16 stock-skel-chart" style="min-height:240px">
+      <div class="skeleton skeleton-line" style="width:25%;margin-bottom:.8rem"></div>
+      <div class="skeleton skeleton-block" style="height:200px;width:100%"></div>
+    </article>
+    <article class="card mt-16 stock-skel-news" style="min-height:80px">
+      <div class="skeleton skeleton-line" style="width:30%;margin-bottom:.6rem"></div>
+      <div class="skeleton skeleton-line" style="width:90%"></div>
+      <div class="skeleton skeleton-line" style="width:75%;margin-top:.4rem"></div>
+    </article>
+  `;
+  // 插入到 quickbar 之后(避免遮盖搜索栏)
+  const quickbar = $('#stock-quickbar');
+  if (quickbar && quickbar.parentNode) {
+    quickbar.parentNode.insertBefore(skel, quickbar.nextSibling);
+  } else {
+    host.appendChild(skel);
+  }
+}
+
+function _hideStockSkeleton() {
+  const skel = $('#stock-skeleton');
+  if (skel) skel.remove();
+  // 移除 error card 也算 hide (成功路径)
+  const err = $('#stock-error-card');
+  if (err) err.remove();
+}
+
+// R77 (Batch 8): 全页失败错误卡 + 重试 (网络挂 + 无缓存兜底)
+let _stockRetryHandler = null;
+function _showStockError(code, msg) {
+  _hideStockSkeleton();
+  const host = $('.view-stock') || document.body;
+  const err = document.createElement('div');
+  err.id = 'stock-error-card';
+  err.className = 'stock-error-card';
+  err.innerHTML = `
+    <article class="card mt-16 error-card">
+      <div class="er-msg">
+        <b>加载 ${escapeHtml(code)} 失败</b><br/>
+        ${escapeHtml(msg || '网络异常,请稍后重试')}<br/>
+        <span class="caption dim">提示: 网络不通时可稍后再试,历史浏览过的股票会从缓存秒开</span>
+      </div>
+      <button class="er-retry" id="er-retry-btn">↻ 重试</button>
+    </article>
+  `;
+  const quickbar = $('#stock-quickbar');
+  if (quickbar && quickbar.parentNode) {
+    quickbar.parentNode.insertBefore(err, quickbar.nextSibling);
+  } else {
+    host.appendChild(err);
+  }
+  const btn = $('#er-retry-btn');
+  if (btn) btn.addEventListener('click', () => {
+    err.remove();
+    loadStockDetail(code);
+  });
+}
+
+// R76 (Batch 8): 重试 + exponential backoff 封装 (用于子 loader)
+async function _retryWithBackoff(fn, maxRetries = 2, baseMs = 500) {
+  let lastErr;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < maxRetries) {
+        await new Promise(r => setTimeout(r, baseMs * Math.pow(2, i)));
+      }
+    }
+  }
+  throw lastErr;
+}
 // 数字滚动（首次显示或大变化时使用，~500ms 平滑过渡）
 // R16: 全局追踪正在运行的 animateNumber RAF — 切股时全部取消
 var _animateNumberRaf = new Set();
@@ -3246,16 +3361,18 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp)
   const refLine = times.map(_ => refVal);
 
   // ── Y 轴覆盖数据范围 + 上下余量 ──
-  // 同花顺风格: 用 5%/95% 百分位剔除极端值,波动放大看得清;
-  // 再加 8% padding 留呼吸空间. 旧版 dataRange*0.25 太宽,日内 ±2% 看起来像 ±0.5%.
+  // 同花顺风格: 顶部用实际最高价 (不能裁掉突发 spike 到日内最高的 1min tick),
+  //            底部用 2% 百分位避免开盘瞬间噪声;顶部额外 1.5x padding 给末值标呼吸空间.
+  // 旧版 pIdx(0.98) 看似温和,但单根 1min tick 冲到日内最高 → 落在 top 2% → 被裁掉看不到。
   const sortedPrices = [...validPrices].sort((a, b) => a - b);
   const pIdx = (p) => sortedPrices[Math.max(0, Math.min(sortedPrices.length - 1, Math.floor(p * sortedPrices.length)))];
-  const dataMin = Math.min(pIdx(0.02), refVal);  // 2% 百分位 (剔除开盘瞬间极端)
-  const dataMax = Math.max(pIdx(0.98), refVal);  // 98% 百分位
+  const dataMin = Math.min(pIdx(0.02), refVal);  // 底部用 2% 百分位
+  const dataMax = Math.max(...validPrices, refVal);  // 顶部用真实最高 (含 spike)
   const dataRange = Math.max(dataMax - dataMin, refVal * 0.001);
-  const padding = Math.max(dataRange * 0.08, refVal * 0.0015);
-  const yMin = dataMin - padding;
-  const yMax = dataMax + padding;
+  const basePad = Math.max(dataRange * 0.08, refVal * 0.0015);
+  const yMin = dataMin - basePad;
+  // 顶部 padding 加大 50% — 给"末值% end-label"留呼吸空间,标签不会再贴到价格线上
+  const yMax = dataMax + basePad * 1.5;
 
   // ── 均价线（量加权 rolling）──
   const avgLine = [];
@@ -3319,6 +3436,10 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp)
   const _lastColor = _lastPrice != null && _lastPrice >= refVal ? UP : (_lastPrice != null && _lastPrice < refVal ? DOWN : INK2);
   const _lastPct = _lastPrice != null && refVal > 0 ? ((_lastPrice - refVal) / refVal * 100) : 0;
   const _lastLabel = _lastPrice != null ? `${_lastPrice.toFixed(2)} ${(_lastPct >= 0 ? '+' : '') + _lastPct.toFixed(2)}%` : '';
+  // R-fix-2026-07-18: 末值在 y 轴上半区时 (距离 yMax < 25% yRange),把末值标从 end+distance:4 翻到 insideEndBottom —
+  // 否则 end 标签占右上角,跟 MA5/10/20 的 insideEndTop 标签堆在同一像素,互相遮挡
+  const _yRange = yMax - yMin;
+  const _lastPriceNearTop = _lastPrice != null && _yRange > 0 && (yMax - _lastPrice) < _yRange * 0.25;
   {
     const bars = (klineState.data || [])
       .filter(k => k.date && k.close != null && k.date <= date)
@@ -3476,6 +3597,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp)
       // 2026-07-18: 加最新价右轴标签 (markLine + label.position='end'),同花顺风格
       //              用户反馈: 标签只显示涨跌百分比,价格由右轴承担 (避免双重视觉)
       { name: '价格', type: 'line', data: prices, showSymbol: false, smooth: false,
+        // R-fix-2026-07-18: 关掉 grid clip,价格线 / markLine 在 yMax 之外仍然可见(确保 spike 到日内最高不被裁)
+        clip: false,
         lineStyle: { color: UP, width: 1.8 }, itemStyle: { color: UP },
         markLine: {
           silent: true, symbol: 'none',
@@ -3488,14 +3611,16 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp)
               xAxis: _lastIdx, yAxis: _lastPrice,
               lineStyle: { color: _lastColor, type: 'solid', width: 1, opacity: 0.7 },
               label: {
-                show: true, position: 'end',
+                show: true,
+                // R-fix-2026-07-18: 接近 yMax 时翻到 insideEndBottom,避免跟 MA5 insideEndTop 右上角遮挡
+                position: _lastPriceNearTop ? 'insideEndBottom' : 'end',
                 // 只显示涨跌百分比,价格由左轴 + 折线本身承担
                 formatter: _lastPrice != null && refVal > 0
                   ? `${((_lastPrice - refVal) / refVal * 100 >= 0 ? '+' : '') + ((_lastPrice - refVal) / refVal * 100).toFixed(2)}%`
                   : '',
                 color: '#fff', fontSize: 10, fontWeight: 700,
                 backgroundColor: _lastColor, padding: [2, 6], borderRadius: 3,
-                distance: 4,
+                distance: _lastPriceNearTop ? 6 : 4,
               },
             }] : []),
           ],
@@ -3861,7 +3986,13 @@ async function loadStockSector(code) {
       host5.innerHTML = '<p class="caption dim">暂无与该股直接相关的新闻（AI 评分按申万行业 / 涉及股票过滤）</p>';
     }
   } catch (e) {
-    host1.innerHTML = `<div class="kv-row"><span class="down">板块加载失败</span><b>${escapeHtml(e.message)}</b></div>`;
+    // R73 (Batch 8): per-card 错误状态 + 重试按钮
+    const retryBtnId = `sec-retry-${code}`;
+    host1.innerHTML = `
+      <div class="kv-row"><span class="down">板块加载失败</span><b>${escapeHtml(e.message)}</b></div>
+      <div class="kv-row"><button class="btn-mini" id="${retryBtnId}">↻ 重试</button></div>
+    `;
+    document.getElementById(retryBtnId)?.addEventListener('click', () => loadStockSector(code));
   }
 
   // 加载连板 & 板块联动面板（用 申万行业 sw 作为 sector 过滤）
