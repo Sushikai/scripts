@@ -558,22 +558,111 @@ function _probeMemory() {
   const m = performance.memory;
   return { usedMB: Math.round(m.usedJSHeapSize / 1048576), totalMB: Math.round(m.totalJSHeapSize / 1048576), limitMB: Math.round(m.jsHeapSizeLimit / 1048576) };
 }
+
+// R93: 全局 unhandledrejection 兜底 — 防止静默失败(SSE/poll 超时偶发)
+var _lastUnhandledTs = 0;
+window.addEventListener('unhandledrejection', (e) => {
+  const now = Date.now();
+  // 同 1s 内重复 → 抑制,避免同一超时 spam toast
+  if (now - _lastUnhandledTs < 1000) return;
+  _lastUnhandledTs = now;
+  const msg = String(e.reason?.message || e.reason || '未知错误');
+  // 已知可忽略: AbortError (主动取消) + 大盘/network 25s+ 超时
+  if (/AbortError|abort/i.test(msg)) { e.preventDefault?.(); return; }
+  console.warn('[unhandled]', msg);
+});
 setInterval(() => {
   const m = _probeMemory();
   if (m && m.usedMB > 200) console.warn(`[mem] ${m.usedMB}MB / ${m.totalMB}MB (limit ${m.limitMB}MB)`);
 }, 300_000);
 
 // R78: 页面隐藏时 dump 一次性能摘要 (开发调试用)
+// R82 (Batch 9): visibilitychange 重新可见 + 超过 60s → 重新拉当前 stock (防 stale 数据)
+var _lastVisibleAt = Date.now();
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    _lastVisibleAt = Date.now();
     const nav = performance.getEntriesByType('navigation')[0];
     const res = performance.getEntriesByType('resource');
     const apiTotal = res.filter(r => r.name.includes('/api/')).length;
     const slow = res.filter(r => r.duration > 2000).map(r => r.name.split('?')[0].split('/').slice(-2).join('/') + ':' + Math.round(r.duration) + 'ms');
     console.debug(`[perf-summary] load=${Math.round(nav.loadEventEnd)}ms api=${apiTotal} slow=${slow.length} mem=${_probeMemory()?.usedMB || '?'}MB`);
     if (slow.length) console.debug('[perf-slow]', slow.slice(0, 5));
+  } else {
+    // 隐藏超过 60s → 当前 stock 重新拉一次 (避开竞态: 切到其他 view 则不动)
+    const elapsed = Date.now() - _lastVisibleAt;
+    if (elapsed > 60000) {
+      const cur = window._currentStockCode;
+      if (cur && window._currentViewName === 'stock' && typeof loadStockDetail === 'function') {
+        console.debug(`[visibility] refresh ${cur} after ${Math.round(elapsed/1000)}s hidden`);
+        try { loadStockDetail(cur); } catch (e) { console.debug('[visibility] refresh fail:', e.message); }
+      }
+    }
   }
 });
+
+// R92: 离线条幅 — 用持久 banner 元素,不进 toast 队列 (避免被新 toast 覆盖)
+var _offlineBanner = null;
+function _showOffline() {
+  if (_offlineBanner) return;
+  const b = document.createElement('div');
+  b.id = 'offline-banner';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px 12px;background:#d97706;color:#fff;text-align:center;font-size:13px;z-index:99999;font-weight:600';
+  b.textContent = '网络已断开 · 显示缓存数据 · 恢复后将自动刷新';
+  document.body.appendChild(b);
+  _offlineBanner = b;
+}
+function _hideOffline() {
+  if (_offlineBanner) { _offlineBanner.remove(); _offlineBanner = null; }
+}
+window.addEventListener('offline', _showOffline);
+window.addEventListener('online', () => {
+  _hideOffline();
+  toast('网络已恢复', 'success', 1500);
+  // R92: 网络恢复时,如果有当前 stock / view,自动重拉一次(用户感知即时)
+  if (typeof currentStockCode !== 'undefined' && currentStockCode) {
+    if (typeof _pollStockRealtime === 'function') _pollStockRealtime(currentStockCode);
+  }
+});
+
+// R85 (Batch 9): error_rate 监控 banner — 任一核心端点 error_rate > 50% 时顶部提示
+var _errorRateBanner = null;
+var _errorRateLastCheck = 0;
+async function _checkErrorRate() {
+  const now = Date.now();
+  if (now - _errorRateLastCheck < 60000) return;  // 1min 限频
+  _errorRateLastCheck = now;
+  try {
+    const resp = await _fetchWithTimeout('/api/_meta/error_stats', { timeout: 5000 });
+    if (!resp.ok) return;
+    const env = await resp.json();
+    if (!env.ok || !env.stats) return;
+    let maxEr = 0, worstEp = '';
+    for (const [ep, st] of Object.entries(env.stats)) {
+      if (st.calls < 5) continue;  // 样本太少忽略
+      if (st.error_rate > maxEr) { maxEr = st.error_rate; worstEp = ep; }
+    }
+    if (maxEr > 0.5) {
+      _showErrorRateBanner(`端点 ${worstEp.split('/').slice(-1)[0]} 错误率 ${(maxEr*100).toFixed(0)}%`);
+    } else {
+      _hideErrorRateBanner();
+    }
+  } catch (e) { /* 静默 */ }
+}
+function _showErrorRateBanner(msg) {
+  if (_errorRateBanner) { _errorRateBanner.textContent = '⚠ ' + msg; return; }
+  const b = document.createElement('div');
+  b.id = 'error-rate-banner';
+  b.className = 'error-rate-banner';
+  b.textContent = '⚠ ' + msg;
+  document.body.appendChild(b);
+  _errorRateBanner = b;
+}
+function _hideErrorRateBanner() {
+  if (_errorRateBanner) { _errorRateBanner.remove(); _errorRateBanner = null; }
+}
+// boot 30s 后开始检查,之后每 60s
+setTimeout(() => { _checkErrorRate(); setInterval(_checkErrorRate, 60000); }, 30000);
 
 // ────────────────────────────────────────────
 // keepalive 心跳 — 防止 tunnel / NAT idle 切断所有闲置连接
@@ -888,11 +977,14 @@ function _routeFromHash() {
           if (el) el.value = v;
         }
       };
-      // periods (逗号分隔)
-      const periods = (hashParams.get('periods') || '').split(',').filter(Boolean);
-      document.querySelectorAll('input[name="bt-p"]').forEach(cb => {
-        cb.checked = periods.includes(cb.value);
-      });
+      // periods (逗号分隔) — 仅当 URL 显式提供时才覆盖, 否则保留 HTML 默认 ("半年" checked)
+      const _periodsRaw = hashParams.get('periods');
+      if (_periodsRaw != null) {
+        const periods = _periodsRaw.split(',').filter(Boolean);
+        document.querySelectorAll('input[name="bt-p"]').forEach(cb => {
+          cb.checked = periods.includes(cb.value);
+        });
+      }
       _applyRange('bt-hold', 'hold');
       _applyRange('bt-topn', 'top');
       _applyRange('bt-sample', 'sample');

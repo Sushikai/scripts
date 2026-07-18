@@ -653,6 +653,7 @@ function _resetStockHero() {
 // 避免: 用户在搜索框连按 + URL hash 同步改 + watcher 3 路同时调,3 个 /full 请求并发
 var _stockDetailInflight = null;
 var _stockDetailInflightKey = '';
+// R81 (Batch 9): inflight 已被 R5 dedup,这里显式 cache 切股时强制清掉防 stale render
 
 // R3 (Batch 1): 内存层 LRU cache — 同 tab 内多次访问零延迟
 // L1 (内存 ~0ms) > L2 (sessionStorage ~1ms) > L3 (SW ~5ms) > L4 (Redis 5s ~20ms) > L5 (server ~200ms+)
@@ -711,6 +712,10 @@ async function loadStockDetail(code, date) {
   currentStockCode = code;
   // 2026-07-18 修: app.js 也读 _currentStockCode (下划线),两变量同步赋值防再发
   window._currentStockCode = code;
+  // R81 (Batch 9): 切股时把旧 inflight 标记成 stale — api() 走 inflight dedup 自动挡,
+  // 但这里多一道显式清,防 stale render。currentStockCode 检查在 render 路径已有 (L787/L832)
+  _stockDetailInflight = null;
+  _stockDetailInflightKey = '';
   // 切股:停旧轮询,新轮询在首次 render 后启动,避免抢数据
   _stopStockPoll();
   // R12: 立即清掉 _stockAuxCache 旧股的 sector/lu_ctx 等,防止 race 期间子 loader 拿到旧 stock 数据
@@ -870,6 +875,11 @@ function _openStockStream(code) {
   // 关旧 stream
   _closeStockStream();
   if (!code) return;
+  // R84 (Batch 9): hidden tab 不开 SSE — 切回时再开 (省带宽 + 后端 worker)
+  if (document.hidden) {
+    console.debug('[stream] hidden tab, defer open');
+    return;
+  }
   try {
     const es = new EventSource(`/api/stock/${code}/stream`);
     es.addEventListener('quote_patch', (e) => {
@@ -939,6 +949,17 @@ function _closeStockStream() {
 // 切 stock 时关掉旧 stream
 const _origLoadStockDetail = loadStockDetail;
 // 已通过 _openStockStream 内部 _closeStockStream 处理
+
+// R84 (Batch 9): visibilitychange — hidden 时关 SSE,visible 时重开 (R82 已加 R-stock refresh)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // 关 SSE 省资源
+    _closeStockStream();
+  } else if (window._currentStockCode && window._currentViewName === 'stock' && !_currentStockStream) {
+    // 切回前台 → 重新订阅 SSE (没 R82 的 reload 必要,SSE 推的价格够新鲜)
+    _openStockStream(window._currentStockCode);
+  }
+});
 
 // 2026-07-17 性能: 个股 aux 数据共享缓存 (sector / lu_ctx / strong)
 // 之前 3 个子 loader 各自 fetch,经常重复 2-3 次,导致切股/冷启 5-15s
