@@ -825,8 +825,14 @@ class K:
     KLINE_PRE = "kline_pre:{code}:{days}"     # TTL 4h
     # 新闻
     NEWS = "news:cache"                       # TTL 30min
+    # R63 (Batch 7): sectors/sw 行业聚合 6h Redis — 今日新闻聚合结果盘中变化慢
+    SECTORS_SW_AGG = "sectors:sw_agg"        # TTL 21600s (6h)
+    # R66 (Batch 7): related_news per-code 6h Redis (个股相关新闻聚合)
+    RELATED_NEWS = "related_news:{code}"     # TTL 21600s (6h)
     # 板块映射
     SECTOR = "sector:map"                     # TTL 24h
+    # R61 (Batch 7): sector per-code 24h Redis (板块字典级别稳定)
+    SECTOR_BY_CODE = "sector:by_code:{code}"   # TTL 86400s (24h)
     # 席位
     SEAT_ALIASES = "seat:aliases"             # 永久
     SEAT_KNOWN = "seat:known"                 # 永久

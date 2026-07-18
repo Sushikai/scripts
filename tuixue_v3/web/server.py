@@ -507,6 +507,10 @@ _cache_layer   = TTLCache(default_ttl=600.0)  # AI 层详情 10min (4 路并行 
 _cache_seat_bd = TTLCache(default_ttl=600.0)  # 8 类席位分类 10min (LHB 当日不变, 跨进程有 Redis 24h 兜底)
 # R53 (Batch 6): intraday per-(code,date) L0 60s — 跳 Redis, 同 worker 重复点分时秒开
 _cache_intraday = TTLCache(default_ttl=60.0)  # 单股单日分时 60s (盘中需要新鲜, 但同 worker 重复点击要秒返)
+# R61 (Batch 7): sector per-code L0 1h — 板块分类极少变 (sw/csrc/cics/gics 字典级别稳定)
+_cache_sector = TTLCache(default_ttl=3600.0)
+# R62 (Batch 7): news L0 5min — 同 worker 重复刷新闻列表秒开 (新闻数据已用 SQLite 持久化)
+_cache_news = TTLCache(default_ttl=300.0)
 
 # 实时抓取 — 跟踪最近 1h 访问过的 code,后台 poller 用来滚动预热 quote
 # (2026-07-11 进页面 ?fresh=1 + 10s 轮询 配合用)
@@ -1170,6 +1174,10 @@ async def meta_cache_stats():
             "seat_bd":  _cache_seat_bd.stats(),
             # R60 (Batch 6): 暴露 intraday L0 cache stats
             "intraday": _cache_intraday.stats(),
+            # R61 (Batch 7): sector per-code L0
+            "sector":   _cache_sector.stats(),
+            # R62 (Batch 7): news L0
+            "news":     _cache_news.stats(),
         },
         "redis":  store_stats,
         "redis_status": store_status,
@@ -3452,7 +3460,16 @@ async def news_list(refresh: bool = Query(False, description="是否强制刷新
     返回当前新闻缓存(含 AI 评分)。
     - refresh=true 时:重新抓取 sina,但不强制 AI 重跑
     - 新闻按 ctime 倒序,AI 评分内嵌到每条 news.ai 字段
+
+    R62 (Batch 7): L0 5min TTLCache — 同 worker 重复刷新闻列表秒开 (下游 SQLite 已 30min TTL)
     """
+    if not refresh:
+        # L0 hit (5min 内秒返)
+        l0 = _cache_news.get(("news_list",))
+        if l0 is not None:
+            l0["_cache_hit"] = True
+            l0["_cache_level"] = "l0_mem"
+            return envelope(data=l0)
     def _load():
         cache = news_lookup.get_cached_news(force_refresh=refresh)
         news = cache.get("news") or []
@@ -3476,6 +3493,8 @@ async def news_list(refresh: bool = Query(False, description="是否强制刷新
         result = await asyncio.wait_for(to_thread(_load), timeout=15)
     except asyncio.TimeoutError:
         return envelope(error="news 拉取超时", data={"news": [], "count": 0})
+    if not refresh and result:
+        _cache_news.set(("news_list",), result)
     return envelope(data=result)
 
 
@@ -3546,18 +3565,50 @@ async def news_refresh():
 
 
 @app.get("/api/stock/{code}/sector")
-async def stock_sector(code: str):
+async def stock_sector(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
     个股板块分类(交易所板块 + 4 套行业)
+
+    R61 (Batch 7): L0 1h + L1 24h Redis 缓存 (板块字典级别稳定)
     """
     from .sector_classify import get_sector
     code = _require_valid_code(code)
+
+    if not fresh:
+        # L0 mem (同 worker 1h 内秒开)
+        l0 = _cache_sector.get(("sector", code))
+        if l0 is not None:
+            l0["_cache_hit"] = True
+            l0["_cache_level"] = "l0_mem"
+            return envelope(data=l0)
+        # L1 Redis 24h (跨 worker 共享)
+        cache_key = cache_store.K.SECTOR_BY_CODE.format(code=code)
+        cached = _store_get(cache_key, ttl=86400)
+        if cached:
+            cached["_cache_hit"] = True
+            cached["_cache_level"] = "l1_redis"
+            _cache_sector.set(("sector", code), cached)  # 回填 L0
+            return envelope(data=cached)
+
     def _load():
         return get_sector(code)
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=10)
     except asyncio.TimeoutError:
+        # R61: 超时也读 L1 兜底
+        cache_key = cache_store.K.SECTOR_BY_CODE.format(code=code)
+        cached = _store_get(cache_key, ttl=86400)
+        if cached:
+            cached["_degraded"] = "upstream_timeout_cached"
+            return envelope(data=cached)
         return envelope(error="sector 超时", data={"code": code})
+    if not fresh and result:
+        # 写 L0 + L1
+        _cache_sector.set(("sector", code), result)
+        try:
+            _store_set(cache_store.K.SECTOR_BY_CODE.format(code=code), result, ttl=86400)
+        except Exception:
+            pass
     return envelope(data=result)
 
 
@@ -3594,14 +3645,23 @@ async def api_limitup_per_code(req: dict):
 
 
 @app.get("/api/stock/{code}/related_news")
-async def stock_related_news(code: str):
+async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
     与个股相关的新闻(按 ctime 倒序,最新在前):
     - 该股所在申万行业被新闻 sectors 包含
     - 或新闻 stocks 列表里包含此 code
+
+    R66 (Batch 7): 6h Redis 缓存 (个股+行业新闻聚合一日内变化不大)
     """
     from .sector_classify import get_sector
     code = _require_valid_code(code)
+    cache_key = cache_store.K.RELATED_NEWS.format(code=code)
+    if not fresh:
+        cached = _store_get(cache_key, ttl=21600)
+        if cached:
+            cached["_cache_hit"] = True
+            cached["_cache_level"] = "l1_redis"
+            return envelope(data=cached)
     def _load():
         sec = get_sector(code)
         sw = sec.get("sw")
@@ -3633,7 +3693,14 @@ async def stock_related_news(code: str):
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=8)
     except asyncio.TimeoutError:
+        # R66: 超时兜底
+        cached = _store_get(cache_key, ttl=21600)
+        if cached:
+            cached["_degraded"] = "upstream_timeout_cached"
+            return envelope(data=cached)
         return envelope(error="related_news 超时", data={"code": code, "news": []})
+    if not fresh and result:
+        _store_set(cache_key, result, ttl=21600)
     return envelope(data=result)
 
 
@@ -3699,8 +3766,16 @@ async def sectors_sw_overview():
     """
     申万 31 行业 - 用新闻 AI 评分聚合情绪(不做实时板块拉取,因 push2 被 DNS 拦截)
     返回 [{sw, news_count, bull_count, bear_count, avg_score, top_news:[{id,title,score,direction,reason}]}]
+
+    R63 (Batch 7): 6h Redis 缓存 — 今日新闻聚合结果盘中变化慢, 6h 足够
     """
     from .sector_classify import SW_31
+    cache_key = cache_store.K.SECTORS_SW_AGG
+    cached = _store_get(cache_key, ttl=21600)
+    if cached:
+        cached["_cache_hit"] = True
+        cached["_cache_level"] = "l1_redis"
+        return envelope(data=cached)
     def _load():
         cache = news_lookup.load_cache()
         news = cache.get("news") or []
@@ -3740,6 +3815,8 @@ async def sectors_sw_overview():
         result = await asyncio.wait_for(to_thread(_load), timeout=8)
     except asyncio.TimeoutError:
         return envelope(error="sectors 超时", data={"sectors": []})
+    if result:
+        _store_set(cache_key, result, ttl=21600)
     return envelope(data=result)
 
 
