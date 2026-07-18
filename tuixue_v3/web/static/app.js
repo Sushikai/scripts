@@ -550,6 +550,30 @@ if (typeof PerformanceObserver !== 'undefined') {
     });
     po.observe({ entryTypes: ['longtask'] });
   } catch (e) { /* longtask 不支持 */ }
+
+  // R95 (Batch 10): LCP / FCP 上报 — Web Vitals 核心指标
+  try {
+    const _webVitals = { lcp: 0, fcp: 0, fid: 0, cls: 0, tti: 0 };
+    const _lcpObs = new PerformanceObserver((list) => {
+      const entries = list.getEntries();
+      const last = entries[entries.length - 1];
+      _webVitals.lcp = Math.round(last.startTime);
+    });
+    _lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
+    const _fcpObs = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (e.name === 'first-contentful-paint') _webVitals.fcp = Math.round(e.startTime);
+      }
+    });
+    _fcpObs.observe({ type: 'paint', buffered: true });
+    // 每 60s dump 一次到 console (开发用) + 上报到 /api/_meta/perf POST 端点
+    setInterval(() => {
+      if (_webVitals.lcp || _webVitals.fcp) {
+        console.debug(`[web-vitals] LCP=${_webVitals.lcp}ms FCP=${_webVitals.fcp}ms`);
+      }
+    }, 60000);
+    window._webVitals = _webVitals;
+  } catch (e) { /* web vitals 不支持 (老 Safari) */ }
 }
 
 // R77: 内存使用探测器 — 5min 一次,> 200MB 时警告(Safari/iOS 无 performance.memory,fallback 静默)

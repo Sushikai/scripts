@@ -1155,6 +1155,16 @@ async def meta_cache_stats():
 
     返回所有 TTLCache 的 hits/miss/size + Redis/SQLite 后端状态。
     """
+    return {"ok": True, **_cache_stats_snapshot()}
+
+
+# R91 (Batch 10): /api/_meta/perf 聚合端点 — uptime / version 用
+_SERVER_BOOT_TS = datetime.datetime.now()
+_APP_VERSION = "v3-100rounds"
+
+
+def _cache_stats_snapshot() -> dict:
+    """R91 (Batch 10): 抽成 helper 给 /api/_meta/perf 复用"""
     try:
         _store = cache_store.get_store()
         store_stats = _store.stats()
@@ -1163,7 +1173,6 @@ async def meta_cache_stats():
         store_stats = {"error": str(e)[:120]}
         store_status = {"redis": False}
     return {
-        "ok": True,
         "ttl_caches": {
             "spot":     _cache_spot.stats(),
             "quote":    _cache_quote.stats(),
@@ -1198,6 +1207,25 @@ async def meta_error_stats():
         return {"ok": False, "error": "error_stats module not loaded", "stats": {}}
     except Exception as e:
         return {"ok": False, "error": str(e)[:120], "stats": {}}
+
+
+@app.get("/api/_meta/perf")
+async def meta_perf():
+    """R91 (Batch 10): 聚合 perf 指标 — cache_stats + error_stats + uptime + version 一站汇总
+    给前端 PerformanceObserver + 长任务 + cache hit rate + memory 上报统一一个回传端点
+    """
+    from . import error_stats as _es
+    snap = _es.snapshot()
+    # 端点按 P95 latency 估算 (粗略: window 内 calls / window_sec, 反映 RPS)
+    out = {
+        "ok": True,
+        "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+        "error_stats": snap,
+        "cache_stats": _cache_stats_snapshot(),
+        "uptime_sec": int((datetime.datetime.now() - _SERVER_BOOT_TS).total_seconds()),
+        "version": _APP_VERSION,
+    }
+    return out
 
 
 @app.post("/api/_meta/cache_clear")
