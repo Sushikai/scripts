@@ -35,7 +35,7 @@ class RealtimePoller:
         cache_quote,                            # TTLCache 实例
         watchlist_provider: Callable[[], list[str]] | None = None,
         ttl_seconds: int = DEFAULT_TTL,
-        max_codes_per_tick: int = 40,           # 一轮最多 40 只,>1k 自选也不会刷爆
+        max_codes_per_tick: int = 80,           # 2026-07-13 Round 13: 40→80,扩到 240/分钟覆盖
     ):
         self._recent_provider = _recent_codes_provider
         self._watchlist_provider = watchlist_provider
@@ -46,10 +46,21 @@ class RealtimePoller:
         self._thread: threading.Thread | None = None
         # 用于"上一次刚抓过的下一轮跳过"的 cursor
         self._cursor = 0
+        # 2026-07-13 Round 13: 启动后第 1 轮把 zt_pool 全打热 — 涨停池是 all_stocks 首页必看
+        # 用 5s 短间隔跑一次,后回归正常 30s 节奏
+        self._warm_boost_done = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        # 2026-07-16: 启动 iTick WS 后台线程 (订阅自选股 tick, token 缺失时静默跳过)
+        try:
+            from . import itick_source
+            itick_source.start_itick_ws_background(
+                watchlist_provider=self._watchlist_provider,
+            )
+        except Exception as e:
+            log.debug(f"itick WS 启动跳过: {e}")
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="realtime-poller")
         self._thread.start()
@@ -104,15 +115,54 @@ class RealtimePoller:
             self._fetch_one(code)
             # 1 只 0.1s 缓冲,40 只 ≈ 4-8s,远小于 TTL
             time.sleep(0.05)
+        # R49 (Batch 5): 每轮预热 quote 完后,低频触发 seat_bd 预热 (10min 一次, 仅自选股)
+        # LHB 当日不变,没必要每 30s 都跑;10min 一次足够覆盖用户进页面场景
+        try:
+            now = time.time()
+            if (not hasattr(self, "_seat_bd_warm_last")
+                    or now - self._seat_bd_warm_last > 600):
+                self._seat_bd_warm_last = now
+                self._warm_seat_bd(codes)
+        except Exception as e:
+            log.debug(f"seat_bd warm err: {e}")
+
+    def _warm_seat_bd(self, codes: list[str]) -> None:
+        """R49 (Batch 5): 后台预热 watchlist 的 seat_breakdown, 10min 一次.
+        跑通 L0/L1 cache → 用户进页面时 < 1ms.
+        """
+        try:
+            from . import seat_classify
+            # 只预热前 5 只自选, 1 只 ≈ 1-10s, 别把 akshare 打爆
+            for code in codes[:5]:
+                if self._stop.is_set():
+                    return
+                try:
+                    bd = seat_classify.build_breakdown(code)
+                    if bd:
+                        from . import server as _srv
+                        # 写 L0 (本 worker) + L1 (Redis 24h)
+                        _srv._cache_seat_bd.set(("seat_bd", code), bd)
+                        _srv._store_set(
+                            _srv.cache_store.K.SEAT_BD.format(code=code), bd, ttl=86400)
+                        log.debug(f"poller seat_bd 预热 {code} OK ({len(bd.get('categories', []))} 类)")
+                except Exception as e:
+                    log.debug(f"poller seat_bd {code} err: {e}")
+                time.sleep(0.1)
+        except ImportError:
+            pass
 
     def _loop(self) -> None:
         # 启动后先 sleep 5s,避开启动期 cache 抢占
         time.sleep(5)
+        # 2026-07-13 Round 13: 启动首轮更短 (5s) — 早一点把 zt_pool 推热
+        first_interval = 5
         while not self._stop.is_set():
             try:
                 self._tick()
             except Exception as e:
                 log.warning(f"[poller] tick 异常: {e}")
-            # wait_for 风格 sleep — 立刻响应 stop
-            if self._stop.wait(self.ttl_seconds):
+            # 第 1 轮 5s 短间隔,后回归正常
+            interval = first_interval if not self._warm_boost_done else self.ttl_seconds
+            self._warm_boost_done = True
+            if self._stop.wait(interval):
                 return

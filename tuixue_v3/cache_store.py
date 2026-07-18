@@ -807,6 +807,8 @@ class K:
     # R-fix-2026-07-18 A1+A2: 个股页 /full 端点预聚合缓存 (key=code, value={quote, kline, sector, ...})
     STOCK_FULL = "stock_full:{code}"          # TTL 5s (实时数据)
     STOCK_FULL_DATE = "stock_full:{code}:{date}"  # 历史快照 TTL 60s
+    # R42 (Batch 5): 席位分类 8 类 + 标签 — 当日数据, 24h cache 即可 (历史 LHB 不变)
+    SEAT_BD = "seat_bd:{code}"                # TTL 86400s (24h)
     # 全球情绪
     GLOBAL_SENTIMENT = "global:sentiment"     # TTL 60s
     # AI verdict (Hash: model → json)

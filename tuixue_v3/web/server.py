@@ -502,6 +502,9 @@ _cache_fund    = TTLCache(default_ttl=60.0)    # 资金流 60s (2026-07-11 30→
 _cache_overview = TTLCache(default_ttl=15.0)   # 大盘指数 15s
 _cache_global  = TTLCache(default_ttl=60.0)   # 全球情绪 60s(美/韩数据源慢)
 _cache_layer   = TTLCache(default_ttl=600.0)  # AI 层详情 10min (4 路并行 + 规则,纯计算,值得缓存;100 轮压测 P99 16s→2ms)
+# R48 (Batch 5): seat_bd L0 进程内 10min — 跳开 Redis 一跳, 同 worker 内 hot code < 1ms
+# 即使 Redis 跨 4 worker, 进程内命中也覆盖主路径 (同一 worker 处理 stock 页)
+_cache_seat_bd = TTLCache(default_ttl=600.0)  # 8 类席位分类 10min (LHB 当日不变, 跨进程有 Redis 24h 兜底)
 
 # 实时抓取 — 跟踪最近 1h 访问过的 code,后台 poller 用来滚动预热 quote
 # (2026-07-11 进页面 ?fresh=1 + 10s 轮询 配合用)
@@ -1161,6 +1164,8 @@ async def meta_cache_stats():
             "kline":    _cache_kline.stats(),
             "fund":     _cache_fund.stats(),
             "overview": _cache_overview.stats(),
+            # R50 (Batch 5): 暴露 seat_bd L0 cache stats
+            "seat_bd":  _cache_seat_bd.stats(),
         },
         "redis":  store_stats,
         "redis_status": store_status,
@@ -2676,12 +2681,31 @@ async def stock_seat_breakdown(code: str, fresh: int = Query(0, ge=0, le=1)):
     复用 seat_lookup.get_stock_seats + fund_flow.get_main_flow.
     ?fresh=1 — 不读缓存,重新跑 8 类分类 (2026-07-12 字典升级后页面强制刷新用)
 
+    R42 (Batch 5): 24h Redis cache (K.SEAT_BD:{code}) — LHB 历史当日不变, 24h 兜底即可
+    首次慢 (10s+) 走 akshare 限频, 之后 24h 内都是 < 10ms
+
     返回 categories[].seats[] 含 {alias, style, positive, warning, tier} —
     按用户字典 §五/§六 全部席位都挂 metadata.
     """
     from . import seat_classify
     code = _require_valid_code(code)
     _touch_recent(code)
+
+    cache_key = cache_store.K.SEAT_BD.format(code=code)
+    if not fresh:
+        # R48 (Batch 5): L0 进程内 (跳 Redis) → L1 Redis (24h 兜底)
+        l0 = _cache_seat_bd.get(("seat_bd", code))
+        if l0 is not None:
+            l0["_cache_hit"] = True
+            l0["_cache_level"] = "l0_mem"
+            return envelope(data=l0)
+        cached = _store_get(cache_key, ttl=86400)
+        if cached:
+            cached["_cache_hit"] = True
+            cached["_cache_level"] = "l1_redis"
+            _cache_seat_bd.set(("seat_bd", code), cached)  # 回填 L0
+            return envelope(data=cached)
+
     _empty = {"code": code, "rows": [], "all_rows_count": 0, "last_date": None,
               "categories": [], "total_amount_wan": None,
               "intraday": {}, "risks": [], "signals": {"positive": [], "warning": []}, "tags": []}
@@ -2690,10 +2714,22 @@ async def stock_seat_breakdown(code: str, fresh: int = Query(0, ge=0, le=1)):
             to_thread(seat_classify.build_breakdown, code), timeout=18)
     except asyncio.TimeoutError:
         log.warning(f"seat_breakdown {code} 18s 超时(akshare 冷启/限频),降级空表")
+        # R47 (Batch 5): 超时降级但保 partial — 如果有 24h cache 拿 partial 兜底
+        cached = _store_get(cache_key, ttl=86400)
+        if cached:
+            log.info(f"seat_breakdown {code} 超时, 兜底 24h cache")
+            cached["_degraded"] = "upstream_timeout_cached"
+            cached["_cache_level"] = "l1_redis_fallback"
+            _cache_seat_bd.set(("seat_bd", code), cached)
+            return envelope(data=cached)
         return envelope(data={**_empty, "_degraded": "upstream_timeout"})
     except Exception as e:
         log.warning(f"seat_breakdown {code} 异常: {e}")
         return envelope(data={**_empty, "_degraded": "upstream_error"})
+
+    if breakdown:
+        _store_set(cache_key, breakdown, ttl=86400)
+        _cache_seat_bd.set(("seat_bd", code), breakdown)  # R48: 预热 L0 给同 worker 后续访问
     return envelope(data=breakdown or _empty)
 
 
@@ -5145,7 +5181,7 @@ async def _build_stock_full(code: str, date: str) -> dict:
         _wt(sector_t, 4),
         _wt(lu_t, 6),
         _wt(strong_t, 4),
-        _wt(seat_bd_t, 10),
+        _wt(seat_bd_t, 5),  # R46 (Batch 5): 10s→5s, seat_bd 24h cache 兜底后无需长等
         _wt(news_t, 3),
         _wt(ai_t, 2),
         _wt(intraday_t, 5),
