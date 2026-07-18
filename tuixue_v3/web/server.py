@@ -4873,6 +4873,72 @@ _STOCK_LAST_OK: dict[str, dict] = {}
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# R21 (Batch 3): /api/stock/{code}/core — Critical 子集,1.5s 强超时,只返渲染必需字段
+# 设计: 让首屏在 200ms 内拿到 quote + name + 5 KPI + kline (短),其余字段走 /full 后台拉
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/stock/{code}/core")
+async def stock_core(request: _Request, code: str, date: str = Query("")):
+    """Critical 子集 — quote + name + 5 KPI + 短 kline (30 天),1.5s 强超时。
+    用来让首屏 200ms 内出价 + K 线,其余 (seats / sector / lu_ctx / strong_stocks /
+    seat_breakdown / related_news / ai_status / intraday) 走 /full 后台异步 patch。
+    """
+    from .. import lib_common as _lc
+    from .. import data_layer as _dl
+
+    code = _require_valid_code(code)
+    _touch_recent(code)
+
+    # Redis 5s 缓存
+    cache_key = cache_store.K.STOCK_FULL.format(code=code) + ":core"
+    cached = _store_get(cache_key, ttl=5)
+    if cached:
+        cached["_cache_hit"] = True
+        return json_etag_response(request, envelope(data=cached), max_age=5)
+
+    # 只跑 quote + kline (30) — 这两个最稳, ~150ms 内必返
+    quote_t = to_thread(_lc.fetch_realtime, code)
+    kline_t = to_thread(stock_kline_loader, code, 30)
+
+    async def _wt(coro, sec):
+        try:
+            return await asyncio.wait_for(coro, timeout=sec)
+        except Exception:
+            return None
+
+    results = await asyncio.wait_for(
+        asyncio.gather(_wt(quote_t, 1.2), _wt(kline_t, 1.2)),
+        timeout=1.5,
+    )
+    quote = results[0] or {}
+    kline = results[1] or []
+
+    # name fallback
+    if not quote.get("name") or (isinstance(quote.get("name"), str) and quote["name"].isdigit()):
+        try:
+            for c, n in _dl.fetch_stock_list_all() or []:
+                if c == code:
+                    quote["name"] = n
+                    break
+        except Exception:
+            pass
+    if not quote.get("name"):
+        quote["name"] = code
+
+    quote = _normalize_quote(quote)
+
+    out = {
+        "code": code,
+        "quote": quote,
+        "kline": kline,
+        "ts": time.time(),
+        "_partial": quote == {},
+    }
+    _store_set(cache_key, out, ttl=5)
+    return json_etag_response(request, envelope(data=out), max_age=5)
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # R-fix-2026-07-18 A1+A2: /api/stock/{code}/full — 单端点预聚合个股页全部数据
 # 设计目标:
 #   - 一次 fetch 拿全 quote + kline + fund_flow + seats + sector + limit_up_ctx +

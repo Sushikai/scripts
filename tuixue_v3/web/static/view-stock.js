@@ -759,10 +759,25 @@ async function loadStockDetail(code, date) {
     return _stockDetailInflight;
   }
 
-  // Phase 1 — 拉新数据 (单端点 /full,5s 缓存命中 < 100ms)
+  // R21+R23 (Batch 3): 渐进渲染 — Phase 1 /core (200ms) 渲染首屏,
+//                      Phase 2 后台 /full 拿全部字段 patch
   const _promise = (async () => {
   try {
+    // Phase 1: /core (1.5s 强超时) — quote + name + 5 KPI + kline (短)
+    try {
+      const coreData = await api(`/api/stock/${code}/core`);
+      if (coreData && coreData.quote && currentStockCode === code) {
+        const coreRender = { code, quote: coreData.quote, kline: coreData.kline || [], _core: true };
+        renderStockDetail(code, coreRender);
+        _recordHit('redis');
+      }
+    } catch (e) {
+      console.debug('[core] failed:', e.message);
+    }
+
+    // Phase 2: /full — 后台拿全部数据, 完成 patch 进 DOM
     const data = await api(`/api/stock/${code}/full${qs}`);
+    if (currentStockCode !== code) return;  // 切股了, 丢弃
     // R-fix-2026-07-18 A3: 把 /full 的子包填进 _stockAuxCache,让现有 loadStockSector /
     // loadStockLimitUp / _loadStockStreakPanel 共享,无需各自 fetch
     _stockAuxCache.code = code;
@@ -2108,19 +2123,24 @@ function renderStreak10d(kline) {
   if (code) {
     const dates = last10.map(d => String(d.date || '')).filter(Boolean);
     let i = 0;
+    // R91: 并发上限 — 最多 2 个未完成 prefetch,避免 10 串行→10 并发拖垮 server
+    let _inflight = 0;
+    const MAX_INFLIGHT = 2;
     const tick = () => {
-      if (i >= dates.length) return;
+      if (i >= dates.length && _inflight === 0) return;
       if (!_prefetchActive) return;  // R17: 隐藏 / 切走,停
       if (code !== window._currentStockCode) return;  // 已切股,停
-      const d = dates[i++];
-      // 已缓存就跳过 (B-15 LRU 还在)
-      if (typeof intraDayCache !== 'undefined' && intraDayCache.has(d)) {
-        setViewTimer('stock', tick, 50);
-        return;
+      while (i < dates.length && _inflight < MAX_INFLIGHT) {
+        const d = dates[i++];
+        // 已缓存就跳过 (B-15 LRU 还在)
+        if (typeof intraDayCache !== 'undefined' && intraDayCache.has(d)) continue;
+        _inflight++;
+        // fire-and-forget; loadIntraDay 内部已 cache
+        try {
+          Promise.resolve(loadIntraDay(code, d)).finally(() => { _inflight--; });
+        } catch (_) { _inflight--; }
       }
-      // fire-and-forget; loadIntraDay 内部已 cache
-      try { loadIntraDay(code, d); } catch (_) {}
-      setViewTimer('stock', tick, 250);
+      if (i < dates.length || _inflight > 0) setViewTimer('stock', tick, 250);
     };
     setViewTimer('stock', tick, 400);  // 400ms 后开始,等主数据先到
   }
