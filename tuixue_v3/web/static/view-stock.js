@@ -851,6 +851,11 @@ async function _maybeTriggerAiBackground(code) {
 // R-fix-2026-07-18 B3: SSE 长连接订阅 /api/stock/{code}/stream
 // 推 {quote_patch, ai_ready, ping, ready}。切股 / 离开 view 时关掉。
 let _currentStockStream = null;
+// R40 (Batch 4): SSE 延迟指标 — 收 quote_patch 时记录 (latency = now - ts)
+var _sseMetrics = { quote_n: 0, ai_n: 0, ping_n: 0, err_n: 0,
+                    sum_latency_ms: 0, max_latency_ms: 0,
+                    last_log: 0 };
+
 function _openStockStream(code) {
   // 关旧 stream
   _closeStockStream();
@@ -861,6 +866,19 @@ function _openStockStream(code) {
       try {
         const m = JSON.parse(e.data);
         if (m.code !== window._currentStockCode) return;
+        // R40: 记录延迟 (server ts → client now)
+        if (m.ts) {
+          const lat = Date.now() - (m.ts * 1000);
+          _sseMetrics.quote_n++;
+          _sseMetrics.sum_latency_ms += lat;
+          if (lat > _sseMetrics.max_latency_ms) _sseMetrics.max_latency_ms = lat;
+          // 每 30s 打一次 summary
+          if (Date.now() - _sseMetrics.last_log > 30000) {
+            const avg = _sseMetrics.sum_latency_ms / _sseMetrics.quote_n;
+            console.log(`[sse-metrics] quote_n=${_sseMetrics.quote_n} avg=${avg.toFixed(0)}ms max=${_sseMetrics.max_latency_ms}ms ai_n=${_sseMetrics.ai_n}`);
+            _sseMetrics.last_log = Date.now();
+          }
+        }
         // SSE 只推 quote;走 _patchStockRealtime 用同一渲染路径(它接受 {quote})
         if (typeof _patchStockRealtime === 'function') {
           _schedulePatch(() => _patchStockRealtime(m.code, { quote: m.quote, fund_flow: { today: {} } }));
@@ -871,6 +889,7 @@ function _openStockStream(code) {
       try {
         const m = JSON.parse(e.data);
         if (m.code !== window._currentStockCode) return;
+        _sseMetrics.ai_n++;
         // 刷新 AI verdict panel (后台 LLM 刚完成)
         if (typeof loadAIAnalysis === 'function') loadAIAnalysis(m.code).catch(() => {});
         // 更新全局状态

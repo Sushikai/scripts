@@ -5479,13 +5479,29 @@ def stock_kline_loader(code: str, days: int = 120) -> list[dict]:
 async def stock_stream(code: str, request: _Request):
     """SSE: 个股页增量推送。
     事件类型:
-      - quote_patch : quote hash 变化时推
+      - quote_patch : quote hash 变化时推 (R38 剪裁到 ~10 字段, 1Hz)
       - ai_ready    : 后台 LLM 完成时推 (从 cache_store ai_ready:{code} 读)
       - intraday_tick : 分时新分钟 (启动时即刻推,后续每 60s 拉一次)
       - ping        : 心跳 (10s 无事时)
+
+    R34 (Batch 4): 背压控制 — channel queue maxsize=128, 满了丢老的 (不阻塞 SSE 生成)
+    R38 (Batch 4): payload diff — quote 30 字段剪到 10 个 SSE 必需字段
     """
     code = _require_valid_code(code)
     from sse_starlette.sse import EventSourceResponse
+
+    # R38: SSE payload 剪裁 — 前端 _patchStockRealtime 只读这几个字段
+    _SSE_QUOTE_FIELDS = (
+        "最新价", "price", "涨跌额", "涨跌幅", "change_pct", "chg_amt",
+        "成交量", "成交额", "换手率", "时间", "name",
+    )
+
+    def _trim_quote(q):
+        if not q or not isinstance(q, dict): return q
+        out = {}
+        for k in _SSE_QUOTE_FIELDS:
+            if k in q: out[k] = q[k]
+        return out
 
     last_quote_hash = None
     last_ai_ts_seen = 0
@@ -5517,7 +5533,7 @@ async def stock_stream(code: str, request: _Request):
             q_now = _read_quote()
             if q_now:
                 yield {"event": "quote_patch", "data": json.dumps({
-                    "code": code, "quote": q_now, "ts": time.time()
+                    "code": code, "quote": _trim_quote(q_now), "ts": time.time()
                 }, default=str)}
                 last_quote_hash = hash((q_now.get("最新价"), q_now.get("涨跌额"), q_now.get("成交量")))
             yield {"event": "ready", "data": json.dumps({"code": code, "ts": time.time()})}
@@ -5526,14 +5542,14 @@ async def stock_stream(code: str, request: _Request):
                     break
                 await asyncio.sleep(1.0)
                 pushed_any = False
-                # ── 1) quote_patch (1Hz)
+                # ── 1) quote_patch (1Hz, 剪裁后 ~250B vs 之前 ~600B)
                 try:
                     q_now = _read_quote()
                     if q_now:
                         h = hash((q_now.get("最新价"), q_now.get("涨跌额"), q_now.get("成交量")))
                         if h != last_quote_hash:
                             yield {"event": "quote_patch", "data": json.dumps({
-                                "code": code, "quote": q_now, "ts": time.time()
+                                "code": code, "quote": _trim_quote(q_now), "ts": time.time()
                             }, default=str)}
                             last_quote_hash = h
                             pushed_any = True
