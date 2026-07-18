@@ -1348,8 +1348,6 @@ async def tunnel_status():
     return envelope(data={
         "url":        url,
         "method":     method,
-        "lan_ip":     lan_ip,
-        "port":       port,
         "running":    running,
         "state":      tunnel_state,         # online / starting / offline
         "sentinels":  sentinels,            # 2026-07-12 新增:TG-bot / MQTT 提示
@@ -1786,7 +1784,6 @@ async def tunnel_push():
         "tg_ok": tg_ok,
         "tg_err": tg_err,
         "url": url,
-        "lan": lan_url,
         "target": target_url,   # 给前端"一键分享/复制"用
         "text": text,
         "qr_data_url": qr_data_url,  # 推到手机/iMessage/Slack 直接扫码
@@ -2983,39 +2980,70 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
         except Exception as e:
             log.info(f"sina 并行异常: {e}")
 
-    # ── 3) 腾讯分钟 K (仅 today, 历史 date 不可靠) ──
+    # ── 3) 腾讯分钟 ──
+    #   今日: minute/query 逐笔分时;历史: mkline m1 1分钟K (覆盖最近 ~5 交易日,
+    #   akshare 周末/晚间限频时保证历史日仍拿 1min 而非掉到 sina 5min)
     def _tencent_worker():
-        if not is_today:
-            return
         try:
             import requests as _req, json as _json
-            url = "http://web.ifzq.gtimg.cn/appstock/app/minute/query"
-            r = _req.get(url, params={"code": f"{mkt}{code}"}, timeout=8,
-                         headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
-            if r.status_code != 200:
-                return
-            j = r.json()
-            raw = (j.get("data") or {}).get(f"{mkt}{code}", {}).get("data", {}).get("data") or []
-            tcks = []
-            for line in raw:
-                parts = line.split(" ")
-                if len(parts) < 3:
-                    continue
-                t = parts[0]
-                if len(t) == 4 and t.isdigit():
-                    t = f"{t[:2]}:{t[2:]}:00"
-                p = _safe_float(parts[1])
-                if p is None or p == 0 or not t:
-                    continue
-                tcks.append({
-                    "time": t, "price": p,
-                    "volume_hand": _safe_float(parts[2]) if len(parts) > 2 else None,
-                    "amount":      _safe_float(parts[3]) if len(parts) > 3 else None,
-                    "open": None, "high": None, "low": None, "side": "",
-                })
-            if tcks:
-                # tencent 无 prev_close,留 None
-                _push("tencent_minute", tcks, None)
+            if is_today:
+                url = "http://web.ifzq.gtimg.cn/appstock/app/minute/query"
+                r = _req.get(url, params={"code": f"{mkt}{code}"}, timeout=8,
+                             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+                if r.status_code != 200:
+                    return
+                j = r.json()
+                raw = (j.get("data") or {}).get(f"{mkt}{code}", {}).get("data", {}).get("data") or []
+                tcks = []
+                for line in raw:
+                    parts = line.split(" ")
+                    if len(parts) < 3:
+                        continue
+                    t = parts[0]
+                    if len(t) == 4 and t.isdigit():
+                        t = f"{t[:2]}:{t[2:]}:00"
+                    p = _safe_float(parts[1])
+                    if p is None or p == 0 or not t:
+                        continue
+                    tcks.append({
+                        "time": t, "price": p,
+                        "volume_hand": _safe_float(parts[2]) if len(parts) > 2 else None,
+                        "amount":      _safe_float(parts[3]) if len(parts) > 3 else None,
+                        "open": None, "high": None, "low": None, "side": "",
+                    })
+                if tcks:
+                    # tencent 无 prev_close,留 None
+                    _push("tencent_minute", tcks, None)
+            else:
+                # mkline m1 行格式: [YYYYMMDDHHMM, close, open, high, low, vol手, {}, amount万]
+                url = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
+                r = _req.get(url, params={"param": f"{mkt}{code},m1,,1600"}, timeout=8,
+                             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+                if r.status_code != 200:
+                    return
+                node = (r.json().get("data") or {}).get(f"{mkt}{code}", {}) or {}
+                m1 = node.get("m1") or []
+                pc = _safe_float(node.get("prec"))
+                tcks = []
+                for row in m1:
+                    if not row or len(row) < 5:
+                        continue
+                    ts = str(row[0])
+                    if len(ts) < 12 or ts[:8] != ymd:
+                        continue
+                    hhmm = ts[8:12]
+                    tcks.append({
+                        "time":        f"{hhmm[:2]}:{hhmm[2:]}:00",
+                        "price":       _safe_float(row[1]),
+                        "open":        _safe_float(row[2]) or None,
+                        "high":        _safe_float(row[3]) or None,
+                        "low":         _safe_float(row[4]) or None,
+                        "volume_hand": _safe_float(row[5]) if len(row) > 5 else None,
+                        "amount":      _safe_float(row[7]) if len(row) > 7 else None,
+                        "side":        "",
+                    })
+                if tcks:
+                    _push("tencent_m1", tcks, pc)
         except Exception as e:
             log.info(f"tencent 并行异常: {e}")
 
@@ -4112,6 +4140,17 @@ class _BacktestReq(BaseModel):
     index_late_up:     bool = False    # 2026-07-17 R21: 大盘尾盘强势 (14:30-15:00 红盘)
     sector_late_up:    bool = False    # 2026-07-17 R22: 个股所在板块尾盘强势
     tail_vol_ratio_min: float = 0.0    # 2026-07-17 R23: 个股尾盘 10min 量比 ≥ X% (0=禁用)
+    # 2026-07-18 R54: strategy_id 透传, 默认 baseline (现有 8 套规则) 不破坏老调用
+    #   "WIN_RATE_1000" = 1000+ 轮 walk-forward 找出的高胜率策略
+    strategy_id:      str = "baseline"  # baseline | WIN_RATE_1000 | ...
+    # 2026-07-18 R57+: late_high 满格收益折算系数 (默认 1.0 = 用户原意满格)
+    #   1.0 = 满格 (理想化: 9:30-10:00 拉到水上即满格卖出)
+    #   0.7 = 保守 (实际可能错过部分高位, 7 折)
+    #   0.5 = 极保守 (水下大幅震荡更现实, 半折)
+    late_high_discount: float = 1.0
+    # 2026-07-18 R57+: VWAP 严格过滤开关 (默认 False = 软通, 数据不全时跳过)
+    #   True = 必须 VWAP 验证 (需要 48 根 5min K, 历史覆盖率 < 5%, 慎用)
+    require_vwap_strict: bool = False
 
 
 def _bt_period_resolver(periods: list[str]) -> list[str]:
@@ -4133,7 +4172,10 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
                breadth_min: int = 0, breadth_min_soft: int = 0, sector_hot_topn: int = 0,
                sector_inflow_topn: int = 0, require_surge_label: bool = False,
                enable_actual_10: bool = False, index_late_up: bool = False,
-               sector_late_up: bool = False, tail_vol_ratio_min: float = 0.0) -> None:
+               sector_late_up: bool = False, tail_vol_ratio_min: float = 0.0,
+               strategy_id: str = "baseline",
+               late_high_discount: float = 1.0,
+               require_vwap_strict: bool = False) -> None:
     from . import backtest_screener as _bt
 
     # R97: progress_cb 检查取消标记,每步检查一次
@@ -4169,6 +4211,9 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             index_late_up=index_late_up,
             sector_late_up=sector_late_up,
             tail_vol_ratio_min=tail_vol_ratio_min,
+            strategy_id=strategy_id,
+            late_high_discount=late_high_discount,
+            require_vwap_strict=require_vwap_strict,
             progress_cb=_cb,
         )
         with _BT_RUN_LOCK:
@@ -4240,6 +4285,9 @@ async def api_screener_backtest(req: _BacktestReq):
             req.index_late_up,
             req.sector_late_up,
             float(req.tail_vol_ratio_min or 0),
+            req.strategy_id,
+            float(req.late_high_discount if 0.0 < req.late_high_discount <= 1.0 else 1.0),
+            req.require_vwap_strict,
         )
     except Exception as e:
         with _BT_RUN_LOCK:
@@ -4836,7 +4884,7 @@ _STOCK_LAST_OK: dict[str, dict] = {}
 # ════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/stock/{code}/full")
-async def stock_full(code: str, fresh: int = Query(0, ge=0, le=1), date: str = Query("")):
+async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, le=1), date: str = Query("")):
     """个股页单端点预聚合 (5s 缓存)。
 
     返回结构 (与 stock_overview data 字段对齐 + 扩展):
@@ -4862,7 +4910,9 @@ async def stock_full(code: str, fresh: int = Query(0, ge=0, le=1), date: str = Q
         cached = _store_get(cache_key, ttl=5)
         if cached:
             cached["_cache_hit"] = True
-            return envelope(data=cached)
+            # R7 (Batch 1): Cache-Control max-age=5 + swr=60 — 客户端 (含 SW / 浏览器)
+            # 5s 内直接用本地缓存,5-60s 内 stale 返 + 后台 revalidate
+            return json_etag_response(request, envelope(data=cached), max_age=5)
 
     # Single-flight: 同一 code 5s 窗口内并发合并 (避免雪崩打 akshare)
     out = await _singleflight_stock_full(code, date)
@@ -4870,7 +4920,8 @@ async def stock_full(code: str, fresh: int = Query(0, ge=0, le=1), date: str = Q
 
     # 写 Redis 5s
     _store_set(cache_key, out, ttl=5)
-    return envelope(data=out)
+    # R7 (Batch 1): cold path 也带 Cache-Control + ETag — 客户端 5s 内复用,304 省带宽
+    return json_etag_response(request, envelope(data=out), max_age=5)
 
 
 def _singleflight_stock_full(code: str, date: str):
@@ -5379,7 +5430,25 @@ async def stock_stream(code: str, request: _Request):
         nonlocal last_quote_hash, last_ai_ts_seen, last_intraday_push
         try:
             # 首帧: 立即推送当前 quote (让前端第一帧就能 patch 价格)
-            q_now = _cache_quote.get(("quote", code)) if _cache_quote else None
+            # 三源: 1) _cache_quote (realtime_poller 写,TTL 5s)
+            #       2) Redis K.QUOTE
+            #       3) Redis K.STOCK_FULL:{code} 兜底,/full 已聚合 quote 5s 内必新鲜
+            def _read_quote():
+                q = _cache_quote.get(("quote", code)) if _cache_quote else None
+                if q and q.get("最新价") is not None: return q
+                try:
+                    from .. import cache_store as _cs_sse2
+                    q2 = _cs_sse2.get_store().get(_cs_sse2.K.QUOTE.format(code=code))
+                    if q2 and isinstance(q2, dict) and q2.get("最新价") is not None: return q2
+                    # 兜底: STOCK_FULL 已含 quote,/full 端点每 5s rebuild
+                    full = _cs_sse2.get_store().get(_cs_sse2.K.STOCK_FULL.format(code=code))
+                    if full and isinstance(full, dict):
+                        fq = full.get("quote")
+                        if fq and fq.get("最新价") is not None: return fq
+                except Exception:
+                    pass
+                return None
+            q_now = _read_quote()
             if q_now:
                 yield {"event": "quote_patch", "data": json.dumps({
                     "code": code, "quote": q_now, "ts": time.time()
@@ -5393,7 +5462,7 @@ async def stock_stream(code: str, request: _Request):
                 pushed_any = False
                 # ── 1) quote_patch (1Hz)
                 try:
-                    q_now = _cache_quote.get(("quote", code)) if _cache_quote else None
+                    q_now = _read_quote()
                     if q_now:
                         h = hash((q_now.get("最新价"), q_now.get("涨跌额"), q_now.get("成交量")))
                         if h != last_quote_hash:

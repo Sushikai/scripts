@@ -10,8 +10,16 @@
 //
 // 注意:不要在这个文件里 import 任何外部模块 — SW 是 top-level, fetch handler 会捕获所有未命中路径
 
-// 2026-07-15: bump 到 v11 — 全A风向性能修复(事件代理代替逐个绑监听器) + tunnel 重启修复
-const CACHE = 'tuixue-v3-shell-v11';
+// 2026-07-18: bump 到 v80 — 10 轮压测 ship: RAF 竞态修 (闭包捕获) + /stream 3 源 fallback (TTLCache → K.QUOTE → K.STOCK_FULL)
+// 2026-07-18: bump 到 v86 — R56 退场模型 9套→6套 (trail_80/50/20+water_avg+force_10/close) + 仓位换算 KPI + baseline↔WR1000 自动对比 + 退场模型解释区块
+// 2026-07-18: bump 到 v88 — R57+ late_high_discount 折算开关 (1.0/0.7/0.5 三档按钮) + 透传 late_high_discount/require_vwap_strict 到后端
+// 2026-07-18: bump 到 v89 — 40 轮流畅度优化: poll+loadStockDetail 去 ?_fresh=1 (3s→100ms) + animateNumber 阈值 0.1% refVal + text-shadow→transform + transition:all→具体属性 + ECharts animation:false + 后台 idle prefetch + 分时/K 线右轴末值标签
+// 2026-07-18: bump 到 v90 — 删 LAN 扫码直进 (前端 #tunnel-lan-card + 4 个 handler + 后端 tunnel/status/push 响应去掉 lan_ip/lan 字段)
+// 2026-07-18: bump 到 v92 — 前端界面 50 轮巡检 ship: echarts 全局预加载 (修 "echarts is not defined") + 复盘子表 thead 补充 + URL ?theme= 参数解析
+// 2026-07-18: bump 到 v93 — 100 轮系统维护 ship batch 1 (R1-R8 race 条件): AbortController 切股取消 + SSE 1s 防 reconnect 风暴 + K线/loadStockDetail/loadIntraDay inflight dedup + ECharts drawToken 防 dispose 抢图 + _patchStockRealtime stale-code 守卫 + view-scoped timer registry 离开自动 clearTimeout
+// 2026-07-18: bump 到 v94 — 100 轮系统维护 ship batch 2 (R11-R16 内存泄漏): sessionStorage stock LRU 80 槽位 + _stockAuxCache 切股清空 + 离开 view 清 inflight dedup promise + ECharts dispose 全图 + animateNumber RAF 全局追踪 + cancel 旧动画
+// 2026-07-18: bump 到 v96 — 100 轮 Batch 1 R1: /api/stock/{code}/full SW 单独 5min 长缓存 (server-side Redis 5s 已是新鲜度门, SW 防冷启动穿透 ~5ms 而非 ~20ms)
+const CACHE = 'tuixue-v3-shell-v96';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -23,6 +31,7 @@ const PRECACHE = [
   '/static/style.css',
   '/static/index.html',
   '/static/sw.js',
+  '/static/vendor/echarts.min.js',
 ];
 
 // B7: 关键 API JSON 缓存 (offline shell)
@@ -35,11 +44,26 @@ const _CACHEABLE_API_PREFIXES = [
   '/api/dashboard/signal',
   '/api/dashboard/hot_sectors',
 ];
+// R1 (Batch 1): /api/stock/{code}/full 单独长缓存 5min — server-side Redis 5s 已是新鲜度门,
+// SW 这层只防冷启动穿透 (5s 之后重访直接走 SW, ~5ms 而非 ~20ms)
+const _LONG_CACHE_API_PATTERNS = [
+  /^\/api\/stock\/[^/]+\/full(\?.*)?$/,
+];
+const _LONG_CACHE_API_TTL_MS = 300_000;  // 5min
 // API 缓存新鲜度: 60s 内直接用 cache,超过则后台 revalidate
 const _API_CACHE_FRESH_MS = 60_000;
 
 function _isCacheableApi(pathname) {
   return _CACHEABLE_API_PREFIXES.some(p => pathname.startsWith(p));
+}
+
+// R1: 匹配 /full 等长缓存端点, 返 5min 而非默认 60s
+function _isLongCacheApi(pathname) {
+  return _LONG_CACHE_API_PATTERNS.some(rx => rx.test(pathname));
+}
+
+function _freshnessMs(pathname) {
+  return _isLongCacheApi(pathname) ? _LONG_CACHE_API_TTL_MS : _API_CACHE_FRESH_MS;
 }
 
 self.addEventListener('install', (event) => {
@@ -76,15 +100,16 @@ self.addEventListener('fetch', (event) => {
 
   // ── API: cacheable → stale-while-revalidate,其它 → network-only ──
   if (url.pathname.startsWith('/api/')) {
-    if (_isCacheableApi(url.pathname)) {
+    if (_isCacheableApi(url.pathname) || _isLongCacheApi(url.pathname)) {
       event.respondWith(
         caches.open(CACHE).then(async (cache) => {
           const cached = await cache.match(req);
           // 新鲜度检查: cache 在 TTL 内则直接返,否则等网络
+          const ttlMs = _freshnessMs(url.pathname);
           if (cached) {
             const cachedTime = new Date(cached.headers.get('date') || 0).getTime();
             const age = Date.now() - (cachedTime || 0);
-            if (age < _API_CACHE_FRESH_MS) return cached;
+            if (age < ttlMs) return cached;
           }
           const fetchPromise = fetch(req).then((r) => {
             if (r.ok && r.status === 200) cache.put(req, r.clone()).catch(() => {});

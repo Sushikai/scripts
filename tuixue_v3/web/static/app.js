@@ -155,7 +155,7 @@ async function _refreshDebugPanel() {
     const breakers = ai.breakers || {};
     const openBreakers = Object.entries(breakers).filter(([,b]) => b.open);
     const breakerHtml = openBreakers.length
-      ? `<div class="dp-section dp-breaker-open"><b>⚡ 熔断中</b> · ${openBreakers.map(([k,b]) =>
+      ? `<div class="dp-section dp-breaker-open"><b> 熔断中</b> · ${openBreakers.map(([k,b]) =>
           `${esc(k)} (冷却 ${b.cooldown_sec|0}s)`).join(' · ')}</div>`
       : '';
     body.innerHTML = `
@@ -264,9 +264,51 @@ function _backoffMs(attempt) {
   return Math.round(base * (0.7 + Math.random() * 0.6));
 }
 
+// R21: 全局限流 — 防止 retry 风暴 / 用户疯狂点按钮触发 server 雪崩
+// 用法: if (!_rateGate('stock', 5, 1000)) return;  // 同一 key 1s 最多 5 次
+var _rateGateMap = {};  // { key: [ts, ts, ...] }
+function _rateGate(key, max, windowMs) {
+  const now = Date.now();
+  const arr = (_rateGateMap[key] || []).filter(t => now - t < windowMs);
+  if (arr.length >= max) return false;
+  arr.push(now);
+  _rateGateMap[key] = arr;
+  return true;
+}
+
+// R24: 请求合并 — 同一 (path, options) 在 200ms 内多次触发,共用同一个 in-flight promise
+// 解决: 多 view 切换时仪表盘 signal 同一 URL 3 个并发 → 改成 1 个
+var _inflightFetches = new Map();  // key -> { ts, promise }
+var _INFlightWindowMs = 200;
+function _inflightKey(path, opts) {
+  // GET + 类似 query 视为同一 key (忽略 signal)
+  const m = opts?.method || 'GET';
+  return m + ' ' + path + ' ' + (opts?.body || '');
+}
+function _getInflight(key) {
+  const e = _inflightFetches.get(key);
+  if (!e) return null;
+  if (Date.now() - e.ts > _INFlightWindowMs) {
+    _inflightFetches.delete(key);
+    return null;
+  }
+  return e.promise;
+}
+function _setInflight(key, p) {
+  _inflightFetches.set(key, { ts: Date.now(), promise: p });
+  p.finally(() => {
+    const cur = _inflightFetches.get(key);
+    if (cur && cur.promise === p) _inflightFetches.delete(key);
+  });
+}
+
 async function _fetchWithTimeout(path, opts = {}) {
   const timeout = opts.timeout != null ? opts.timeout : _timeoutFor(path);
   // 注意:不传 opts.signal — 让重试自管 abort。用户主动 cancel 时,我们用 _aborted 标记
+  // R23: 离线时直接抛错,跳过 retry (避免 retry 队列堆积 60s+)
+  if (navigator.onLine === false) {
+    throw new Error('网络已断开,请检查连接');
+  }
   let attempt = 0;
   const maxRetries = opts.maxRetries != null ? opts.maxRetries : 2;
   let lastErr;
@@ -310,9 +352,31 @@ async function _fetchWithTimeout(path, opts = {}) {
 //   多股性 (一个 code 多个 L2/L3/L4 板块) → 每个分开显示。
 // ════════════════════════════════════════════════════
 var _ZT_CHAIN_CACHE_TTL_MS = 60 * 1000;
+var _ZT_CHAIN_CACHE_MAX = 500;   // B-14: LRU 上限
 var _ztChainCache = new Map();   // code -> { ts, rows: [...] }
 var _ztChainPendingPromise = null;   // 防止同时 N 个 page 触发 N 次 /api/limitup/per_code
 var _ztChainPendingBuf = new Set();
+
+// B-14: 写入时检查容量, 超限按插入顺序淘汰最久未访问
+function _ztChainCacheSet(code, val) {
+  if (_ztChainCache.size >= _ZT_CHAIN_CACHE_MAX) {
+    // 1) 先清过期
+    const now = Date.now();
+    for (const [k, v] of _ztChainCache) {
+      if (now - v.ts > _ZT_CHAIN_CACHE_TTL_MS) _ztChainCache.delete(k);
+    }
+    // 2) 还超就淘汰最早插入 (Map 保序)
+    if (_ztChainCache.size >= _ZT_CHAIN_CACHE_MAX) {
+      const n_to_drop = _ztChainCache.size - _ZT_CHAIN_CACHE_MAX + 1;
+      const it = _ztChainCache.keys();
+      for (let i = 0; i < n_to_drop; i++) {
+        const k = it.next().value;
+        if (k != null) _ztChainCache.delete(k);
+      }
+    }
+  }
+  _ztChainCache.set(code, val);
+}
 
 function _ztChainGet(code) {
   const e = _ztChainCache.get(code);
@@ -361,7 +425,7 @@ async function _ztChainFetch(codes) {
             }
           }
           for (const [code, rows] of Object.entries(merged)) {
-            _ztChainCache.set(code, { ts: Date.now(), rows: rows || [] });
+            _ztChainCacheSet(code, { ts: Date.now(), rows: rows || [] });
           }
           return merged;
         } finally {
@@ -378,7 +442,7 @@ async function _ztChainFetch(codes) {
   // 兜底: cache miss 但接口挂 → 返 [],render 时不显示
   for (const c of todo) if (!(c in out)) out[c] = [];
   // 写回 short-lived cache 以免疯狂反复请求
-  for (const c of todo) if (!out[c] || out[c].length) _ztChainCache.set(c, { ts: Date.now(), rows: out[c] || [] });
+  for (const c of todo) if (!out[c] || out[c].length) _ztChainCacheSet(c, { ts: Date.now(), rows: out[c] || [] });
   return out;
 }
 
@@ -403,7 +467,7 @@ function _renderZtChainChips(code, opts) {
   const more = filtered.length - top.length;
   return top.map(r => {
     const color = _ztChainRowColor(r);
-    const title = `${r.level} ${r.chain} · 今日 ${r.zt_count} 家涨停${r.samples && r.samples.length ? ' · 例: ' + r.samples.join(', ') : ''}${r.is_mainline ? ' · ⚡ 主线' : ''}`;
+    const title = `${r.level} ${r.chain} · 今日 ${r.zt_count} 家涨停${r.samples && r.samples.length ? ' · 例: ' + r.samples.join(', ') : ''}${r.is_mainline ? ' ·  主线' : ''}`;
     const lvl = r.level;
     return `<span class="zt-chip" data-level="${lvl}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:3px;border:1px solid ${color};color:${color};font-size:10px;margin:0 3px 2px 0;cursor:default" title="${escapeHtml(title)}">
       <span style="opacity:.7;font-weight:600">${lvl}</span>
@@ -416,6 +480,12 @@ function _renderZtChainChips(code, opts) {
 
 async function api(path, opts) {
   opts = opts || {};
+  // R24: 同一 (path, body) 在 200ms 内并发触发,共用一个 promise
+  const ikey = _inflightKey(path, opts);
+  const shared = _getInflight(ikey);
+  if (shared) return shared;
+
+  const _core = async () => {
   // R6: 长请求 (>500ms) 显示顶部进度条,完成后移除
   const slow = (opts.timeout || _timeoutFor(path)) > 500;
   let _bar;
@@ -439,6 +509,10 @@ async function api(path, opts) {
   if (!env.ok) { clearTimeout(_bar); _hideTopProgress(); throw new Error(env.error || `HTTP ${r.status}`); }
   clearTimeout(_bar); _hideTopProgress();
   return env.data;
+  };
+  const p = _core();
+  _setInflight(ikey, p);
+  return p;
 }
 
 // R6: 顶部进度条 (CSS class .top-progress 由 style.css R4 定义)
@@ -461,6 +535,33 @@ function _hideTopProgress() {
 async function apiRaw(path, opts) {
   return await _fetchWithTimeout(path, opts);
 }
+
+// ────────────────────────────────────────────
+// R76: 长任务监控 — 单个 task > 100ms 警告,提示阻塞主线程
+// ────────────────────────────────────────────
+if (typeof PerformanceObserver !== 'undefined') {
+  try {
+    const po = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.duration > 100) {
+          console.warn(`[long-task] ${entry.duration.toFixed(0)}ms`, entry.name || '(anonymous)');
+        }
+      }
+    });
+    po.observe({ entryTypes: ['longtask'] });
+  } catch (e) { /* longtask 不支持 */ }
+}
+
+// R77: 内存使用探测器 — 5min 一次,> 200MB 时警告(Safari/iOS 无 performance.memory,fallback 静默)
+function _probeMemory() {
+  if (!performance.memory) return null;
+  const m = performance.memory;
+  return { usedMB: Math.round(m.usedJSHeapSize / 1048576), totalMB: Math.round(m.totalJSHeapSize / 1048576), limitMB: Math.round(m.jsHeapSizeLimit / 1048576) };
+}
+setInterval(() => {
+  const m = _probeMemory();
+  if (m && m.usedMB > 200) console.warn(`[mem] ${m.usedMB}MB / ${m.totalMB}MB (limit ${m.limitMB}MB)`);
+}, 300_000);
 
 // ────────────────────────────────────────────
 // keepalive 心跳 — 防止 tunnel / NAT idle 切断所有闲置连接
@@ -696,6 +797,11 @@ function showView(name, opts) {
   if (name === 'laws')    renderLawsOnce();
   if (name === 'review')  _reviewOnViewEnter();
   if (name === 'ai-review') _airvOnViewEnter();
+  // R-fix-2026-07-16: 进入 stock view → 清空 hero 残留 (上次查询的 name/price/tags 卡在 DOM)
+  // 不在 _currentStockCode 已设置时清空 (切到同一只股不要刷掉)
+  if (name === 'stock' && !window._currentStockCode && typeof _resetStockHero === 'function') {
+    _resetStockHero();
+  }
   _currentViewName = name;
   // R5: 写 hash 便于深链 & 浏览器后退
   const curHash = location.hash.replace(/^#/, '');
@@ -737,10 +843,15 @@ var _VIEW_LEAVE_HOOKS = {};
 function _registerViewLeave(name, fn) { _VIEW_LEAVE_HOOKS[name] = fn; }
 
 // R5: hash 路由 — 让 #stock=603881 / #review / #dragons 都能深链
+// R31: 支持 ?view=screener search param + #bt&...&run=xxx hash params 自动触发 btStart
 function _routeFromHash() {
+  // R31: search param `?view=screener` 优先 (btCopyShareUrl 用的格式)
+  const _sp = new URLSearchParams(location.search);
+  const viewParam = _sp.get('view');
   const h = (location.hash || '').replace(/^#/, '');
-  if (!h) return showView('dash', { push: false });   // 首屏 → replace 而非 push
-  const [name, arg] = h.split('=');
+  const name = viewParam || (h ? h.split('=')[0] : '');
+  const arg = h.includes('=') ? h.split('=')[1] : '';
+  if (!name) return showView('dash', { push: false });
   const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review'];
   if (!valid.includes(name)) return showView('dash', { push: false });
   if (name === 'stock' && arg) {
@@ -753,6 +864,42 @@ function _routeFromHash() {
     }
   }
   showView(name, { push: false });
+  // R32: 解析 hash 内的 bt params, 自动触发回测 (深链体验)
+  if (name === 'screener') {
+    try {
+      const hashStr = h.includes('&') ? h.split('&').slice(1).join('&') : h.replace(/^bt/, '');
+      const hashParams = new URLSearchParams(hashStr);
+      const _applyRange = (id, key) => {
+        const v = hashParams.get(key);
+        if (v != null) {
+          const el = document.getElementById(id);
+          if (el) el.value = v;
+        }
+      };
+      // periods (逗号分隔)
+      const periods = (hashParams.get('periods') || '').split(',').filter(Boolean);
+      document.querySelectorAll('input[name="bt-p"]').forEach(cb => {
+        cb.checked = periods.includes(cb.value);
+      });
+      _applyRange('bt-hold', 'hold');
+      _applyRange('bt-topn', 'top');
+      _applyRange('bt-sample', 'sample');
+      _applyRange('bt-breadth', 'p0');
+      _applyRange('bt-breadth-soft', 'p1');
+      _applyRange('bt-sector-hot', 'p2');
+      _applyRange('bt-sector-inflow', 'p3');
+      _applyRange('bt-tail-vol-min', 'tail');
+      const idx = hashParams.get('idx');
+      const sec = hashParams.get('sec');
+      if (idx === '1') { const e = document.getElementById('bt-index-late-up'); if (e) e.checked = true; }
+      if (sec === '1') { const e = document.getElementById('bt-sector-late-up'); if (e) e.checked = true; }
+      // R32: 有 run id 自动触发 (延迟 800ms 等 view 渲染完)
+      const run = hashParams.get('run');
+      if (run) {
+        setTimeout(() => { try { window.btStart && window.btStart(); } catch (e) { console.warn('[deep-link btStart]', e); } }, 800);
+      }
+    } catch (e) { console.warn('[route-from-hash bt]', e); }
+  }
 }
 window.addEventListener('hashchange', _routeFromHash);
 // 页面加载时跑一次 (放在 DOMContentLoaded 之后,所以用 setTimeout 0)
@@ -956,11 +1103,42 @@ var _STOCK_CACHE_KEY_PREFIX = 'tx3_stock_';
 function _stockCacheKey(code, date) {
   return _STOCK_CACHE_KEY_PREFIX + code + '_' + (date || 'today');
 }
+// R11: 维护 _STOCK_CACHE_KEY_PREFIX.* 的 LRU 索引,防止 sessionStorage 写爆 5MB quota
+var _STOCK_CACHE_MAX = 80;  // 80 个 (code,date) 槽位,够 5 只股 × 16 天 or 80 只股 × 今日
+var _stockCacheIndex = null;  // ['code_date', ...] LRU 顺序
+function _stockCacheLoadIndex() {
+  if (_stockCacheIndex) return _stockCacheIndex;
+  try {
+    const raw = sessionStorage.getItem(_STOCK_CACHE_KEY_PREFIX + '__index__');
+    _stockCacheIndex = raw ? JSON.parse(raw) : [];
+  } catch { _stockCacheIndex = []; }
+  return _stockCacheIndex;
+}
+function _stockCacheSaveIndex() {
+  try { sessionStorage.setItem(_STOCK_CACHE_KEY_PREFIX + '__index__', JSON.stringify(_stockCacheIndex)); } catch {}
+}
+function _stockCachePrune() {
+  const idx = _stockCacheLoadIndex();
+  while (idx.length > _STOCK_CACHE_MAX) {
+    const old = idx.shift();
+    try { sessionStorage.removeItem(_STOCK_CACHE_KEY_PREFIX + old); } catch {}
+  }
+}
+function _stockCacheTouch(key) {
+  const idx = _stockCacheLoadIndex();
+  const i = idx.indexOf(key);
+  if (i >= 0) idx.splice(i, 1);
+  idx.push(key);
+  if (idx.length > _STOCK_CACHE_MAX) _stockCachePrune();
+  _stockCacheSaveIndex();
+}
 function _stockCacheSave(code, date, data) {
   try {
     const key = _stockCacheKey(code, date);
+    const suffix = code + '_' + (date || 'today');
     sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
-  } catch (e) { /* quota */ }
+    _stockCacheTouch(suffix);
+  } catch (e) { /* quota — 静默丢,下次读会穿透 */ }
 }
 function _stockCacheLoad(code, date) {
   try {
@@ -974,6 +1152,8 @@ function _stockCacheLoad(code, date) {
       sessionStorage.removeItem(key);
       return null;
     }
+    // R11: 命中也算一次访问,刷新 LRU
+    _stockCacheTouch(code + '_' + (date || 'today'));
     return p.data;
   } catch (e) { return null; }
 }
@@ -1291,8 +1471,10 @@ function renderBacktestExitBreakdown(eb, hd) {
 function renderBacktestSector(sectors) {
   const host = $('#bt-sector-host');
   if (!host) return;
-  if (!sectors.length) { host.innerHTML = ''; return; }
-  const rows = sectors.slice(0, 20).map(s => {
+  // B-17: 防御 sectors 非 array (后端 schema 漂移)
+  const list = Array.isArray(sectors) ? sectors : [];
+  if (!list.length) { host.innerHTML = ''; return; }
+  const rows = list.slice(0, 20).map(s => {
     const wr = parseFloat(s.win_rate_pct);
     const avg = parseFloat(s.avg_return_pct);
     const sum = parseFloat(s.sum_return_pct);
@@ -1422,6 +1604,8 @@ async function _addHist(code, name) {
     // 拉一次最新(含服务端 hit_count/time)保证一致
     await _loadHist();
     _renderHist();
+    // R37: 用户浏览过这只 → 后台 idle 时预拉其它历史 top N,下次切秒开
+    _scheduleIdlePrefetch();
   } catch (e) {
     console.debug('[history] post server failed', e.message);
     // 失败也写一份 localStorage 兜底
@@ -1474,9 +1658,46 @@ async function _renderHist() {
       if (c) {
         $('#stock-search').value = c;
         loadStockDetail(c);
+        // R37: 鼠标 hover 历史股 200ms 后预拉 — 用户切走几乎秒开
+        clearTimeout(_prefetchHoverT);
+        _prefetchHoverT = setTimeout(() => _prefetchOne(c), 200);
       }
     });
   });
+}
+
+// R37: 后台 idle 预拉热门个股 — 用户切走 ~100ms 内出数据,不阻塞主线程
+// 数据量: 50 只 × 5KB (Redis 命中) = 250KB ≈ 一次性,跑在 requestIdleCallback
+var _prefetchInflight = new Set();
+var _prefetchDone = new Set();
+var _prefetchQueue = [];
+var _prefetchHoverT = null;
+function _prefetchOne(code) {
+  if (!code || _prefetchInflight.has(code) || _prefetchDone.has(code)) return;
+  _prefetchInflight.add(code);
+  // 用 GET-only fetch,响应入 SW / Redis cache,前端不需要解析
+  fetch(`/api/stock/${code}`, { priority: 'low' })
+    .then(r => r.ok ? r.json() : null)
+    .then(() => {
+      _prefetchInflight.delete(code);
+      _prefetchDone.add(code);
+    })
+    .catch(() => _prefetchInflight.delete(code));
+}
+function _scheduleIdlePrefetch() {
+  if (_prefetchQueue.length) return;
+  const codes = (_histCache || []).map(h => h.code).filter(Boolean);
+  _prefetchQueue = codes.slice(0, 20);  // 最多 20 只
+  const run = () => {
+    const code = _prefetchQueue.shift();
+    if (code) _prefetchOne(code);
+    if (_prefetchQueue.length) {
+      if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2000 });
+      else setTimeout(run, 800);
+    }
+  };
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2000 });
+  else setTimeout(run, 800);
 }
 // ────────────────────────────────────────────
 // Service Worker 注册 — 离线 fallback / 静态 cache-first
@@ -1486,19 +1707,26 @@ async function _renderHist() {
   if (!('serviceWorker' in navigator)) return;
   if (typeof __SW_URL__ === 'undefined') return;  // server 端没注入(SW 文件不存在)
   // 延迟到 idle,不影响首屏
-  const _do = () => navigator.serviceWorker.register(__SW_URL__, { scope: '/' })
+  const _do = (update) => navigator.serviceWorker.register(__SW_URL__, { scope: '/', updateViaCache: 'none' })
     .then((reg) => {
-      // 检测到新 SW → 提示刷新 (虽然 server 已带 ?v=,这里作为双重保险)
+      // R34: 每次加载检查 SW 更新 (浏览器默认每 24h 才查一次)
+      if (update) reg.update().catch(() => {});
+      // 检测到新 SW → 通知它立即激活
       if (reg.waiting && navigator.serviceWorker.controller) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
     })
     .catch((e) => console.warn('[SW] register failed', e));
+  // 首次注册检查更新,之后每次加载也检查
   if ('requestIdleCallback' in window) {
-    requestIdleCallback(_do, { timeout: 4000 });
+    requestIdleCallback(() => _do(false), { timeout: 4000 });
   } else {
-    setTimeout(_do, 1500);
+    setTimeout(() => _do(false), 1500);
   }
+  // 页面可见时额外检查一次更新(覆盖用户回来时的情况)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _do(true);
+  }, { once: true });
 })();
 
 // 初始化 + 清空按钮
@@ -1520,16 +1748,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.matchMedia('(max-width: 979px)').matches) _closeSidebar();
     });
   });
-  // URL ?code=XXXXX 自动切到个股页 (深链支持)
-  const _bootCode = new URLSearchParams(location.search).get('code');
-  if (_bootCode && /^\d{6}$/.test(_bootCode.trim())) {
-    const c = _bootCode.trim();
-    const inp = $('#stock-search'); if (inp) inp.value = c;
-    showView('stock');
-    loadStockDetail(c);
-    currentStockCode = c;
-    _startStockPoll(c);
-  }
+  // R-fix-2026-07-17: 删除 app.js 重复的 ?code= 深链 boot (view-stock.js:519-529 是唯一入口)
+  // 之前两处都注册 → 并发触发 2 次 loadStockDetail + 2 次 _startStockPoll,
+  // 3s 后 poll 重启又触发第 3 次 /api/stock/{code} 调用
 });
 
 async function doStockSearch() {
@@ -1545,9 +1766,9 @@ async function doStockSearch() {
       return;
     }
     box.innerHTML = results.map(s =>
-      `<button class="result-pill" data-code="${s.code}" data-name="${s.name}">
-        <span class="rp-code">${s.code}</span>
-        <span class="rp-name">${s.name}</span>
+      `<button class="result-pill" data-code="${escapeHtml(s.code)}" data-name="${escapeHtml(s.name)}">
+        <span class="rp-code">${escapeHtml(s.code)}</span>
+        <span class="rp-name">${escapeHtml(s.name)}</span>
       </button>`).join('');
     box.querySelectorAll('.result-pill').forEach(p =>
       p.addEventListener('click', () => {
@@ -1565,39 +1786,76 @@ async function doStockSearch() {
 // ────────────────────────────────────────────
 let _stockPollTimer = null;
 let _stockPollLastTs = 0;
+// R62: 自适应轮询间隔 — A 股交易时间 9:30-11:30 / 13:00-15:00 10s,其他 60s
+function _tradingIntervalMs() {
+  const now = new Date();
+  // 服务端时区是 Asia/Shanghai (UTC+8),本地浏览器可能不是,所以用 UTC 转换
+  const cn = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+  const day = cn.getDay();  // 0=Sun 6=Sat
+  if (day === 0 || day === 6) return 60_000;
+  const m = cn.getHours() * 60 + cn.getMinutes();
+  if (m >= 9 * 60 + 30 && m < 11 * 60 + 30) return 10_000;
+  if (m >= 13 * 60 && m < 15 * 60) return 10_000;
+  return 60_000;
+}
+
 function _startStockPoll(code) {
   _stopStockPoll();
   if (!code) return;
   // R141: 隐藏标签页不轮询 — 节流省 server + 客户端 CPU
-  setTimeout(() => { if (!document.hidden) _pollStockRealtime(code); }, 3000);
-  _stockPollTimer = setInterval(() => {
-    if (document.hidden) return;
-    _pollStockRealtime(code);
-  }, 10_000);
+  // R-fix-2026-07-17: 首轮 poll 从 3s 推到 10s — loadStockDetail 已经刚拉过实时主数据,
+  // 3s 后再重拉完全重复 (主 API 内已 _startStockPoll + 旧轮询 + loadStockDetail 各 1 次 = 浪费)
+  // R62: 自适应间隔 — 交易时段 10s,非交易 60s,周末 60s
+  function _scheduleNext(delay) {
+    _stockPollTimer = setTimeout(() => {
+      if (!document.hidden && currentStockCode) _pollStockRealtime(currentStockCode);
+      _scheduleNext(_tradingIntervalMs());
+    }, delay);
+  }
+  setTimeout(() => { if (!document.hidden) _pollStockRealtime(code); }, 10_000);
+  _scheduleNext(_tradingIntervalMs());
 }
 function _stopStockPoll() {
-  if (_stockPollTimer) { clearInterval(_stockPollTimer); _stockPollTimer = null; }
+  if (_stockPollTimer) { clearTimeout(_stockPollTimer); _stockPollTimer = null; }  // R62: 改成 setTimeout
+  // R-fix-2026-07-18 B3: 切股时同时关 SSE 长连接 (避免无主 stream + 浪费 server 资源)
+  if (typeof _closeStockStream === 'function') _closeStockStream();
+  // R1: 切股立即取消正在飞行的 poll 请求
+  _abortStockFetches();
 }
 async function _pollStockRealtime(code) {
   if (!code || code !== currentStockCode) return;          // 已经切到其他股
-  // 节流:若上一次还没回(<8s)就跳过,避免重叠
+  // R2: 节流:若上一次还没回(<8s)就跳过,避免重叠
   if (_stockPollLastTs && Date.now() - _stockPollLastTs < 8000) return;
   _stockPollLastTs = Date.now();
+  // R1: 用全局 abort controller — 切股时本次请求立即取消,响应到达也丢弃
+  const ctrl = _newStockFetchCtrl();
   try {
-    // 历史快照模式下也带 date (2026-07-11),不然 poll 会覆盖回实时
+    // 2026-07-18 perf: 轮询不强制 _fresh — Redis 5s 缓存足够新鲜,免得每次绕缓存打 3s+
+    // 历史快照模式下还是带 date,避免 poll 把历史切回实时
     const dateInput = $('#stock-date');
     const curDate = dateInput?.value || '';
-    const qs = curDate ? `?_fresh=1&date=${encodeURIComponent(curDate)}` : '?_fresh=1';
-    const data = await api(`/api/stock/${code}${qs}`);
+    const qs = curDate ? `?date=${encodeURIComponent(curDate)}` : '';
+    const data = await api(`/api/stock/${code}${qs}`, { signal: ctrl.signal });
     if (!data || code !== currentStockCode) return;
+    if (ctrl.signal.aborted) return;  // R1: 已被 abort,丢弃
     if (data.is_historical) {
       // 历史快照模式:全量重渲染 (patch 没考虑历史快照字段)
       renderStockDetail(code, data);
     } else {
-      _patchStockRealtime(code, data);
+      // R33: 价格/涨跌/资金全相同时完全跳过 patch,避免 1Hz SSE 触发无意义 DOM 写
+      const sig = (data.quote?.price ?? '') + '|' + (data.quote?.change_pct ?? '') + '|' + (data.fund_flow?.today?.main_net ?? '') + '|' + (data.quote?._fetch_time ?? '');
+      if (sig !== _patchStockRealtime._lastSig) {
+        _patchStockRealtime._lastSig = sig;
+        _patchStockRealtime(code, data);
+      }
     }
-    // P-perf: 轮询时同步更新缓存
-    _stockCacheSave(code, curDate, data);
+    // 2026-07-18 R3: 只在价格/资金净流真的变了才写 sessionStorage,
+    // 10s 一次的轮询每秒都 JSON.stringify 36KB kline 数组,卡主线程
+    const cacheSig = (data.quote?.price ?? '') + '|' + (data.quote?.change_pct ?? '') + '|' + (data.fund_flow?.today?.main_net ?? '');
+    if (cacheSig !== _pollStockRealtime._lastCacheSig) {
+      _pollStockRealtime._lastCacheSig = cacheSig;
+      _stockCacheSave(code, curDate, data);
+    }
   } catch (e) {
     // 静默 — 下次 tick 自动再试
     console.debug('[stock-poll]', e.message);
@@ -1605,26 +1863,52 @@ async function _pollStockRealtime(code) {
 }
 // R7: RAF-batched price patch — 攒多个 DOM 写操作到同一帧
 var _patchPending = null;
+
+// R1: 全局 stock fetch abort controller — 切股/切 view 时取消旧请求,避免延迟到达的响应污染新页面
+var _stockFetchCtrl = null;
+function _abortStockFetches() {
+  if (_stockFetchCtrl) {
+    try { _stockFetchCtrl.abort(); } catch {}
+    _stockFetchCtrl = null;
+  }
+}
+function _newStockFetchCtrl() {
+  _abortStockFetches();
+  _stockFetchCtrl = new AbortController();
+  return _stockFetchCtrl;
+}
+
 function _schedulePatch(fn) {
   _patchPending = fn;
   if (!_patchPending._raf) {
     _patchPending._raf = true;
+    const captured = fn;        // R-fix-2026-07-18: 闭包捕获避免 outer var 竞态
     requestAnimationFrame(() => {
-      _patchPending._raf = false;
-      try { _patchPending(); } catch (e) { console.warn('[patch]', e); }
-      _patchPending = null;
+      try { captured(); } catch (e) { console.warn('[patch]', e); }
+      // 只重置如果还是同一个 fn (避免覆盖已被新调用 set 的 _patchPending)
+      if (_patchPending === captured) _patchPending = null;
     });
   }
 }
 
 function _patchStockRealtime(code, data) {
+  // R7: stale code guard — SSE/RAF 延迟到达时若已切股,跳过渲染防覆盖新股价
+  if (code && window._currentStockCode && code !== window._currentStockCode) return;
   const q = data.quote || {};
   const today = (data.fund_flow || {}).today || {};
 
-  // R25: 更新数据新鲜度
+  // R25: 更新数据新鲜度 — 保留日期 + 追加实时时间 (原来直接覆盖丢失日期)
   if (q._fetch_time) {
     const subEl = $('#stock-sub');
-    if (subEl) subEl.textContent = q._fetch_time;
+    if (subEl) {
+      const existing = subEl.dataset.dateLabel || '';
+      subEl.textContent = existing
+        ? `${existing} · 实时 ${q._fetch_time}`
+        : `实时 ${q._fetch_time}`;
+      // q-time 单独显示时间,方便眼扫
+      const qTime = $('#q-time');
+      if (qTime) qTime.textContent = `实时 ${q._fetch_time}`;
+    }
   }
 
   // Hero 价格 + 涨跌额 + 涨跌%
@@ -1637,7 +1921,10 @@ function _patchStockRealtime(code, data) {
       const prevPriceText = priceEl.dataset.lastPrice;
       const prevPrice = prevPriceText ? parseFloat(prevPriceText) : 0;
       priceEl.dataset.lastPrice = String(price);
-      if (Math.abs(price - prevPrice) > 0.005) {
+      // 2026-07-18 perf: SSE 1Hz tick 时常只有 0.01 元抖动,触发 RAF 350ms 重画是浪费;
+      // 阈值改成 > 0.1% refVal (茅台 1.2 元 / 比亚迪 0.1 元) 才动,否则直接写文本
+      const animThresh = Math.max(prev * 0.001, 0.05);
+      if (prevPrice > 0 && Math.abs(price - prevPrice) > animThresh) {
         animateNumber(priceEl, prevPrice, price, 350, (v) => v.toFixed(2));
       } else {
         priceEl.textContent = price.toFixed(2);
@@ -1727,14 +2014,16 @@ async function loadStockDetail(code, date) {
   // 日期参数优先级: 调用方传入 > 当前 stock-date input > 空(今日)
   const dateInput = $('#stock-date');
   let dateParam = date || dateInput?.value || '';
-  // 拼 URL: 非空 date 才传,空就是今日
+  // 2026-07-18 perf: 不再强制 ?_fresh=1 — Redis 5s 缓存足够新鲜,免得每次绕缓存 3s+
+  // 用户手动点 refresh 时,业务方单独传 ?fresh=1 触发 bypass
   const qs = dateParam
-    ? `?_fresh=1&date=${encodeURIComponent(dateParam)}`
-    : '?_fresh=1';
+    ? `?date=${encodeURIComponent(dateParam)}`
+    : '';
 
   // P-perf: Phase 0 — 从 sessionStorage 取缓存立即渲染(0ms)
   const cached = _stockCacheLoad(code, dateParam);
   if (cached) {
+    if (currentStockCode !== code) return;  // 用户已切股,放弃过期 render
     try { renderStockDetail(code, cached); }
     catch (e) { console.debug('[stock-cache] render fail:', e.message); }
   }
@@ -1742,6 +2031,8 @@ async function loadStockDetail(code, date) {
   // Phase 1 — 拉新数据
   try {
     const data = await api(`/api/stock/${code}${qs}`);
+    // R-perf-018: 拉数据期间用户可能已切走,过期结果不再 render / poll
+    if (currentStockCode !== code) return;
     // 写缓存
     _stockCacheSave(code, dateParam, data);
     try { renderStockDetail(code, data); }
@@ -1758,6 +2049,7 @@ async function loadStockDetail(code, date) {
     // 异步检查自选状态,更新按钮
     _updateStockWatchBtn();
   } catch (e) {
+    if (currentStockCode !== code) return;
     if (!cached) toast(`加载失败：${e.message}`, 'error');
   }
 }
@@ -2058,7 +2350,7 @@ function renderStockDetail(code, data) {
   if (extras.streak && extras.streak >= 1) tagsHtml.push(`<span class="qh-tag hot">${extras.streak} 连板</span>`);
   // 历史快照标签 (2026-07-11 日期切换)
   if (data.is_historical && data.snapshot_date) {
-    tagsHtml.push(`<span class="qh-tag" style="color:var(--accent);border-color:var(--accent)" title="实时数据无法回放,以下数据来自历史日线">📅 ${data.snapshot_date} 历史快照</span>`);
+    tagsHtml.push(`<span class="qh-tag" style="color:var(--accent);border-color:var(--accent)" title="实时数据无法回放,以下数据来自历史日线"> ${data.snapshot_date} 历史快照</span>`);
   }
   tagsHtml.push(`<span class="qh-tag">${q._source || '—'}</span>`);
   $('#qh-tags').innerHTML = tagsHtml.join(' ');
@@ -2217,7 +2509,7 @@ function renderStockDetail(code, data) {
   // 龙虎席位
   setVal('#q-seats', `${seats.seat_count || 0}<span class="qc-unit">条</span>`, 'flat');
   $('#q-seats-sub').textContent = seats.blacklisted
-    ? `近 ${seats.total_lhb_rows || 0} 条 · ⚠ 黑名单`
+    ? `近 ${seats.total_lhb_rows || 0} 条 ·  黑名单`
     : `近 ${seats.total_lhb_rows || 0} 条`;
 
   // ─── 图表 / 表格 ───
@@ -2353,9 +2645,9 @@ function renderHeroLimitBand(price, prev, lu, ld, chg, amp) {
   const zone = $('#qh-lu-zone');
   let zClass = '', zText = '';
   if (price >= lu - 0.01)                   { zClass = 'zone-lu';  zText = '🚨 封板'; }
-  else if (price <= ld + 0.01)               { zClass = 'zone-ld';  zText = '⚠ 跌停'; }
-  else if (distLU_pct < 2)                   { zClass = 'zone-hot'; zText = '🔥 近涨停 <2%'; }
-  else if (distLD_pct < 2)                   { zClass = 'zone-hot'; zText = '⚡ 近跌停 <2%'; }
+  else if (price <= ld + 0.01)               { zClass = 'zone-ld';  zText = ' 跌停'; }
+  else if (distLU_pct < 2)                   { zClass = 'zone-hot'; zText = '近涨停 <2%'; }
+  else if (distLD_pct < 2)                   { zClass = 'zone-hot'; zText = ' 近跌停 <2%'; }
   else if (amp && amp > 10)                  { zClass = 'zone-hot'; zText = '🎯 高振幅'; }
   else                                       { zClass = '';         zText = '常态区间'; }
   zone.className = zClass;
@@ -2504,7 +2796,7 @@ async function loadStockSeatBreakdown(code) {
     // 不要在超时/网络错误时隐藏已有数据 — 上游 akshare 限频时常见
     console.warn('[seat-breakdown] fetch failed (保持上次渲染):', e.message);
     if (tbody && tbody.querySelector('.empty')) {
-      tbody.innerHTML = `<tr><td colspan="8"><div class="error-card"><div class="er-msg">⚠ <b>加载失败</b> · ${escapeHtml(e.message)}</div><button class="er-retry" id="bd-retry">↻ 重试</button></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8"><div class="error-card"><div class="er-msg"> <b>加载失败</b> · ${escapeHtml(e.message)}</div><button class="er-retry" id="bd-retry">↻ 重试</button></div></td></tr>`;
       const btn = $('#bd-retry');
       if (btn) btn.addEventListener('click', () => loadStockSeatBreakdown(code));
     }
@@ -2524,14 +2816,14 @@ function renderSeatBreakdown(d) {
 
   // 短线筛选标签
   const tagsEl = $('#bd-tags');
-  tagsEl.innerHTML = (d.tags || []).map(t => {
+  tagsEl.innerHTML = (Array.isArray(d.tags) ? d.tags : []).map(t => {
     const cls = t.startsWith('✅') ? 'tag-good' : 'tag-bad';
     return `<span class="bd-tag ${cls}">${escapeHtml(t)}</span>`;
   }).join('') || '<span class="caption dim">无筛选信号</span>';
 
   // 风险标记
   const risksEl = $('#bd-risks');
-  risksEl.innerHTML = (d.risks || []).map(r =>
+  risksEl.innerHTML = (Array.isArray(d.risks) ? d.risks : []).map(r =>
     `<div class="bd-risk">${escapeHtml(r)}</div>`
   ).join('');
 
@@ -2559,7 +2851,7 @@ function renderSeatBreakdown(d) {
 
   // 6 类汇总表 (可展开每类席位明细)
   const body = $('#bd-cats-body');
-  const cats = d.categories || [];
+  const cats = Array.isArray(d.categories) ? d.categories : [];
   const totalAmt = d.total_amount_wan;  // 当日总成交额 (万), 用于单席位占比
   const hasAny = cats.some(c => c.seat_count > 0);
   if (!hasAny) {
@@ -2671,7 +2963,7 @@ async function loadStockMyTrades(code) {
     if (unreviewed.length) {
       list.insertAdjacentHTML('beforeend',
         `<div class="mytr-actions">
-          <button class="btn-mini" id="mytr-bulk-review">⚡ 一键复盘全部未评分 (${unreviewed.length})</button>
+          <button class="btn-mini" id="mytr-bulk-review"> 一键复盘全部未评分 (${unreviewed.length})</button>
         </div>`);
       const btn = $('#mytr-bulk-review');
       if (btn) btn.onclick = () => _reviewBulkRun(unreviewed.map(t => t.id));
@@ -2800,7 +3092,7 @@ function renderSeatsKpi(seats) {
     ['卖出总金额', sell > 0 ? (sell / 1e4).toFixed(2) + ' 亿' : '—', colorFor(-sell)],
     ['净买入', (net >= 0 ? '+' : '') + (net / 1e4).toFixed(2) + ' 亿', colorFor(net)],
     ['席位组', groups || '—', INK2, '已知组'],
-    ['黑名单', seats.blacklisted ? '⚠ 是' : '否', seats.blacklisted ? DOWN : UP],
+    ['黑名单', seats.blacklisted ? ' 是' : '否', seats.blacklisted ? DOWN : UP],
   ]);
 }
 
@@ -2873,6 +3165,7 @@ function renderAIVerdict(verdict, conv) {
 
 function esc(s) { return escapeHtml(s); }
 function escapeHtml(s) {
+  if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
@@ -3397,7 +3690,7 @@ function errorCard(msg, onRetry) {
     ? `<button class="er-retry" id="er-retry-btn">↻ 重试</button>`
     : '';
   return `<div class="error-card">
-    <div class="er-msg">⚠ <b>加载失败</b> · ${escapeHtml(msg)}</div>
+    <div class="er-msg"> <b>加载失败</b> · ${escapeHtml(msg)}</div>
     ${retry}
   </div>`;
 }
@@ -3427,8 +3720,22 @@ function bindRetry(host, fn) {
 // ────────────────────────────────────────────
 // STOCK · 任意日分时回看
 // ────────────────────────────────────────────
+var INTRADAY_CACHE_MAX = 200;   // B-15: LRU 上限, 防止切 N 只股 × M 日期 累积
 var intraDayCache = new Map();  // date -> data
 var intraDayLoading = null;
+
+// B-15: LRU 写入 — 超限淘汰最早插入
+function _intraDayCacheSet(key, val) {
+  if (intraDayCache.size >= INTRADAY_CACHE_MAX) {
+    const it = intraDayCache.keys();
+    const n_to_drop = intraDayCache.size - INTRADAY_CACHE_MAX + 1;
+    for (let i = 0; i < n_to_drop; i++) {
+      const k = it.next().value;
+      if (k != null) intraDayCache.delete(k);
+    }
+  }
+  intraDayCache.set(key, val);
+}
 
 function todayStr() {
   const d = new Date();
@@ -3521,7 +3828,7 @@ async function loadIntraDay(code, dateStr) {
   try {
     const data = await api(`/api/stock/${code}/intraday?date=${encodeURIComponent(dateStr)}`);
     const merged = { code, date: dateStr, ...data };
-    intraDayCache.set(dateStr, merged);
+    _intraDayCacheSet(dateStr, merged);
     renderIntraDay(merged);
   } catch (e) {
     note.textContent = `加载失败：${e.message}`;
@@ -3870,7 +4177,7 @@ async function renderLawsOnce() {
   if (lawsRendered) return;
   lawsRendered = true;
 
-  const cats = lawsData.categories || [];
+  const cats = Array.isArray(lawsData.categories) ? lawsData.categories : [];
   host.innerHTML = cats.map(c => `
     <article class="law-card">
       <div class="law-head">
@@ -3970,7 +4277,7 @@ function _renderAIAnalysisCards(bd, s) {
     ? ` · 江湖: ${aliases.map(a => '「' + escapeHtml(a) + '」').join(' · ')}`
     : '';
   const warnLine = (s.warnings || []).length
-    ? ` · ⚠ ${s.warnings.length} 项警告`
+    ? ` ·  ${s.warnings.length} 项警告`
     : '';
   return `<div class="ai-detail-grid">${cards}</div>
     <div class="ai-detail-footer">
@@ -4055,7 +4362,7 @@ function renderDragons(data) {
         </div>`;
       }).join('');
       const warn = (s.warnings || []).length
-        ? `<div class="dragon-warn">⚠ ${s.warnings.join(' · ')}</div>`
+        ? `<div class="dragon-warn"> ${s.warnings.join(' · ')}</div>`
         : '';
       const mainlineBadge = s.is_mainline ? '<span class="badge badge-main">主线</span>' : '';
       const sealTxt = s.seal_ratio_pct != null ? `${s.seal_ratio_pct.toFixed(1)}%` : '—';
@@ -4194,7 +4501,7 @@ function renderDragons(data) {
       : '';
     const dipHtml = dips.length
       ? `<div class="decision-col">
-          <div class="decision-title">📉 次日低吸 (${dips.length})</div>
+          <div class="decision-title"> 次日低吸 (${dips.length})</div>
           ${dips.map(p => `<div class="decision-item">
             <a href="#" class="stock-link" data-code="${escapeHtml(p.code)}"><b>${escapeHtml(p.name)}</b> ${escapeHtml(p.code)}</a>
             <span class="dim"> · ${escapeHtml(p.sector || '')} · ${escapeHtml(String(p.streak))}板 · 评分${escapeHtml(String(p.score))}</span>
@@ -4204,7 +4511,7 @@ function renderDragons(data) {
       : '';
     const avoidHtml = avoids.length
       ? `<div class="decision-col">
-          <div class="decision-title">⚠ 回避 (${avoids.length})</div>
+          <div class="decision-title"> 回避 (${avoids.length})</div>
           ${avoids.map(p => `<div class="decision-item">
             <a href="#" class="stock-link" data-code="${escapeHtml(p.code)}"><b>${escapeHtml(p.name)}</b> ${escapeHtml(p.code)}</a>
             <span class="dim"> · ${escapeHtml(p.sector || '')} · 评分${escapeHtml(String(p.score))}</span>
@@ -4300,8 +4607,8 @@ $('#refresh-ticker')?.addEventListener('click', () => {
 
 // R12-A: 一键清空所有交易 (清库重测用)
 $('#review-clear-all')?.addEventListener('click', async () => {
-  if (!confirm('⚠ 确定清空所有交易记录?\n\n此操作不可逆!\n• 删除所有 trades 行\n• 删除所有 trade_reviews 行\n• 清空 Redis AI 缓存')) return;
-  if (!confirm('⚠ 最后确认: 真的要清空吗?')) return;
+  if (!confirm(' 确定清空所有交易记录?\n\n此操作不可逆!\n• 删除所有 trades 行\n• 删除所有 trade_reviews 行\n• 清空 Redis AI 缓存')) return;
+  if (!confirm(' 最后确认: 真的要清空吗?')) return;
   try {
     const r = await _fetchWithTimeout('/api/review/trades_all?confirm=YES', { method: 'DELETE', timeout: 10000 });
     const j = await r.json();
@@ -4382,8 +4689,8 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
 
 // R13: 「修复脏数据」按钮 — dirty 时显示, 点击等同 clear-all + 引导重录
 $('#review-fix-dirty')?.addEventListener('click', async () => {
-  if (!confirm('⚠ 检测到 DB 残留历史脏数据 (老解析器切碎 shares / 无法反查的 code)。\n\n清空所有交易后请重新粘贴录入。\n\n继续?')) return;
-  if (!confirm('⚠ 最终确认?')) return;
+  if (!confirm(' 检测到 DB 残留历史脏数据 (老解析器切碎 shares / 无法反查的 code)。\n\n清空所有交易后请重新粘贴录入。\n\n继续?')) return;
+  if (!confirm(' 最终确认?')) return;
   try {
     const r = await _fetchWithTimeout('/api/review/trades_all?confirm=YES', { method: 'DELETE', timeout: 10000 });
     const j = await r.json();
@@ -4482,6 +4789,16 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', 
   applyTheme(e.matches ? 'light' : 'dark');
 });
 
+// R-3-2026-07-18: URL ?theme=light/dark 参数 — 用于截图/分享指定主题 (不带 localStorage,刷新后失效)
+// 优先级: URL > localStorage > 系统偏好
+(function applyThemeFromUrl() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const t = params.get('theme');
+    if (t === 'light' || t === 'dark') applyTheme(t);
+  } catch (_) {}
+})();
+
 // resize + refreshTicker 启动 → view-other.js:671-677 统一注册 (避免双 setInterval 拖双倍流量)
 
 // ────────────────────────────────────────────
@@ -4498,13 +4815,6 @@ async function refreshTunnel() {
   try {
     const r = await api('/api/tunnel/status');
     if (!r) return;
-    // LAN 默认一直显示(同一 WiFi 入口)
-    const lanUrl = $('#tunnel-lan-url');
-    if (lanUrl && r.lan_ip && r.port) {
-      const full = `http://${r.lan_ip}:${r.port}`;
-      lanUrl.href = full;
-      lanUrl.textContent = full;
-    }
     const state = r.state || (r.running ? 'online' : 'offline');
 
     // 2026-07-12: 显示 sentinel-based 后端的指示 (TG-bot / MQTT)
@@ -4549,7 +4859,7 @@ async function refreshTunnel() {
       // offline → LAN fallback
       status.classList.remove('online', 'starting');
       status.classList.add('offline');
-      text.textContent = `📶 局域网 ${r.lan_ip}:${r.port}`;
+      text.textContent = ` 局域网 ${r.lan_ip}:${r.port}`;
       urlRow.hidden = true;
       btnLabel.textContent = '启动隧道';
     }
@@ -4593,7 +4903,7 @@ $('#tunnel-btn')?.addEventListener('click', async () => {
       await refreshTunnel();
       const tgMsg = d.tg_sent
         ? '✅ 已自动推到 Telegram'
-        : `⚠ TG 推送失败 (${d.tg_err || 'DNS 阻断'}), URL 仍可访问`;
+        : ` TG 推送失败 (${d.tg_err || 'DNS 阻断'}), URL 仍可访问`;
       toast(`✓ 公网入口 ${d.url.slice(8, 36)}… · ${tgMsg}`, d.tg_sent ? 'success' : 'warn', 4500);
     } else {
       // 启动失败 — 给清晰的诊断 + LAN 兜底
@@ -4620,19 +4930,6 @@ $('#tunnel-btn')?.addEventListener('click', async () => {
   }
 });
 
-// LAN 入口 QR 码
-$('#tunnel-lan-qr-btn')?.addEventListener('click', () => {
-  const url = $('#tunnel-lan-url')?.href;
-  const wrap = $('#tunnel-lan-qr-wrap');
-  const img = $('#tunnel-lan-qr-img');
-  if (!url || !wrap || !img) return;
-  if (wrap.hidden) {
-    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=2&data=${encodeURIComponent(url)}`;
-    wrap.hidden = false;
-  } else {
-    wrap.hidden = true;
-  }
-});
 $('#tunnel-qr-btn')?.addEventListener('click', () => {
   const url = $('#tunnel-url').href;
   const qrWrap = $('#tunnel-qr-wrap');
@@ -4670,12 +4967,12 @@ $('#tunnel-tg-btn')?.addEventListener('click', async () => {
     if (navigator.share) {
       try {
         await navigator.share({ title: '退学 v3 · 控制台', text: shareText, url: target });
-        toast(`📤 已唤起系统分享（含 Telegram）`, 'success', 2800);
+        toast(` 已唤起系统分享（含 Telegram）`, 'success', 2800);
         return;
       } catch (e) { /* 用户取消 */ }
     }
     if (copied) {
-      toast(`⚠ TG 推送失败（${data.tg_err || '网络'}），已复制到剪贴板 — 长按聊天框粘贴`, 'info', 4500);
+      toast(` TG 推送失败（${data.tg_err || '网络'}），已复制到剪贴板 — 长按聊天框粘贴`, 'info', 4500);
     } else {
       // 兜底：弹个 prompt 让用户手动复制
       prompt('TG 推送失败，手动复制 URL：', target);
@@ -4948,7 +5245,7 @@ async function loadStockSector(code) {
     const aiChips = aiTags.labels.map(l => {
       const c = aiColors[l] || '#9e9e9e';
       const warn = (l === '传统行业' || l === '未分类') ? ' ⚠️非主战场' : '';
-      return `<span class="chip" style="border-color:${c};color:${c};font-weight:bold">🏷️ ${escapeHtml(l)}${warn}</span>`;
+      return `<span class="chip" style="border-color:${c};color:${c};font-weight:bold">${escapeHtml(l)}${warn}</span>`;
     }).join('');
     host2.innerHTML = stdChips + (aiChips ? '<br/>' + aiChips : (stdChips ? '' : '<span class="dim">行业分类待补</span>'));
     host3.textContent = `行业来源：${sec.source || '—'}${sec.fresh ? '（刚拉到）' : ''}`;
@@ -5109,7 +5406,7 @@ async function loadStockLimitUp(code, sectorName) {
     let sectorSource = '';
     if (sectorZt.length > 0) {
       sectorHtml = renderSectorRows(sectorZt.slice(0, 10), code);
-      sectorLabel = `🔥 板块当日涨停 ${sectorZt.length} 只（取 ${Math.min(sectorZt.length, 10)}）`;
+      sectorLabel = `板块当日涨停 ${sectorZt.length} 只（取 ${Math.min(sectorZt.length, 10)}）`;
       sectorSource = 'sector_exact';
     } else {
       // 板块当日空: 用 龙头 全量挑同板块或相邻 L1/L2
@@ -5514,6 +5811,21 @@ function _reviewRender() {
         <tr class="rv-child-wrap" data-group="${gid}" hidden>
           <td colspan="12" class="rv-child-cell">
             <table class="data-table review-table review-table-child">
+              <thead>
+                <tr>
+                  <th class="rv-sticky-1">子笔明细</th>
+                  <th>方向</th>
+                  <th>日期</th>
+                  <th>价格</th>
+                  <th>时间</th>
+                  <th>股数</th>
+                  <th>今日盈亏</th>
+                  <th class="rv-hide-tablet">累计盈亏</th>
+                  <th class="rv-hide-tablet">累计盈亏比</th>
+                  <th class="rv-hide-tablet">铁律错在哪</th>
+                  <th class="rv-hide-mobile">操作</th>
+                </tr>
+              </thead>
               <tbody>${childRows}</tbody>
             </table>
           </td>
@@ -6439,7 +6751,7 @@ function _renderAiReview(rev) {
 
     ${(risks.length || improv) ? `
     <article class="card mt-12">
-      ${risks.length ? `<div class="airv-risks"><div class="cap dim">关键风险</div>${risks.map(k => `<div class="risk-line">⚠ ${escapeHtml(k)}</div>`).join('')}</div>` : ''}
+      ${risks.length ? `<div class="airv-risks"><div class="cap dim">关键风险</div>${risks.map(k => `<div class="risk-line"> ${escapeHtml(k)}</div>`).join('')}</div>` : ''}
       ${improv ? `<div class="airv-improv"><div class="cap dim">下一步改进</div><div class="airv-md">${escapeHtml(improv)}</div></div>` : ''}
     </article>` : ''}
 
@@ -6513,7 +6825,7 @@ function _reviewRenderPicks(d, listEl, metaEl) {
   if (!d.picks || !d.picks.length) return false;
   if (metaEl) {
     if (d.user_patterns && d.user_patterns.length) {
-      metaEl.innerHTML = `⚠ <span style="color:var(--accent)">你的常见错模式:</span> ${d.user_patterns.slice(0, 4).map(p => `<span class="rule-pill fail">${escapeHtml(p)}</span>`).join(' ')}`;
+      metaEl.innerHTML = ` <span style="color:var(--accent)">你的常见错模式:</span> ${d.user_patterns.slice(0, 4).map(p => `<span class="rule-pill fail">${escapeHtml(p)}</span>`).join(' ')}`;
     } else {
       metaEl.textContent = '✅ 暂无历史错模式(继续积累交易后会有更精准预警)';
     }
@@ -7418,8 +7730,62 @@ function _stockOnViewLeave() {
     try { window._stockInflightAborter.abort(); } catch {}
     window._stockInflightAborter = null;
   }
+  // R3: 全局 abort controller 也清掉 — 切到其他 view 时立即取消所有飞行中的 stock 请求
+  _abortStockFetches();
+  // R8b: 清空 view-scoped timers (streak prefetch chain 等)
+  if (typeof _clearViewTimers === 'function') _clearViewTimers('stock');
+  // R13: 清掉 inflight dedup promise (防止下次进 view 拿到旧 promise)
+  if (typeof _klineInflight !== 'undefined') { _klineInflight = null; _klineInflightKey = ''; }
+  if (typeof _stockDetailInflight !== 'undefined') { _stockDetailInflight = null; _stockDetailInflightKey = ''; }
+  // R13: 清掉 _stockAuxCache (避免旧 code 的 sector/lu_ctx 残留内存)
+  if (typeof _stockAuxCache === 'object') {
+    _stockAuxCache.code = null;
+    _stockAuxCache.sector = null;
+    _stockAuxCache.lu_ctx = null;
+    _stockAuxCache.strong = null;
+    _stockAuxCache.inflight = null;
+    _stockAuxCache.ts = 0;
+  }
+  // R14: dispose ECharts 实例释放 GPU + canvas 内存 (个股页 4 个图常驻 ~50-100MB)
+  if (typeof echartsCharts === 'object') {
+    for (const k of Object.keys(echartsCharts)) {
+      try { if (echartsCharts[k]) { echartsCharts[k].dispose(); echartsCharts[k] = null; } } catch {}
+    }
+  }
+  // R16: 取消挂着的 animateNumber RAF — 切股时旧动画不再影响新价格
+  if (typeof _cancelAnimateNumbers === 'function') _cancelAnimateNumbers();
+  // R19: 清掉 pending 图表数据 — 切股时旧 flow/kline 数据不应再被绘制
+  if (typeof _pendingFlowData !== 'undefined') _pendingFlowData = null;
+  if (typeof _klineDataReady !== 'undefined') _klineDataReady = false;
+  // R10 (Batch 1): 输出 100 轮缓存命中率 (Playwright 抓 console 验证 P95)
+  if (typeof _cacheHits === 'object' && _cacheHits) {
+    const total = (_cacheHits.mem|0) + (_cacheHits.ss|0) + (_cacheHits.network|0);
+    if (total > 0) {
+      console.log('[cache-hits]', JSON.stringify(_cacheHits),
+                  `hit_rate=${(((_cacheHits.mem + _cacheHits.ss) / total) * 100).toFixed(1)}%`);
+    }
+  }
 }
 _registerViewLeave('stock', _stockOnViewLeave);
+
+// R8b: view-scoped timer registry — 离开 view 自动 clearTimeout 全部 timer
+// 用法: setViewTimer('stock', () => {...}, 250)  注册
+//       _clearViewTimers('stock')                清空(离开 view 时调用)
+var _viewTimers = {};
+function setViewTimer(view, fn, ms) {
+  const t = setTimeout(() => {
+    _viewTimers[view] = (_viewTimers[view] || []).filter(x => x !== t);
+    try { fn(); } catch (e) { console.debug('[viewTimer]', view, e.message); }
+  }, ms);
+  _viewTimers[view] = (_viewTimers[view] || []);
+  _viewTimers[view].push(t);
+  return t;
+}
+function _clearViewTimers(view) {
+  const list = _viewTimers[view] || [];
+  for (const t of list) { try { clearTimeout(t); } catch {} }
+  _viewTimers[view] = [];
+}
 
 // R15: 自动复盘调度 — 状态机
 var _reviewAuto = { running: false, queue: [], done: 0, total: 0, startedTs: 0, stop: false };
@@ -7784,7 +8150,8 @@ function _watchlistRowHtml(it) {
   if (!ai) {
     aiCellHtml = `<button class="btn btn-mini wl-btn-add" data-wl-ai="${escapeHtml(code)}">+ 添加分析</button>`;
   } else {
-    const v = ai.verdict || '-';
+    // B-18: verdict 转 string 限制长度,避免 CSS 不命中静默丢样式
+    const v = String(ai.verdict || '-').slice(0, 8);
     const vCls = ({ '买': 'buy', '观望': 'wait', '回避': 'avoid' })[v] || 'na';
     const conv = ai.conviction ?? 0;
     const stale = ai.is_stale ? '<span class="wl-stale-tag" title="跨日判定">昨日</span>' : '';
@@ -7902,7 +8269,11 @@ async function _watchlistBatchAI() {
         const ai = j.data.ai;
         const item = document.createElement('li');
         item.className = 'wl-batch-ok';
-        item.innerHTML = `<b>${escapeHtml(it.code)}</b> ${escapeHtml(it.name)} — <span class="verdict-pill v-${({ '买': 'buy', '观望': 'wait', '回避': 'avoid' })[ai.verdict] || 'na'}">${escapeHtml(ai.verdict)} ${ai.conviction || 0}/100</span>`;
+        // B-18: verdict 转 string 限长度 + Number 化 conviction
+        const vTxt = String(ai.verdict || '-').slice(0, 8);
+        const vCls = ({ '买': 'buy', '观望': 'wait', '回避': 'avoid' })[vTxt] || 'na';
+        const conv = Number(ai.conviction) || 0;
+        item.innerHTML = `<b>${escapeHtml(it.code)}</b> ${escapeHtml(it.name)} — <span class="verdict-pill v-${vCls}">${escapeHtml(vTxt)} ${conv}/100</span>`;
         log.appendChild(item);
       } else {
         const item = document.createElement('li');
@@ -8018,12 +8389,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (days === klineState.period) return;
       klineState.period = days;
       syncKlineToolbar();
+      _saveKlinePrefs();
       if (currentStockCode) loadKline(currentStockCode, days);
     });
   });
   // K线 · 指标 toggle (MACD/KDJ 互斥)
   $$('#kline-indicators .kt-chip').forEach(btn => {
-    btn.addEventListener('click', () => toggleKlineIndicator(btn.dataset.ind));
+    btn.addEventListener('click', () => {
+      toggleKlineIndicator(btn.dataset.ind);
+      _saveKlinePrefs();
+    });
   });
 });
 
@@ -8073,6 +8448,8 @@ document.addEventListener('DOMContentLoaded', () => {
     l1: '', l2: '', l3: '', l4: '', domain: '',
     sort: 'amount', order: 'desc',
     _filterData: null,
+    _clusterSwMap: null,  // { clusterName → [sw1, sw2, ...] }
+    _chainSwMap: null,    // { chainName → {sw, l4: [..]} }
     _watchedCodes: new Set(),
     _sentinelObserver: null,
     _qsTimer: null,
@@ -8158,6 +8535,12 @@ document.addEventListener('DOMContentLoaded', () => {
       ];
       setSelectOptions('as-domain', domains);
 
+      // 级联映射: clusterName → sw_set,  chainName → {sw, l4}
+      state._clusterSwMap = {};
+      (data.clusters || []).forEach(c => { state._clusterSwMap[c.name] = c.sw_set || []; });
+      state._chainSwMap = {};
+      (data.chains || []).forEach(c => { state._chainSwMap[c.name] = { sw: c.sw || '', l4: c.l4 || [] }; });
+
       // L1 集群 chip
       if (data.clusters && data.clusters.length) {
         renderClusterChips(data.clusters);
@@ -8166,10 +8549,15 @@ document.addEventListener('DOMContentLoaded', () => {
       console.warn('loadFilters failed:', e);
     }
   }
-  function setSelectOptions(id, items) {
+  function setSelectOptions(id, items, countMap) {
     const sel = $('#' + id);
     if (!sel) return;
-    sel.innerHTML = items.map(x => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('');
+    const counts = countMap || {};
+    sel.innerHTML = items.map(x => {
+      const c = counts[x] || 0;
+      const label = c ? `${escapeHtml(x)} (${c})` : escapeHtml(x);
+      return `<option value="${escapeHtml(x)}">${label}</option>`;
+    }).join('');
   }
 
   function renderClusterChips(clusters) {
@@ -8203,6 +8591,55 @@ document.addEventListener('DOMContentLoaded', () => {
         toast(state.l1 ? `已切到 ${state.l1}` : '已重置集群');
       });
     });
+  }
+
+  // === 5b. 级联筛选 + 计数 (Phase C) ======================================
+  function updateCascadeFilters(items) {
+    const itemsArr = items || [];
+    // 从返回数据统计各层频次
+    const l2Count = {}, l3Count = {}, l4Count = {}, domainCount = {};
+    itemsArr.forEach(r => {
+      const tax = r.taxonomy || {};
+      if (tax.l2) l2Count[tax.l2] = (l2Count[tax.l2] || 0) + 1;
+      if (tax.l3) l3Count[tax.l3] = (l3Count[tax.l3] || 0) + 1;
+      (tax.l4 || []).forEach(x => { l4Count[x] = (l4Count[x] || 0) + 1; });
+      (Array.isArray(r.domain) ? r.domain : []).forEach(d => { domainCount[d] = (domainCount[d] || 0) + 1; });
+    });
+
+    // L2: 选 L1 后只显示该集群的申万行业
+    let l2Options = (state._filterData?.industries || []).slice();
+    if (state.l1 && state._clusterSwMap?.[state.l1]) {
+      const swSet = new Set(state._clusterSwMap[state.l1]);
+      l2Options = l2Options.filter(x => swSet.has(x));
+    }
+    setSelectOptions('as-l2', l2Options, l2Count);
+
+    // L3: 选 L2 后只显示该行业的产业链
+    let l3Options = (state._filterData?.chains || []).map(c => c.name);
+    if (state.l2) {
+      const l2Set = new Set(state.l2.split(',').filter(Boolean));
+      l3Options = l3Options.filter(name => {
+        const chain = state._chainSwMap?.[name];
+        return chain && l2Set.has(chain.sw);
+      });
+    }
+    setSelectOptions('as-l3', l3Options, l3Count);
+
+    // L4: 选 L3 后只显示该产业链的细分
+    let l4Options = (state._filterData?.l4 || []).slice();
+    if (state.l3) {
+      const l3Set = new Set(state.l3.split(',').filter(Boolean));
+      const allowed = new Set();
+      l3Set.forEach(l3 => {
+        const chain = state._chainSwMap?.[l3];
+        (chain?.l4 || []).forEach(x => allowed.add(x));
+      });
+      if (allowed.size) l4Options = l4Options.filter(x => allowed.has(x));
+    }
+    setSelectOptions('as-l4', l4Options, l4Count);
+
+    // domain: 始终显示全集 + 计数
+    setSelectOptions('as-domain', state._filterData?.domains || [], domainCount);
   }
 
   // === 6. 统一级联 (Bug 5) =================================================
@@ -8255,8 +8692,27 @@ document.addEventListener('DOMContentLoaded', () => {
       state.totalAvailable = data.total_available || state.loadedCount;
       state.hasMore = !!data.has_more;
       renderMeta(data);
+      // 2026-07-16: 把 total_candidates / total_universe 传到 KPI strip
+      // 之前 host.dataset.cand 永远空,fallback '—' 让用户以为只有 15 只 → 实际是 147 只该类别
+      const host = $('#as-kpis');
+      if (host) {
+        host.dataset.cand    = (data && data.total_candidates) || '';
+        host.dataset.universe = (data && data.total_universe) || '';
+      }
+      state.totalCandidates = (data && data.total_candidates) || state.loadedCount;
       renderAsKpis(data.stats);
+      renderTitleSectorBadge(data.stats);
+      updateCascadeFilters(data.items);
       updateSentinel();
+      // R76-80 (2026-07-17): 数据行渲染后重算横向 overflow + sticky 阴影
+      // 初始 _initTableOverflowHints 跑得太早,数据未到,scrollWidth=0; 现在重算
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.table-wrap').forEach(w => {
+          const has = w.scrollWidth > w.clientWidth + 1;
+          w.classList.toggle('has-overflow-x', has);
+          w.classList.toggle('scrollable', has);
+        });
+      });
       // 首屏渲染后,如果样本行替换,重算一次更准的 pageSize
       const newPS = computePageSize();
       if (Math.abs(newPS - state.pageSize) > 4 && state.hasMore) state.pageSize = newPS;
@@ -8272,6 +8728,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </td></tr>`;
       setSentinel('idle', '加载失败 — 滚动重试');
+      renderTitleSectorBadge(null);
     } finally {
       state.loading = false;
     }
@@ -8388,15 +8845,23 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     const html = items.map(r => {
-      const pct = r.change_pct || 0;
+      // B-16: 数字字段显式 Number 化 — 后端返字符串/--/null 时安全
+      const pct = Number(r.change_pct) || 0;
       const pctCls = pct > 0 ? 'up' : pct < 0 ? 'down' : '';
+      // 100-R4: 5 级幅度染色 — 深红≥7 / 淡红≥2 / 灰 / 淡绿≤-2 / 深绿≤-7
+      const pctTier =
+        pct >= 7  ? 'pct-tier-deep-up'   :
+        pct >= 2  ? 'pct-tier-light-up'  :
+        pct <= -7 ? 'pct-tier-deep-down' :
+        pct <= -2 ? 'pct-tier-light-down' :
+                    'pct-tier-zero';
       const pctFl  = pct > 0 ? 'flash-up' : (pct < 0 ? 'flash-down' : '');
-      const amt = r.change_amt || 0;
+      const amt = Number(r.change_amt) || 0;
       const amtCls = amt > 0 ? 'up' : amt < 0 ? 'down' : '';
-      const fund = r.main_fund_inflow_wan || 0;
+      const fund = Number(r.main_fund_inflow_wan) || 0;
       const fundCls = fund > 0 ? 'up' : fund < 0 ? 'down' : '';
       const tax = r.taxonomy || {};
-      const domains = r.domain || [];
+      const domains = Array.isArray(r.domain) ? r.domain : [];
       const domainChip = domains.length
         ? domains.map(d => `<span class="chip chip-domain chip-click" data-goto-domain="${escapeHtml(d)}" title="查看所有「${escapeHtml(d)}」标的">${escapeHtml(d)}</span>`).join('')
         : '<span class="dim">—</span>';
@@ -8414,9 +8879,15 @@ document.addEventListener('DOMContentLoaded', () => {
         ? l4List.map(x => `<span class="chip chip-click" data-goto-l4="${escapeHtml(x)}" title="查看所有 ${escapeHtml(x)} 标的">${escapeHtml(x)}</span>`).join('')
         : '<span class="dim">—</span>';
       const role = tax.role ? `<span class="chip-role role-${escapeHtml(tax.role)}">${escapeHtml(tax.role)}</span>` : '';
-      const ztTag = r.zt_today ? `<span class="zt-tag"><span class="zt-icon"></span>涨停</span>`
-                  : r.zt_recent ? `<span class="zt-recent" title="近 3 日累计涨停 ${r.zt_recent} 次">${r.zt_recent}日</span>`
-                  : '<span class="dim">—</span>';
+      const ztTag = r.zt_today
+        // 100-R5: 连板天 pill — 5 级 (L1=首板 / L2=2 连 / L3=3 连 / L4=4 连 / L5+=5+ 连)
+        ? (() => {
+            const streak = r.zt_streak || 1;
+            const tier = streak >= 5 ? 'zt-l5' : streak === 4 ? 'zt-l4' : streak === 3 ? 'zt-l3' : streak === 2 ? 'zt-l2' : 'zt-l1';
+            return `<span class="zt-tag ${tier}" title="${streak} 连板"><span class="zt-icon"></span>涨停 · L${streak >= 5 ? '5+' : streak}</span>`;
+          })()
+        : r.zt_recent ? `<span class="zt-recent" title="近 3 日累计涨停 ${r.zt_recent} 次">${r.zt_recent}日</span>`
+        : '<span class="dim">—</span>';
       const taxSrc = ((tax.l3_source || '').slice(0, 4));
       const srcTag = taxSrc
         ? `<span class="dim" style="font-size:10px;" title="taxonomy 来源: ${escapeHtml(taxSrc)}">${escapeHtml(taxSrc)}</span>`
@@ -8425,9 +8896,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <td class="cat" data-col="自选"><span class="star-btn" data-star-code="${escapeHtml(r.code)}" data-star-name="${escapeHtml(r.name || '')}" title="加自选"></span></td>
         <td class="cat sticky-left" data-col="代码"><span class="code-link" data-code="${escapeHtml(r.code)}">${escapeHtml(r.code)}</span></td>
         <td class="cat sticky-left-2" data-col="名称"><span class="name">${escapeHtml(r.name || '')}</span></td>
-        <td class="cat" data-col="领域">${domainChip}</td>
-        <td class="num ${pctCls} ${pctFl}" data-col="涨幅">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+        <td class="cat" data-col="AI战场">${domainChip}</td>
+        <td class="num ${pctCls} ${pctFl} ${pctTier}" data-col="涨幅">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
         <td class="num ${amtCls}" data-col="涨跌额">${amt >= 0 ? '+' : ''}${amt.toFixed(2)}</td>
+        <td class="num" data-col="5D走势" data-spark-code="${escapeHtml(r.code)}"><span class="spark-placeholder dim" style="font-size:10px">···</span></td>
         <td class="num" data-col="换手">${(r.turnover || 0).toFixed(2)}</td>
         <td class="num" data-col="量比">${(r.volume_ratio || 0).toFixed(2)}</td>
         <td class="num" data-col="振幅">${(r.amplitude || 0).toFixed(2)}</td>
@@ -8453,6 +8925,77 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof refreshStarMarks === 'function') refreshStarMarks(prevStarCount);
     // 2026-07-14: 同链涨停 chips — 触发批量拉取(防重复入队)
     hydrateZtChainChips();
+    // 100-R3: 5D sparkline 批量拉取(单次 ≤80 只,与列渲染解耦)
+    hydrateSparklines();
+  }
+
+  // 100-R3: 5D sparkline — 单次 POST /api/stock/sparklines 拉 ≤80 行,避免 N×RTT
+  // 用 data-spark-hydrated 标记已渲染,防止滚动追加时重复拉
+  let _sparkHydrateTimer = null;
+  let _sparkInflight = null;
+  function hydrateSparklines() {
+    if (_sparkHydrateTimer) clearTimeout(_sparkHydrateTimer);
+    _sparkHydrateTimer = setTimeout(async () => {
+      _sparkHydrateTimer = null;
+      const cells = Array.from(document.querySelectorAll('#as-stocks-tbody td[data-spark-code]:not([data-spark-hydrated])'));
+      if (!cells.length) return;
+      // 截断 ≤80 避免单次 payload 太大
+      const target = cells.slice(0, 80);
+      target.forEach(c => c.dataset.sparkHydrated = 'pending');
+      const codes = target.map(c => c.dataset.sparkCode).filter(Boolean);
+      if (_sparkInflight) {
+        try { await _sparkInflight; } catch (e) {}
+      }
+      _sparkInflight = (async () => {
+        try {
+          const resp = await fetch('/api/stock/sparklines', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ codes, days: 5 }),
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const env = await resp.json();
+          const data = (env && env.data) || {};
+          for (const cell of target) {
+            const code = cell.dataset.sparkCode;
+            const rows = data[code];
+            cell.innerHTML = renderSparkSvg(rows || []);
+            cell.dataset.sparkHydrated = '1';
+          }
+        } catch (e) {
+          // 失败时标 done,避免无限重试 (用户可以手动 refresh)
+          for (const cell of target) {
+            cell.innerHTML = '<span class="dim" style="font-size:10px">·</span>';
+            cell.dataset.sparkHydrated = '1';
+          }
+        } finally {
+          _sparkInflight = null;
+        }
+      })();
+      await _sparkInflight;
+    }, 120);
+  }
+
+  // 100-R3: 渲染 60×16 内联 SVG — 5 点折线 + 首尾色
+  function renderSparkSvg(rows) {
+    if (!rows || rows.length < 2) return '<span class="dim" style="font-size:10px">—</span>';
+    const closes = rows.map(r => +r.close).filter(c => c > 0);
+    if (closes.length < 2) return '<span class="dim" style="font-size:10px">—</span>';
+    const W = 60, H = 16, PAD = 1.5;
+    const min = Math.min(...closes), max = Math.max(...closes);
+    const range = max - min || 1;
+    const pts = closes.map((c, i) => {
+      const x = PAD + (W - 2 * PAD) * (i / (closes.length - 1));
+      const y = PAD + (H - 2 * PAD) * (1 - (c - min) / range);
+      return [x, y];
+    });
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const color = closes[closes.length - 1] >= closes[0] ? 'var(--up, #e84545)' : 'var(--down, #34c759)';
+    const lastPt = pts[pts.length - 1];
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;margin:0 auto;">
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${lastPt[0].toFixed(1)}" cy="${lastPt[1].toFixed(1)}" r="1.4" fill="${color}"/>
+    </svg>`;
   }
 
   // ── 2026-07-14: 把所有没注入 chips 的<td data-ztchips> 填上 (防抖 + 空跑优化)
@@ -8576,25 +9119,79 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // R-2026-07-16: Hero KPI strip (#as-kpis) — 与 screener/watchlist 视觉对齐
   // 5 块 kpi-group: 总数 / 涨家 / 跌家 / 涨停 / 主力净流入;统计基于完整过滤集 (来自后端 stats)
+  // R-100-R1: 每卡前缀内联 SVG 图标,主题色染色 — 信息密度↑,视觉层级清晰
   function renderAsKpis(stats) {
     const host = $('#as-kpis');
     if (!host) return;
     if (!stats) { host.innerHTML = ''; return; }
-    const totalAvail = state.totalAvailable || 0;
+    // R1-25 (2026-07-17): 基于"已聚合 / 全候选"透明披露 — stats_source_count 是实时统计的,
+    // stats_total_count 是全 universe/filter 后的候选总数。让用户清楚统计基于多少只
+    const sourceCnt = stats.stats_source_count || 0;
+    const totalCnt  = stats.stats_total_count || state.totalCandidates || state.totalAvailable || 0;
+    const coveragePct = totalCnt > 0 ? (sourceCnt / totalCnt * 100).toFixed(0) : 0;
+    const coverageLow = sourceCnt > 0 && sourceCnt < totalCnt * 0.8;
+    const totalAvail = state.totalCandidates || state.totalAvailable || 0;
     const fund = stats.total_main_fund_wan || 0;
     const fundYi = fund / 10000;  // 万 → 亿
     const fundStr = (fundYi >= 0 ? '+' : '') + fundYi.toFixed(2) + '亿';
     const fundColor = fundYi >= 0 ? 'var(--up, #e74c3c)' : 'var(--down, #2ecc71)';
     const avgPct = stats.avg_change_pct || 0;
     const avgColor = avgPct >= 0 ? 'var(--up, #e74c3c)' : 'var(--down, #2ecc71)';
-    const fundKpi = `<div class="kpi-group"><span class="kpi-label">主力净流入</span><span class="kpi-value" style="color:${fundColor}">${fundStr}</span><span class="kpi-sub">${fund >= 0 ? '+' : ''}${fund.toFixed(0)} 万 · 均涨 ${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></div>`;
+    // 内联 SVG 图标 — 避免外部资源依赖,主题色用 currentColor
+    const ICO = {
+      total: '<svg class="kpi-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="3" height="10" rx="1"/><rect x="6.5" y="6" width="3" height="7" rx="1"/><rect x="11" y="2" width="3" height="11" rx="1"/></svg>',
+      up:    '<svg class="kpi-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 11l4-5 3 3 3-6"/><path d="M10 3h3v3"/></svg>',
+      zt:    '<svg class="kpi-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5z"/></svg>',
+      fund:  '<svg class="kpi-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5 8h6M8 5v6"/></svg>',
+      mcap:  '<svg class="kpi-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13l3-4 3 2 5-7"/><path d="M2 14h12"/></svg>',
+    };
+    const fundKpi = `<div class="kpi-group"><span class="kpi-label">${ICO.fund}主力净流入</span><span class="kpi-value" style="color:${fundColor}">${fundStr}</span><span class="kpi-sub">${fund >= 0 ? '+' : ''}${fund.toFixed(0)} 万 · 均涨 ${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></div>`;
+    // 100-R2: 涨/平/跌 3 段比例水平条 — 视觉占比,信息密度↑↑
+    const upN = stats.up || 0, flatN = stats.flat || 0, downN = stats.down || 0;
+    const totalBars = Math.max(1, upN + flatN + downN);
+    const upPct = (upN / totalBars * 100).toFixed(1);
+    const flatPct = (flatN / totalBars * 100).toFixed(1);
+    const downPct = (downN / totalBars * 100).toFixed(1);
+    const upFlatBar = `<div class="kpi-bars" aria-label="涨平跌比例"><span class="kb-seg kb-up" style="width:${upPct}%" title="涨 ${upN} (${upPct}%)"></span><span class="kb-seg kb-flat" style="width:${flatPct}%" title="平 ${flatN} (${flatPct}%)"></span><span class="kb-seg kb-down" style="width:${downPct}%" title="跌 ${downN} (${downPct}%)"></span></div>`;
     host.innerHTML = `
-      <div class="kpi-group"><span class="kpi-label">标的总数</span><span class="kpi-value">${totalAvail}</span><span class="kpi-sub">已加载 ${state.loadedCount || 0} · 候选 ${(host.dataset && host.dataset.cand) || '—'}</span></div>
-      <div class="kpi-group"><span class="kpi-label">涨 / 平 / 跌</span><span class="kpi-value" style="color:var(--up, #e74c3c)">${stats.up}</span><span class="kpi-sub">平 ${stats.flat} · 跌 <span style="color:var(--down, #2ecc71)">${stats.down}</span></span></div>
-      <div class="kpi-group"><span class="kpi-label">涨停家数</span><span class="kpi-value" style="color:var(--zt, #ff5722)">${stats.limit_up}</span><span class="kpi-sub">${stats.limit_up > 0 ? `占 ${(stats.limit_up / Math.max(1, totalAvail) * 100).toFixed(1)}%` : '今日尚无'}</span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.total}统计覆盖</span><span class="kpi-value">${sourceCnt}<span class="kpi-sep">/</span><span style="color:var(--ink-3);font-size:0.85em">${totalCnt}</span></span><span class="kpi-sub" style="${coverageLow ? 'color:var(--warn,#f4d384)' : ''}">${coverageLow ? ` 仅覆盖 ${coveragePct}% · 滚动/筛选会累加` : `基于 ${coveragePct}% · 全 universe 聚合`} · 加载 ${state.loadedCount || 0}</span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.up}涨 / 平 / 跌</span><span class="kpi-value" style="color:var(--up, #e74c3c)">${upN}<span class="kpi-sep">·</span><span style="color:var(--ink-2)">${flatN}</span><span class="kpi-sep">·</span><span style="color:var(--down, #2ecc71)">${downN}</span></span>${upFlatBar}<span class="kpi-sub">${upPct}% / ${flatPct}% / ${downPct}%</span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.zt}涨停家数</span><span class="kpi-value" style="color:var(--zt, #ff5722)">${stats.limit_up}</span><span class="kpi-sub">${stats.limit_up > 0 ? `占 ${(stats.limit_up / Math.max(1, totalAvail) * 100).toFixed(1)}%` : '今日尚无'}</span></div>
       ${fundKpi}
-      <div class="kpi-group"><span class="kpi-label">成交额 / 市值</span><span class="kpi-value">${(stats.total_amount_yi || 0).toFixed(0)}亿</span><span class="kpi-sub">总市值 ${((stats.total_mcap_yi || 0) / 10000).toFixed(2)}万亿 · 均涨 <span style="color:${avgColor}">${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.mcap}成交额 / 市值</span><span class="kpi-value">${(stats.total_amount_yi || 0).toFixed(0)}亿</span><span class="kpi-sub">总市值 ${((stats.total_mcap_yi || 0) / 10000).toFixed(2)}万亿 · 均涨 <span style="color:${avgColor}">${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></span></div>
     `;
+  }
+
+  // 2026-07-16: 标题里加「板块名 · 涨跌%」chip
+  // 选中 L1/L2/L3/L4/domain 任一时,把第一项塞进 <h1> 后面,显示当前过滤集的均涨%
+  // 没选板块时清掉,回到默认「全 A 风向 5400+」
+  function renderTitleSectorBadge(stats) {
+    const el = $('#as-title-pct');
+    if (!el) return;
+    // 收集当前生效的 sector label (L1 > L2 > L3 > L4 > domain,优先级按层级)
+    const pick = (val, prefix) => {
+      const v = (val || '').split(',').filter(Boolean);
+      return v.length ? { label: prefix + ' · ' + v[0], prefix } : null;
+    };
+    const candidates = [
+      pick(state.l1, 'L1'),
+      pick(state.l2, 'L2'),
+      pick(state.l3, 'L3'),
+      pick(state.l4, 'L4'),
+      pick(state.domain, 'AI战场'),
+    ].filter(Boolean);
+    if (!candidates.length || !stats) {
+      el.hidden = true;
+      el.textContent = '';
+      el.removeAttribute('data-color');
+      return;
+    }
+    const { label, prefix } = candidates[0];
+    const avgPct = stats.avg_change_pct || 0;
+    const color = avgPct >= 0 ? 'var(--up, #e84545)' : 'var(--down, #34c759)';
+    const sign = avgPct >= 0 ? '+' : '';
+    el.innerHTML = `<span class="as-title-pct-label">${escapeHtml(label)}</span><span class="as-title-pct-val" style="color:${color}">${sign}${avgPct.toFixed(2)}%</span>`;
+    el.hidden = false;
   }
 
   // R9-perf (2026-07-15): 仅筛选状态变化时重绘 active filters,避免每次 loadBoard 重建 DOM
@@ -8602,7 +9199,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderActiveFilters() {
     const tags = [];
     if (state.l1) tags.push({ key: 'l1', label: `L1 · ${state.l1}` });
-    [[state.l2,'l2','L2'],[state.l3,'l3','L3'],[state.l4,'l4','L4'],[state.domain,'domain','领域']].forEach(([v, key, prefix]) => {
+    [[state.l2,'l2','L2'],[state.l3,'l3','L3'],[state.l4,'l4','L4'],[state.domain,'domain','AI战场']].forEach(([v, key, prefix]) => {
       (v || '').split(',').filter(Boolean).forEach(x => {
         tags.push({ key: `${key}-multi`, label: `${prefix} · ${x}`, val: x });
       });
@@ -8835,6 +9432,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const scrollEl = $('#as-table-scroll');
     if (fab && scrollEl) {
       let _fabRafPending = false;
+      // R35: passive scroll listener — 不阻塞主线程滚动合成
       scrollEl.addEventListener('scroll', () => {
         if (_fabRafPending) return;
         _fabRafPending = true;
@@ -9063,7 +9661,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <select id="as-sheet-l4" class="sheet-select" multiple></select>
       </div>
       <div class="sheet-section">
-        <div class="sheet-label">主战场 (领域)</div>
+        <div class="sheet-label">主战场 (AI 战场)</div>
         <select id="as-sheet-domain" class="sheet-select" multiple></select>
       </div>
       <button class="btn sheet-apply">应用筛选</button>
