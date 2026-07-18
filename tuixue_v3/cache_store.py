@@ -788,6 +788,9 @@ class K:
     DAILY = "daily:{code}"                    # TTL 4h
     # 分时
     INTRADAY = "intraday:{code}"              # TTL 30min
+    # R51 (Batch 6): intraday_5d 双段缓存 — today 60s (盘中实时), hist 30min (不变)
+    INTRADAY_5D_TODAY = "intraday_5d_today:{code}"  # TTL 60s
+    INTRADAY_5D_HIST  = "intraday_5d_hist:{code}"   # TTL 1800s (30min)
     # 主线板块
     MAINLINE = "mainline:{date}"              # TTL 24h
     MAINLINE_LATEST = "mainline:latest"       # TTL 24h

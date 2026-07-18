@@ -505,6 +505,8 @@ _cache_layer   = TTLCache(default_ttl=600.0)  # AI 层详情 10min (4 路并行 
 # R48 (Batch 5): seat_bd L0 进程内 10min — 跳开 Redis 一跳, 同 worker 内 hot code < 1ms
 # 即使 Redis 跨 4 worker, 进程内命中也覆盖主路径 (同一 worker 处理 stock 页)
 _cache_seat_bd = TTLCache(default_ttl=600.0)  # 8 类席位分类 10min (LHB 当日不变, 跨进程有 Redis 24h 兜底)
+# R53 (Batch 6): intraday per-(code,date) L0 60s — 跳 Redis, 同 worker 重复点分时秒开
+_cache_intraday = TTLCache(default_ttl=60.0)  # 单股单日分时 60s (盘中需要新鲜, 但同 worker 重复点击要秒返)
 
 # 实时抓取 — 跟踪最近 1h 访问过的 code,后台 poller 用来滚动预热 quote
 # (2026-07-11 进页面 ?fresh=1 + 10s 轮询 配合用)
@@ -1166,6 +1168,8 @@ async def meta_cache_stats():
             "overview": _cache_overview.stats(),
             # R50 (Batch 5): 暴露 seat_bd L0 cache stats
             "seat_bd":  _cache_seat_bd.stats(),
+            # R60 (Batch 6): 暴露 intraday L0 cache stats
+            "intraday": _cache_intraday.stats(),
         },
         "redis":  store_stats,
         "redis_status": store_status,
@@ -2734,15 +2738,64 @@ async def stock_seat_breakdown(code: str, fresh: int = Query(0, ge=0, le=1)):
 
 
 @app.get("/api/stock/{code}/intraday_5d")
-async def stock_intraday_5d(code: str):
+async def stock_intraday_5d(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
     个股近 5 日分时 + 封成比。
     - 5 日日线 (本地 cache)
     - 5 日封成比 / 封单金额 / 连板 (涨停池)
     - 今日分时 tick (akshare stock_intraday_em)
     历史分钟 K 走东财 RemoteDisconnected 拿不到,盘中分时 tick 兜底
+
+    R51 (Batch 6): Redis cache 双 TTL —
+      - 今日分时 part: TTL 60s (盘中实时)
+      - 历史 4 日 part: TTL 30min (历史不变)
+      - daily_5d: TTL 5min (收盘后不变,但盘中有变化)
     """
     code = _require_valid_code(code)
+    _touch_recent(code)
+
+    cache_key_today = cache_store.K.INTRADAY_5D_TODAY.format(code=code)
+    cache_key_hist  = cache_store.K.INTRADAY_5D_HIST.format(code=code)
+    if not fresh:
+        # 合并两段缓存: today 部分独立 60s, hist 部分独立 30min
+        cached_today = _store_get(cache_key_today, ttl=60)
+        cached_hist  = _store_get(cache_key_hist, ttl=1800)
+        if cached_hist:
+            out = dict(cached_hist)
+            if cached_today:
+                out["intraday_today"] = cached_today.get("intraday_today")
+            out["_cache_hit"] = True
+            out["_cache_level"] = "l1_redis" + ("_today" if cached_today else "_hist_only")
+            # R51 (Batch 6): hist 命中但 today 缺失 → 后台异步拉 today 写 L1
+            # 避免下次请求还要等 5-10s akshare
+            if not cached_today:
+                try:
+                    from datetime import datetime
+                    today_str = datetime.now().strftime("%Y-%m-%d")
+                    # 盘中才预热,非交易时段 today 永远拿不到数据
+                    minute_of_day = datetime.now().hour * 60 + datetime.now().minute
+                    if datetime.now().weekday() < 5 and 9*60+25 <= minute_of_day <= 15*60:
+                        asyncio.create_task(_warm_intraday_today_async(code, cache_key_today))
+                except Exception:
+                    pass
+            return envelope(data=out)
+
+
+async def _warm_intraday_today_async(code: str, cache_key: str):
+    """R51 (Batch 6): 后台异步拉今日分时写 L1 today cache (60s TTL)"""
+    try:
+        from datetime import datetime
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        result = await asyncio.wait_for(
+            to_thread(_fetch_intraday_today_tencent_first, code),
+            timeout=10,
+        )
+        if result and result.get("ticks"):
+            result["date"] = today_str
+            _store_set(cache_key, {"intraday_today": result}, ttl=60)
+            log.debug(f"async warm intraday today {code} OK ({len(result['ticks'])} ticks)")
+    except Exception as e:
+        log.debug(f"async warm intraday today {code} err: {e}")
 
     def _load():
         from .. import multi_source_fetchers as msf
@@ -2765,6 +2818,17 @@ async def stock_intraday_5d(code: str):
         # server.py 在 web/ 里,回退两级到 tuixue_v3/,再加 cache/
         repo_root = Path(__file__).resolve().parent.parent
         cache_dir = repo_root / "cache"
+        daily_dict = {}
+        for sub in (f"daily_{code}_130.json", f"daily_{code}_400.json"):
+            cp = cache_dir / sub
+            if cp.exists():
+                try:
+                    with cp.open() as f:
+                        rows = json.load(f)
+                    daily_dict = {r["日期"]: r for r in rows if "日期" in r}
+                    break
+                except Exception as e:
+                    log.warning(f"读 daily cache 失败: {e}")
         daily_dict = {}
         for sub in (f"daily_{code}_130.json", f"daily_{code}_400.json"):
             cp = cache_dir / sub
@@ -2862,6 +2926,12 @@ async def stock_intraday_5d(code: str):
                 "low_5d":         round(min([r["low"]  for r in rows_5 if r["low"]]),  2) if rows_5 and any(r["low"]  for r in rows_5) else None,
             }
 
+        # R51 (Batch 6): stage 4 完成时立即写 L1 hist — 即使 stage 5 intraday 超时, 历史段已就绪
+        # 把 today 字段先去掉再写 (避免重复写)
+        hist_only = {k: v for k, v in out.items() if k != "intraday_today"}
+        if not fresh and (hist_only.get("daily_5d") or hist_only.get("intraday_per_day")):
+            _store_set(cache_key_hist, hist_only, ttl=1800)
+
         # 5) 今日分时 tick — akshare 主源 + tencent 兜底 (DNS 劫持下 akshare 必挂)
         today_str = datetime.now().strftime("%Y-%m-%d")
         try:
@@ -2893,17 +2963,45 @@ async def stock_intraday_5d(code: str):
             else:
                 out["note"] = "今日分时未取到(akshare 断连, tencent 兜底失败)"
 
+        # R51 (Batch 6): stage 5 完成立即写 L1 today
+        if not fresh and out.get("intraday_today") and out["intraday_today"].get("ticks"):
+            _store_set(cache_key_today, {"intraday_today": out["intraday_today"]}, ttl=60)
+
         # 6) 5 日每时 intraday(拼合多日分时,用于多日连续分时图)
         out["intraday_per_day"] = _fetch_intraday_per_day(code, recent5, out.get("intraday_today"))
 
         return out
 
     try:
-        result = await asyncio.wait_for(to_thread(_load), timeout=18)
+        # R51 (Batch 6): 超时 30→40s — 5 日涨停池 + akshare 全冷启,周末/晚间限频时必超 30s
+        # 即使超时也返回 partial — _load 已 stage 化缓存,任一阶段成功就写 L1
+        result = await asyncio.wait_for(to_thread(_load), timeout=40)
     except asyncio.TimeoutError:
-        return envelope(error="intraday_5d 超时 18s", data={"code": code, "daily_5d": [], "intraday_today": None})
+        log.warning(f"intraday_5d {code} 超时 40s, 尝试读 partial cache")
+        # 超时兜底 — 试 L1 partial
+        cached_today = _store_get(cache_key_today, ttl=60)
+        cached_hist  = _store_get(cache_key_hist, ttl=1800)
+        if cached_hist or cached_today:
+            out = dict(cached_hist or {"code": code, "daily_5d": [], "intraday_per_day": {"days": []}})
+            if cached_today:
+                out["intraday_today"] = cached_today.get("intraday_today")
+            out["_cache_hit"] = True
+            out["_cache_level"] = "l1_redis_partial_fallback"
+            out["_degraded"] = "timeout_partial"
+            return envelope(data=out)
+        return envelope(error="intraday_5d 超时 40s",
+                        data={"code": code, "daily_5d": [], "intraday_today": None})
     if result is None:
         return envelope(error="intraday_5d 上游异常（详见日志）", data={"code": code, "daily_5d": [], "intraday_today": None})
+    # R51 (Batch 6): 写双段缓存 — 今日 60s, 历史 30min
+    if not fresh and isinstance(result, dict):
+        # today part
+        if result.get("intraday_today"):
+            _store_set(cache_key_today, {"intraday_today": result["intraday_today"]}, ttl=60)
+        # hist part: 把 today 去掉再存(避免重复)
+        hist_only = {k: v for k, v in result.items() if k != "intraday_today"}
+        if hist_only.get("daily_5d") or hist_only.get("intraday_per_day"):
+            _store_set(cache_key_hist, hist_only, ttl=1800)
     return envelope(data=result)
 
 
@@ -3312,6 +3410,14 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
     if len(d) == 8 and d.isdigit():
         d = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
 
+    # R53 (Batch 6): L0 进程内 TTLCache 60s (per code+date) — 跳 Redis 走同 worker
+    l0_key = ("intraday", code, d)
+    l0 = _cache_intraday.get(l0_key)
+    if l0 is not None:
+        l0["_cache_hit"] = True
+        l0["_cache_level"] = "l0_mem"
+        return envelope(data=l0)
+
     def _load():
         return _fetch_intraday_for_date(code, d)
 
@@ -3320,6 +3426,18 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
     except asyncio.TimeoutError:
         return envelope(error="intraday 超时 12s",
                         data={"code": code, "date": d, "ticks": [], "ticks_n": 0, "note": "超时"})
+    # R53: 写 L0;L1 Redis 复用 K.INTRADAY:{date}:{code} (TTL 30min 历史/盘中兜底)
+    if result and result.get("ticks"):
+        _cache_intraday.set(l0_key, result)
+        # 历史日走 30min, 今日走 5min (盘中变化) — R51 同样的双 TTL 思路
+        from datetime import datetime
+        is_today = (d == datetime.now().strftime("%Y-%m-%d"))
+        ttl = 300 if is_today else 1800
+        cache_key = f"intraday:{d}:{code}"
+        try:
+            get_store().set(cache_key, result, ttl=ttl)
+        except Exception:
+            pass
     return envelope(data=result)
 
 

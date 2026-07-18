@@ -125,6 +125,15 @@ class RealtimePoller:
                 self._warm_seat_bd(codes)
         except Exception as e:
             log.debug(f"seat_bd warm err: {e}")
+        # R59 (Batch 6): 盘中 5min 一次预热 intraday L0 — 用户点分时秒开
+        try:
+            now = time.time()
+            if (not hasattr(self, "_intraday_warm_last")
+                    or now - self._intraday_warm_last > 300):
+                self._intraday_warm_last = now
+                self._warm_intraday_today(codes)
+        except Exception as e:
+            log.debug(f"intraday warm err: {e}")
 
     def _warm_seat_bd(self, codes: list[str]) -> None:
         """R49 (Batch 5): 后台预热 watchlist 的 seat_breakdown, 10min 一次.
@@ -147,6 +156,39 @@ class RealtimePoller:
                         log.debug(f"poller seat_bd 预热 {code} OK ({len(bd.get('categories', []))} 类)")
                 except Exception as e:
                     log.debug(f"poller seat_bd {code} err: {e}")
+                time.sleep(0.1)
+        except ImportError:
+            pass
+
+    def _warm_intraday_today(self, codes: list[str]) -> None:
+        """R59 (Batch 6): 后台预热 watchlist 的今日分时 (5min 一次, 仅盘中)
+        仅在 9:25-15:00 交易时段跑;非交易时段 tick 缓存 5min 后会自然过期 (盘中无效)。
+        """
+        try:
+            from datetime import datetime
+            now = datetime.now()
+            # 盘中判定: 周一到周五 9:25-15:00 (粗判, 不处理节假日)
+            if now.weekday() >= 5:
+                return
+            minute_of_day = now.hour * 60 + now.minute
+            if minute_of_day < 9 * 60 + 25 or minute_of_day > 15 * 60:
+                return
+            from . import server as _srv
+            from . import cache_store
+            today = now.strftime("%Y-%m-%d")
+            for code in codes[:5]:  # 只预热前 5 只
+                if self._stop.is_set():
+                    return
+                try:
+                    # 只写 L0 (60s TTL 够了 — 5min 后过期也没事, 盘中会自然刷新)
+                    # L1 Redis 留 poller 之外独立处理, 这里只用 _cache_intraday
+                    from . import server as _srv  # import 已在上面
+                    result = _srv._fetch_intraday_for_date(code, today)
+                    if result and result.get("ticks"):
+                        _srv._cache_intraday.set(("intraday", code, today), result)
+                        log.debug(f"poller intraday 预热 {code} OK ({len(result['ticks'])} ticks)")
+                except Exception as e:
+                    log.debug(f"poller intraday {code} err: {e}")
                 time.sleep(0.1)
         except ImportError:
             pass
