@@ -19,7 +19,8 @@
 // 2026-07-18: bump 到 v93 — 100 轮系统维护 ship batch 1 (R1-R8 race 条件): AbortController 切股取消 + SSE 1s 防 reconnect 风暴 + K线/loadStockDetail/loadIntraDay inflight dedup + ECharts drawToken 防 dispose 抢图 + _patchStockRealtime stale-code 守卫 + view-scoped timer registry 离开自动 clearTimeout
 // 2026-07-18: bump 到 v94 — 100 轮系统维护 ship batch 2 (R11-R16 内存泄漏): sessionStorage stock LRU 80 槽位 + _stockAuxCache 切股清空 + 离开 view 清 inflight dedup promise + ECharts dispose 全图 + animateNumber RAF 全局追踪 + cancel 旧动画
 // 2026-07-18: bump 到 v96 — 100 轮 Batch 1 R1: /api/stock/{code}/full SW 单独 5min 长缓存 (server-side Redis 5s 已是新鲜度门, SW 防冷启动穿透 ~5ms 而非 ~20ms)
-const CACHE = 'tuixue-v3-shell-v96';
+// 2026-07-18: bump 到 v98 — 100 轮 Batch 2 R11+R14+R16: idle prefetch 合并 watchlist 优先 + review 页 watchlist 加载完触发 + app boot 5s 后触发
+const CACHE = 'tuixue-v3-shell-v98';
 const PRECACHE = [
   '/',
   '/static/app.js',

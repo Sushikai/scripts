@@ -563,6 +563,18 @@ setInterval(() => {
   if (m && m.usedMB > 200) console.warn(`[mem] ${m.usedMB}MB / ${m.totalMB}MB (limit ${m.limitMB}MB)`);
 }, 300_000);
 
+// R78: 页面隐藏时 dump 一次性能摘要 (开发调试用)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    const nav = performance.getEntriesByType('navigation')[0];
+    const res = performance.getEntriesByType('resource');
+    const apiTotal = res.filter(r => r.name.includes('/api/')).length;
+    const slow = res.filter(r => r.duration > 2000).map(r => r.name.split('?')[0].split('/').slice(-2).join('/') + ':' + Math.round(r.duration) + 'ms');
+    console.debug(`[perf-summary] load=${Math.round(nav.loadEventEnd)}ms api=${apiTotal} slow=${slow.length} mem=${_probeMemory()?.usedMB || '?'}MB`);
+    if (slow.length) console.debug('[perf-slow]', slow.slice(0, 5));
+  }
+});
+
 // ────────────────────────────────────────────
 // keepalive 心跳 — 防止 tunnel / NAT idle 切断所有闲置连接
 // 每 25s 发一次轻量 /api/health (200 byte),让远端 cache 和 nginx 代理识别为活
@@ -1684,10 +1696,27 @@ function _prefetchOne(code) {
     })
     .catch(() => _prefetchInflight.delete(code));
 }
-function _scheduleIdlePrefetch() {
+async function _scheduleIdlePrefetch() {
   if (_prefetchQueue.length) return;
-  const codes = (_histCache || []).map(h => h.code).filter(Boolean);
-  _prefetchQueue = codes.slice(0, 20);  // 最多 20 只
+  // R11 (Batch 2): 同时合并 hist + watchlist — ⭐自选永远比 hist 优先
+  // 没 watchlist 数据时尝试轻量拉一次 (避免大请求)
+  if (!_watchlistItems || _watchlistItems.length === 0) {
+    try {
+      const r = await fetch('/api/watchlist');
+      if (r.ok) {
+        const j = await r.json();
+        if (j.ok) _watchlistItems = (j.data && j.data.items) || [];
+      }
+    } catch (_) {}
+  }
+  const seen = new Set();
+  const codes = [];
+  const push = (code) => {
+    if (code && !seen.has(code)) { seen.add(code); codes.push(code); }
+  };
+  (_watchlistItems || []).forEach(it => push(it.code));  // watchlist 优先
+  (_histCache || []).forEach(h => push(h.code));
+  _prefetchQueue = codes.slice(0, 30);  // 上限 30 只(原 20, 扩到 watchlist+hist)
   const run = () => {
     const code = _prefetchQueue.shift();
     if (code) _prefetchOne(code);
@@ -1751,6 +1780,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // R-fix-2026-07-17: 删除 app.js 重复的 ?code= 深链 boot (view-stock.js:519-529 是唯一入口)
   // 之前两处都注册 → 并发触发 2 次 loadStockDetail + 2 次 _startStockPoll,
   // 3s 后 poll 重启又触发第 3 次 /api/stock/{code} 调用
+
+  // R16 (Batch 2): app boot 后 5s 触发 idle prefetch — 首屏 5s 后用户可能就开始点击
+  setTimeout(() => _scheduleIdlePrefetch(), 5000);
 });
 
 async function doStockSearch() {
@@ -5651,6 +5683,8 @@ async function _reviewLoadList() {
       const wl = await _fetchWithTimeout('/api/watchlist');
       const wj = await wl.json();
       if (wj.ok) _watchlistItems = (wj.data && wj.data.items) || [];
+    // R14 (Batch 2): watchlist 加载完立即触发 idle prefetch, ⭐自选秒开
+    _scheduleIdlePrefetch();
     } catch (_) { _watchlistItems = []; }
     _reviewRender();
     _reviewLoadStats();
