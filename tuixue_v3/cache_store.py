@@ -673,11 +673,33 @@ class CacheStore:
 
     # ── 批 ──
     def mget(self, keys: list[str]) -> dict[str, Any]:
+        """批量 GET — Redis 原生 MGET 单次 round-trip, SQLite fallback 逐条。"""
+        if not keys:
+            return {}
         out = {}
-        for k in keys:
-            v = self.get(k)
-            if v is not None:
-                out[k] = v
+        if self._try_redis():
+            try:
+                prefixed = [self._k(k) for k in keys]
+                raw_vals = self._redis.mget(prefixed)
+                self._record_redis()
+                for k, raw in zip(keys, raw_vals):
+                    if raw is not None:
+                        v = self._decode(raw)
+                        if v is not None:
+                            out[k] = v
+                            self._record_hit()
+                        else:
+                            self._record_miss()
+                    else:
+                        self._record_miss()
+                return out
+            except Exception as e:
+                log.debug(f"Redis mget 失败: {e}")
+        if self.fallback:
+            for k in keys:
+                v = self.get(k)
+                if v is not None:
+                    out[k] = v
         return out
 
     def scan(self, match: str = "*", count: int = 200) -> list[str]:
@@ -859,3 +881,32 @@ def ttl_until_midnight() -> int:
     if midnight <= now:
         midnight += timedelta(days=1)
     return int((midnight - now).total_seconds()) + 60  # +60s 缓冲
+
+
+# R-E47 (2026-07-19): cache version prefix — 一键失效全部缓存 (schema 不兼容时)
+# 默认 'v1', 改 'v2' 后所有旧 key 自动失效 (新 prefix 不命中 → fallback 重算)
+# 配合 cache_store.K 模板使用: K.QUOTE.format(code='000001') → 'tx3:v1:quote:000001'
+CACHE_VERSION = os.environ.get("TUIXUE_CACHE_VERSION", "v1")
+
+
+def versioned(key_template: str, **kwargs) -> str:
+    """给 key 模板加 version prefix。例:
+        versioned(K.QUOTE, code='000001') → 'tx3:v1:quote:000001'
+    调用方: cache_store.versioned(cache_store.K.QUOTE, code=code)
+    """
+    rendered = key_template.format(**kwargs) if kwargs else key_template
+    return f"{DEFAULT_PREFIX}{CACHE_VERSION}:{rendered}"
+
+
+# R-E48 (2026-07-19): TTL jitter — 给 cache TTL 加 ±10% 随机抖动, 防 thundering herd
+# 场景: 100 只股票 kline cache 都在 12:00:00 过期, 一起 miss → 上游雪崩
+# 加 ±10% jitter 后过期时间分散在 11:58:48 ~ 12:01:12, 上游压力分散
+import random as _random
+def jittered_ttl(base_ttl: float, jitter_pct: float = 0.1) -> float:
+    """返回 base_ttl ± jitter_pct% 的随机 TTL (秒)
+    jitter_pct=0.1 → TTL 在 base_ttl * 0.9 ~ base_ttl * 1.1 之间
+    """
+    if base_ttl <= 0:
+        return base_ttl
+    delta = base_ttl * jitter_pct
+    return base_ttl + _random.uniform(-delta, delta)
