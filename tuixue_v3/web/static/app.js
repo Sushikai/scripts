@@ -38,7 +38,15 @@ document.addEventListener('click', (e) => {
     switch (name) {
       case 'refresh-dashboard': refreshDashboard(); break;
       case 'open-stock':        showView('stock'); loadStockDetail(arg); break;
-      case 'show-view':         showView(arg); break;
+      case 'show-view':
+        // 2026-07-19: 支持 ?pattern=xxx hash 参数跳转 (周线擒牛过滤)
+        if (arg.includes('?')) {
+          const [view, qs] = arg.split('?');
+          location.hash = '#' + view + (qs ? '?' + qs : '');
+        } else {
+          showView(arg);
+        }
+        break;
       case 'review-run':        _reviewRun(arg); break;
       case 'review-delete':     _reviewDelete(arg); break;
       case 'ai-review':         openAiReview(arg); break;
@@ -974,10 +982,12 @@ function _routeFromHash() {
   const _sp = new URLSearchParams(location.search);
   const viewParam = _sp.get('view');
   const h = (location.hash || '').replace(/^#/, '');
-  const name = viewParam || (h ? h.split('=')[0] : '');
-  const arg = h.includes('=') ? h.split('=')[1] : '';
+  // 2026-07-19: hash 可能含 ?pattern=xxx (周线擒牛过滤), 先按 ? 切,再按 = 切
+  const hNoQuery = h.includes('?') ? h.split('?')[0] : h;
+  const name = viewParam || (hNoQuery ? hNoQuery.split('=')[0] : '');
+  const arg = hNoQuery.includes('=') ? hNoQuery.split('=')[1] : '';
   if (!name) return showView('dash', { push: false });
-  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review'];
+  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull'];
   if (!valid.includes(name)) return showView('dash', { push: false });
   if (name === 'stock' && arg) {
     const code = arg.match(/\d{6}/)?.[0];
@@ -4724,6 +4734,19 @@ var _origShowView = showView;
 showView = function(name, ctx) {
   _origShowView(name);
   if (name === 'dragons' && !_dragonsLoaded) loadDragons(false);
+  if (name === 'weekly_bull') {
+    // 2026-07-19: 周线擒牛页 — 检查 hash ?pattern= 过滤参数
+    const h = (location.hash || '');
+    const m = h.match(/[?&]pattern=([^&]+)/);
+    if (m && typeof _wbFilter !== 'undefined') {
+      const pat = decodeURIComponent(m[1]);
+      if (_wbFilter !== pat) {
+        // 必须在 loadWeeklyBull 完成后设置 _wbFilter 再 render
+        window._wbFilterOverride = pat;
+      }
+    }
+    if (!window._wbLoaded || !window._wbLoaded()) loadWeeklyBull(false);
+  }
   if (name === 'review') _reviewOnViewEnter();
   if (name === 'watchlist') _watchlistOnViewEnter();
   // 注: 板块详情页 (view-sector) 自 commit b95ae23 24项优化后, 跳转入口已统一改到

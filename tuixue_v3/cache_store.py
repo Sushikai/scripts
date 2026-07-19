@@ -836,6 +836,9 @@ class K:
     # 席位
     SEAT_ALIASES = "seat:aliases"             # 永久
     SEAT_KNOWN = "seat:known"                 # 永久
+    # 周线擒牛 (5 大信号检测)
+    WEEKLY_BULL = "weekly_bull:v1"           # TTL 600s (10min)
+    WEEKLY_BULL_ONE = "weekly_bull_one:{code}"  # TTL 3600s (1h)
     # 交易 (双写)
     TRADE = "trade:{id}"                      # 永久
     REVIEW = "review:{trade_id}"              # 永久

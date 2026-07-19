@@ -193,10 +193,15 @@ def fetch_daily(code: str, days: int = 120, force: bool = False) -> pd.DataFrame
 def fetch_intraday(code: str, date_str: str | None = None, force: bool = False) -> pd.DataFrame | None:
     """分时 1 分钟 K。date_str: YYYYMMDD；None 为最近一个交易日。
     2026-07-11: 走 Redis K.INTRADAY (TTL 30min)
+    2026-07-19: 历史日 TTL 7d (回测准确性关键 — 历史分时不再变), 今日仍 30min
     """
     cache_key = f"intraday:{code}:{date_str or 'latest'}"
+    # 2026-07-19: 历史日长 TTL (7 天),保证回测拿到一致数据
+    from datetime import datetime as _dt
+    _is_today = (date_str is None) or (date_str == _dt.now().strftime("%Y%m%d"))
+    ttl = cfg.CACHE_TTL_INTRADAY if _is_today else 7 * 24 * 3600
     if not force:
-        cached = _cache_load_df(cache_key, cfg.CACHE_TTL_INTRADAY)
+        cached = _cache_load_df(cache_key, ttl)
         if cached is not None:
             return cached
 
@@ -222,7 +227,7 @@ def fetch_intraday(code: str, date_str: str | None = None, force: bool = False) 
         log.warning(f"[{code}] 分时获取失败（{elapsed:.1f}s）")
         return None
 
-    _cache_save_df(cache_key, df, ttl=cfg.CACHE_TTL_INTRADAY)
+    _cache_save_df(cache_key, df, ttl=ttl)
     return df
 
 

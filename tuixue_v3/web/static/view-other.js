@@ -99,12 +99,12 @@ async function renderLawsOnce() {
   host.innerHTML = cats.map(c => `
     <article class="law-card">
       <div class="law-head">
-        <span class="law-num">${c.num}</span>
-        <h3 class="law-title">${c.name}</h3>
+        <span class="law-num">${escapeHtml(c.num)}</span>
+        <h3 class="law-title">${escapeHtml(c.name)}</h3>
       </div>
-      <span class="law-sub">${c.sub}</span>
+      <span class="law-sub">${escapeHtml(c.sub)}</span>
       <ol class="law-list">
-        ${c.items.map(t => `<li>${t}</li>`).join('')}
+        ${(c.items || []).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
       </ol>
     </article>
   `).join('');
@@ -154,6 +154,7 @@ var _DRAGONS_SORT_KEYS = {
   code:        s => s.code || '',
   name:        s => s.name || '',
   sector:      s => s.sector || '',
+  concept:     s => (s.taxonomy?.l3 || s.taxonomy?.l2 || ''),
   streak:      s => s.streak ?? 0,
   market_cap:  s => s.market_cap_yi ?? 0,
   turnover:    s => s.turnover_pct ?? 0,
@@ -173,10 +174,10 @@ function _sortDragonsAll(list, key, dir) {
   return sorted;
 }
 
-// 龙虎榜 STEP 4 行内 AI 评分明细(6 维卡片) — 2026-07-11 找回 (之前提交丢失了定义)
+// 龙虎榜 STEP 4 行内 AI 评分明细(8 维卡片) — 2026-07-19 加 周线擒牛 + 回升位
 function _renderAIAnalysisCards(bd, s) {
   if (!bd) bd = {};
-  const labels = ['连板强度', '资金认可', '封成比', '市值匹配', '技术形态', '题材纯度'];
+  const labels = ['连板强度', '资金认可', '封成比', '市值匹配', '技术形态', '题材纯度', '周线擒牛', '回升位'];
   const cards = labels.map(k => {
     const v = bd[k] || { pts: 0, max: 0, note: '' };
     const max = v.max || 0;
@@ -195,14 +196,35 @@ function _renderAIAnalysisCards(bd, s) {
     ? ` · 江湖: ${aliases.map(a => '「' + escapeHtml(a) + '」').join(' · ')}`
     : '';
   const warnLine = (s.warnings || []).length
-    ? ` · ⚠ ${s.warnings.length} 项警告`
+    ? ` ·  ${s.warnings.length} 项警告`
+    : '';
+  // 周线擒牛命中 chip (前端跳转 → 周线擒牛过滤页)
+  const wb = s.wb_hits || {};
+  const wbChips = (wb.matched || []).length
+    ? wb.matched.map(k => `<span class="chip tag-good" data-action="show-view:weekly_bull?pattern=${escapeHtml(k)}" title="${escapeHtml(wb.reasons?.[k] || '')}">${escapeHtml(_WB_LABELS[k] || k)}</span>`).join('')
+    : '';
+  // 回升位 chip
+  const rl = s.rl_hit || {};
+  const rlChip = rl.has_signal
+    ? `<span class="chip ${rl.near_support ? 'tag-good' : ''}" data-action="show-view:stock" data-code="${escapeHtml(s.code)}" title="${escapeHtml((rl.explanation || '').slice(0, 80))}">1/3位=${escapeHtml(String(rl.level_1_3 ?? '—'))} · 距${escapeHtml(String(rl.distance_to_level_1_3_pct ?? '—'))}%</span>`
     : '';
   return `<div class="ai-detail-grid">${cards}</div>
     <div class="ai-detail-footer">
-      <span class="meta">${s.code} · ${s.name} · ${s.sector || '—'} · ${s.streak}板 · 评分 <b>${s.score_total || 0}</b>${aliasLine}${warnLine}</span>
-      <button class="btn btn-mini" data-goto="${s.code}">→ 查看完整个股分析</button>
+      <span class="meta">${escapeHtml(s.code)} · ${escapeHtml(s.name)} · ${escapeHtml(s.sector || '—')} · ${escapeHtml(String(s.streak ?? 0))}板 · 评分 <b>${escapeHtml(String(s.score_total ?? 0))}</b>${aliasLine}${warnLine}</span>
+      ${wbChips ? `<div class="ai-detail-wb">周线: ${wbChips}</div>` : ''}
+      ${rlChip ? `<div class="ai-detail-rl">回升位: ${rlChip}</div>` : ''}
+      <button class="btn btn-mini" data-goto="${escapeHtml(s.code)}">→ 查看完整个股分析</button>
     </div>`;
 }
+
+// 周线擒牛 pattern label 表 (前端展示用)
+const _WB_LABELS = {
+  sanxing_taodi:     '三星探底',
+  zhanwen_5w:        '站稳5周线',
+  tupo_pingtai:      '突破震荡平台',
+  junxian_fangxiang: '均线方向',
+  zhouxian_duiliang: '周线堆量',
+};
 
 function renderDragons(data) {
   // api() 已 unwrap envelope, data 本身就是 {date, sentiment, ...}
@@ -240,6 +262,10 @@ function renderDragons(data) {
       const flowBadge = m.rank_flow ? `<span class="badge">流#${m.rank_flow}</span>` : '';
       const pctBadge = m.rank_pct ? `<span class="badge">幅#${m.rank_pct}</span>` : '';
       const secName = m.name || '';
+      const tx = m.taxonomy || {};
+      const l1Chip = tx.l1 && tx.l1_color
+        ? `<span class="chip-l1-mini" style="display:inline-block;padding:0 6px;font-size:9px;line-height:16px;border-radius:3px;background:${escapeHtml(tx.l1_color)}22;color:${escapeHtml(tx.l1_color)};border:1px solid ${escapeHtml(tx.l1_color)};margin-left:6px;vertical-align:middle">${escapeHtml(tx.l1)}</span>`
+        : '';
       return `
         <div class="mainline-card">
           <a href="#" class="mainline-name sector-link" data-sector="${escapeHtml(secName)}">${escapeHtml(secName) || '—'}</a>
@@ -247,7 +273,7 @@ function renderDragons(data) {
             <span class="${pct >= 0 ? 'good' : 'bad'}">${pct >= 0 ? '+' : ''}${pct}%</span>
             <span class="dim">净流入 ${inflow}亿</span>
           </div>
-          <div class="mainline-badges">${flowBadge}${pctBadge}</div>
+          <div class="mainline-badges">${flowBadge}${pctBadge}${l1Chip}</div>
         </div>`;
     }).join('');
     // 板块名点击 → 切到 sector 视图
@@ -268,7 +294,7 @@ function renderDragons(data) {
   } else {
     $('#dragons-top10').innerHTML = top10.map(s => {
       const bd = s.score_breakdown || {};
-      const breakdown = ['连板强度','资金认可','封成比','市值匹配','技术形态','题材纯度'].map(k => {
+      const breakdown = ['连板强度','资金认可','封成比','市值匹配','技术形态','题材纯度','周线擒牛','回升位'].map(k => {
         const v = bd[k] || {pts: 0, max: 0, note: ''};
         const pct = v.max > 0 ? Math.round(v.pts / v.max * 100) : 0;
         const barClass = pct >= 70 ? 'high' : pct >= 40 ? 'mid' : 'low';
@@ -279,12 +305,25 @@ function renderDragons(data) {
         </div>`;
       }).join('');
       const warn = (s.warnings || []).length
-        ? `<div class="dragon-warn">⚠ ${s.warnings.join(' · ')}</div>`
+        ? `<div class="dragon-warn"> ${s.warnings.join(' · ')}</div>`
         : '';
       const mainlineBadge = s.is_mainline ? '<span class="badge badge-main">主线</span>' : '';
       const sealTxt = s.seal_ratio_pct != null ? `${s.seal_ratio_pct.toFixed(1)}%` : '—';
       const aliasChips = (s.seat_aliases || []).length
         ? `<div class="dragon-aliases">${s.seat_aliases.slice(0, 4).map(a => `<span class="alias-chip">「${escapeHtml(a)}」</span>`).join('')}</div>`
+        : '';
+      // 周线擒牛 chip 集合
+      const wb = s.wb_hits || {};
+      const wbChips = (wb.matched || []).length
+        ? wb.matched.slice(0, 3).map(k => `<span class="chip tag-good wb-mini" data-action="show-view:weekly_bull?pattern=${escapeHtml(k)}" title="${escapeHtml(wb.reasons?.[k] || '')}">${escapeHtml(_WB_LABELS[k] || k)}</span>`).join('')
+        : '';
+      const wbBadge = (wb.count || 0) >= 1
+        ? `<span class="dragon-wb-badge">周线 ${wb.count}/5</span>`
+        : '';
+      // 回升位 chip
+      const rl = s.rl_hit || {};
+      const rlBadge = rl.has_signal
+        ? `<span class="dragon-rl-badge ${rl.near_support ? 'rl-near' : ''}" title="${escapeHtml((rl.explanation || '').slice(0, 80))}">1/3位=${escapeHtml(String(rl.level_1_3 ?? '—'))}</span>`
         : '';
       return `
         <div class="dragon-card${s.rank && s.rank <= 3 ? ' rank-top3' : ''}">
@@ -293,11 +332,17 @@ function renderDragons(data) {
             <span class="dragon-code">${escapeHtml(s.code)}</span>
             <span class="dragon-name">${escapeHtml(s.name)}</span>
             <span class="dragon-score">${escapeHtml(String(s.score_total))}</span>
+            ${wbBadge}${rlBadge}
           </div>
           <div class="dragon-meta">
-            <span>${escapeHtml(s.sector || '—')}</span> ${mainlineBadge}
+            ${(() => {
+              const tx = s.taxonomy || {};
+              const color = tx.l1_color || '#888';
+              return `<span class="dragon-sector-chip" style="display:inline-block;padding:0 7px;font-size:10px;line-height:18px;border-radius:4px;background:${color}22;color:${color};border:1px solid ${color}44;">${escapeHtml(s.sector || '—')}</span>`;
+            })()} ${mainlineBadge}
             <span class="dim"> · ${escapeHtml(String(s.streak))}板 · 市值${escapeHtml(String(s.market_cap_yi))}亿 · 换手${escapeHtml(String(s.turnover_pct))}% · 封成${escapeHtml(sealTxt)}</span>
           </div>
+          ${wbChips ? `<div class="dragon-wb-chips">${wbChips}</div>` : ''}
           <div class="dragon-bd">${breakdown}</div>
           ${aliasChips}
           ${warn}
@@ -322,7 +367,7 @@ function renderDragons(data) {
     }
   });
   if (allList.length === 0) {
-    allBody.innerHTML = '<tr><td colspan="10" class="empty">无数据</td></tr>';
+    allBody.innerHTML = '<tr><td colspan="11" class="empty">无数据</td></tr>';
   } else {
     allBody.innerHTML = sortedAll.map(s => {
       const sealTxt = s.seal_ratio_pct != null ? `${s.seal_ratio_pct.toFixed(1)}%` : '—';
@@ -334,6 +379,13 @@ function renderDragons(data) {
         <td><a href="#" class="stock-link" data-code="${escapeHtml(s.code)}">${escapeHtml(s.code)}</a></td>
         <td>${escapeHtml(s.name)}</td>
         <td>${escapeHtml(s.sector || '—')}</td>
+        <td>${(() => {
+          const tx = s.taxonomy || {};
+          const parts = [];
+          if (tx.l3) parts.push(escapeHtml(tx.l3));
+          if (tx.l2 && tx.l2 !== tx.l3) parts.push(`<span class="dim">${escapeHtml(tx.l2)}</span>`);
+          return parts.length ? parts.join(' · ') : '<span class="dim">—</span>';
+        })()}</td>
         <td>${escapeHtml(String(s.streak))}板</td>
         <td>${escapeHtml(String(s.market_cap_yi))}亿</td>
         <td>${escapeHtml(String(s.turnover_pct))}%</td>
@@ -342,7 +394,7 @@ function renderDragons(data) {
         <td class="dim">${warnTxt}</td>
       </tr>
       <tr class="ai-detail-row" data-bd-code="${s.code}" hidden>
-        <td colspan="10">${bdHtml}</td>
+        <td colspan="11">${bdHtml}</td>
       </tr>`;
     }).join('');
   }
@@ -383,7 +435,7 @@ function renderDragons(data) {
         _dragonsSortState.dir = _dragonsSortState.dir === 'asc' ? 'desc' : 'asc';
       } else {
         _dragonsSortState.key = key;
-        _dragonsSortState.dir = (key === 'rank' || key === 'code' || key === 'name' || key === 'sector') ? 'asc' : 'desc';
+        _dragonsSortState.dir = (key === 'rank' || key === 'code' || key === 'name' || key === 'sector' || key === 'concept') ? 'asc' : 'desc';
       }
       if (_dragonsData) renderDragons(_dragonsData);
     };
@@ -418,7 +470,7 @@ function renderDragons(data) {
       : '';
     const dipHtml = dips.length
       ? `<div class="decision-col">
-          <div class="decision-title">📉 次日低吸 (${dips.length})</div>
+          <div class="decision-title"> 次日低吸 (${dips.length})</div>
           ${dips.map(p => `<div class="decision-item">
             <a href="#" class="stock-link" data-code="${escapeHtml(p.code)}"><b>${escapeHtml(p.name)}</b> ${escapeHtml(p.code)}</a>
             <span class="dim"> · ${escapeHtml(p.sector || '')} · ${escapeHtml(String(p.streak))}板 · 评分${escapeHtml(String(p.score))}</span>
@@ -428,7 +480,7 @@ function renderDragons(data) {
       : '';
     const avoidHtml = avoids.length
       ? `<div class="decision-col">
-          <div class="decision-title">⚠ 回避 (${avoids.length})</div>
+          <div class="decision-title"> 回避 (${avoids.length})</div>
           ${avoids.map(p => `<div class="decision-item">
             <a href="#" class="stock-link" data-code="${escapeHtml(p.code)}"><b>${escapeHtml(p.name)}</b> ${escapeHtml(p.code)}</a>
             <span class="dim"> · ${escapeHtml(p.sector || '')} · 评分${escapeHtml(String(p.score))}</span>
@@ -501,8 +553,8 @@ $('#refresh-ticker')?.addEventListener('click', () => {
 
 // R12-A: 一键清空所有交易 (清库重测用)
 $('#review-clear-all')?.addEventListener('click', async () => {
-  if (!confirm('⚠ 确定清空所有交易记录?\n\n此操作不可逆!\n• 删除所有 trades 行\n• 删除所有 trade_reviews 行\n• 清空 Redis AI 缓存')) return;
-  if (!confirm('⚠ 最后确认: 真的要清空吗?')) return;
+  if (!confirm(' 确定清空所有交易记录?\n\n此操作不可逆!\n• 删除所有 trades 行\n• 删除所有 trade_reviews 行\n• 清空 Redis AI 缓存')) return;
+  if (!confirm(' 最后确认: 真的要清空吗?')) return;
   try {
     const r = await _fetchWithTimeout('/api/review/trades_all?confirm=YES', { method: 'DELETE', timeout: 10000 });
     const j = await r.json();
@@ -583,8 +635,8 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
 
 // R13: 「修复脏数据」按钮 — dirty 时显示, 点击等同 clear-all + 引导重录
 $('#review-fix-dirty')?.addEventListener('click', async () => {
-  if (!confirm('⚠ 检测到 DB 残留历史脏数据 (老解析器切碎 shares / 无法反查的 code)。\n\n清空所有交易后请重新粘贴录入。\n\n继续?')) return;
-  if (!confirm('⚠ 最终确认?')) return;
+  if (!confirm(' 检测到 DB 残留历史脏数据 (老解析器切碎 shares / 无法反查的 code)。\n\n清空所有交易后请重新粘贴录入。\n\n继续?')) return;
+  if (!confirm(' 最终确认?')) return;
   try {
     const r = await _fetchWithTimeout('/api/review/trades_all?confirm=YES', { method: 'DELETE', timeout: 10000 });
     const j = await r.json();
@@ -637,38 +689,9 @@ async function _reviewRefreshIntegrity() {
   }
 }
 
-// ─── 主题切换 (深/浅/跟随系统) ────────────────────────────────
-function getActiveTheme() {
-  return document.documentElement.getAttribute('data-theme') || 'dark';
-}
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  // 同步 meta theme-color (Safari 顶栏)
-  const meta = document.querySelector('meta[name="theme-color"]:not([media])') ||
-               document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'light' ? '#fbfbfd' : '#0a0908');
-}
-$('#theme-toggle')?.addEventListener('click', () => {
-  const cur = getActiveTheme();
-  const next = cur === 'dark' ? 'light' : 'dark';
-  applyTheme(next);
-  try { localStorage.setItem('tuixue-theme', next); } catch {}
-  refreshThemeColors();
-  // 释放旧图表实例,让下一次 render 用新色
-  Object.entries(echartsCharts).forEach(([k, c]) => {
-    if (c) { try { c.dispose(); } catch {} }
-    echartsCharts[k] = null;
-  });
-  // 当前可见的 view 重渲一次 (showView 内部有 view-specific 加载)
-  const activeView = $$('.view').find(v => !v.hidden)?.dataset?.view;
-  if (activeView) showView(activeView);
-  toast(next === 'light' ? '已切换至浅色模式' : '已切换至深色模式', 'info', 1500);
-});
-// 系统主题变更时,如果用户没显式选择则跟随
-window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', (e) => {
-  if (localStorage.getItem('tuixue-theme')) return;
-  applyTheme(e.matches ? 'light' : 'dark');
-});
+// 注: 主题切换的唯一 handler 在 app.js:4489 (2026-07-12 升级为增量 setOption 而非 dispose+recreate)。
+//     旧的 handler 已移除 — 否则 addEventListener 叠加导致两次切换互相抵消,看上去点了没反应。
+//     系统主题跟随也保留在 app.js。
 
 // debounce: 窗口 resize 时最多 150ms 刷新一次所有 ECharts,避免高频触发卡顿
 window.addEventListener('resize', (() => {
@@ -697,13 +720,6 @@ async function refreshTunnel() {
   try {
     const r = await api('/api/tunnel/status');
     if (!r) return;
-    // LAN 默认一直显示(同一 WiFi 入口)
-    const lanUrl = $('#tunnel-lan-url');
-    if (lanUrl && r.lan_ip && r.port) {
-      const full = `http://${r.lan_ip}:${r.port}`;
-      lanUrl.href = full;
-      lanUrl.textContent = full;
-    }
     const state = r.state || (r.running ? 'online' : 'offline');
 
     // 2026-07-12: 显示 sentinel-based 后端的指示 (TG-bot / MQTT)
@@ -748,7 +764,7 @@ async function refreshTunnel() {
       // offline → LAN fallback
       status.classList.remove('online', 'starting');
       status.classList.add('offline');
-      text.textContent = `📶 局域网 ${r.lan_ip}:${r.port}`;
+      text.textContent = ` 局域网 ${r.lan_ip}:${r.port}`;
       urlRow.hidden = true;
       btnLabel.textContent = '启动隧道';
     }
@@ -805,7 +821,7 @@ $('#tunnel-btn')?.addEventListener('click', async () => {
       await refreshTunnel();
       const tgMsg = d.tg_sent
         ? '✅ 已自动推到 Telegram'
-        : `⚠ TG 推送失败 (${d.tg_err || 'DNS 阻断'}), URL 仍可访问`;
+        : ` TG 推送失败 (${d.tg_err || 'DNS 阻断'}), URL 仍可访问`;
       toast(`✓ 公网入口 ${d.url.slice(8, 36)}… · ${tgMsg}`, d.tg_sent ? 'success' : 'warn', 4500);
     } else {
       // 启动失败 — 给清晰的诊断 + LAN 兜底
@@ -832,19 +848,6 @@ $('#tunnel-btn')?.addEventListener('click', async () => {
   }
 });
 
-// LAN 入口 QR 码
-$('#tunnel-lan-qr-btn')?.addEventListener('click', () => {
-  const url = $('#tunnel-lan-url')?.href;
-  const wrap = $('#tunnel-lan-qr-wrap');
-  const img = $('#tunnel-lan-qr-img');
-  if (!url || !wrap || !img) return;
-  if (wrap.hidden) {
-    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=2&data=${encodeURIComponent(url)}`;
-    wrap.hidden = false;
-  } else {
-    wrap.hidden = true;
-  }
-});
 $('#tunnel-qr-btn')?.addEventListener('click', () => {
   const url = $('#tunnel-url').href;
   const qrWrap = $('#tunnel-qr-wrap');
@@ -882,12 +885,12 @@ $('#tunnel-tg-btn')?.addEventListener('click', async () => {
     if (navigator.share) {
       try {
         await navigator.share({ title: '退学 v3 · 控制台', text: shareText, url: target });
-        toast(`📤 已唤起系统分享（含 Telegram）`, 'success', 2800);
+        toast(` 已唤起系统分享（含 Telegram）`, 'success', 2800);
         return;
       } catch (e) { /* 用户取消 */ }
     }
     if (copied) {
-      toast(`⚠ TG 推送失败（${data.tg_err || '网络'}），已复制到剪贴板 — 长按聊天框粘贴`, 'info', 4500);
+      toast(` TG 推送失败（${data.tg_err || '网络'}），已复制到剪贴板 — 长按聊天框粘贴`, 'info', 4500);
     } else {
       // 兜底：弹个 prompt 让用户手动复制
       prompt('TG 推送失败，手动复制 URL：', target);
@@ -1546,9 +1549,13 @@ async function _reviewRefreshFlows() {
   await _reviewLoadPortfolio();
 }
 
+// B-20: 已合并到 _reviewOnViewEnter 内的 capTimer (15s),
+// 此函数保留兼容,但不再起新定时器避免双倍请求。
 function _reviewStartFlowsPolling() {
+  // no-op: capTimer 在 _reviewOnViewEnter 内启动, 周期 15s,
+  // 同时覆写 flowsTimer 字段以便 _reviewOnViewLeave 也能 clearInterval
   if (_reviewState.flowsTimer) clearInterval(_reviewState.flowsTimer);
-  _reviewState.flowsTimer = setInterval(_reviewLoadPortfolio, 10000);
+  _reviewState.flowsTimer = null;
 }
 
 // ── AI 复盘子页面 · 进入入口 ──
@@ -1840,7 +1847,7 @@ function _renderAiReview(rev) {
 
     ${(risks.length || improv) ? `
     <article class="card mt-12">
-      ${risks.length ? `<div class="airv-risks"><div class="cap dim">关键风险</div>${risks.map(k => `<div class="risk-line">⚠ ${escapeHtml(k)}</div>`).join('')}</div>` : ''}
+      ${risks.length ? `<div class="airv-risks"><div class="cap dim">关键风险</div>${risks.map(k => `<div class="risk-line"> ${escapeHtml(k)}</div>`).join('')}</div>` : ''}
       ${improv ? `<div class="airv-improv"><div class="cap dim">下一步改进</div><div class="airv-md">${escapeHtml(improv)}</div></div>` : ''}
     </article>` : ''}
 
@@ -1914,7 +1921,7 @@ function _reviewRenderPicks(d, listEl, metaEl) {
   if (!d.picks || !d.picks.length) return false;
   if (metaEl) {
     if (d.user_patterns && d.user_patterns.length) {
-      metaEl.innerHTML = `⚠ <span style="color:var(--accent)">你的常见错模式:</span> ${d.user_patterns.slice(0, 4).map(p => `<span class="rule-pill fail">${escapeHtml(p)}</span>`).join(' ')}`;
+      metaEl.innerHTML = ` <span style="color:var(--accent)">你的常见错模式:</span> ${d.user_patterns.slice(0, 4).map(p => `<span class="rule-pill fail">${escapeHtml(p)}</span>`).join(' ')}`;
     } else {
       metaEl.textContent = '✅ 暂无历史错模式(继续积累交易后会有更精准预警)';
     }
@@ -1994,12 +2001,14 @@ async function _reviewLoadStats() {
     if (!r.ok) return;
     const j = await r.json();
     const d = j.data || {};
-    const tiles = [
+    // B-22: 数字字段全部 Number 化 + null 保护,避免服务端返 null 时崩
+const safeNum = (x) => x != null && Number.isFinite(Number(x)) ? Number(x) : null;
+const tiles = [
       { lbl: '已平仓', val: d.closed ?? 0 },
-      { lbl: '胜率',   val: d.win_rate != null ? d.win_rate.toFixed(1) + '%' : '—', cls: d.win_rate >= 50 ? 'cell-up' : 'cell-down' },
-      { lbl: '平均盈亏', val: d.avg_pnl != null ? (d.avg_pnl > 0 ? '+' : '') + d.avg_pnl.toFixed(2) + '%' : '—', cls: d.avg_pnl > 0 ? 'cell-up' : 'cell-down' },
-      { lbl: '最佳', val: d.best ? (d.best.pnl_pct > 0 ? '+' : '') + d.best.pnl_pct.toFixed(2) + '%' : '—', code: d.best?.code, cls: 'cell-up' },
-      { lbl: '最差', val: d.worst ? d.worst.pnl_pct.toFixed(2) + '%' : '—', code: d.worst?.code, cls: 'cell-down' },
+      { lbl: '胜率',   val: safeNum(d.win_rate) != null ? safeNum(d.win_rate).toFixed(1) + '%' : '—', cls: safeNum(d.win_rate) >= 50 ? 'cell-up' : 'cell-down' },
+      { lbl: '平均盈亏', val: safeNum(d.avg_pnl) != null ? (safeNum(d.avg_pnl) > 0 ? '+' : '') + safeNum(d.avg_pnl).toFixed(2) + '%' : '—', cls: safeNum(d.avg_pnl) > 0 ? 'cell-up' : 'cell-down' },
+      { lbl: '最佳', val: d.best && safeNum(d.best.pnl_pct) != null ? (safeNum(d.best.pnl_pct) > 0 ? '+' : '') + safeNum(d.best.pnl_pct).toFixed(2) + '%' : '—', code: d.best?.code, cls: 'cell-up' },
+      { lbl: '最差', val: d.worst && safeNum(d.worst.pnl_pct) != null ? safeNum(d.worst.pnl_pct).toFixed(2) + '%' : '—', code: d.worst?.code, cls: 'cell-down' },
     ];
     const tradeClickable = t => t.code ? `data-action="open-stock:${escapeHtml(t.code)}" style="cursor:pointer"` : '';
     $('#review-stats').innerHTML = tiles.map(t => `
@@ -2218,7 +2227,7 @@ function _reviewBindScreenshot() {
 
   const parseOneFile = async (file) => {
     _snapState.running++;
-    setStatus(`<span class="snap-spinner"></span>AI 解析中: ${file.name}…`, '');
+    setStatus(`<span class="snap-spinner"></span>AI 解析中: ${escapeHtml(file.name)}…`, '');
     if (tag) { tag.hidden = false; tag.textContent = '解析中'; tag.style.color = ''; }
     try {
       const fd = new FormData();
@@ -2697,7 +2706,7 @@ function _reviewBindForm() {
       items.slice(0, 10).forEach(item => {
         const row = document.createElement('div');
         row.style.cssText = 'padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid rgba(232,227,216,0.05);';
-        row.innerHTML = `<code style="color:#d4a056">${item.code}</code> <span style="color:#e8e3d8">${escapeHtml(item.name || '')}</span>`;
+        row.innerHTML = `<code style="color:#d4a056">${escapeHtml(item.code)}</code> <span style="color:#e8e3d8">${escapeHtml(item.name || '')}</span>`;
         row.addEventListener('mouseenter', () => row.style.background = 'rgba(212,160,86,0.15)');
         row.addEventListener('mouseleave', () => row.style.background = '');
         row.addEventListener('click', () => {
@@ -2919,12 +2928,11 @@ function _reviewPatchRow(tradeId, review) {
       const mistakeTd = tdList[9];  // mistake pill 列
       if (mistakeTd && mm) {
         const pill = mistakeTd.querySelector('.main-mistake-pill');
-        const safe = mm.replace(/</g,'&lt;').replace(/"/g,'&quot;');
         if (pill) {
           pill.textContent = mm;
           pill.title = mm;
         } else {
-          mistakeTd.innerHTML = `<span class="main-mistake-pill" title="${safe}">${safe}</span>`;
+          mistakeTd.innerHTML = `<span class="main-mistake-pill" title="${escapeHtml(mm)}">${escapeHtml(mm)}</span>`;
         }
       }
     }

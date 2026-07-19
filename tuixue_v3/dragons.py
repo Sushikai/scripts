@@ -23,6 +23,9 @@ from . import config as cfg
 from . import data_layer as dl
 from . import multi_source_fetchers as msf
 from .web import seat_lookup
+from .web.sector_taxonomy import classify_sector_name
+from .web import weekly_bull as _wb
+from .web import recovery_level as _rl
 
 log = logging.getLogger("tuixue_v3.dragons")
 
@@ -171,12 +174,66 @@ def _turnover_note(turnover_pct: float) -> str:
     return f"换手{turnover_pct:.1f}%⚠(极度活跃,警惕出货)"
 
 
+# ─── 7) 周线擒牛命中数 (max 12) ───
+def _score_weekly_bull(wb_hit: dict | None) -> tuple[float, str]:
+    """周线擒牛 5 大信号命中数 → 0-12 分。
+    命中 5 个 = 12 (满分, 主升前夜全到位)
+    命中 4 个 = 10
+    命中 3 个 = 7
+    命中 2 个 = 4
+    命中 1 个 = 2
+    命中 0 个 = 0
+    """
+    if not wb_hit or not wb_hit.get("matched"):
+        return 0, "周线无信号"
+    n = wb_hit.get("count", 0)
+    if n >= 5:
+        return 12, f"周线 5/5 命中"
+    if n == 4:
+        return 10, f"周线 {n}/5"
+    if n == 3:
+        return 7, f"周线 {n}/5"
+    if n == 2:
+        return 4, f"周线 {n}/5"
+    return 2, f"周线 {n}/5"
+
+
+# ─── 8) 1/3 回升位 (max 8) ───
+def _score_recovery(rl_hit: dict | None) -> tuple[float, str]:
+    """三分之一回升位 → 0-8 分。
+    当前价贴近 1/3 位 (±3%) = 8 (强支撑, 买点)
+    1/2-2/3 区间 (强势区) = 5
+    >2/3 位 (高位) = 3 (留意突破)
+    <1/3 位 (弱势) = 0
+    """
+    if not rl_hit or not rl_hit.get("has_signal"):
+        return 0, "回升位无信号"
+    l13 = rl_hit.get("level_1_3") or 0
+    l12 = rl_hit.get("level_1_2") or 0
+    l23 = rl_hit.get("level_2_3") or 0
+    cur = rl_hit.get("current_close") or 0
+    if not l13 or not l12 or not l23 or not cur:
+        return 0, "回升位数据不全"
+    if rl_hit.get("near_support"):
+        return 8, f"贴近1/3位({l13})"
+    if cur >= l12:
+        return 5, f"1/2-2/3区间({cur:.2f})"
+    if cur >= l23:
+        return 5, f"2/3位之上({cur:.2f})"
+    if cur >= l13:
+        return 5, f"1/3-1/2区间({cur:.2f})"
+    if cur >= l13 * 0.97:
+        return 3, f"1/3位附近({cur:.2f})"
+    return 0, f"跌破1/3位({cur:.2f})"
+
+
 # ═══════════════════════════════════════════
 # 工具: 拉涨停股日线 (并行, 5s 总超时)
 # ═══════════════════════════════════════════
 def _fetch_tech_data(codes: list[str]) -> dict[str, dict]:
-    """返回 {code: {volume_ratio, ma5_dist_pct}}
+    """返回 {code: {volume_ratio, ma5_dist_pct, wb_hit, rl_hit}}
     2026-07-08: 严格只用 SQLite 缓存 (cache_db), 跳过未命中 (不再回退 dl.fetch_daily)
+    2026-07-19: +wb_hit (周线擒牛) + rl_hit (1/3 回升位) — 注入 stock_kline_loader
     """
     out: dict[str, dict] = {}
     if not codes:
@@ -208,16 +265,57 @@ def _fetch_tech_data(codes: list[str]) -> dict[str, dict]:
             log.debug(f"tech data {code} 失败: {e}")
             return code, None
 
-    ex = ThreadPoolExecutor(max_workers=min(16, len(codes)))
+    # 周线擒牛 + 1/3 回升位 — 从 web.server 注入 stock_kline_loader (避免相对导入)
     try:
-        futures = {ex.submit(_one, c): c for c in codes}
-        for fut in futures:
+        from .web import server as _srv
+        _loader = _srv.stock_kline_loader
+    except Exception:
+        _loader = None
+
+    def _wb_one(code: str):
+        try:
+            return code, _wb.analyze_one(code, _loader)
+        except Exception as e:
+            log.debug(f"wb {code} 失败: {e}")
+            return code, None
+
+    def _rl_one(code: str):
+        try:
+            return code, _rl.analyze_recovery(code, _loader)
+        except Exception as e:
+            log.debug(f"rl {code} 失败: {e}")
+            return code, None
+
+    ex = ThreadPoolExecutor(max_workers=min(16, max(1, len(codes))))
+    try:
+        # 1) 技术面 (优先, fast)
+        futs_tech = {ex.submit(_one, c): c for c in codes}
+        tech_map: dict[str, dict] = {}
+        for fut in futs_tech:
             try:
                 code, data = fut.result(timeout=2)
                 if data:
-                    out[code] = data
+                    tech_map[code] = data
             except Exception:
                 continue
+        # 2) 周线擒牛 + 回升位 (并行, 3s 总超时) — Top 30 节省时间
+        top_codes = codes[:30]
+        futs_wb = {ex.submit(_wb_one, c): c for c in top_codes}
+        futs_rl = {ex.submit(_rl_one, c): c for c in top_codes}
+        all_extra = list(futs_wb.keys()) + list(futs_rl.keys())
+        for fut in all_extra:
+            try:
+                code, data = fut.result(timeout=3)
+                if data is None:
+                    continue
+                tech_map.setdefault(code, {})
+                if fut in futs_wb:
+                    tech_map[code]["wb_hit"] = data
+                else:
+                    tech_map[code]["rl_hit"] = data
+            except Exception:
+                continue
+        out.update(tech_map)
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
     return out
@@ -395,13 +493,21 @@ def score_dragons(date_str: str | None = None) -> dict:
         s_cap, note_cap = _score_cap(market_cap_yi)
         s_tech, note_tech = _score_tech(vol_ratio, ma5_dist)
         s_mainline, note_mainline = _score_mainline(sector, mainline_names)
+        # 2026-07-19: 周线擒牛 + 1/3 回升位 (新 2 维, 仅 Top30 有数据)
+        s_wb, note_wb = _score_weekly_bull(tech.get("wb_hit"))
+        s_rl, note_rl = _score_recovery(tech.get("rl_hit"))
 
-        # 总分归一化: max 128, 封单降级 max 108
-        raw_total = s_streak + s_funding + s_seal + s_cap + s_tech + s_mainline
+        # 总分归一化: max 148 (128 + 12 + 8), 封单降级 max 128 (108 + 12 + 8)
+        raw_total = s_streak + s_funding + s_seal + s_cap + s_tech + s_mainline + s_wb + s_rl
         if seal_degraded:
-            norm_total = round(raw_total / 108 * 100, 1)
-        else:
             norm_total = round(raw_total / 128 * 100, 1)
+        else:
+            norm_total = round(raw_total / 148 * 100, 1)
+
+        # 周线擒牛命中清单 (前端 chip 用)
+        wb_hit = tech.get("wb_hit") or {}
+        wb_matched = wb_hit.get("matched") or []
+        wb_reasons = wb_hit.get("reasons") or {}
 
         scored.append({
             "code": code,
@@ -416,7 +522,14 @@ def score_dragons(date_str: str | None = None) -> dict:
             "burst_count": burst_count,
             "turnover_pct": round(turnover_pct, 1),
             "is_mainline": any(m and (m in sector or sector in m) for m in mainline_names),
+            "taxonomy": classify_sector_name(sector),
             "seat_aliases": (lhb_map.get(code) or {}).get("labels", [])[:5],
+            "wb_hits": {
+                "matched": wb_matched,
+                "count": len(wb_matched),
+                "reasons": wb_reasons,
+            },
+            "rl_hit": tech.get("rl_hit") or {},
             "score_breakdown": {
                 "连板强度": {"pts": s_streak, "note": note_streak, "max": 30},
                 "资金认可": {"pts": s_funding, "note": note_funding, "max": 30},
@@ -425,6 +538,8 @@ def score_dragons(date_str: str | None = None) -> dict:
                 "市值匹配": {"pts": s_cap, "note": note_cap, "max": 15},
                 "技术形态": {"pts": s_tech, "note": note_tech, "max": 18},
                 "题材纯度": {"pts": s_mainline, "note": note_mainline, "max": 15},
+                "周线擒牛": {"pts": s_wb, "note": note_wb, "max": 12},
+                "回升位":   {"pts": s_rl, "note": note_rl, "max": 8},
             },
             "score_total": norm_total,
             "warnings": _build_warnings(turnover_pct, streak, seal_ratio_pct, burst_count),
@@ -465,6 +580,7 @@ def score_dragons(date_str: str | None = None) -> dict:
             "net_inflow_yi": s.get("net_inflow", 0),
             "rank_flow": s.get("rank_flow"),
             "rank_pct": s.get("rank_pct"),
+            "taxonomy": classify_sector_name(s.get("name")),
         }
         for s in hot_sectors[:5]
     ]

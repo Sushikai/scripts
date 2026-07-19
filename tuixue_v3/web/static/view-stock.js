@@ -1272,6 +1272,9 @@ function renderStockDetail(code, data) {
   $('#stock-code').textContent = code;
   $('#stock-sub').textContent = `${name} · ${code} · ${q._source || ''} ${q._fetch_time || ''}`.trim();
 
+  // 2026-07-19: 异步加载板块角色 (龙头/中军/杂毛) — 不阻塞首屏
+  _loadStockRole(code);
+
   $('#qh-name').textContent = name;
   $('#qh-code').textContent = code;
   // Hero 价格 + 涨跌额 + 涨跌幅 + 箭头
@@ -3286,7 +3289,7 @@ function renderIntraDay(data) {
     note.textContent = data.note || `${date} 无分时数据（可能非交易日或数据源不可达）`;
     note.style.color = data.note ? INK2 : INK2;
     renderKpi(kpi, [['分时', '无数据', INK3], ['来源', data.source || '—', INK2]]);
-    drawIntraDayChart(code, date, [], null, null, null);
+    drawIntraDayChart(code, date, [], null, null, null, null);
     return;
   }
 
@@ -3353,10 +3356,11 @@ function renderIntraDay(data) {
 
   drawIntraDayChart(code, date, ticks, openRef,
     data.prev_close ?? openRef,
-    data.limit_up_price ?? lastStockContext.limit_up_price);
+    data.limit_up_price ?? lastStockContext.limit_up_price,
+    data.support_levels || null);
 }
 
-async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
+async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp, supportLevels) {
   const dom = $('#intra-day-chart');
   if (!dom) return;
   if (echartsCharts.intraDay) { echartsCharts.intraDay.dispose(); echartsCharts.intraDay = null; }
@@ -3450,6 +3454,57 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp)
 
   // ── 日线均线参考 (MA5/MA10/MA20) ──
   let refLines = [];
+
+  // ── 支撑/压力线 (1/3 回升位 + 谷底A + 山顶B + 5日线参考) ──
+  // 2026-07-19: 用户要求分时图标注关键支撑/压力位,跟个股页个股分析联动
+  if (supportLevels) {
+    // 1/3 回升位 (强支撑, 1px 紫色虚线)
+    const l13 = supportLevels.level_1_3;
+    if (l13 != null && l13 >= yMin && l13 <= yMax) {
+      refLines.push({
+        yAxis: +l13.toFixed(3),
+        lineStyle: { color: '#9a8cff', type: 'dashed', width: 1.2, opacity: 0.85 },
+        label: { formatter: `1/3位 ${(+l13).toFixed(2)}`, color: '#9a8cff', fontSize: 9,
+                 position: 'insideEndBottom', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+                 padding: [1, 4], borderRadius: 3, fontWeight: 600 },
+      });
+    }
+    // 谷底 A (下轨, 浅绿)
+    const a = supportLevels.A;
+    if (a != null && a >= yMin && a <= yMax) {
+      refLines.push({
+        yAxis: +a.toFixed(3),
+        lineStyle: { color: '#52c85a', type: 'dotted', width: 1, opacity: 0.7 },
+        label: { formatter: `A=${(+a).toFixed(2)}`, color: '#52c85a', fontSize: 9,
+                 position: 'insideEndBottom', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+                 padding: [1, 4], borderRadius: 3 },
+      });
+    }
+    // 山顶 B (上轨, 红色)
+    const b = supportLevels.B;
+    if (b != null && b >= yMin && b <= yMax) {
+      refLines.push({
+        yAxis: +b.toFixed(3),
+        lineStyle: { color: '#ff4d4f', type: 'dotted', width: 1, opacity: 0.7 },
+        label: { formatter: `B=${(+b).toFixed(2)}`, color: '#ff4d4f', fontSize: 9,
+                 position: 'insideEndTop', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+                 padding: [1, 4], borderRadius: 3 },
+      });
+    }
+    // 5 日线参考 (从日线 K 线最后 5 日 close 均价)
+    if (Array.isArray(supportLevels.daily_ma5)) {
+      const lastMa5 = supportLevels.daily_ma5[supportLevels.daily_ma5.length - 1];
+      if (lastMa5 != null && lastMa5 >= yMin && lastMa5 <= yMax) {
+        refLines.push({
+          yAxis: +lastMa5.toFixed(3),
+          lineStyle: { color: '#ff9f43', type: 'dashed', width: 1.4, opacity: 0.9 },
+          label: { formatter: `MA5 ${lastMa5.toFixed(2)}`, color: '#ff9f43', fontSize: 10,
+                   position: 'insideEndTop', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+                   padding: [1, 4], borderRadius: 3, fontWeight: 700 },
+        });
+      }
+    }
+  }
 
   // ── 同花顺风格末值标 (右轴外贴彩色标签) ──
   const _lastIdx = (() => { for (let i = prices.length - 1; i >= 0; i--) if (prices[i] != null) return i; return -1; })();
@@ -3895,6 +3950,32 @@ function renderSectorsList(sectors) {
 // ────────────────────────────────────────────
 // STOCK 页：板块情绪 + 相关新闻
 // ────────────────────────────────────────────
+// 2026-07-19: 加载个股板块角色 (龙头/中军/杂毛) — 在 stock-title 旁显示 badge
+async function _loadStockRole(code) {
+  const host = $('#stock-tags-host');
+  if (!host) return;
+  // 防 stale: 切股后旧 role 不显示
+  if (code !== window._currentStockCode) return;
+  try {
+    const env = await api(`/api/stock/${code}/role`);
+    if (!env || !env.ok) return;
+    if (code !== window._currentStockCode) return;
+    const d = env.data || {};
+    const role = d.role || '未分类';
+    const roleColors = {
+      '龙头':  '#e84545',  // 红
+      '中军':  '#5b8def',  // 蓝
+      '杂毛':  '#888',     // 灰
+      '未分类': '#666',    // 暗灰
+    };
+    const color = roleColors[role] || '#666';
+    const tip = `${d.reason || ''} · ${d.explanation || ''}`.slice(0, 120);
+    host.innerHTML = `<span class="stock-role-badge" style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:600;border-radius:12px;background:${color}22;color:${color};border:1px solid ${color}55;margin-left:8px;vertical-align:middle" title="${escapeHtml(tip)}">${escapeHtml(role)}</span>`;
+  } catch (e) {
+    console.debug('[stock-role]', e.message);
+  }
+}
+
 async function loadStockSector(code) {
   const host1 = $('#q-sector-board');
   const host2 = $('#q-sector-industries');

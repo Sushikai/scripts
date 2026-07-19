@@ -3481,6 +3481,32 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
                         data={"code": code, "date": d, "ticks": [], "ticks_n": 0, "note": "超时"})
     # R53: 写 L0;L1 Redis 复用 K.INTRADAY:{date}:{code} (TTL 30min 历史/盘中兜底)
     if result and result.get("ticks"):
+        # 2026-07-19: 注入支撑/压力位 (1/3 回升位 + A/B + 5日线) — 复用 weekly_bull + recovery_level 缓存
+        try:
+            # 复用模块级别已导入的 _recovery (line ~9301)
+            rl = _recovery.analyze_recovery(code, stock_kline_loader) or {}
+            # 5 日线 MA5: 直接复用 stock_kline_loader
+            ma5_series = []
+            try:
+                daily = stock_kline_loader(code, 10) or []
+                ma5_series = [k.get("ma5") for k in daily if k.get("ma5") is not None]
+            except Exception:
+                pass
+            support_levels = {}
+            if rl.get("has_signal"):
+                support_levels = {
+                    "A": rl.get("A"),
+                    "B": rl.get("B"),
+                    "level_1_3": rl.get("level_1_3"),
+                    "level_1_2": rl.get("level_1_2"),
+                    "level_2_3": rl.get("level_2_3"),
+                }
+            if ma5_series:
+                support_levels["daily_ma5"] = ma5_series
+            if support_levels:
+                result["support_levels"] = support_levels
+        except Exception:
+            pass
         _cache_intraday.set(l0_key, result)
         # 历史日走 30min, 今日走 5min (盘中变化) — R51 同样的双 TTL 思路
         from datetime import datetime
@@ -9157,6 +9183,330 @@ _DRAGONS_CACHE: dict[str, dict] = {}
 _DRAGONS_INFLIGHT: dict[str, bool] = {}
 
 
+# ───────────────────────────────────────────────────────────
+# 周线擒牛 - 5 大信号检测 (买点分析策略)
+# ───────────────────────────────────────────────────────────
+from . import weekly_bull as _weekly_bull
+
+_WB_CACHE: dict = {}
+_WB_INFLIGHT: bool = False
+_WB_TTL_FRESH = 300   # 5min 内返原值
+_WB_TTL_STALE = 600   # 10min 内返陈旧 + 后台刷新
+_WB_KEY = "weekly_bull:v1"
+
+
+@app.get("/api/weekly_bull")
+async def api_weekly_bull(pattern: str = "", refresh: bool = False):
+    """周线擒牛全市场扫描 (5 大买点信号)。
+
+    ?pattern=KEY — 仅返回命中该 pattern 的股 (可选 sanxing_taodi/zhanwen_5w/...)
+    ?refresh=1   — 强制后台重扫, 秒返陈旧
+    """
+    import time as _t
+    now = _t.time()
+    cached = _WB_CACHE.get(_WB_KEY)
+    if cached:
+        age = now - cached["ts"]
+        if not refresh and age < _WB_TTL_FRESH:
+            data = cached["data"]
+        elif age < _WB_TTL_STALE or refresh:
+            # 秒返陈旧 + 后台刷新
+            if not _WB_INFLIGHT:
+                async def _bg():
+                    global _WB_INFLIGHT
+                    _WB_INFLIGHT = True
+                    try:
+                        fresh = await asyncio.wait_for(
+                            to_thread(_weekly_bull.scan_universe, None, 8),
+                            timeout=18,
+                        )
+                        if fresh:
+                            _WB_CACHE[_WB_KEY] = {"data": fresh, "ts": _t.time()}
+                            log.info(f"[weekly_bull] 后台刷新完成, 命中 {fresh.get('matched_count', 0)}")
+                    except Exception as e:
+                        log.warning(f"[weekly_bull] 后台刷新失败: {e}")
+                    finally:
+                        _WB_INFLIGHT = False
+                asyncio.ensure_future(_bg())
+            data = cached["data"]
+        else:
+            data = cached["data"]
+    else:
+        # cold: 同步扫, 但用陈旧兜底
+        try:
+            data = await asyncio.wait_for(
+                to_thread(_weekly_bull.scan_universe, None, 8),
+                timeout=28,
+            )
+            _WB_CACHE[_WB_KEY] = {"data": data, "ts": now}
+        except Exception as e:
+            log.warning(f"[weekly_bull] cold scan 失败: {type(e).__name__}: {e}")
+            return envelope(error=f"周线擒牛扫描失败: {e}", data={
+                "signals": [], "by_pattern": {}, "total_scanned": 0,
+                "matched_count": 0, "took_ms": 0,
+            })
+
+    # 应用 pattern 过滤
+    if pattern and pattern in _weekly_bull.PATTERNS:
+        signals = [s for s in data.get("signals", []) if pattern in s.get("matched", [])]
+        out = {
+            "signals": signals,
+            "by_pattern": {pattern: [s["code"] for s in signals]},
+            "total_scanned": data.get("total_scanned", 0),
+            "matched_count": len(signals),
+            "ts": data.get("ts"),
+            "took_ms": data.get("took_ms"),
+            "_pattern_filter": pattern,
+        }
+    else:
+        out = data
+
+    meta = {}
+    if cached:
+        meta["cache_age_sec"] = int(now - cached["ts"])
+        if cached.get("_inflight") or _WB_INFLIGHT:
+            meta["refreshing"] = True
+    return envelope(data=out, meta=meta or None)
+
+
+@app.get("/api/stock/{code}/weekly_bull")
+async def api_stock_weekly_bull(code: str):
+    """个股周线擒牛单股分析 — 单股 cache 1h (用户多次访问/切股均命中)"""
+    code = _require_valid_code(code)
+    # L1 Redis 1h
+    cache_key = cache_store.K.WEEKLY_BULL_ONE.format(code=code)
+    cached = _store_get(cache_key, ttl=3600)
+    if cached:
+        return envelope(data=cached, meta={"_cache": "redis"})
+    try:
+        # 直接传 stock_kline_loader 进去避免 executor 内 import 失败
+        result = await asyncio.wait_for(
+            to_thread(_weekly_bull.analyze_one, code, stock_kline_loader),
+            timeout=6,
+        )
+        # to_thread 失败返回 None
+        if result is None:
+            return envelope(error="周线擒牛分析超时", data={"code": code, "_skip": True, "_err": "to_thread None"})
+        if not result.get("_skip"):
+            _store_set(cache_key, result, ttl=3600)
+        return envelope(data=result)
+    except Exception as e:
+        return envelope(error=f"周线擒牛单股失败: {e}", data={"code": code, "_skip": True, "_err": str(e)[:80]})
+
+
+# ───────────────────────────────────────────────────────────
+# 三分之一回升位 — 计算策略 (买点分析策略 #2)
+# ───────────────────────────────────────────────────────────
+from . import recovery_level as _recovery
+
+# 单股 1h Redis 缓存 (复用 weekly_bull key 命名空间)
+_RECOVERY_CACHE_KEY_TPL = "recovery_level:{code}"
+
+
+@app.get("/api/stock/{code}/recovery_level")
+async def api_stock_recovery_level(code: str):
+    """个股 1/3 回升位分析 — 单股 cache 1h"""
+    code = _require_valid_code(code)
+    cache_key = _RECOVERY_CACHE_KEY_TPL.format(code=code)
+    cached = _store_get(cache_key, ttl=3600)
+    if cached:
+        return envelope(data=cached, meta={"_cache": "redis"})
+    try:
+        result = await asyncio.wait_for(
+            to_thread(_recovery.analyze_recovery, code, stock_kline_loader),
+            timeout=6,
+        )
+        if result is None:
+            return envelope(error="回升位分析超时", data={"code": code, "_skip": True, "_err": "to_thread None"})
+        if not result.get("_skip"):
+            _store_set(cache_key, result, ttl=3600)
+        return envelope(data=result)
+    except Exception as e:
+        return envelope(error=f"回升位单股失败: {e}", data={"code": code, "_skip": True, "_err": str(e)[:80]})
+
+
+@app.get("/api/strategies/text")
+async def api_strategies_text():
+    """心法页策略文字 — 5 大周线信号 + 1/3 回升位 完整文字说明, 给 laws 页用"""
+    return envelope(data={
+        "groups": [
+            {
+                "id": "weekly_bull",
+                "name": "周线擒牛 · 5 大买点信号",
+                "intro": "主力可以骗你一天两天,但很难骗你几周。周线里面藏的是大资金真正的动作。",
+                "summary": "在周线级别, 用 5 个量化信号识别'主力在建仓 / 趋势转强 / 即将拉升'的临界点。命中任一信号都是值得复盘的候选标的。",
+                "patterns": [
+                    {
+                        "id": "sanxing_taodi",
+                        "name": "三星探底",
+                        "short": "跌很久后低位 3 周小十字星 + 站稳 5W 均线",
+                        "detail": "长期下跌后低位横盘,周线连续出现 3 根实体很小的十字星 (实体 / 收盘 < 3%),同时股价稳稳站在 5 周均线上方。空头力量衰竭,资金开始慢慢进货,主升前夜。",
+                        "when": "适合做左侧布局, 信号出现后耐心等放量阳线确认再加重仓",
+                    },
+                    {
+                        "id": "zhanwen_5w",
+                        "name": "站稳 5 周线",
+                        "short": "放量阳线突破 5W 均线 + 不再创新低",
+                        "detail": "前面一直站不上 5 周均线,突然出现放量阳线,实体稳稳站在 5 周线上方,同时本周低点 ≥ 前 3 周最低点 (不再创新低)。趋势由弱转强的明确信号。",
+                        "when": "波段行情的起爆点, 适合突破后回踩 5W 不破时介入",
+                    },
+                    {
+                        "id": "tupo_pingtai",
+                        "name": "突破震荡平台",
+                        "short": "周收盘突破前 4-5 周高点",
+                        "detail": "前面是跌了很久后开始横盘磨底,突然一周的收盘价突破前 4-5 周的高点,说明资金主动往上做。这是主升浪启动前最重要的信号之一。激进版: 突破前 3 周最高收盘价即可上车。",
+                        "when": "主升浪启动信号, 突破后追涨胜率最高",
+                    },
+                    {
+                        "id": "junxian_fangxiang",
+                        "name": "均线方向 (5W + 20W 双线向上)",
+                        "short": "5周 + 20周均线均向上拐头 + 楼梯排列 + 量能递增",
+                        "detail": "只看 5W 金叉不够,要看 20W。当 5W 和 20W 同时向上拐头,均线呈楼梯状排列 (5W 在上, 20W 在下),且成交量温和放大,说明有资金持续进场 1-2 周以上。",
+                        "when": "趋势确认信号, 一旦形成往往能走一段像样的趋势, 关键是要敢拿",
+                    },
+                    {
+                        "id": "zhouxian_duiliang",
+                        "name": "周线堆量",
+                        "short": "连续 3 周以上成交量温和放大如小山",
+                        "detail": "日线成交量容易做假,周线难。连续 3 周以上成交量温和放大, 看起来像座小山, 说明资金悄悄进场。此时若股价回调但量缩, 是洗盘特征, 是低风险介入机会。",
+                        "when": "适合在缩量回踩关键均线不破时介入, 不要被日线洗出去",
+                    },
+                ],
+            },
+            {
+                "id": "recovery_level",
+                "name": "三分之一回升位 · 计算策略",
+                "intro": "一个看起来很普通的计算方法,可以帮你判断一只票的重要支撑/压力位。",
+                "summary": "找上一轮上涨的最低点 A 和最高点 B, 计算 (B-A)/3 + A 得到 1/3 回升位, 这是历史回踩中最容易企稳的关键支撑区。",
+                "patterns": [
+                    {
+                        "id": "method",
+                        "name": "1/3 回升位公式",
+                        "short": "支撑位 = (B - A) / 3 + A",
+                        "detail": (
+                            "三步计算:\n"
+                            "  第一步: 找到上一轮上涨行情的最低点, 记作 A\n"
+                            "  第二步: 找到这一轮上涨的最高点, 记作 B\n"
+                            "  第三步: 用 B 减 A, 得到的数值除以 3, 再加上 A\n"
+                            "得到的结果, 就是重点关注的参考支撑区域。\n\n"
+                            "示例: 最低点 A=7.9, 最高点 B=12.28, "
+                            "(12.28-7.9)/3 + 7.9 = 1.46 + 7.9 = 9.36。\n"
+                            "实际回踩到 9.36 附近后, 股价逐渐企稳并展开新一轮上涨。"
+                        ),
+                        "extension": (
+                            "延伸: 同样算法可计算多个参考位\n"
+                            "  1/3 位: A + (B-A)/3   ← 主支撑 (强势回调通常在这里止跌)\n"
+                            "  1/2 位: A + (B-A)/2   ← 强弱分界 (跌破则趋势转弱)\n"
+                            "  2/3 位: A + (B-A)*2/3 ← 偏强支撑 (回调到此已属强势)"
+                        ),
+                        "when": "回踩到 1/3 位附近 + 出现企稳 K 线 (十字星 / 锤子线 / 缩量) 是低风险介入窗口",
+                    },
+                ],
+            },
+        ],
+        "version": "1.0",
+        "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+    })
+
+
+# ─────────────────────────────────────────────────────────────
+# 个股角色判定: 龙头 / 中军 / 杂毛 / 未分类
+# ─────────────────────────────────────────────────────────────
+_ROLE_CACHE_KEY = "stock_role:{code}"  # 24h Redis (板块龙头变化慢)
+
+@app.get("/api/stock/{code}/role")
+async def api_stock_role(code: str):
+    """判定个股在所属板块里的角色 (龙头/中军/杂毛)。
+    判定逻辑:
+      - 龙头: 该板块最近 5 日涨停数 ≥ 3 OR 板块 Top1 by 涨幅 + 大资金
+      - 中军: 板块内市值大 + 涨幅 ≥ 板块均 + 不在龙头
+      - 杂毛: 其他
+      - 未分类: 板块信息缺失
+    缓存 24h (板块归属变化极慢)。
+    """
+    code = _require_valid_code(code)
+    cached = _store_get(_ROLE_CACHE_KEY.format(code=code), ttl=86400)
+    if cached:
+        return envelope(data=cached, meta={"_cache": "redis"})
+
+    try:
+        from . import seat_lookup
+        # 板块归属
+        sector_name = ""
+        try:
+            from .sector_taxonomy import classify_sector_name as _csn
+            sector_name = _csn("") or ""  # 简化: 用最近的 dragon 板块
+        except Exception:
+            pass
+        # 复用 dragons 缓存里的 top10 + 板块信息
+        from .server import _DRAGONS_CACHE  # type: ignore
+        dragons = (_DRAGONS_CACHE.get("dragons_today") or {}).get("data", {})
+        mainline = dragons.get("mainline") or []
+        all_zt = dragons.get("all") or []
+        # 找本股的板块
+        my_sector = ""
+        for z in all_zt:
+            if z.get("code") == code:
+                my_sector = z.get("sector", "")
+                break
+        if not my_sector:
+            out = {"code": code, "role": "未分类", "sector": "",
+                   "reason": "不在今日涨停池或非活跃标的",
+                   "explanation": "未找到板块归属"}
+            _store_set(_ROLE_CACHE_KEY.format(code=code), out, ttl=86400)
+            return envelope(data=out)
+
+        # 同板块股
+        same_sector = [z for z in all_zt if (z.get("sector") or "").strip() == my_sector.strip()]
+        same_sector.sort(key=lambda x: -float(x.get("score_total") or 0))
+        # 龙头 = 同板块 Top1-2 by score, 或 Top1 by streak + 资金强
+        role = "杂毛"
+        reason = ""
+        rank_in_sector = 0
+        for i, z in enumerate(same_sector):
+            if z.get("code") == code:
+                rank_in_sector = i + 1
+                break
+        if rank_in_sector == 1:
+            # Top1 by score
+            top1 = same_sector[0]
+            s_streak = int(top1.get("streak") or 1)
+            s_funding_pts = (top1.get("score_breakdown") or {}).get("资金认可", {}).get("pts", 0)
+            if s_streak >= 3 or s_funding_pts >= 20:
+                role = "龙头"
+                reason = f"{my_sector} 板块 Top1, 连板 {s_streak}, 资金 {s_funding_pts}/30"
+            else:
+                role = "龙头"
+                reason = f"{my_sector} 板块 Top1 (评分 {top1.get('score_total')})"
+        elif rank_in_sector <= 3 and rank_in_sector > 0:
+            # Top2-3 → 中军或次龙头
+            role = "中军"
+            reason = f"{my_sector} 板块 Top{rank_in_sector} (评分 {same_sector[rank_in_sector-1].get('score_total')})"
+        else:
+            # 其他 = 杂毛
+            role = "杂毛"
+            reason = f"{my_sector} 板块 第 {rank_in_sector} 名 (评分 {same_sector[rank_in_sector-1].get('score_total') if same_sector else '?'})"
+
+        out = {
+            "code": code,
+            "role": role,
+            "sector": my_sector,
+            "rank_in_sector": rank_in_sector,
+            "sector_size": len(same_sector),
+            "reason": reason,
+            "explanation": (
+                "龙头 = 板块内 Top1 by 综合评分, 主升浪代表" if role == "龙头" else
+                "中军 = 板块内 Top2-3, 跟随龙头但市值/资金更稳" if role == "中军" else
+                "杂毛 = 板块内第 4 名及之后, 容易被洗出, 慎参与"
+            ),
+        }
+        _store_set(_ROLE_CACHE_KEY.format(code=code), out, ttl=86400)
+        return envelope(data=out)
+    except Exception as e:
+        return envelope(data={"code": code, "role": "未分类", "sector": "",
+                              "reason": str(e)[:80], "explanation": "板块角色判定失败"})
+
+
 @app.post("/api/optimize")
 async def api_optimize(request: Request):
     from ..optimizer import run_optimize
@@ -9463,6 +9813,8 @@ async def _preheat_cache_on_startup():
         ("/api/stock/002747",    8),   # 机器人本体
         ("/api/stock/000977",    10),  # AI 算力 (多 6 个并行数据源)
         ("/api/stock/000524",    8),   # 杂毛
+        ("/api/weekly_bull",     25),  # 周线擒牛全扫 (cold 18s, warm <0.2s)
+        ("/api/stock/002747/weekly_bull", 6),  # 周线擒牛单股
         ("/api/laws",            5),
         # 2026-07-14: /api/hotspot 已删,板块页预热移除
         ("/api/all_stocks/board?page_size=30", 20),                  # 全 A 风向首屏 (默认成交额↓)
@@ -9503,6 +9855,7 @@ async def _continuous_warmer():
     base = f"http://{bind_host}:{bind_port}"
     paths = [
         ("/api/dragons", 20),
+        ("/api/weekly_bull", 25),  # 周线擒牛 (cold 18s)
         ("/api/market/overview", 8),
         # R18 (2026-07-14): 全 A 风向常用 sort 保活,避免切 sort 触发 5s cold-start
         ("/api/all_stocks/board?sort=amount&order=desc&page_size=30",            15),
