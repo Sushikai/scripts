@@ -486,14 +486,39 @@ function _renderZtChainChips(code, opts) {
   }).join('') + (more > 0 ? `<span style="font-size:10px;color:var(--ink-3);margin-right:4px">+${more}</span>` : '');
 }
 
+// R101 (2026-07-19): API 并发限流 — 最多 4 同时在飞,防止 20+ 请求淹没 8 worker
+var _API_CONCURRENCY_MAX = 6;
+var _API_PENDING_QUEUE = [];
+var _API_INFLIGHT = 0;
+
+// 原子获取并发槽位: 有槽立即返回,无槽入队等待
+function _apiAcquireSlot() {
+  return new Promise(resolve => {
+    if (_API_INFLIGHT < _API_CONCURRENCY_MAX) {
+      _API_INFLIGHT++;
+      resolve();
+    } else {
+      _API_PENDING_QUEUE.push(() => { _API_INFLIGHT++; resolve(); });
+    }
+  });
+}
+function _apiReleaseSlot() {
+  _API_INFLIGHT--;
+  while (_API_PENDING_QUEUE.length > 0 && _API_INFLIGHT < _API_CONCURRENCY_MAX) {
+    _API_PENDING_QUEUE.shift()();
+  }
+}
+
 async function api(path, opts) {
   opts = opts || {};
-  // R24: 同一 (path, body) 在 200ms 内并发触发,共用一个 promise
-  const ikey = _inflightKey(path, opts);
-  const shared = _getInflight(ikey);
-  if (shared) return shared;
+  await _apiAcquireSlot();
+  try {
+    // R24: 同一 (path, body) 在 200ms 内并发触发,共用一个 promise
+    const ikey = _inflightKey(path, opts);
+    const shared = _getInflight(ikey);
+    if (shared) return shared;
 
-  const _core = async () => {
+    const _core = async () => {
   // R6: 长请求 (>500ms) 显示顶部进度条,完成后移除
   const slow = (opts.timeout || _timeoutFor(path)) > 500;
   let _bar;
@@ -518,9 +543,12 @@ async function api(path, opts) {
   clearTimeout(_bar); _hideTopProgress();
   return env.data;
   };
-  const p = _core();
-  _setInflight(ikey, p);
-  return p;
+    const p = _core();
+    _setInflight(ikey, p);
+    return p;
+  } finally {
+    _apiReleaseSlot();
+  }
 }
 
 // R6: 顶部进度条 (CSS class .top-progress 由 style.css R4 定义)
@@ -668,9 +696,11 @@ async function _checkErrorRate() {
     const resp = await _fetchWithTimeout('/api/_meta/error_stats', { timeout: 5000 });
     if (!resp.ok) return;
     const env = await resp.json();
-    if (!env.ok || !env.stats) return;
+    if (!env.ok) return;
+    // R-A6 envelope: 数据在 env.data.stats; 兼容旧 env.stats
+    const stats = (env.data && env.data.stats) || env.stats || {};
     let maxEr = 0, worstEp = '';
-    for (const [ep, st] of Object.entries(env.stats)) {
+    for (const [ep, st] of Object.entries(stats)) {
       if (st.calls < 5) continue;  // 样本太少忽略
       if (st.error_rate > maxEr) { maxEr = st.error_rate; worstEp = ep; }
     }
@@ -925,7 +955,7 @@ function showView(name, opts) {
     main.className = main.className.replace(/\bis-\w+/g, '').trim();
     main.classList.add('is-' + name);
   }
-  if (name === 'dash')    refreshTicker();
+  if (name === 'dash')    refreshTicker(true);
   if (name === 'optimize') loadReports();
   if (name === 'laws')    renderLawsOnce();
   if (name === 'review')  _reviewOnViewEnter();
@@ -984,14 +1014,30 @@ function _routeFromHash() {
   const h = (location.hash || '').replace(/^#/, '');
   // 2026-07-19: hash 可能含 ?pattern=xxx (周线擒牛过滤), 先按 ? 切,再按 = 切
   const hNoQuery = h.includes('?') ? h.split('?')[0] : h;
-  const name = viewParam || (hNoQuery ? hNoQuery.split('=')[0] : '');
-  const arg = hNoQuery.includes('=') ? hNoQuery.split('=')[1] : '';
+  let name = viewParam || (hNoQuery ? hNoQuery.split('=')[0] : '');
+  let arg = hNoQuery.includes('=') ? hNoQuery.split('=')[1] : '';
+  // R-opt-2026-07-19: ?code=XXXXXX (search param) → 路由到个股页,仅当无 hash 时
+  if (!name && !h && _sp.get('code')) {
+    name = 'stock';
+    arg = _sp.get('code');
+  }
   if (!name) return showView('dash', { push: false });
-  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull'];
+  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker'];
   if (!valid.includes(name)) return showView('dash', { push: false });
   if (name === 'stock' && arg) {
     const code = arg.match(/\d{6}/)?.[0];
     if (code) {
+      // 跨模块上下文: from=sp (策略选股), from=wb (周线擒牛), s=策略/pattern keys
+      const qIdx = h.indexOf('?');
+      const ctx = {};
+      if (qIdx > 0) {
+        const hp = new URLSearchParams(h.slice(qIdx + 1));
+        if (hp.get('from') === 'sp' || hp.get('from') === 'wb') {
+          ctx.from = hp.get('from');
+          ctx.strategies = hp.get('s') || '';
+        }
+      }
+      window._navCtx = ctx;
       $('#stock-code').value = code;
       showView('stock', { push: false });
       loadStockDetail(code);
@@ -1110,7 +1156,7 @@ function _dashCacheLoad() {
   } catch (e) { return null; }
 }
 
-async function refreshTicker() {
+async function refreshTicker(loadDash) {
   const bar = $('#tickerbar');
   try {
     const data = await api('/api/market/overview');
@@ -1131,12 +1177,11 @@ async function refreshTicker() {
       const d = new Date(lastRefreshTs * 1000);
       $('#ts-stamp').textContent = `已刷新 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
     }
-    // P-perf: 分阶段渲染 dashboard — 先刷缓存,再串行独立超时
-    _dashLoadPhased();
+    // P-perf: 分阶段渲染 dashboard — 仅当位于 dash 页面时加载
+    if (loadDash) _dashLoadPhased();
   } catch (e) {
     bar.innerHTML = '<div class="ticker-empty">市场数据暂不可达 · ' + e.message + '</div>';
-    // 即使 ticker 失败,也尝试渲染缓存数据
-    _dashLoadPhased();
+    if (loadDash) _dashLoadPhased();
   }
 }
 
@@ -1352,33 +1397,15 @@ function gotoStock(q) {
 // ────────────────────────────────────────────
 // BACKTEST — 含回撤可视化
 // ────────────────────────────────────────────
-// 2026-07-15: 统计层回测 (KPI/分位/场景/板块) — 独立按钮,共享同一面板
-$('#bt-stats-run')?.addEventListener('click', async () => {
-  const body = {
-    start:    $('#bt-start')?.value || '2026-06-01',
-    end:      $('#bt-end')?.value   || '2026-07-14',
-    top_n:    3,
-    hold_days: 5,
-    sample:   parseInt($('#bt-sample')?.value || '60', 10),
-    sell_mode: $('#bt-sell')?.value || 'rule',
-  };
-  const btn = $('#bt-stats-run');
-  if (btn) { btn.disabled = true; btn.textContent = '统计层回测中…'; }
-  $('#bt-kpis').innerHTML = '<div class="dim" style="padding:2rem;text-align:center">统计回测运行中 (90s 上限) …</div>';
-  toast(`开始统计回测 ${body.start} → ${body.end}, sample=${body.sample}`, 'info', 3000);
-  try {
-    const data = await api('/api/backtest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    renderBacktestResults(data);
-    toast(`统计回测完成 · ${data.summary?.trades || 0} 笔`, 'success');
-  } catch (e) {
-    toast('统计回测失败:' + e.message, 'error', 4000);
-    $('#bt-kpis').innerHTML = `<div class="dim" style="padding:2rem;text-align:center;color:${DOWN}">回测失败:${e.message}</div>`;
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🧮 统计层回测'; }
+// R-ship-2026-07-19: 统计层按钮 → 复用主 btStart() (异步 + SSE + 真进度)
+// 老 /api/backtest 同步 90s 路径已废弃, renderBacktestResults 保留兼容老 cache
+$('#bt-stats-run')?.addEventListener('click', () => {
+  if (typeof window.btStart === 'function') {
+    toast('统计层已合并到 ▶ 回测 (异步+SSE+真进度)', 2400);
+    $('#backtest-panel')?.classList.remove('collapsed');
+    window.btStart();
+  } else {
+    toast('回测引擎未就绪 · 请刷新页面', 2500);
   }
 });
 
@@ -1813,8 +1840,8 @@ var _prefetchHoverT = null;
 function _prefetchOne(code) {
   if (!code || _prefetchInflight.has(code) || _prefetchDone.has(code)) return;
   _prefetchInflight.add(code);
-  // 用 GET-only fetch,响应入 SW / Redis cache,前端不需要解析
-  fetch(`/api/stock/${code}`, { priority: 'low' })
+  // R-opt-2026-07-19: 改用 /core (轻量,SW 5min 缓存) — 旧端点已废弃
+  fetch(`/api/stock/${code}/core`, { priority: 'low' })
     .then(r => r.ok ? r.json() : null)
     .then(() => {
       _prefetchInflight.delete(code);
@@ -1831,7 +1858,11 @@ async function _scheduleIdlePrefetch() {
       const r = await fetch('/api/watchlist');
       if (r.ok) {
         const j = await r.json();
-        if (j.ok) _watchlistItems = (j.data && j.data.items) || [];
+        if (j.ok) {
+          _watchlistItems = (j.data && j.data.items) || [];
+          const c = $('#wl-count');
+          if (c) c.textContent = String(_watchlistItems.length);
+        }
       }
     } catch (_) {}
   }
@@ -4735,17 +4766,26 @@ showView = function(name, ctx) {
   _origShowView(name);
   if (name === 'dragons' && !_dragonsLoaded) loadDragons(false);
   if (name === 'weekly_bull') {
-    // 2026-07-19: 周线擒牛页 — 检查 hash ?pattern= 过滤参数
     const h = (location.hash || '');
     const m = h.match(/[?&]pattern=([^&]+)/);
     if (m && typeof _wbFilter !== 'undefined') {
       const pat = decodeURIComponent(m[1]);
       if (_wbFilter !== pat) {
-        // 必须在 loadWeeklyBull 完成后设置 _wbFilter 再 render
         window._wbFilterOverride = pat;
       }
     }
-    if (!window._wbLoaded || !window._wbLoaded()) loadWeeklyBull(false);
+    if (!window._wbLoaded || !window._wbLoaded()) {
+      loadWeeklyBull(false);
+    } else if (window._wbFilterOverride && typeof renderWeeklyBull === 'function') {
+      // 数据已缓存: 直接应用 override,不等异步加载路径
+      _wbFilter = window._wbFilterOverride;
+      window._wbFilterOverride = null;
+      renderWeeklyBull();
+    }
+  }
+  if (name === 'strategy_picker' && (!window._spLoaded || !window._spLoaded())) {
+    // 2026-07-19: 策略选股页 — 切换时自动加载 (默认 or/1 配置, 用户可在 UI 里改)
+    loadStrategyPicker(false);
   }
   if (name === 'review') _reviewOnViewEnter();
   if (name === 'watchlist') _watchlistOnViewEnter();
@@ -4772,7 +4812,7 @@ document.addEventListener('click', e => {
 });
 
 $('#refresh-ticker')?.addEventListener('click', () => {
-  refreshTicker();
+  refreshTicker(true);
   toast('已刷新');
 });
 
@@ -5821,10 +5861,14 @@ async function _reviewLoadList() {
     try {
       const wl = await _fetchWithTimeout('/api/watchlist');
       const wj = await wl.json();
-      if (wj.ok) _watchlistItems = (wj.data && wj.data.items) || [];
+      if (wj.ok) {
+        _watchlistItems = (wj.data && wj.data.items) || [];
+        const wlCount = $('#wl-count');
+        if (wlCount) wlCount.textContent = String(_watchlistItems.length);
+      }
     // R14 (Batch 2): watchlist 加载完立即触发 idle prefetch, ⭐自选秒开
     _scheduleIdlePrefetch();
-    } catch (_) { _watchlistItems = []; }
+    } catch (_) { /* 静默 — 不覆盖已有数据 */ }
     _reviewRender();
     _reviewLoadStats();
     const ts = $('#review-ts');
@@ -8859,7 +8903,16 @@ document.addEventListener('DOMContentLoaded', () => {
         order: state.order,
         with_fund: true,
       });
-      renderRows(data, false);
+      if (!data.items || !data.items.length) {
+        // R7 (2026-07-19): cold cache / filter 无匹配 → 显示 "加载中"
+        tbody.innerHTML = `<tr><td colspan="20" class="empty">
+          <div class="empty-icon" style="font-size:28px;opacity:0.5;">⟳</div>
+          <div class="empty-title">行情加载中</div>
+          <div>数据后台预热中,请稍后重试或缩小筛选范围</div>
+        </td></tr>`;
+      } else {
+        renderRows(data, false);
+      }
       state.offset = data.next_offset || (data.items && data.items.length) || 0;
       state.loadedCount = state.offset;
       state.totalAvailable = data.total_available || state.loadedCount;
@@ -8906,6 +8959,10 @@ document.addEventListener('DOMContentLoaded', () => {
       state.loading = false;
     }
   }
+  // R101 (2026-07-19): debounced loadBoard — filter/sort 快速连击只发一次 API
+  const _debouncedBoardLoad = debounce(function() {
+    if (!state.loading) loadBoard();
+  }, 300);
   window.__initAllStocksLoadBoard = loadBoard;  // 给 empty-state 按钮调用
 
   // === 8. loadMore (滚动追加) ==============================================
@@ -9261,7 +9318,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const chipFn = (el, layer) => {
         state[layer] = el.dataset['goto' + layer.toUpperCase()] || '';
         applyAllStocksCascade(layer);
-        syncUI(); syncUrl(); loadBoard();
+        syncUI(); syncUrl(); _debouncedBoardLoad();
         toast(`已联动 ${layer.toUpperCase()} = ${state[layer]}`);
       };
       const l2 = e.target.closest('[data-goto-l2]');
@@ -9396,7 +9453,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (key === 'l3-multi') state.l3 = state.l3.split(',').filter(v => v && v !== val).join(',');
         else if (key === 'l4-multi') state.l4 = state.l4.split(',').filter(v => v && v !== val).join(',');
         else if (key === 'domain-multi') state.domain = state.domain.split(',').filter(v => v && v !== val).join(',');
-        syncUI(); syncUrl(); loadBoard();
+        syncUI(); syncUrl(); _debouncedBoardLoad();
       });
     });
   }
@@ -9499,7 +9556,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         syncUrl();
-        loadBoard();
+        _debouncedBoardLoad();
         updateSortArrows();
       });
     });
@@ -9527,7 +9584,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!opt) return;
       state.sort = opt.value;
       state.order = opt.dataset.order || 'desc';
-      syncUrl(); loadBoard();
+      syncUrl(); _debouncedBoardLoad();
       updateSortArrows();
     });
 
@@ -9539,7 +9596,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const vals = readMultiSelect(id);
         state[key] = vals.join(',');
         applyAllStocksCascade(key);
-        syncUI(); syncUrl(); loadBoard();
+        syncUI(); syncUrl(); _debouncedBoardLoad();
       });
     });
 
@@ -9560,7 +9617,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (qsClear) qsClear.hidden = true;
         applyQuickSearch('');
       }
-      syncUI(); syncUrl(); loadBoard();
+      syncUI(); syncUrl(); _debouncedBoardLoad();
       toast('已重置所有筛选', 'ok');
     });
     // 刷新
@@ -9914,7 +9971,7 @@ document.addEventListener('DOMContentLoaded', () => {
       applyAllStocksCascade('l3');
       applyAllStocksCascade('l4');
       applyAllStocksCascade('domain');
-      syncUI(); syncUrl(); loadBoard();
+      syncUI(); syncUrl(); _debouncedBoardLoad();
       scope.querySelector('.bottom-sheet-backdrop').classList.remove('show');
       scope.querySelector('.bottom-sheet').classList.remove('show');
       updateMabBadge();
@@ -9928,7 +9985,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sortSel) {
           Array.from(sortSel.options).forEach(o => { o.selected = (o.value === state.sort && o.dataset.order === state.order); });
         }
-        syncUrl(); loadBoard();
+        syncUrl(); _debouncedBoardLoad();
         updateSortArrows();
         const sheetEl = r.closest('.bottom-sheet');
         sheetEl.classList.remove('show');
@@ -9986,7 +10043,7 @@ document.addEventListener('DOMContentLoaded', () => {
       state.l1 = ''; state.l2 = ''; state.l3 = ''; state.l4 = ''; state.domain = '';
       state.sort = 'amount'; state.order = 'desc';
       state.pageSize = 30; state.offset = 0;
-      syncUI(); syncUrl(); loadBoard();
+      syncUI(); syncUrl(); _debouncedBoardLoad();
       toast('已重置所有筛选', 'ok');
     });
     document.addEventListener('mab:closed', updateMabBadge);
@@ -10044,6 +10101,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return loadBoard();
     }).then(() => {
       updateSortArrows();
+      _startAutoRefresh();
       if (state.l1 || state.l2 || state.l3 || state.l4 || state.domain) {
         toast(`深链已应用: ${[state.l1, state.l2, state.l3, state.l4, state.domain].filter(Boolean).join(' / ')}`);
       }
@@ -10063,17 +10121,35 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         loadBoard();
       }
+      _startAutoRefresh();
       return;
     }
     state._initialised = true;
     init();
   });
 
+  // R102 (2026-07-19): 30s auto-refresh — 后台 poller 预热 quote,定期刷新
+  let _refreshTimer = null;
+  function _startAutoRefresh() {
+    if (_refreshTimer) return;
+    _refreshTimer = setInterval(() => {
+      if (document.hidden) return;
+      const view = document.querySelector('.view-all_stocks');
+      if (view && !view.hidden && !state.loading && state.hasMore !== undefined) {
+        loadBoard();
+      }
+    }, 30000);
+  }
+
   // === 27. view-leave cleanup =============================================
   _registerViewLeave('all_stocks', () => {
     if (state._sentinelObserver) {
       state._sentinelObserver.disconnect();
       state._sentinelObserver = null;
+    }
+    if (_refreshTimer) {
+      clearInterval(_refreshTimer);
+      _refreshTimer = null;
     }
     // 不重置 _initialised: 下次再进 view-enter 直接复用 (避免重 bind)
     // 但状态会被 syncUrl 覆盖 — 由 init 解析 hash 重置

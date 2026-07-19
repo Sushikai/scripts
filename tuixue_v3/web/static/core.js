@@ -14,6 +14,24 @@ const TX = window.TX;
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// R-A7 (2026-07-19): snake_case → camelCase key 转换 (顶层 + 嵌套 dict)
+// 后端 Python 用 snake_case 是 PEP8 规范,前端 JS 用 camelCase 是 JS 社区规范
+// 旧策略: 后端 → 前端直接用 snake_case (跟 JS 不一致, 如 data.trade_date)
+// 新策略: 转换器按需 opt-in (默认不转,避免破坏现有代码),通过 opts.camelCase=true 启用
+// 递归深度限制 5 防爆栈
+function _snakeToCamel(s) {
+  return s.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+}
+function _toCamelKeys(obj, depth = 0) {
+  if (depth > 5 || obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(v => _toCamelKeys(v, depth + 1));
+  const out = {};
+  for (const k of Object.keys(obj)) {
+    out[_snakeToCamel(k)] = _toCamelKeys(obj[k], depth + 1);
+  }
+  return out;
+}
+
 // 启动时检测重复 ID — 防止 querySelector 漏更新第二处
 (function _checkDuplicateIds() {
   const seen = new Map();
@@ -497,9 +515,49 @@ async function api(path, opts) {
   let env;
   try { env = await r.json(); }
   catch { clearTimeout(_bar); _hideTopProgress(); throw new Error(`HTTP ${r.status} (非 JSON)`); }
-  if (!env.ok) { clearTimeout(_bar); _hideTopProgress(); throw new Error(env.error || `HTTP ${r.status}`); }
   clearTimeout(_bar); _hideTopProgress();
-  return env.data;
+  // R-A5 (2026-07-19): envelope-aware — 兼容新旧两种格式
+  // 旧格式: {ok:false, error:"string"}  → 新格式: {ok:false, error:{code,message}}
+  // 新格式: {ok:true, data:{...}, ts:"..."} → 直接 return data
+  if (!env.ok) {
+    // 优先读 error.code, fallback 到 status_code 推断
+    let code = 'INTERNAL';
+    let msg;
+    if (typeof env.error === 'string') {
+      // 旧格式: error 是 string — 用 status_code 反推 code
+      code = ({
+        400: 'INVALID_INPUT', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN',
+        404: 'NOT_FOUND', 408: 'TIMEOUT', 422: 'INVALID_INPUT',
+        429: 'RATE_LIMITED', 500: 'INTERNAL', 502: 'UPSTREAM_FAIL',
+        503: 'UPSTREAM_FAIL', 504: 'TIMEOUT',
+      })[env.status_code || r.status] || 'INTERNAL';
+      msg = env.error;
+    } else if (env.error && typeof env.error === 'object') {
+      code = env.error.code || 'INTERNAL';
+      msg = env.error.message || JSON.stringify(env.error);
+    } else {
+      msg = `HTTP ${r.status}`;
+    }
+    const err = new Error(msg);
+    err.code = code;
+    err.trace_id = env.trace_id;
+    err.status = r.status;
+    if (!opts.silent && typeof toast === 'function') {
+      // code → 用户友好消息
+      const friendly = ({
+        TIMEOUT: '请求超时,请稍后重试',
+        NOT_FOUND: '资源不存在',
+        UPSTREAM_FAIL: '上游数据源不可用',
+        RATE_LIMITED: '请求太频繁,请稍候',
+        UNAUTHORIZED: '请先登录',
+      })[code] || msg;
+      toast(friendly, 'error', 3000);
+    }
+    throw err;
+  }
+  const data = env.data !== undefined ? env.data : env;
+  // R-A7: opts.camelCase=true 时把 snake_case keys 转 camelCase (新端点推荐)
+  return opts.camelCase ? _toCamelKeys(data) : data;
 }
 
 // R6: 顶部进度条 (CSS class .top-progress 由 style.css R4 定义)
@@ -761,7 +819,7 @@ function showView(name) {
     main.className = main.className.replace(/\bis-\w+/g, '').trim();
     main.classList.add('is-' + name);
   }
-  if (name === 'dash' && typeof refreshTicker === 'function') refreshTicker();
+  if (name === 'dash' && typeof refreshTicker === 'function') refreshTicker(true);
   if (name === 'optimize' && typeof loadReports === 'function') loadReports();
   if (name === 'laws' && typeof renderLawsOnce === 'function') renderLawsOnce();
   if (name === 'review' && typeof _reviewOnViewEnter === 'function') _reviewOnViewEnter();
