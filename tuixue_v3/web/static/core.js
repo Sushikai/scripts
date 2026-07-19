@@ -32,6 +32,94 @@ function _toCamelKeys(obj, depth = 0) {
   return out;
 }
 
+// R-D31 (2026-07-19): 统一 storage helper — 强制前缀 tx3: + TTL 支持 + 配额兜底
+// 之前散落: tuixue-* / tx3_* / 无前缀混杂, key 名易冲突,没 TTL 概念, 满了直接抛
+// 新 API: TX.storage.set(key, val, {ttlMs, scope}) / .get(key) / .del(key)
+// scope: 'local' (localStorage, 永久) / 'session' (sessionStorage, tab 内)
+const _STORAGE_PREFIX = 'tx3:';
+const _STORAGE_QUOTA_FALLBACK = 5 * 1024 * 1024;  // 5MB hard limit
+// R-D34 (2026-07-19): safeJSON — JSON.parse + try/catch + fallback (避免 try{...}catch{} 散布)
+// 之前 view 文件到处都是 try { JSON.parse(raw) } catch {} 反模式
+function txParse(raw, fallback = null) {
+  if (!raw) return fallback;
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
+// txStringify: JSON.stringify + 静默失败
+function txStringify(val) {
+  try { return JSON.stringify(val); } catch { return ''; }
+}
+TX.storage = {
+  set(key, val, opts = {}) {
+    const scope = opts.scope || 'local';
+    const fullKey = _STORAGE_PREFIX + key;
+    const payload = JSON.stringify({
+      v: val,
+      ts: opts.ttlMs ? Date.now() : 0,
+      exp: opts.ttlMs ? Date.now() + opts.ttlMs : 0,
+    });
+    try {
+      (scope === 'session' ? sessionStorage : localStorage).setItem(fullKey, payload);
+      return true;
+    } catch (e) {
+      // 配额满 → 清旧 tx3: key 兜底
+      if (e.name === 'QuotaExceededError') {
+        TX.storage._evictOld(scope);
+        try {
+          (scope === 'session' ? sessionStorage : localStorage).setItem(fullKey, payload);
+          return true;
+        } catch (e2) {
+          console.warn(`[storage] set 失败, 已超 ${_STORAGE_QUOTA_FALLBACK / 1024 / 1024}MB 兜底:`, fullKey);
+          return false;
+        }
+      }
+      return false;
+    }
+  },
+  get(key, opts = {}) {
+    const scope = opts.scope || 'local';
+    const fullKey = _STORAGE_PREFIX + key;
+    let raw;
+    try { raw = (scope === 'session' ? sessionStorage : localStorage).getItem(fullKey); }
+    catch { return null; }
+    if (!raw) return null;
+    try {
+      const p = JSON.parse(raw);
+      if (p.exp && Date.now() > p.exp) {
+        // TTL 过期 → 删
+        try { (scope === 'session' ? sessionStorage : localStorage).removeItem(fullKey); } catch {}
+        return null;
+      }
+      return p.v;
+    } catch {
+      return null;
+    }
+  },
+  del(key, opts = {}) {
+    const scope = opts.scope || 'local';
+    const fullKey = _STORAGE_PREFIX + key;
+    try { (scope === 'session' ? sessionStorage : localStorage).removeItem(fullKey); return true; }
+    catch { return false; }
+  },
+  // 兜底清理: 删 30 天没用的 tx3: key
+  _evictOld(scope) {
+    const store = scope === 'session' ? sessionStorage : localStorage;
+    const toDelete = [];
+    const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
+      if (!k || !k.startsWith(_STORAGE_PREFIX)) continue;
+      try {
+        const p = JSON.parse(store.getItem(k));
+        if (!p.ts || p.ts < cutoff) toDelete.push(k);
+      } catch { toDelete.push(k); }
+    }
+    for (const k of toDelete) {
+      try { store.removeItem(k); } catch {}
+    }
+    if (toDelete.length) console.info(`[storage] 清 ${toDelete.length} 个旧 key`);
+  },
+};
+
 // 启动时检测重复 ID — 防止 querySelector 漏更新第二处
 (function _checkDuplicateIds() {
   const seen = new Map();
@@ -740,6 +828,53 @@ async function txRetry(fn, opts = {}) {
   }
   throw lastErr;
 }
+
+// R-D32 (2026-07-19): view-scoped state registry — 切页时统一清空
+// 之前每个 view 自己挂 setTimeout/SSE/RAF/Rx 监听, 切页不清理 → 内存泄漏
+// 新 API: TX.viewState.set(viewName, key, value) / .get(viewName, key)
+// 切页时 txClearViewState(prevName) 统一回收
+TX.viewState = (() => {
+  const _store = {};  // {viewName: {key: {kind, value, cleanup}}}
+  return {
+    set(view, key, value, opts = {}) {
+      if (!_store[view]) _store[view] = {};
+      const old = _store[view][key];
+      if (old && old.cleanup) try { old.cleanup(); } catch {}
+      _store[view][key] = {
+        kind: opts.kind || 'value',
+        value,
+        cleanup: opts.cleanup,
+      };
+    },
+    get(view, key) {
+      const e = _store[view] && _store[view][key];
+      return e ? e.value : undefined;
+    },
+    has(view, key) {
+      return !!( _store[view] && _store[view][key] );
+    },
+    del(view, key) {
+      const e = _store[view] && _store[view][key];
+      if (e && e.cleanup) try { e.cleanup(); } catch {}
+      if (_store[view]) delete _store[view][key];
+    },
+    // 切页时调用 — 清理指定 view 的全部 state
+    clear(view) {
+      if (!_store[view]) return;
+      for (const k of Object.keys(_store[view])) {
+        const e = _store[view][k];
+        if (e && e.cleanup) try { e.cleanup(); } catch {}
+      }
+      delete _store[view];
+    },
+    // 调试: 当前所有 view 的 key 数
+    dump() {
+      const out = {};
+      for (const v of Object.keys(_store)) out[v] = Object.keys(_store[v]).length;
+      return out;
+    },
+  };
+})();
 
 // R6: 通用工具 — debounce / skeleton
 function debounce(fn, ms = 250) {
