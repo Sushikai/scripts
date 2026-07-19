@@ -19,8 +19,15 @@
 // 2026-07-18: bump 到 v93 — 100 轮系统维护 ship batch 1 (R1-R8 race 条件): AbortController 切股取消 + SSE 1s 防 reconnect 风暴 + K线/loadStockDetail/loadIntraDay inflight dedup + ECharts drawToken 防 dispose 抢图 + _patchStockRealtime stale-code 守卫 + view-scoped timer registry 离开自动 clearTimeout
 // 2026-07-18: bump 到 v94 — 100 轮系统维护 ship batch 2 (R11-R16 内存泄漏): sessionStorage stock LRU 80 槽位 + _stockAuxCache 切股清空 + 离开 view 清 inflight dedup promise + ECharts dispose 全图 + animateNumber RAF 全局追踪 + cancel 旧动画
 // 2026-07-18: bump 到 v96 — 100 轮 Batch 1 R1: /api/stock/{code}/full SW 单独 5min 长缓存 (server-side Redis 5s 已是新鲜度门, SW 防冷启动穿透 ~5ms 而非 ~20ms)
+// 2026-07-18: bump 到 v97 — 100 轮系统维护 ship batch 3 (R21-R90 网络/渲染/实时/监控): 离线即抛错 (无 retry) + 请求合并 200ms + 限流 _rateGate + 交易时段自适应轮询 10s/60s + 长任务 PerformanceObserver + 内存探针 + 页面隐藏 perf 摘要 + prefers-reduced-motion 全 view 覆盖
+// 2026-07-18: bump 到 v98 — 100 轮 Batch 2 R11+R14+R16: idle prefetch 合并 watchlist 优先 + review 页 watchlist 加载完触发 + app boot 5s 后触发
 // 2026-07-18: bump 到 v99 — 100 轮 Batch 3 R21+R23: /api/stock/{code}/core 1.5s 强超时, 只返 quote+name+kline(30), 让首屏 < 200ms 出价, /full 后台渐进 patch
-const CACHE = 'tuixue-v3-shell-v99';
+// 2026-07-18: bump 到 v100 — 100 轮系统维护 ship 终极 (R92-R98 收尾): 离线条幅 + 全局 unhandledrejection 抑制 spam toast + SW cache.put 去重 (避免相同 query URL 重复写)
+// 2026-07-18: bump 到 v101 — 分时图最高价遮挡修复: 顶部用 actual max (不用 p98 百分位) + 顶部 padding ×1.5 + clip:false 让 spike 到日内最高的 tick 不被裁
+// 2026-07-18: bump 到 v103 — 尾盘战法回测 bt-p checkbox 默认 checked 被深链 router 误清, 无 periods URL param 时强制 reset 所有 cb.checked=false → btStart 返回"未勾选周期". 改: 仅 URL 显式 periods 时才覆盖
+// 2026-07-18: bump 到 v104 — 交易明细表 btRenderTrades + #bt-trades-host: 回测后显示具体买卖记录(代码/名称/日期/价格/各退场收益/触发)
+// 2026-07-19: bump 到 v109 — 个股页加 3 个买点策略卡 (周线擒牛 + 1/3 回升位 + 5日线 5 原则)
+const CACHE = 'tuixue-v3-shell-v109';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -113,7 +120,12 @@ self.addEventListener('fetch', (event) => {
             if (age < ttlMs) return cached;
           }
           const fetchPromise = fetch(req).then((r) => {
-            if (r.ok && r.status === 200) cache.put(req, r.clone()).catch(() => {});
+            if (r.ok && r.status === 200) {
+              // R98: 先 match 再 put,如果已存在就 skip (避免相同 query URL 重复写)
+              cache.match(req).then(existing => {
+                if (!existing) cache.put(req, r.clone()).catch(() => {});
+              }).catch(() => {});
+            }
             return r;
           }).catch(() => null);
           return (cached && !navigator.onLine) ? cached : (await fetchPromise) || new Response(

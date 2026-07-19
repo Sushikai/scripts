@@ -1457,6 +1457,10 @@ function renderStockDetail(code, data) {
     _loadStockStreakPanel(code, data);
   }
 
+  // 2026-07-19: 加载 3 个买点策略卡 (周线擒牛 + 回升位 + MA5 原则)
+  _loadWeeklyBullCard(code);
+  _loadRecoveryCard(code);
+
   // ─── 图表 / 表格 ───
   const empty = $('#flow-empty');
   if (empty) empty.style.display = 'none';
@@ -3973,6 +3977,96 @@ async function _loadStockRole(code) {
     host.innerHTML = `<span class="stock-role-badge" style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:600;border-radius:12px;background:${color}22;color:${color};border:1px solid ${color}55;margin-left:8px;vertical-align:middle" title="${escapeHtml(tip)}">${escapeHtml(role)}</span>`;
   } catch (e) {
     console.debug('[stock-role]', e.message);
+  }
+}
+
+// 2026-07-19: 加载个股周线擒牛卡 (5 大信号)
+const _WB_CARD_LABELS = {
+  sanxing_taodi:     '三星探底',
+  zhanwen_5w:        '站稳5周线',
+  tupo_pingtai:      '突破震荡平台',
+  junxian_fangxiang: '均线方向',
+  zhouxian_duiliang: '周线堆量',
+};
+async function _loadWeeklyBullCard(code) {
+  const card = $('#q-weekly-bull-card');
+  const body = $('#q-weekly-bull-body');
+  if (!card || !body) return;
+  if (code !== window._currentStockCode) return;
+  card.hidden = false;
+  body.innerHTML = '<span class="dim">加载中…</span>';
+  try {
+    const env = await api(`/api/stock/${code}/weekly_bull`);
+    if (!env || !env.ok) {
+      body.innerHTML = `<span class="dim">未命中 5 大信号 — ${escapeHtml(env?.error || '加载失败')}</span>`;
+      return;
+    }
+    if (code !== window._currentStockCode) return;
+    const d = env.data || {};
+    const matched = d.matched || [];
+    const reasons = d.reasons || {};
+    const wk = d.weekly_last || {};
+    if (!matched.length) {
+      body.innerHTML = `
+        <p class="dim" style="margin:.25rem 0">当前未命中 5 大信号。</p>
+        <p class="caption dim" style="margin:0">周收盘 ${wk.close != null ? wk.close.toFixed(2) : '—'} · 周涨跌 ${wk.change_pct != null ? (wk.change_pct >= 0 ? '+' : '') + wk.change_pct.toFixed(2) + '%' : '—'} · 5W MA ${wk.wma5 ?? '—'}</p>
+      `;
+      return;
+    }
+    const chips = matched.map(k => {
+      const reason = reasons[k] || '';
+      return `<span class="chip tag-good wb-card-chip" data-action="show-view:weekly_bull?pattern=${escapeHtml(k)}" title="${escapeHtml(reason)}">${escapeHtml(_WB_CARD_LABELS[k] || k)}</span>`;
+    }).join('');
+    const reasonList = matched.map(k =>
+      `<li><b>${escapeHtml(_WB_CARD_LABELS[k] || k)}</b>: ${escapeHtml((reasons[k] || '').slice(0, 80))}</li>`
+    ).join('');
+    body.innerHTML = `
+      <div class="wb-card-chips">${chips}</div>
+      <p class="caption dim" style="margin:.25rem 0">命中 <b class="good">${matched.length}/5</b> · 周收盘 ${wk.close != null ? wk.close.toFixed(2) : '—'} · 周涨跌 ${wk.change_pct != null ? (wk.change_pct >= 0 ? '+' : '') + wk.change_pct.toFixed(2) + '%' : '—'} · 5W MA ${wk.wma5 ?? '—'}</p>
+      <ul class="wb-card-reasons">${reasonList}</ul>
+    `;
+  } catch (e) {
+    body.innerHTML = `<span class="dim">加载异常: ${escapeHtml(e.message)}</span>`;
+  }
+}
+
+// 2026-07-19: 加载个股 1/3 回升位卡
+async function _loadRecoveryCard(code) {
+  const card = $('#q-recovery-card');
+  const body = $('#q-recovery-body');
+  if (!card || !body) return;
+  if (code !== window._currentStockCode) return;
+  card.hidden = false;
+  body.innerHTML = '<span class="dim">加载中…</span>';
+  try {
+    const env = await api(`/api/stock/${code}/recovery_level`);
+    if (!env || !env.ok) {
+      body.innerHTML = `<span class="dim">回升位加载失败 — ${escapeHtml(env?.error || '未知')}</span>`;
+      return;
+    }
+    if (code !== window._currentStockCode) return;
+    const d = env.data || {};
+    if (!d.has_signal) {
+      body.innerHTML = `<p class="dim" style="margin:.25rem 0">${escapeHtml(d.explanation || '未找到明显的上一轮上涨 (K 线不足或单边)')}</p>`;
+      return;
+    }
+    const cls = d.near_support ? 'tag-good' : '';
+    const distPct = d.distance_to_level_1_3_pct != null ? (d.distance_to_level_1_3_pct >= 0 ? '+' : '') + d.distance_to_level_1_3_pct.toFixed(2) + '%' : '—';
+    body.innerHTML = `
+      <div class="recovery-grid">
+        <div><span class="dim">A 谷底</span> · <b>${d.A}</b> <span class="caption dim">${d.A_date || ''}</span></div>
+        <div><span class="dim">B 山顶</span> · <b>${d.B}</b> <span class="caption dim">${d.B_date || ''}</span></div>
+        <div><span class="dim">涨幅</span> · <b>${d.change_pct != null ? '+' + d.change_pct.toFixed(2) + '%' : '—'}</b></div>
+        <div><span class="dim">现价</span> · <b>${d.current_close ?? '—'}</b></div>
+        <div class="${cls}"><span class="dim">1/3 位</span> · <b>${d.level_1_3}</b> ${d.near_support ? '<span class="tag-good caption" style="margin-left:4px">强支撑</span>' : ''}</div>
+        <div><span class="dim">1/2 位</span> · <b>${d.level_1_2 ?? '—'}</b></div>
+        <div><span class="dim">2/3 位</span> · <b>${d.level_2_3 ?? '—'}</b></div>
+        <div><span class="dim">距 1/3 位</span> · <b>${distPct}</b></div>
+      </div>
+      <p class="caption dim" style="margin:.25rem 0">${escapeHtml((d.explanation || '').slice(0, 200))}</p>
+    `;
+  } catch (e) {
+    body.innerHTML = `<span class="dim">加载异常: ${escapeHtml(e.message)}</span>`;
   }
 }
 
