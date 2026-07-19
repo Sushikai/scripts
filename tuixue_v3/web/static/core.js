@@ -40,6 +40,61 @@ function txMeasure(name, startMark, endMark) {
   catch { return 0; }
 }
 
+// R-H78 (2026-07-19): A 股交易时间检测 — 全站共享, 取代 view 文件里重复实现
+// 时区: 服务端 Asia/Shanghai, 浏览器可能不是 → 用 toLocaleString 转换
+// 交易时段: 周一~周五 9:30-11:30 / 13:00-15:00
+// 集合竞价: 9:15-9:25 (返回 'premarket')
+// 午休: 11:30-13:00 (返回 'lunch')
+// 收盘: 15:00 后 (返回 'closed')
+function txTradingPhase() {
+  const now = new Date();
+  const cn = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+  const day = cn.getDay();
+  if (day === 0 || day === 6) return 'weekend';
+  const m = cn.getHours() * 60 + cn.getMinutes();
+  if (m >= 9 * 60 + 15 && m < 9 * 60 + 25) return 'premarket';   // 集合竞价
+  if (m >= 9 * 60 + 30 && m < 11 * 60 + 30) return 'morning';     // 上午
+  if (m >= 11 * 60 + 30 && m < 13 * 60) return 'lunch';          // 午休
+  if (m >= 13 * 60 && m < 15 * 60) return 'afternoon';            // 下午
+  return 'closed';
+}
+function txIsTradingTime() {
+  const p = txTradingPhase();
+  return p === 'morning' || p === 'afternoon';
+}
+// 自适应轮询间隔: 交易时段 10s, 非交易 60s, 周末 60s
+function txTradingIntervalMs() {
+  const p = txTradingPhase();
+  return p === 'morning' || p === 'afternoon' ? 10_000 : 60_000;
+}
+
+// R-H72 (2026-07-19): EventSource 重连带 jitter — 防止多个客户端同时重连雪崩 server
+// 用法: const es = new EventSource('/api/xxx');
+//       es.addEventListener('error', () => txReconnectEventSource(es, {url, maxRetries: 5}));
+function txReconnectEventSource(es, opts = {}) {
+  if (!es || es._txReconnecting) return;
+  const maxRetries = opts.maxRetries ?? 5;
+  const baseMs = opts.baseMs ?? 1000;
+  const maxMs = opts.maxMs ?? 30000;
+  es._txReconnecting = true;
+  es._txReconnectAttempt = (es._txReconnectAttempt || 0) + 1;
+  if (es._txReconnectAttempt > maxRetries) {
+    console.warn(`[sse] 放弃重连 (尝试 ${es._txReconnectAttempt} 次)`);
+    es._txReconnecting = false;
+    return;
+  }
+  // 指数退避 + 30% jitter
+  const wait = Math.min(baseMs * Math.pow(2, es._txReconnectAttempt - 1), maxMs);
+  const jitter = wait * (0.7 + Math.random() * 0.6);
+  console.info(`[sse] ${Math.round(jitter)}ms 后重连 (尝试 ${es._txReconnectAttempt}/${maxRetries})`);
+  setTimeout(() => {
+    if (es.readyState === EventSource.CLOSED) {
+      // 已关闭, 让调用方重新 new EventSource
+      es._txReconnecting = false;
+    }
+  }, jitter);
+}
+
 // ────────────────────────────────────────────────────────────
 // B1: window.TX 命名空间 — 把顶层散落的 globals 收到 TX.core / TX.view.* 下
 // 之前 25+ 个 let/const 直接挂 window,容易跟 view 文件冲突 (如 echartsCharts 被声明 2 次)
