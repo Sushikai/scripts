@@ -165,6 +165,27 @@ def _paginated(items: list, total: int, page: int = 1, page_size: int = 50) -> d
 _API_VERSION = "v3-100rounds-batchA"
 
 
+# R-C24 (2026-07-19): log helper — 自动 [trace=X] 前缀
+# 之前 158 个 log 语句很多不带 trace_id,出问题时定位难
+# 新代码: log_with_trace(request).warning("xxx") 自动拼 trace_id
+# 老代码逐步迁移, 不强制
+def _log_with_trace(request: Request):
+    """返回带 trace_id 前缀的 logger wrapper。
+    用法: _log_with_trace(request).warning("用户未登录")
+    输出: [trace=e586e3d091c0] [warning] 用户未登录
+    """
+    tid = getattr(request.state, "trace_id", "-") if request else "-"
+    class _L:
+        def __getattr__(self, name):
+            level = getattr(log, name, None)
+            if not level:
+                raise AttributeError(f"log has no method {name}")
+            def _f(msg, *a, **kw):
+                return level(f"[trace={tid}] {msg}", *a, **kw)
+            return _f
+    return _L()
+
+
 # ───────────────────────────────────────────────────────────
 # Path-param 校验: A 股代码必须 6 位数字, 拼下游 SQL/URL/subprocess 之前必过此关
 # ───────────────────────────────────────────────────────────

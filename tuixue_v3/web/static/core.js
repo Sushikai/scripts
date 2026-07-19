@@ -499,12 +499,9 @@ async function api(path, opts) {
     clearTimeout(_bar); _hideTopProgress();
     // 网络错误 → 更新状态 (不抛到 toast,给 _markOfflineOnApiErr 处理)
     _markOfflineOnApiErr(path, e);
-    // B10: 默认情况下统一 toast 错误,除非 opts.silent=true (需要精细控制时)
-    if (!opts.silent && typeof toast === 'function') {
-      const msg = e.name === 'AbortError'
-        ? `请求超时: ${path}`
-        : `加载失败: ${path}\n${e.message || e}`;
-      toast(msg, 'error', 3500);
+    // R-C21 (2026-07-19): 统一走 txError, 自动选 kind (5xx 红色/4xx 黄色) + console 带 trace_id
+    if (!opts.silent && typeof txError === 'function') {
+      txError(e, path);
     }
     if (e.name === 'AbortError') {
       const t = (opts.timeout || _timeoutFor(path)) / 1000;
@@ -542,16 +539,9 @@ async function api(path, opts) {
     err.code = code;
     err.trace_id = env.trace_id;
     err.status = r.status;
-    if (!opts.silent && typeof toast === 'function') {
-      // code → 用户友好消息
-      const friendly = ({
-        TIMEOUT: '请求超时,请稍后重试',
-        NOT_FOUND: '资源不存在',
-        UPSTREAM_FAIL: '上游数据源不可用',
-        RATE_LIMITED: '请求太频繁,请稍候',
-        UNAUTHORIZED: '请先登录',
-      })[code] || msg;
-      toast(friendly, 'error', 3000);
+    if (!opts.silent && typeof txError === 'function') {
+      // R-C21: 走 txError — 自动 code→友好消息 + 4xx 黄/5xx 红 + console 带 trace_id
+      txError(err, path);
     }
     throw err;
   }
@@ -682,8 +672,73 @@ function _drainToast() {
 function toast(msg, kind = 'info', ms = 2400) {
   if (!toastEl) return;
   if (kind === 'error') ms = Math.max(ms, 3200);  // error 至少 3.2s 让人能读完
+  if (kind === 'warning') ms = Math.max(ms, 2800); // warning 至少 2.8s
   _toastQueue.push({ msg, kind, ms });
   _drainToast();
+}
+
+// R-C21 (2026-07-19): 统一错误展示入口 — 接 Error(code, trace_id) + ctx
+// 所有 view 文件不要再直接 toast(errorMsg, 'error'),走这里
+// 自动: code→友好消息 + 5xx 红色 + 4xx 黄色 + trace_id 写 console
+const _TX_ERROR_FRIENDLY = {
+  TIMEOUT:        '请求超时,请稍后重试',
+  INVALID_INPUT:  '参数无效',
+  NOT_FOUND:      '资源不存在',
+  UNAUTHORIZED:   '请先登录',
+  FORBIDDEN:      '没有权限',
+  UPSTREAM_FAIL:  '上游数据源不可用',
+  RATE_LIMITED:   '请求太频繁,请稍候',
+  INTERNAL:       '服务异常,请稍后重试',
+};
+function txError(err, ctx = '') {
+  // err: Error with .code / .trace_id / .status (from api())
+  const code = err && err.code || 'INTERNAL';
+  const msg = _TX_ERROR_FRIENDLY[code] || (err && err.message) || '未知错误';
+  const fullMsg = ctx ? `${ctx} — ${msg}` : msg;
+  // 5xx 红色, 4xx 黄色, 其它 info
+  const kind = (err && err.status >= 500) ? 'error'
+             : (err && err.status >= 400) ? 'warning'
+             : 'error';
+  toast(fullMsg, kind, kind === 'error' ? 4000 : 3200);
+  // 调试: console 带 trace_id,便于关联 server log
+  if (err && err.trace_id) {
+    console.warn(`[tx-error] ${code} trace_id=${err.trace_id} ctx=${ctx} msg=${msg}`);
+  } else {
+    console.warn(`[tx-error] ${code} ctx=${ctx} msg=${msg}`);
+  }
+  return err;
+}
+
+// R-C23 (2026-07-19): 统一重试退避 — 指数退避 + 限频 + 错误分类
+// 之前 view-stock 私有 _retryWithBackoff, 这里抽到 core.js 全站共享
+// shouldRetry: 根据 err.code / err.status 决定要不要继续重试
+async function txRetry(fn, opts = {}) {
+  const maxRetries = opts.maxRetries ?? 2;
+  const baseMs = opts.baseMs ?? 500;
+  const maxMs = opts.maxMs ?? 5000;
+  const shouldRetry = opts.shouldRetry || ((err) => {
+    // 默认: 网络错 + 5xx + TIMEOUT 才重试, 4xx (用户错) 不重试
+    if (!err) return false;
+    if (err.code === 'TIMEOUT' || err.code === 'UPSTREAM_FAIL' || err.code === 'INTERNAL') return true;
+    if (err.name === 'AbortError') return false;  // 用户主动取消
+    if (err.status >= 500) return true;
+    return false;
+  });
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastErr = e;
+      if (attempt >= maxRetries || !shouldRetry(e)) throw e;
+      // 指数退避: 500ms, 1s, 2s, 4s (cap maxMs)
+      const wait = Math.min(baseMs * Math.pow(2, attempt), maxMs);
+      // 加 ±20% jitter 防止 thundering herd
+      const jitter = wait * (0.8 + Math.random() * 0.4);
+      await new Promise(r => setTimeout(r, jitter));
+    }
+  }
+  throw lastErr;
 }
 
 // R6: 通用工具 — debounce / skeleton
