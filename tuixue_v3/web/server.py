@@ -36,6 +36,17 @@ from sse_starlette.sse import EventSourceResponse
 
 from . import fund_flow, seat_lookup
 from .. import cache_store
+from ._constants import (
+    API_DEFAULT_TIMEOUT, API_HEALTH_TIMEOUT, API_VERSION_TIMEOUT, API_META_TIMEOUT,
+    API_INTEL_TIMEOUT, API_LONG_TIMEOUT, API_AI_TIMEOUT, API_BACKTEST_STREAM_TIMEOUT,
+    CACHE_TTL_SPOT, CACHE_TTL_QUOTE, CACHE_TTL_KLINE, CACHE_TTL_FUND,
+    CACHE_TTL_OVERVIEW, CACHE_TTL_GLOBAL, CACHE_TTL_LAYER, CACHE_TTL_SEAT_BD,
+    CACHE_TTL_INTRADAY, CACHE_TTL_SECTOR, CACHE_TTL_NEWS,
+    RATE_LIMIT_DEFAULT_MAX, RATE_LIMIT_DEFAULT_WINDOW,
+    RATE_LIMIT_AI_MAX, RATE_LIMIT_AI_WINDOW,
+    RATE_LIMIT_BACKTEST_MAX, RATE_LIMIT_BACKTEST_WINDOW,
+    STALE_QUOTE_SEC, STALE_FUND_SEC,
+)
 
 log = logging.getLogger("tuixue_v3.web")
 
@@ -710,24 +721,24 @@ class SingleFlight:
 import threading  # noqa: E402
 
 # 三档 TTL
-_cache_spot    = TTLCache(default_ttl=60.0)    # 全市场股票列表 60s
-_cache_quote   = TTLCache(default_ttl=5.0)     # 实时行情 5s(盘口活)
-_cache_kline   = TTLCache(default_ttl=300.0)   # 日线 5min
-_cache_fund    = TTLCache(default_ttl=60.0)    # 资金流 60s (2026-07-11 30→60,减少 akshare 限频期刷新)
-_cache_overview = TTLCache(default_ttl=15.0)   # 大盘指数 15s
-_cache_global  = TTLCache(default_ttl=60.0)   # 全球情绪 60s(美/韩数据源慢)
-_cache_layer   = TTLCache(default_ttl=600.0)  # AI 层详情 10min (4 路并行 + 规则,纯计算,值得缓存;100 轮压测 P99 16s→2ms)
+_cache_spot    = TTLCache(default_ttl=CACHE_TTL_SPOT)
+_cache_quote   = TTLCache(default_ttl=CACHE_TTL_QUOTE)
+_cache_kline   = TTLCache(default_ttl=CACHE_TTL_KLINE)
+_cache_fund    = TTLCache(default_ttl=CACHE_TTL_FUND)
+_cache_overview = TTLCache(default_ttl=CACHE_TTL_OVERVIEW)
+_cache_global  = TTLCache(default_ttl=CACHE_TTL_GLOBAL)
+_cache_layer   = TTLCache(default_ttl=CACHE_TTL_LAYER)
 # R48 (Batch 5): seat_bd L0 进程内 10min — 跳开 Redis 一跳, 同 worker 内 hot code < 1ms
 # 即使 Redis 跨 4 worker, 进程内命中也覆盖主路径 (同一 worker 处理 stock 页)
-_cache_seat_bd = TTLCache(default_ttl=600.0)  # 8 类席位分类 10min (LHB 当日不变, 跨进程有 Redis 24h 兜底)
+_cache_seat_bd = TTLCache(default_ttl=CACHE_TTL_SEAT_BD)
 # R53 (Batch 6): intraday per-(code,date) L0 60s — 跳 Redis, 同 worker 重复点分时秒开
-_cache_intraday = TTLCache(default_ttl=60.0)  # 单股单日分时 60s (盘中需要新鲜, 但同 worker 重复点击要秒返)
+_cache_intraday = TTLCache(default_ttl=CACHE_TTL_INTRADAY)
 # R-opt-2026-07-19: /core L0 进程内 30s — 跳开 Redis 不可用, 冷启用户二次访问同 worker 秒返
 _cache_core    = TTLCache(default_ttl=30.0)   # /core 完整响应 (per-worker)
 # R61 (Batch 7): sector per-code L0 1h — 板块分类极少变 (sw/csrc/cics/gics 字典级别稳定)
-_cache_sector = TTLCache(default_ttl=3600.0)
+_cache_sector = TTLCache(default_ttl=CACHE_TTL_SECTOR)
 # R62 (Batch 7): news L0 5min — 同 worker 重复刷新闻列表秒开 (新闻数据已用 SQLite 持久化)
-_cache_news = TTLCache(default_ttl=300.0)
+_cache_news = TTLCache(default_ttl=CACHE_TTL_NEWS)
 
 # 实时抓取 — 跟踪最近 1h 访问过的 code,后台 poller 用来滚动预热 quote
 # (2026-07-11 进页面 ?fresh=1 + 10s 轮询 配合用)
