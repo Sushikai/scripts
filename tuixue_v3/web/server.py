@@ -269,19 +269,56 @@ async def _http_exception_handler(request, exc):
 # R-A3 (2026-07-19): trace_id 中间件 — 每请求必生成,头部 X-Trace-Id 返回,
 # 之前只有异常 handler 读 request.state.trace_id,但从未注入,log 都打 "-"
 # R-B16 (2026-07-19): + X-API-Version 头 — 协议版本
+# R-I82 (2026-07-19): 结构化 access log — JSON 一行/请求, 含 trace/method/path/status/latency_ms
 @app.middleware("http")
 async def _trace_id_middleware(request: Request, call_next):
-    """每请求分配 8 字节 trace_id (hex=16字符), 注入 state + 响应头, 便于日志/前端调试"""
+    """每请求分配 8 字节 trace_id (hex=16字符), 注入 state + 响应头, 便于日志/前端调试
+    写一行结构化 JSON access log (路径/状态/延迟/IP) 到 _ACCESS_LOG_PATH
+    """
     incoming = (request.headers.get("x-trace-id") or "").strip()
     if incoming and len(incoming) <= 32:
         tid = incoming
     else:
         tid = uuid.uuid4().hex[:16]
     request.state.trace_id = tid
+    t0 = time.monotonic()
     resp = await call_next(request)
+    elapsed_ms = (time.monotonic() - t0) * 1000
     resp.headers["X-Trace-Id"] = tid
     resp.headers["X-API-Version"] = _API_VERSION
+    # R-I82 结构化 access log (仅 /api/* 写入, 排除静态资源)
+    if request.url.path.startswith("/api/"):
+        try:
+            client_ip = request.client.host if request.client else "-"
+            ua = request.headers.get("user-agent", "-")[:80]
+            log_line = json.dumps({
+                "t": _now_iso(),
+                "trace_id": tid,
+                "method": request.method,
+                "path": request.url.path,
+                "status": resp.status_code,
+                "latency_ms": round(elapsed_ms, 1),
+                "ip": client_ip,
+                "ua": ua,
+            }, ensure_ascii=False)
+            with _ACCESS_LOG_LOCK:
+                with open(_ACCESS_LOG_PATH, "a", encoding="utf-8") as f:
+                    f.write(log_line + "\n")
+                    # 10MB cap, 超了 rotate
+                    if f.tell() > 10 * 1024 * 1024:
+                        try:
+                            f.close()
+                            os.rename(_ACCESS_LOG_PATH, _ACCESS_LOG_PATH + ".old")
+                        except Exception:
+                            pass
+        except Exception:
+            pass  # 静默失败 — 不影响主请求
     return resp
+
+
+# R-I82 (2026-07-19): access log 路径 + lock
+_ACCESS_LOG_PATH = os.environ.get("TUIXUE_ACCESS_LOG", str(Path(__file__).parent.parent / "access.log"))
+_ACCESS_LOG_LOCK = threading.Lock()
 
 # ───────────────────────────────────────────────────────────
 # R51 (2026-07-19): 请求超时中间件 — 任一端点超过 25s 返回 503
@@ -1498,6 +1535,29 @@ async def meta_perf():
         "version": _APP_VERSION,
     }
     return _envelope_ok(data)
+
+
+@app.get("/api/_meta/access_log_tail")
+async def meta_access_log_tail(lines: int = Query(50, ge=1, le=1000)):
+    """R-I82 (2026-07-19): 读 access log 末尾 N 行 — 给前端 debug 页用。
+    返回每行 JSON 解析后的 dict, 最多 1000 行。
+    """
+    items = []
+    try:
+        with _ACCESS_LOG_LOCK:
+            with open(_ACCESS_LOG_PATH, "r", encoding="utf-8") as f:
+                # 简单 tail: 读全部 → 取最后 N 行 (文件 < 10MB)
+                all_lines = f.readlines()
+        for line in all_lines[-lines:]:
+            line = line.strip()
+            if not line: continue
+            try:
+                items.append(json.loads(line))
+            except Exception:
+                items.append({"raw": line})
+    except FileNotFoundError:
+        items = []
+    return _envelope_ok({"items": items, "count": len(items)})
 
 
 @app.post("/api/_meta/cache_clear")
