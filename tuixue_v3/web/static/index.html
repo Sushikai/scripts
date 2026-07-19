@@ -2661,17 +2661,20 @@
           }
 
           // R50: 行 hover 显示通过/失败规则明细 (高亮 cell)
-          $('#scr-tbody').addEventListener('mouseover', e => {
-            const tr = e.target.closest('tr');
-            if (!tr) return;
-            // (可视反馈: hover 行时让其 fail 列更亮)
-            tr.classList.add('hovered');
-          });
-          $('#scr-tbody').addEventListener('mouseout', e => {
-            const tr = e.target.closest('tr');
-            if (!tr) return;
-            tr.classList.remove('hovered');
-          });
+          // 注: 现在 DOM 已迁 #scr-tbody-{baseline,v2}, 旧选择器返回 null → 加 guard
+          const _scrTB1 = $('#scr-tbody');
+          if (_scrTB1) {
+            _scrTB1.addEventListener('mouseover', e => {
+              const tr = e.target.closest('tr');
+              if (!tr) return;
+              tr.classList.add('hovered');
+            });
+            _scrTB1.addEventListener('mouseout', e => {
+              const tr = e.target.closest('tr');
+              if (!tr) return;
+              tr.classList.remove('hovered');
+            });
+          }
 
           // 5. 切 tab 暂停
           document.addEventListener('visibilitychange', () => {
