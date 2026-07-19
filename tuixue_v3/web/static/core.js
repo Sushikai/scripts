@@ -2,6 +2,44 @@
  * v2.0 — 信封 / 并发 / SSE / 心法 / AI
  */
 
+// R-F55 (2026-07-19): requestIdleCallback 包装 — 跨浏览器 fallback
+// 之前用 setTimeout(fn, 0) 不够 idle, 长任务后立即跑抢主线程
+// txIdleCallback(fn, {timeout}) 在浏览器空闲时跑, fallback 到 setTimeout
+function txIdleCallback(fn, opts = {}) {
+  const timeout = opts.timeout || 1000;
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(fn, { timeout });
+  }
+  return setTimeout(fn, Math.min(timeout, 50));
+}
+function txCancelIdleCallback(id) {
+  if (typeof window.cancelIdleCallback === 'function') {
+    return window.cancelIdleCallback(id);
+  }
+  return clearTimeout(id);
+}
+
+// R-F57 (2026-07-19): 长任务切片 — chunkLongTask(items, fn, chunkMs=5)
+// 把大循环切到 5ms 一个 yield, 避免主线程阻塞 >50ms
+// 用法: for await (const batch of txChunk(items, 100)) for (const item of batch) await fn(item)
+async function* txChunk(items, chunkSize = 50) {
+  for (let i = 0; i < items.length; i += chunkSize) {
+    yield items.slice(i, i + chunkSize);
+    // 每个 chunk 后让出主线程
+    await new Promise(r => setTimeout(r, 0));
+  }
+}
+
+// R-F58 (2026-07-19): performance 监测 helper
+function txNow() { return performance.now(); }
+function txMark(name) {
+  try { performance.mark(name); } catch {}
+}
+function txMeasure(name, startMark, endMark) {
+  try { performance.measure(name, startMark, endMark); return performance.getEntriesByName(name)[0]?.duration || 0; }
+  catch { return 0; }
+}
+
 // ────────────────────────────────────────────────────────────
 // B1: window.TX 命名空间 — 把顶层散落的 globals 收到 TX.core / TX.view.* 下
 // 之前 25+ 个 let/const 直接挂 window,容易跟 view 文件冲突 (如 echartsCharts 被声明 2 次)
