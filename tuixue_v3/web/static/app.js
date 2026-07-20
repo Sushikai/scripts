@@ -1022,7 +1022,7 @@ function _routeFromHash() {
     arg = _sp.get('code');
   }
   if (!name) return showView('dash', { push: false });
-  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker'];
+  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker','sector'];
   if (!valid.includes(name)) return showView('dash', { push: false });
   if (name === 'stock' && arg) {
     const code = arg.match(/\d{6}/)?.[0];
@@ -1733,8 +1733,9 @@ function _toHistShape(arr) {
 async function _loadHist() {
   // 主路径:服务端。失败时降级 localStorage。返回时也写一份 localStorage 兜底。
   try {
-    const env = await api(`/api/stock_history?limit=${_STOCK_HIST_MAX}`);
-    const rows = _toHistShape((env.data || {}).history || []);
+    // R-fix-2026-07-20: api() 直接返回 data (env 已经被剥掉)
+    const data = await api(`/api/stock_history?limit=${_STOCK_HIST_MAX}`);
+    const rows = _toHistShape((data || {}).history || []);
     if (rows.length) {
       try { localStorage.setItem(_STOCK_HIST_KEY, JSON.stringify(rows)); } catch {}
     }
@@ -2268,12 +2269,13 @@ async function _ensureTradeDates(minLimit = 60) {
   const wantLimit = Math.min(Math.max(minLimit, _tradeDatesLimit, 60), _TRADE_DATES_LIMIT_MAX);
   _tradeDatesLoading = (async () => {
     try {
-      const env = await api(`/api/trade_dates?limit=${wantLimit}`);
+      // R-fix-2026-07-20: api() 直接返回 data (envelope 已被剥)
+      const data = await api(`/api/trade_dates?limit=${wantLimit}`);
       // 用 past_dates 保证不混入未来日期(避免 prev/next 误入未来)
-      _tradeDates = env?.past_dates || env?.dates || [];
+      _tradeDates = data?.past_dates || data?.dates || [];
       _tradeDatesSet = new Set(_tradeDates);
       _tradeDatesLimit = wantLimit;
-      if (env?.last_trade_date) _lastTradeDate = env.last_trade_date;
+      if (data?.last_trade_date) _lastTradeDate = data.last_trade_date;
       _tradeDatesLoaded = true;
     } catch (e) {
       console.warn('[quickbar] trade_dates 拉取失败,降级为工作日近似', e);
@@ -4270,8 +4272,183 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
 // 此处不再重复绑定,避免双 handler 叠加 + 当前 tab 状态被反复 toggle。
 
 // ────────────────────────────────────────────
-// OPTIMIZE
+// OPTIMIZE — 1000 轮迭代 (随机搜索 + walk-forward) 持久化 + 进度 + 最佳参数 + 策略
 // ────────────────────────────────────────────
+// 时间格式化
+function _optFmtSec(s) {
+  if (s == null || s < 0) return '—';
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.round(s/60)}min`;
+  return `${(s/3600).toFixed(1)}h`;
+}
+function _optFmtPct(v, color) {
+  if (v == null) return '—';
+  const cls = v >= 0 ? 'up' : 'down';
+  const s = `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+  return color ? `<span class="${cls}">${s}</span>` : s;
+}
+
+// 渲染最佳参数 + 交易策略 + 可行性分析
+function _optRenderBest(best) {
+  if (!best || !best.params) {
+    $('#opt-best-card').hidden = true;
+    $('#opt-strategy-card').hidden = true;
+    $('#opt-feasibility-card').hidden = true;
+    return;
+  }
+  const s = best.summary || {};
+  const params = best.params;
+  $('#opt-best-card').hidden = false;
+  $('#opt-best-score').textContent = best.score != null ? best.score.toFixed(2) : '—';
+  $('#opt-best-cum').innerHTML = _optFmtPct(s.cum_return_pct, true);
+  $('#opt-best-trades').textContent = s.trades ?? '—';
+  $('#opt-best-wr').textContent = s.win_rate_pct != null ? `${s.win_rate_pct.toFixed(1)}%` : '—';
+  $('#opt-best-pf').textContent = s.profit_factor != null ? s.profit_factor.toFixed(2) : '—';
+  $('#opt-best-dd').innerHTML = _optFmtPct(-Math.abs(s.max_drawdown_pct || 0), true);
+  const ordered = {
+    top_n: params.top_n, hold_days: params.hold_days,
+    breadth_min: params.breadth_min, breadth_min_soft: params.breadth_min_soft,
+    sector_hot_topn: params.sector_hot_topn, sector_inflow_topn: params.sector_inflow_topn,
+    late_high_discount: params.late_high_discount,
+    require_vwap_strict: params.require_vwap_strict,
+    regime_adaptive: params.regime_adaptive,
+  };
+  $('#opt-best-params-json').textContent = JSON.stringify(ordered, null, 2);
+
+  const holds = params.hold_days || 2;
+  const topn = params.top_n || 4;
+  const bm = params.breadth_min || 0;
+  const bms = params.breadth_min_soft || 0;
+  const sht = params.sector_hot_topn || 0;
+  const lhd = params.late_high_discount ?? 1.0;
+  const vwap = params.require_vwap_strict ? '严格' : '软通';
+  let strategy = `<b>1. 入场窗口</b>：尾盘 14:30–14:50 选股,按当日 5min K 翻红 + 量能综合打分;`;
+  strategy += `每日 Top ${topn} 只 (按打分排序),不重复持仓 (尾盘战法本质是 T+1 短线)。<br>`;
+  strategy += `<b>2. 持有期</b>：${holds === 2 ? 'T+1 早盘冲高即出 (主推)' : `T+${holds-1} 持有`},回撤超 ${(Math.abs(s.max_drawdown_pct||0)*0.3).toFixed(1)}% 强制止损。<br>`;
+  strategy += `<b>3. 大盘红线</b>：`;
+  if (bm > 0 && bms > 0) {
+    strategy += `全 A 红盘 < <b>${bm}</b> 只 → 当日 <b style="color:#f4a4c4">硬空仓</b> (不下单);`;
+    strategy += `红盘介于 ${bm}-${bms} → 只在 <b>前 ${sht} 热门板块</b> 里选股 (规避弱市风险)。`;
+  } else if (bm > 0) {
+    strategy += `全 A 红盘 < <b>${bm}</b> 只 → 当日 <b style="color:#f4a4c4">硬空仓</b>;否则正常选股。`;
+  } else {
+    strategy += `无大盘过滤 — 全市场可参与。`;
+  }
+  strategy += `<br><b>4. 板块聚焦</b>：仅做资金净流入前 ${sht} 的热门板块里的票 (主线上持股)。<br>`;
+  strategy += `<b>5. 高位折算</b>：满格 (尾盘拉到水上即满) × ${lhd.toFixed(1)} 折 — 留 ${((1-lhd)*100).toFixed(0)}% 余量给次日高开不及预期。<br>`;
+  strategy += `<b>6. VWAP 过滤</b>：${vwap} — ` + (vwap === '严格' ? '要求个股 close>VWAP 才入选 (信号更纯,样本更少)。' : 'VWAP 数据不全时软通,优先保证覆盖率。') + `<br>`;
+  strategy += `<b>7. 仓位</b>：每只 1/资金×${topn} (等权),单笔不超过本金 20%。`;
+  $('#opt-strategy-text').innerHTML = strategy;
+  $('#opt-strategy-card').hidden = false;
+
+  const cum = s.cum_return_pct || 0;
+  const wr = s.win_rate_pct || 0;
+  const pf = s.profit_factor || 1;
+  const dd = Math.abs(s.max_drawdown_pct || 0);
+  const trades = s.trades || 0;
+  const months = 6;
+  const monthly = (Math.pow(1 + cum/100, 1/months) - 1) * 100;
+  const expPerTrade = trades > 0 ? (cum / trades) : 0;
+  const sharpe = dd > 0 ? (cum / dd) : 0;
+
+  let feas = '';
+  let riskLevel, riskColor;
+  if (dd > 25) { riskLevel = '高风险'; riskColor = '#f4a4c4'; }
+  else if (dd > 15) { riskLevel = '中等'; riskColor = '#f4d484'; }
+  else { riskLevel = '低风险'; riskColor = '#84f4a8'; }
+  feas += `<b>1. 收益水平</b>：半年累计 <b style="color:#c084f4">${cum.toFixed(1)}%</b>,月化约 <b>${monthly.toFixed(1)}%</b>;`;
+  feas += `总交易 <b>${trades}</b> 笔,笔均 <b>${expPerTrade.toFixed(2)}%</b>。<br>`;
+  feas += `<b>2. 胜率</b>：<b>${wr.toFixed(1)}%</b> ${wr >= 60 ? '✅ 优秀 (>60%)' : wr >= 50 ? '✅ 及格' : '⚠ 偏低 (<50%)'};`;
+  feas += `盈亏比 <b>${pf.toFixed(2)}</b> ${pf >= 1.8 ? '✅ 优秀 (>1.8)' : pf >= 1.3 ? '✅ 健康' : '⚠ 偏低 (<1.3)'}。<br>`;
+  feas += `<b>3. 风险</b>：最大回撤 <b>${dd.toFixed(1)}%</b> → 风险等级 <b style="color:${riskColor}">${riskLevel}</b>;`;
+  feas += `收益/回撤比 <b>${sharpe.toFixed(2)}</b> ${sharpe >= 2.5 ? '✅ 优秀 (>2.5)' : sharpe >= 1.5 ? '✅ 健康' : '⚠ 偏低'}。<br>`;
+  feas += `<b>4. 实盘可行性</b>：<br>`;
+  feas += `&nbsp;&nbsp;• <b>执行门槛</b>：${topn} 只 × 14:30 选股 — 需盯盘 30 分钟<br>`;
+  feas += `&nbsp;&nbsp;• <b>资金门槛</b>：≥ 5 万元 (单笔仓位 20% × ${topn} 只 = 1万)<br>`;
+  feas += `&nbsp;&nbsp;• <b>数据要求</b>：实时板块热度 + 5min K 线翻红<br>`;
+  feas += `&nbsp;&nbsp;• <b>回测-实盘偏差</b>：late_high ${lhd.toFixed(1)} 折已计入滑点,±${(100-Math.round(lhd*100))}%<br>`;
+  feas += `<b>5. 适用场景</b>：${wr >= 55 && pf >= 1.5 ? '✅ 推荐实盘 (风险调整后收益为正)' : '⚠ 建议先 paper trading 30 天验证'}<br>`;
+  feas += `<b>6. 失效信号</b>：若实盘胜率连续 20 笔 < 45% 或 月回撤 > ${(dd*1.5).toFixed(0)}%,立即停止该策略。`;
+  $('#opt-feasibility-text').innerHTML = feas;
+  $('#opt-feasibility-card').hidden = false;
+}
+
+// 轮询 + 渲染
+let _optPollTimer = null;
+async function _optRefreshState() {
+  try {
+    // api() 已剥 envelope, 直接返 {state, best}
+    const r = await api('/api/optimize/state');
+    const state = r?.state || { status: 'idle' };
+    const best = r?.best || null;
+    const iter = state.iteration || 0;
+    const maxIter = state.max_iterations || 0;
+    const pct = maxIter > 0 ? Math.min(100, Math.round(iter / maxIter * 100)) : 0;
+    const fill = $('#opt-progress-fill');
+    if (fill) fill.style.width = `${pct}%`;
+    let txt;
+    if (state.status === 'running') {
+      txt = `R${iter}/${maxIter} · best_score=${(state.best_score != null ? state.best_score.toFixed(2) : '?')} · 进行中`;
+    } else if (state.status === 'done') {
+      txt = `✓ 完成 · ${iter}/${maxIter} 轮 · best=${(state.best_score != null ? state.best_score.toFixed(2) : '?')}`;
+    } else if (state.status === 'stopped') {
+      txt = `⏹ 已停止 · ${iter}/${maxIter} 轮`;
+    } else if (state.status === 'error') {
+      txt = `✗ 错误: ${state.error || '?'}`;
+    } else {
+      txt = '未运行';
+    }
+    const txtEl = $('#opt-progress-text');
+    if (txtEl) txtEl.textContent = txt;
+    const etaEl = $('#opt-eta');
+    if (etaEl) {
+      etaEl.textContent = state.eta_sec != null ? `ETA ${_optFmtSec(state.eta_sec)}` : (state.status === 'done' ? '已完成' : '—');
+    }
+    const btn = $('#run-optimize');
+    const stopBtn = $('#stop-optimize');
+    if (btn) {
+      btn.disabled = state.status === 'running';
+      const sp = btn.querySelector('span');
+      if (sp) sp.textContent = state.status === 'running' ? '调优中…' : '开始调优';
+    }
+    if (stopBtn) stopBtn.hidden = state.status !== 'running';
+    _optRenderBest(best);
+    return r;
+  } catch (e) {
+    const txtEl = $('#opt-progress-text');
+    if (txtEl) txtEl.textContent = `加载失败: ${e.message}`;
+    return null;
+  }
+}
+function _optStartPolling() {
+  if (_optPollTimer) return;
+  _optRefreshState();
+  _optPollTimer = setInterval(_optRefreshState, 2000);
+}
+function _optStopPolling() {
+  if (_optPollTimer) { clearInterval(_optPollTimer); _optPollTimer = null; }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // _routeFromHash 在 app.js 内用 lexical showView (function decl), 靠 wrap window.showView 拦不到
+  // 改用 MutationObserver: 当 [data-view] 的 hidden 翻转 → 检查是不是 optimize
+  const _viewObserver = new MutationObserver((muts) => {
+    for (const m of muts) {
+      const v = m.target;
+      if (v?.dataset?.view === 'optimize') {
+        if (!v.hidden) _optStartPolling();
+        else _optStopPolling();
+      }
+    }
+  });
+  document.querySelectorAll('.view').forEach(v => {
+    _viewObserver.observe(v, { attributes: true, attributeFilter: ['hidden'] });
+  });
+  // 首次进入 (hash 直接 #optimize)
+  const cur = document.querySelector('[data-view="optimize"]');
+  if (cur && !cur.hidden) _optStartPolling();
+});
+
 async function loadReports() {
   try {
     const data = await api('/api/reports');
@@ -4294,52 +4471,36 @@ async function loadReports() {
 
 $('#run-optimize')?.addEventListener('click', async () => {
   const btn = $('#run-optimize');
+  const maxIter = parseInt($('#optim-max-iter')?.value || '50', 10);
   btn.disabled = true;
-  btn.querySelector('span').textContent = '调优中…';
-  $('#optimize-status').textContent = '启动 SSE 进度流 …';
-  toast('开始参数调优，进度会实时显示', 'info', 3000);
-  _showLoading('参数调优 网格扫描');
-  const es = new EventSource('/api/stream/optimize');
-  es.addEventListener('progress', (ev) => {
-    try {
-      const p = JSON.parse(ev.data);
-      if (p.phase === 'iter_done') {
-        $('#optimize-status').textContent =
-          `iter ${p.iter}/${p.total} 完成 · trials=${p.trials} · best=${p.best_score?.toFixed(2) || '?'} · ${p.elapsed_sec}s`;
-      } else if (p.phase === 'new_best') {
-        $('#optimize-status').textContent =
-          `⭐ iter ${p.iter} 新最佳 ${p.key}=${p.value} score=${p.score?.toFixed(2)}`;
-      } else if (p.phase === 'iter_start') {
-        $('#optimize-status').textContent = `iter ${p.iter}/${p.total} 进行中 ...`;
-      } else if (p.phase === 'done') {
-        $('#optimize-status').textContent =
-          `完成 · trials=${p.total_trials} · best=${p.best_score?.toFixed(2)}`;
-      }
-    } catch {}
-  });
-  es.addEventListener('done', (ev) => {
-    try {
-      const r = JSON.parse(ev.data);
-      $('#optimize-status').textContent = `完成 · 用时 ${r.elapsed_sec || '?'}s · trials=${r.total_trials || '?'}`;
-      toast('调优完成，已写入报告目录', 'success');
-      loadReports();
-    } catch {
-      $('#optimize-status').textContent = '完成';
-      loadReports();
+  btn.querySelector('span').textContent = '启动中…';
+  try {
+    const r = await api('/api/optimize/start', {
+      method: 'POST',
+      body: JSON.stringify({ max_iterations: maxIter }),
+    });
+    if (r.error) {
+      toast(r.error, 3000);
+      btn.disabled = false;
+      btn.querySelector('span').textContent = '开始调优';
+      return;
     }
-    es.close();
-    _hideLoading();
+    toast(`开始 ${maxIter} 轮参数调优`, 'info', 2000);
+    _optStartPolling();
+  } catch (e) {
+    toast(`启动失败: ${e.message}`, 3000);
     btn.disabled = false;
     btn.querySelector('span').textContent = '开始调优';
-  });
-  es.onerror = () => {
-    // EventSource 不会自动重连 (server 不重试); 只显示错误
-    $('#optimize-status').textContent = 'SSE 连接中断（可重试）';
-    es.close();
-    _hideLoading();
-    btn.disabled = false;
-    btn.querySelector('span').textContent = '开始调优';
-  };
+  }
+});
+
+$('#stop-optimize')?.addEventListener('click', async () => {
+  try {
+    await api('/api/optimize/stop', { method: 'POST' });
+    toast('已发送停止信号', 1500);
+  } catch (e) {
+    toast(`停止失败: ${e.message}`, 2000);
+  }
 });
 
 // ────────────────────────────────────────────
@@ -4764,7 +4925,17 @@ $('#dragons-refresh')?.addEventListener('click', () => loadDragons(true));
 var _origShowView = showView;
 showView = function(name, ctx) {
   _origShowView(name);
-  if (name === 'dragons' && !_dragonsLoaded) loadDragons(false);
+  if (name === 'dragons') {
+    // R-fix-2026-07-20: 同样 race — view-other.js 还没 load 完毕时调 loadDragons 会抛
+    const _dragonsKickoff = () => {
+      if (typeof loadDragons !== 'function') return false;
+      if (!_dragonsLoaded) loadDragons(false);
+      return true;
+    };
+    if (!_dragonsKickoff()) {
+      window.addEventListener('DOMContentLoaded', _dragonsKickoff, { once: true });
+    }
+  }
   if (name === 'weekly_bull') {
     const h = (location.hash || '');
     const m = h.match(/[?&]pattern=([^&]+)/);
@@ -4774,18 +4945,36 @@ showView = function(name, ctx) {
         window._wbFilterOverride = pat;
       }
     }
-    if (!window._wbLoaded || !window._wbLoaded()) {
-      loadWeeklyBull(false);
-    } else if (window._wbFilterOverride && typeof renderWeeklyBull === 'function') {
-      // 数据已缓存: 直接应用 override,不等异步加载路径
-      _wbFilter = window._wbFilterOverride;
-      window._wbFilterOverride = null;
-      renderWeeklyBull();
+    // R-fix-2026-07-20: view-weekly_bull.js 还在 defer load 中, 需等 DOMContentLoaded
+    // 否则 _routeFromHash 同步调用时 window.loadWeeklyBull 还不存在 → TypeError
+    const _wbKickoff = () => {
+      if (typeof window.loadWeeklyBull !== 'function') return false;
+      if (!window._wbLoaded || !window._wbLoaded()) {
+        window.loadWeeklyBull(false);
+      } else if (window._wbFilterOverride && typeof renderWeeklyBull === 'function') {
+        _wbFilter = window._wbFilterOverride;
+        window._wbFilterOverride = null;
+        renderWeeklyBull();
+      }
+      return true;
+    };
+    if (!_wbKickoff()) {
+      // 等 view 脚本就绪再重试一次
+      window.addEventListener('DOMContentLoaded', _wbKickoff, { once: true });
     }
   }
-  if (name === 'strategy_picker' && (!window._spLoaded || !window._spLoaded())) {
-    // 2026-07-19: 策略选股页 — 切换时自动加载 (默认 or/1 配置, 用户可在 UI 里改)
-    loadStrategyPicker(false);
+  if (name === 'strategy_picker') {
+    // R-fix-2026-07-20: 同样 race — view-strategy_picker.js 还没 load 完毕
+    const _spKickoff = () => {
+      if (typeof window.loadStrategyPicker !== 'function') return false;
+      if (!window._spLoaded || !window._spLoaded()) {
+        window.loadStrategyPicker(false);
+      }
+      return true;
+    };
+    if (!_spKickoff()) {
+      window.addEventListener('DOMContentLoaded', _spKickoff, { once: true });
+    }
   }
   if (name === 'review') _reviewOnViewEnter();
   if (name === 'watchlist') _watchlistOnViewEnter();
@@ -5215,7 +5404,7 @@ async function loadNewsList(forceRefresh) {
   try {
     const data = forceRefresh
       ? await (await fetch('/api/news/refresh', { method: 'POST' })).json().then(d => d.data || {})
-      : (await api('/api/news')).data || {};
+      : (await api('/api/news')) || {};
     newsCache = data;
     const fa = data.fetched_at ? new Date(data.fetched_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
     const aa = data.analyzed_at ? new Date(data.analyzed_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';

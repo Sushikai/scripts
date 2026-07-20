@@ -10,24 +10,30 @@
 //
 // 注意:不要在这个文件里 import 任何外部模块 — SW 是 top-level, fetch handler 会捕获所有未命中路径
 
-// 2026-07-18: bump 到 v80 — 10 轮压测 ship: RAF 竞态修 (闭包捕获) + /stream 3 源 fallback (TTLCache → K.QUOTE → K.STOCK_FULL)
-// 2026-07-18: bump 到 v86 — R56 退场模型 9套→6套 (trail_80/50/20+water_avg+force_10/close) + 仓位换算 KPI + baseline↔WR1000 自动对比 + 退场模型解释区块
-// 2026-07-18: bump 到 v88 — R57+ late_high_discount 折算开关 (1.0/0.7/0.5 三档按钮) + 透传 late_high_discount/require_vwap_strict 到后端
-// 2026-07-18: bump 到 v89 — 40 轮流畅度优化: poll+loadStockDetail 去 ?_fresh=1 (3s→100ms) + animateNumber 阈值 0.1% refVal + text-shadow→transform + transition:all→具体属性 + ECharts animation:false + 后台 idle prefetch + 分时/K 线右轴末值标签
-// 2026-07-18: bump 到 v90 — 删 LAN 扫码直进 (前端 #tunnel-lan-card + 4 个 handler + 后端 tunnel/status/push 响应去掉 lan_ip/lan 字段)
-// 2026-07-18: bump 到 v92 — 前端界面 50 轮巡检 ship: echarts 全局预加载 (修 "echarts is not defined") + 复盘子表 thead 补充 + URL ?theme= 参数解析
-// 2026-07-18: bump 到 v93 — 100 轮系统维护 ship batch 1 (R1-R8 race 条件): AbortController 切股取消 + SSE 1s 防 reconnect 风暴 + K线/loadStockDetail/loadIntraDay inflight dedup + ECharts drawToken 防 dispose 抢图 + _patchStockRealtime stale-code 守卫 + view-scoped timer registry 离开自动 clearTimeout
-// 2026-07-18: bump 到 v94 — 100 轮系统维护 ship batch 2 (R11-R16 内存泄漏): sessionStorage stock LRU 80 槽位 + _stockAuxCache 切股清空 + 离开 view 清 inflight dedup promise + ECharts dispose 全图 + animateNumber RAF 全局追踪 + cancel 旧动画
-// 2026-07-18: bump 到 v96 — 100 轮 Batch 1 R1: /api/stock/{code}/full SW 单独 5min 长缓存 (server-side Redis 5s 已是新鲜度门, SW 防冷启动穿透 ~5ms 而非 ~20ms)
-// 2026-07-18: bump 到 v97 — 100 轮系统维护 ship batch 3 (R21-R90 网络/渲染/实时/监控): 离线即抛错 (无 retry) + 请求合并 200ms + 限流 _rateGate + 交易时段自适应轮询 10s/60s + 长任务 PerformanceObserver + 内存探针 + 页面隐藏 perf 摘要 + prefers-reduced-motion 全 view 覆盖
-// 2026-07-18: bump 到 v98 — 100 轮 Batch 2 R11+R14+R16: idle prefetch 合并 watchlist 优先 + review 页 watchlist 加载完触发 + app boot 5s 后触发
-// 2026-07-18: bump 到 v99 — 100 轮 Batch 3 R21+R23: /api/stock/{code}/core 1.5s 强超时, 只返 quote+name+kline(30), 让首屏 < 200ms 出价, /full 后台渐进 patch
-// 2026-07-18: bump 到 v100 — 100 轮系统维护 ship 终极 (R92-R98 收尾): 离线条幅 + 全局 unhandledrejection 抑制 spam toast + SW cache.put 去重 (避免相同 query URL 重复写)
-// 2026-07-18: bump 到 v101 — 分时图最高价遮挡修复: 顶部用 actual max (不用 p98 百分位) + 顶部 padding ×1.5 + clip:false 让 spike 到日内最高的 tick 不被裁
-// 2026-07-18: bump 到 v103 — 尾盘战法回测 bt-p checkbox 默认 checked 被深链 router 误清, 无 periods URL param 时强制 reset 所有 cb.checked=false → btStart 返回"未勾选周期". 改: 仅 URL 显式 periods 时才覆盖
-// 2026-07-18: bump 到 v104 — 交易明细表 btRenderTrades + #bt-trades-host: 回测后显示具体买卖记录(代码/名称/日期/价格/各退场收益/触发)
-// 2026-07-19: bump 到 v109 — 个股页加 3 个买点策略卡 (周线擒牛 + 1/3 回升位 + 5日线 5 原则)
-const CACHE = 'tuixue-v3-shell-v109';
+// v80→v100 (2026-07-18): 竞态修/退场模型/流畅度/内存泄漏/网络/渲染/监控/离线/cache 去重
+// v111→v130 (2026-07-19): 尾盘回测 6 项 ship + 回测独立 SQLite + 周线擒牛重写 + 冷启 3 优化
+// v130: 5日线5原则 #3-#5 + 周线擒牛激进突破 + ma5_principles API
+// v132 (2026-07-19): asyncio.gather return_exceptions + CSS 768px/979px 合并 + ai-review SSE 离开关闭 +
+//                     server 预热并行化 + 重复 daily dict I/O 删除 + CSS brace 修复 + _warm_core_local 并行
+// v135 (2026-07-19): 回测页双策略并排 (bt-trade-group 改横向 grid 复用 .scr-dual-wrap 模式;
+//                    2 策略左右各半屏, <1024px 上下堆叠; 3+ 防御性退化为 stack)
+// v137 (2026-07-19): 双策略说明卡 (尾盘战法页 .scr-strategy-legend + 回测页 .bt-strategy-legend,
+//                    共用 token, 2 列 grid 桌面/1 列移动)
+// v138 (2026-07-19): K线图 50 issues fix — KDJ 80/20 series; ma() null; loadKline stale-code guard + Map inflight;
+//                    chart.off/on; _waitKline timeout; BOLL null; RSV edge; 期高/期低 high/low; _labelBg 跟随主题
+// v139 (2026-07-20): 策略整合 — 只留 ⭐ 优化策略, 删 7 个 bt 预设 + 3 个 bt-tab + btRenderCompare;
+//                    优化策略按钮 compare_to_baseline 始终 true (修"第二种策略只有表头" bug);
+//                    _btRenderThreeWay → _btRenderDual 双策略对比; WIN_RATE_1000 全清; 颜色 #d8cdb4 / #c084f4 不变
+// v140 (2026-07-20): 修 renderStockDetail ReferenceError: streakHost is not defined (view-stock.js:1502)
+//                    — 函数开头补 const streakHost = $('#q-streak-host');
+// v141 (2026-07-20): 多页数据加载异常修复
+//                    1) view-stock.js renderStockDetail streakHost undefined
+//                    2) view-weekly_bull.js loadWeeklyBull: env.ok 检查 — api() 已剥 envelope, env 永远是 data
+//                    3) app.js _loadHist / _loadTradeDates / loadNews: 同上 envelope 取错
+//                    4) app.js _routeFromHash valid 列表加 'sector'
+//                    5) multi_source_fetchers.fetch_hot_sectors EM 列名变更适配 (今日涨跌幅 / 今日主力净流入-净额)
+//                    6) server.py api_dashboard_signal: 加 SingleFlight + timeout 18s→25s 修并发 ABORTED
+const CACHE = 'tuixue-v3-shell-v142';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -36,6 +42,8 @@ const PRECACHE = [
   '/static/view-stock.js',
   '/static/view-other.js',
   '/static/view-all-stocks.js',
+  '/static/view-weekly_bull.js',
+  '/static/view-strategy_picker.js',
   '/static/style.css',
   '/static/index.html',
   '/static/sw.js',
@@ -56,6 +64,7 @@ const _CACHEABLE_API_PREFIXES = [
 // SW 这层只防冷启动穿透 (5s 之后重访直接走 SW, ~5ms 而非 ~20ms)
 const _LONG_CACHE_API_PATTERNS = [
   /^\/api\/stock\/[^/]+\/full(\?.*)?$/,
+  /^\/api\/stock\/[^/]+\/core(\?.*)?$/,
 ];
 const _LONG_CACHE_API_TTL_MS = 300_000;  // 5min
 // API 缓存新鲜度: 60s 内直接用 cache,超过则后台 revalidate

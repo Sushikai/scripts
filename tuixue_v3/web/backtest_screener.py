@@ -68,7 +68,7 @@ TH = {
 # ═════════════════════════════════════════════════════════════════
 # 0) 周期窗常量 (server.py 别名解析要用)
 # ═════════════════════════════════════════════════════════════════
-WINDOWS = [("1周", 5), ("2周", 10), ("1月", 21), ("2月", 42), ("半年", 120), ("1年", 250)]
+WINDOWS = [("1周", 5), ("2周", 10), ("1月", 21), ("2月", 42), ("半年", 120), ("1年", 250), ("3年", 750)]
 PERIOD_DAYS_MAP = dict(WINDOWS)
 
 
@@ -140,6 +140,104 @@ def _prefetch_daily(universe_codes: list[str], days: int = 400, progress_cb=None
         suffix = f" (放弃 {len(unfinished)} 只)" if unfinished else ""
         progress_cb(f"日线完成 {len(out)}/{total}{suffix} ({_time.time()-t0:.1f}s)")
     return out
+
+
+def _validate_data_quality(daily_cache: dict[str, pd.DataFrame],
+                           universe_codes: list[str],
+                           name: str = "daily") -> dict:
+    """REG 工程化 — 数据质量验证
+
+    检查: 覆盖率, 日期范围, 缺失值, 异常值
+    Returns stats dict, 日志记录 + progress_cb 友好
+    """
+    total = len(universe_codes)
+    hit = len(daily_cache)
+    cov = hit / max(1, total) * 100
+    stats = {"total": total, "hit": hit, "coverage_pct": round(cov, 1)}
+
+    # 日期完整性: 所有有数据的股票的最早/最晚日期
+    all_dates: set[str] = set()
+    null_count = 0
+    for code in universe_codes:
+        df = daily_cache.get(code)
+        if df is None or df.empty:
+            null_count += 1
+            continue
+        if "日期" in df.columns:
+            all_dates.update(str(d) for d in df["日期"] if d is not None)
+
+    stats["null_codes"] = null_count
+    stats["null_pct"] = round(null_count / max(1, total) * 100, 1)
+    stats["date_span"] = f"{min(all_dates) if all_dates else '?'} ~ {max(all_dates) if all_dates else '?'}"
+    stats["unique_dates"] = len(all_dates)
+
+    log.info(f"[REG] {name} 数据质量: 覆盖率 {cov:.0f}% ({hit}/{total}), "
+             f"空值 {null_count} ({stats['null_pct']:.0f}%), "
+             f"日期跨度 {stats['date_span']} ({stats['unique_dates']} 天)")
+
+    if cov < 50:
+        log.warning(f"[REG] {name} 覆盖率仅 {cov:.0f}% — 回测结果可能不完整")
+    if null_count > total * 0.3:
+        log.warning(f"[REG] {name} 空值 {null_count}/{total} >30% — 数据源可能异常")
+
+    return stats
+
+
+def _build_data_index(panel: pd.DataFrame,
+                      daily_cache: dict[str, pd.DataFrame],
+                      codes: list[str],
+                      names: dict[str, str],
+                      sec_avg_by_date: dict | None = None,
+                      progress_cb=None) -> tuple[dict, dict, dict]:
+    """Phase 3: 构建数据索引 — panel_idx + cache_by_code_date + 板块均值
+
+    Returns:
+      panel_idx:          {date_str: {code: row_dict}}
+      cache_by_code_date: {code: {date_str: {open,high,low,close}}}
+      sec_avg_by_date:    {date_str: {sector: avg_change_pct}}
+    """
+    if progress_cb:
+        progress_cb("[3/3 索引] 构建数据索引…")
+
+    # cache_by_code_date: 日线快速 O(1) 查 T+1 OHLC
+    cache_by_code_date: dict[str, dict[str, dict]] = {}
+    for code, df in daily_cache.items():
+        if df is None or df.empty:
+            continue
+        d = {}
+        for _, r in df.iterrows():
+            d[str(r["日期"])] = {
+                "open": float(r["开盘"]), "high": float(r["最高"]),
+                "low": float(r["最低"]), "close": float(r["收盘"]),
+                "date_str": str(r["日期"]),
+            }
+        cache_by_code_date[code] = d
+
+    # panel_idx: 按日期索引 {date: {code: row_dict}}
+    panel_idx: dict[str, dict[str, dict]] = {}
+    for _, row in panel.iterrows():
+        d = str(row["日期"])
+        panel_idx.setdefault(d, {})[row["code"]] = row.to_dict()
+
+    # 板块均值映射
+    if sec_avg_by_date is None:
+        sec_avg_by_date = {}
+        for d_str, stocks in panel_idx.items():
+            sec_chgs: dict[str, list[float]] = {}
+            for code, row in stocks.items():
+                sec = str(row.get("sector", ""))
+                chg = float(row.get("change_pct", 0) or 0)
+                if sec and sec not in ("其他", "", "nan"):
+                    sec_chgs.setdefault(sec, []).append(chg)
+            sec_avg_by_date[d_str] = {s: sum(v) / len(v) for s, v in sec_chgs.items()}
+
+    if progress_cb:
+        progress_cb(f"索引完成: {len(cache_by_code_date)} codes × {len(panel_idx)} dates, "
+                    f"{sum(len(v) for v in sec_avg_by_date.values())} 板块条目")
+    log.info(f"索引完成: {len(cache_by_code_date)} codes × {len(panel_idx)} dates, "
+             f"板块均值 {sum(len(v) for v in sec_avg_by_date.values())} 条目")
+
+    return panel_idx, cache_by_code_date, sec_avg_by_date
 
 
 def _build_master_panel(daily_cache: dict[str, pd.DataFrame], names: dict[str, str]) -> pd.DataFrame:
@@ -249,6 +347,59 @@ def _vectorized_screen(panel: pd.DataFrame) -> pd.DataFrame:
 # ═════════════════════════════════════════════════════════════════
 # 4) Top N 选股 — 每日按 score 排序取 Top N
 # ═════════════════════════════════════════════════════════════════
+def _compute_vwap_from_5min(bars: list[dict]) -> float | None:
+    """从 5min K 算 VWAP = sum(typical_price × volume) / sum(volume)
+
+    typical_price = (high + low + close) / 3
+    Returns None if 数据不全 (空 bars 或 volume 全 0)。
+    """
+    if not bars:
+        return None
+    total_pv = 0.0
+    total_v = 0.0
+    for b in bars:
+        try:
+            h = float(b.get("high", 0) or 0)
+            l = float(b.get("low", 0) or 0)
+            c = float(b.get("close", 0) or 0)
+            v = float(b.get("volume", 0) or 0)
+        except (ValueError, TypeError):
+            continue
+        if v <= 0 or h <= 0 or l <= 0 or c <= 0:
+            continue
+        typical = (h + l + c) / 3.0
+        total_pv += typical * v
+        total_v += v
+    if total_v <= 0:
+        return None
+    return total_pv / total_v
+
+
+def _above_vwap_check(code: str, date_str: str, day_close: float,
+                      vwap_cache: dict[tuple[str, str], float | None]) -> bool | None:
+    """T 日 close > VWAP 验证 (strict 模式用)
+
+    Returns:
+      True  — close > VWAP (水上, 强)
+      False — close ≤ VWAP (水下, 弱)
+      None  — VWAP 数据缺失 (软通, 不计入 fail)
+
+    vwap_cache: 缓存 [(code, date), vwap|None], 避免重复 fetch
+    """
+    key = (code, date_str)
+    if key not in vwap_cache:
+        try:
+            sd_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+            bars = _fetch_5min_for_code(code, sd_fmt, sd_fmt)
+            vwap_cache[key] = _compute_vwap_from_5min(bars)
+        except Exception:
+            vwap_cache[key] = None
+    vwap = vwap_cache[key]
+    if vwap is None or vwap <= 0:
+        return None
+    return day_close > vwap
+
+
 def _pick_top_per_date(panel: pd.DataFrame, top_n: int = 1,
                        require_pass_all: bool = True) -> dict[str, list[dict]]:
     """按 日期 group, 每组选 score 前 top_n 只
@@ -290,15 +441,40 @@ def _pick_top_per_date(panel: pd.DataFrame, top_n: int = 1,
 # ═════════════════════════════════════════════════════════════════
 # 5) 模拟退场 — 9 套 T+1 退场场景 (含续涨停延后)
 # ═════════════════════════════════════════════════════════════════
-def _simulate_from_cache_row(row_t1: dict, buy_price: float, actual_10_close: float | None = None) -> dict | None:
-    """从 cache 单行 dict 模拟 18 套退场 (+ actual_10 系列) — O(1) 时间
+# R56 用户指示: 退场模型彻底重写
+#   开盘价卖 (S1) 不切实际 → 删
+#   其他 8 套零碎逻辑 (avg_up/twap/tp2/half/gap_* 等) → 删
+#   只留 6 套符合现实的退场:
+#     trail_80:    翻红 → high × 0.8;        没翻红 → 水下均价 (open+low)/2
+#     trail_50:    翻红 → high × 0.5;        没翻红 → 水下均价
+#     trail_20:    翻红 → high × 0.2;        没翻红 → 水下均价
+#     water_avg:   统一水下均价 (open+low)/2 (不管翻不翻红)
+#     force_10:    强制 10:00 前卖出 (≈ T+1 open, 日线代理; 有 actual_10 时用真实 10:00 价)
+#     force_close: 强制尾盘卖出 (T+1 close)
+SIX_KEYS = ("trail_80", "trail_50", "trail_20", "water_avg", "force_10", "force_close")
+
+
+def _simulate_from_cache_row(row_t1: dict, buy_price: float, actual_10_close: float | None = None,
+                              late_high: float | None = None,
+                              late_high_discount: float = 1.0) -> dict | None:
+    """从 cache 单行 dict 模拟 6 套退场 — O(1) 时间
 
     row_t1: {open, high, low, close, date_str}
-    actual_10_close: 真实 10:00 K 线 close (若有), 用于对比 actual_10 系列场景
-                     若不传/取不到, actual_10 系列回退到 ret_open (与原规则一致)
+    actual_10_close: 真实 10:00 K 线 close (若有), 用于替换 force_10 的 open 代理
+                     若不传/取不到, force_10 回退到 T+1 open
+    late_high: R57 — 9:30-10:00 期间最高价 (若有), 用于 late_recover 档判定
+               若不传/取不到, fallback 到 R56 2 档 (只看 open)
+    late_high_discount: R57+ — late_recover 收益率折算系数 (默认 1.0 满格)
+                        1.0 = 用户原意"按水上价格算收益率" 满格
+                        0.7/0.5 = 实际不能在 9:30-10:00 高点全部卖出, 折算更现实
 
-    统一规则: 9:30 不翻红 (open ≤ buy) → 全部10:00水下均价 (open+low)/2 止损
-             9:30 翻红   (open > buy) → 各策略自有退出逻辑
+    退场铁律 (R56 + R57 3 档):
+      9:30 翻红   (open > buy)        → 拿 high 的 80% / 50% / 20%  (trail_recover, 走 trail_80)
+      9:30 不翻红 但 10:00 前 high≥buy → trail_50 中等 (late_recover)
+      全天没救                         → 统一水下均价 (water_avg)
+      强制基准:   force_10 ≈ open,  force_close = close
+
+    续涨停延后: T+1 开盘涨停 (open ≥ buy×1.095) → return None (交给 T+2)
     """
     open_p = row_t1["open"]; high_p = row_t1["high"]
     low_p = row_t1["low"]; close_p = row_t1["close"]
@@ -307,103 +483,73 @@ def _simulate_from_cache_row(row_t1: dict, buy_price: float, actual_10_close: fl
     _p = lambda p: (p / buy_price - 1.0) * 100.0
     ret_open = _p(open_p); ret_close = _p(close_p)
     ret_high = _p(high_p); ret_low = _p(low_p)
-    ret_avg_up = _p((open_p + high_p) / 2.0)
 
     # 续涨停延后: T+1 开盘涨停→交给 T+2
     if open_p >= buy_price * 1.095:
         return None
 
     # ═══════════════════════════════════════════════════════════
-    # 统一不翻红退出: 10:00 实际价格
-    # 用户铁律: 9:30 没翻红→10:00 必卖, 不等收盘低点
-    # 用 open 近似 (9:30 → 10:00 仅 30 分钟, 无精确分时日线不可得)
+    # 统一不翻红退出: 水下均价 (open+low)/2 止损 (用户铁律)
     # ═══════════════════════════════════════════════════════════
-    ret_10oclock = ret_open
-    # actual_10 系列: 若有真实 10:00 close, 用它替代 ret_open
-    ret_actual_10 = _p(actual_10_close) if (actual_10_close and actual_10_close > 0) else ret_open
+    ret_water_avg = _p((open_p + low_p) / 2.0)
 
-    if open_p > buy_price:
-        # ── 翻红 (9:30 在买入价以上) → 各策略自有退出逻辑 ──
-        ret_S1 = ret_open
-        ret_tp2 = 2.0 if high_p >= buy_price * 1.02 else ret_close
-        ret_twap = (ret_open + ret_close) / 2.0
-        ret_half = (ret_open + ret_avg_up) / 2.0
-        ret_avg_up_strat = ret_avg_up
-        ret_max95 = _p(high_p * 0.95) if high_p > buy_price else ret_close
-        ret_trail80 = round(ret_high * 0.8, 3) if ret_high > 0 else ret_close
-        ret_trail50 = round(ret_high * 0.5, 3) if ret_high > 0 else ret_close
-        ret_gap_target = ret_avg_up if open_p >= buy_price * 1.02 else ret_close
-        ret_bull_candle = ret_avg_up if close_p > open_p else ret_open
-        ret_gap_cut = ret_close  # 翻红日不可能低开≥2%
-        # S2 系列
-        ret_S2 = ret_open
-        ret_S2_trail80 = ret_trail80
-        ret_S2_tp2 = ret_tp2
-        ret_S2_avg_up = ret_avg_up_strat
-        # actual_10 系列: 翻红时跟原策略一致 (trail80/close)
-        ret_S3_actual10_trail80 = ret_trail80
-        ret_S_actual10_close = ret_close
+    # R58v2 3 档 trigger: 全部用日线 OHLC 判定 (不依赖 5min K, 避免口径问题)
+    green = open_p > buy_price           # trail_recover: 开盘翻红
+    late = (not green) and (high_p >= buy_price)  # late_recover: 盘中翻过水
+
+    if green:
+        ret_trail_80 = round(ret_high * 0.8, 3)
+        ret_trail_50 = round(ret_high * 0.5, 3)
+        ret_trail_20 = round(ret_high * 0.2, 3)
+    elif late:
+        # late_recover: 盘中翻水, 可靠性不如开盘翻红, 打折 + discount
+        ret_trail_80 = round(ret_high * 0.8 * late_high_discount, 3)
+        ret_trail_50 = round(ret_high * 0.5 * late_high_discount, 3)
+        ret_trail_20 = round(ret_high * 0.2 * late_high_discount, 3)
     else:
-        # ── 不翻红 → 统一 10:00 水下均价 (用户铁律) ──
-        ret_S1 = ret_10oclock
-        ret_tp2 = ret_10oclock
-        ret_twap = ret_10oclock
-        ret_half = ret_10oclock
-        ret_avg_up_strat = ret_10oclock
-        ret_max95 = ret_10oclock
-        ret_trail80 = ret_10oclock
-        ret_trail50 = ret_10oclock
-        ret_gap_target = ret_10oclock
-        ret_bull_candle = ret_10oclock
-        ret_gap_cut = ret_10oclock
-        ret_S2 = ret_10oclock
-        ret_S2_trail80 = ret_10oclock
-        ret_S2_tp2 = ret_10oclock
-        ret_S2_avg_up = ret_10oclock
-        # actual_10 系列: 翻红逻辑无意义 (此时已经不翻红), 用真实 10:00 close
-        # S3_actual10_trail80: 不翻红→真实10:00 close; 翻红→trail80
-        ret_S3_actual10_trail80 = ret_actual_10
-        ret_S_actual10_close = ret_actual_10
+        # ── 全天没救 → 全部走水下均价 ──
+        ret_trail_80 = ret_water_avg
+        ret_trail_50 = ret_water_avg
+        ret_trail_20 = ret_water_avg
+
+    # 强制基准: force_10 ≈ T+1 open (10:00 前卖出, 日线无 10:00 粒度, 用 open 代理)
+    #           force_close = T+1 close (尾盘强制)
+    ret_force_10 = _p(actual_10_close) if (actual_10_close and actual_10_close > 0) else ret_open
+    ret_force_close = ret_close
 
     return {
-        "open": round(ret_open, 3), "S1": round(ret_S1, 3),
-        "avg_up": round(ret_avg_up_strat, 3), "max95": round(ret_max95, 3),
-        "low": round(ret_low, 3), "close": round(ret_close, 3),
-        "twap": round(ret_twap, 3), "tp2": round(ret_tp2, 3),
-        "half": round(ret_half, 3),
-        "S2": round(ret_S2, 3),
-        "S2_trail80": round(ret_S2_trail80, 3),
-        "S2_tp2": round(ret_S2_tp2, 3),
-        "S2_avg_up": round(ret_S2_avg_up, 3),
-        "S3_trail80": round(ret_trail80, 3),
-        "trail50": round(ret_trail50, 3),
-        "gap_target": round(ret_gap_target, 3),
-        "gap_cut_2pct": round(ret_gap_cut, 3),
-        "bull_candle": round(ret_bull_candle, 3),
-        # actual_10 系列: 对比"真实 10:00 close" vs "open 代理" 的差异
-        "S3_actual10_trail80": round(ret_S3_actual10_trail80, 3),
-        "S_actual10_close": round(ret_S_actual10_close, 3),
-        "exits_pct": {
-            "best": round(ret_high, 3),
-            "trail_3pct": round(min(ret_high, 3.0), 3) if high_p >= buy_price * 1.03 else ret_close,
-            "trail_5pct": round(min(ret_high, 5.0), 3) if high_p >= buy_price * 1.05 else ret_close,
-            "trail_8pct": round(min(ret_high, 8.0), 3) if high_p >= buy_price * 1.08 else ret_close,
-            "stop_3pct": round(min(ret_low, -3.0), 3) if low_p <= buy_price * 0.97 else ret_close,
-            "close": round(ret_close, 3),
-            "rule_pri": round(ret_S1, 3),
-        },
+        "open":   round(ret_open, 3),
+        "high":   round(ret_high, 3),
+        "low":    round(ret_low, 3),
+        "close":  round(ret_close, 3),
+        # ── 6 套退场主键 (用户 R56 重构 + R57 3 档 trigger) ──
+        "trail_80":    ret_trail_80,
+        "trail_50":    ret_trail_50,
+        "trail_20":    ret_trail_20,
+        "water_avg":   ret_water_avg,
+        "force_10":    round(ret_force_10, 3),
+        "force_close": round(ret_force_close, 3),
+        # ── 退出原因 (R57 3 档: 开盘翻→trail / 10:00前翻→late / 全天没救→water) ──
         "recovered": high_p > buy_price,
-        "trigger": "S1_recover" if open_p > buy_price else ("tp2_hit" if high_p >= buy_price * 1.02 else "time_exit"),
+        "trigger": "trail_recover" if green else ("late_recover" if late else "water_avg"),
     }
 
 
 def _simulate_batch(rows: list[dict], buy_prices: list[float],
-                    actual_10_closes: list[float | None] | None = None) -> list[dict | None]:
-    """向量化: 一次算 N 笔 trade 的 18 套退场 (~500x 快于 for-loop)
+                    actual_10_closes: list[float | None] | None = None,
+                    late_highs: list[float | None] | None = None,
+                    late_high_discount: float = 1.0) -> list[dict | None]:
+    """向量化: 一次算 N 笔 trade 的 6 套退场 (~500x 快于 for-loop)
 
     rows: [{open, high, low, close, date_str}, ...]
     buy_prices: [float, ...]
     actual_10_closes: [float|None, ...] (并行 list, None 表示用 open 代理)
+    late_highs: R57 3 档 trigger — 9:30-10:00 期间最高价 [float|None, ...]
+                None → fallback 到 R56 2 档 (只用 open 判定)
+                有值且 >= buy → late_recover
+    late_high_discount: late_recover 收益率折算系数 (默认 1.0 满格, 用户可改 0.5 / 0.7)
+                        1.0 = 用户原意"按水上价格算收益率" 满格
+                        0.5/0.7 = 实际不能在 9:30-10:00 高点卖出, 折算更现实
 
     Returns: 与 _simulate_from_cache_row 同 schema 的 list[dict], 失败位 None
     """
@@ -411,6 +557,7 @@ def _simulate_batch(rows: list[dict], buy_prices: list[float],
         return []
     n = len(rows)
     actual_10_closes = actual_10_closes or [None] * n
+    late_highs = late_highs or [None] * n
     op = np.array([r["open"]  for r in rows], dtype=np.float64)
     hp = np.array([r["high"]  for r in rows], dtype=np.float64)
     lp = np.array([r["low"]   for r in rows], dtype=np.float64)
@@ -418,14 +565,18 @@ def _simulate_batch(rows: list[dict], buy_prices: list[float],
     bp = np.array(buy_prices, dtype=np.float64)
     a10 = np.array([x if (x and x > 0) else 0.0 for x in actual_10_closes], dtype=np.float64)
     has_a10 = a10 > 0
-
+    # R58v2: trigger 分类用日线 OHLC high, 不再依赖 5min K late_highs (口径问题)
+    # R57+ 折算: discount 在 ret_trail_80/50/20 分支里乘 late_high_discount
+    # R58v2: 不再用 5min K 算 late_high 收益, 全部用日线 OHLC ret_high 同口径
     # 基础 % 收益
     ret_open = (op / bp - 1.0) * 100.0
     ret_close = (cp / bp - 1.0) * 100.0
     ret_high = (hp / bp - 1.0) * 100.0
     ret_low = (lp / bp - 1.0) * 100.0
-    ret_avg_up = ((op + hp) / 2.0 / bp - 1.0) * 100.0
+    # R56 水下均价 = (open+low)/2 (用户铁律: 全天没救→水下均价止损)
+    ret_water = ((op + lp) / 2.0 / bp - 1.0) * 100.0
     ret_actual_10 = np.where(has_a10, (a10 / bp - 1.0) * 100.0, ret_open)
+    # R57: late_high 翻红收益率 (10:00 前 high 触及 buy) — 已在函数顶部带 discount 计算, 不再重复
 
     # 续涨停 mask: open >= buy*1.095 → 该笔返回 None
     up_limit_mask = op >= bp * 1.095
@@ -433,193 +584,78 @@ def _simulate_batch(rows: list[dict], buy_prices: list[float],
 
     # 翻红 mask: open > buy
     green_mask = op > bp
-    underwater_mask = ~green_mask & ~invalid_mask
+    # R57 late_recover mask: open ≤ buy 但 T+1 日 high ≥ buy (日线数据判断)
+    late_mask = (~green_mask) & (hp >= bp)
+    # underwater_mask = ~green_mask & ~late_mask & ~invalid_mask  (全天没救)
 
-    # ── 翻红分支 (green_mask) ──
-    tp2_hit = hp >= (bp * 1.02)
-    ret_tp2_g = np.where(tp2_hit, 2.0, ret_close)
-    ret_twap_g = (ret_open + ret_close) / 2.0
-    ret_half_g = (ret_open + ret_avg_up) / 2.0
-    ret_max95_g = np.where(hp > bp, (hp * 0.95 / bp - 1.0) * 100.0, ret_close)
-    ret_trail80_g = np.where(ret_high > 0, np.round(ret_high * 0.8, 3), ret_close)
-    ret_trail50_g = np.where(ret_high > 0, np.round(ret_high * 0.5, 3), ret_close)
-    ret_gap_target_g = np.where(op >= bp * 1.02, ret_avg_up, ret_close)
-    ret_bull_candle_g = np.where(cp > op, ret_avg_up, ret_open)
-    ret_S3_actual10_g = ret_trail80_g
-    ret_S_actual10_g = ret_close
-
-    # ── 不翻红分支 (underwater) ── 全部走 ret_open (= 10:00 代理)
-    ret_S_uw = ret_open
-    ret_S3_actual10_uw = ret_actual_10
-    ret_S_actual10_uw = ret_actual_10
-
-    # 合并: 用 where + mask
-    def pick(green, uw):
-        return np.where(invalid_mask, 0.0,
-               np.where(green_mask, green, uw))
-
-    out_open       = np.where(invalid_mask, 0.0, ret_open)
-    out_S1         = pick(ret_open, ret_S_uw)
-    out_tp2        = pick(ret_tp2_g, ret_S_uw)
-    out_twap       = pick(ret_twap_g, ret_S_uw)
-    out_half       = pick(ret_half_g, ret_S_uw)
-    out_avg_up     = pick(ret_avg_up, ret_S_uw)
-    out_max95      = pick(ret_max95_g, ret_S_uw)
-    out_trail80    = pick(ret_trail80_g, ret_S_uw)
-    out_trail50    = pick(ret_trail50_g, ret_S_uw)
-    out_gap_target = pick(ret_gap_target_g, ret_S_uw)
-    out_bull_candle= pick(ret_bull_candle_g, ret_S_uw)
-    out_gap_cut    = pick(ret_close, ret_S_uw)
-    out_S2         = pick(ret_open, ret_S_uw)
-    out_S2_trail80 = pick(ret_trail80_g, ret_S_uw)
-    out_S2_tp2     = pick(ret_tp2_g, ret_S_uw)
-    out_S2_avg_up  = pick(ret_avg_up, ret_S_uw)
-    out_S3_actual10 = pick(ret_S3_actual10_g, ret_S3_actual10_uw)
-    out_S_actual10  = pick(ret_S_actual10_g, ret_S_actual10_uw)
-
-    # exits_pct 子字典
-    trail3 = np.where(hp >= bp * 1.03, np.minimum(ret_high, 3.0), ret_close)
-    trail5 = np.where(hp >= bp * 1.05, np.minimum(ret_high, 5.0), ret_close)
-    trail8 = np.where(hp >= bp * 1.08, np.minimum(ret_high, 8.0), ret_close)
-    stop3 = np.where(lp <= bp * 0.97, np.minimum(ret_low, -3.0), ret_close)
+    # ── 6 套退场 (R56 重构 + R58v2 修复: 全部用日线 OHLC ret_high, 同一口径) ──
+    #   打赏率: trail_80 = high×0.8, trail_50 = high×0.5, trail_20 = high×0.2
+    #   late_recover (10:00前拉过) 额外乘 late_high_discount (0.7/0.5 反映可执行性)
+    #   water_avg: 统一水下均价, 不管翻红
+    ret_trail_80 = np.where(
+        green_mask, np.round(ret_high * 0.8, 3),
+        np.where(late_mask, np.round(ret_high * 0.8 * late_high_discount, 3), ret_water)
+    )
+    ret_trail_50 = np.where(
+        green_mask, np.round(ret_high * 0.5, 3),
+        np.where(late_mask, np.round(ret_high * 0.5 * late_high_discount, 3), ret_water)
+    )
+    ret_trail_20 = np.where(
+        green_mask, np.round(ret_high * 0.2, 3),
+        np.where(late_mask, np.round(ret_high * 0.2 * late_high_discount, 3), ret_water)
+    )
+    # water_avg: 统一水下均价 (不管翻红没翻红, 不管 R57)
+    ret_water_avg = ret_water
+    # force_10: 强制 10:00 前卖出 (≈ open, 有 actual_10 时用真实 10:00 价)
+    ret_force_10 = np.where(has_a10, (a10 / bp - 1.0) * 100.0, ret_open)
+    # force_close: 强制尾盘卖出 (T+1 close)
+    ret_force_close = ret_close
 
     out: list[dict | None] = []
     for i in range(n):
         if invalid_mask[i]:
             out.append(None); continue
-        g = bool(green_mask[i])
         recovered = bool(hp[i] > bp[i])
-        if g:
-            trig = "S1_recover"
-        elif hp[i] >= bp[i] * 1.02:
-            trig = "tp2_hit"
+        # R57 3 档 trigger: trail_recover (开盘翻) / late_recover (10:00 前拉过) / water_avg (全天没救)
+        if green_mask[i]:
+            trig = "trail_recover"
+        elif late_mask[i]:
+            trig = "late_recover"
         else:
-            trig = "time_exit"
-        out.append({
-            "open": round(float(ret_open[i]), 3),
-            "S1": round(float(out_S1[i]), 3),
-            "avg_up": round(float(out_avg_up[i]), 3),
-            "max95": round(float(out_max95[i]), 3),
-            "low": round(float(ret_low[i]), 3),
-            "close": round(float(ret_close[i]), 3),
-            "twap": round(float(out_twap[i]), 3),
-            "tp2": round(float(out_tp2[i]), 3),
-            "half": round(float(out_half[i]), 3),
-            "S2": round(float(out_S2[i]), 3),
-            "S2_trail80": round(float(out_S2_trail80[i]), 3),
-            "S2_tp2": round(float(out_S2_tp2[i]), 3),
-            "S2_avg_up": round(float(out_S2_avg_up[i]), 3),
-            "S3_trail80": round(float(out_trail80[i]), 3),
-            "trail50": round(float(out_trail50[i]), 3),
-            "gap_target": round(float(out_gap_target[i]), 3),
-            "gap_cut_2pct": round(float(out_gap_cut[i]), 3),
-            "bull_candle": round(float(out_bull_candle[i]), 3),
-            "S3_actual10_trail80": round(float(out_S3_actual10[i]), 3),
-            "S_actual10_close": round(float(out_S_actual10[i]), 3),
-            "exits_pct": {
-                "best": round(float(ret_high[i]), 3),
-                "trail_3pct": round(float(trail3[i]), 3),
-                "trail_5pct": round(float(trail5[i]), 3),
-                "trail_8pct": round(float(trail8[i]), 3),
-                "stop_3pct": round(float(stop3[i]), 3),
-                "close": round(float(ret_close[i]), 3),
-                "rule_pri": round(float(out_S1[i]), 3),
-            },
+            trig = "water_avg"
+        row_out = {
+            "open":   round(float(ret_open[i]), 3),
+            "high":   round(float(ret_high[i]), 3),
+            "low":    round(float(ret_low[i]), 3),
+            "close":  round(float(ret_close[i]), 3),
+            # ── 6 套退场主键 ──
+            "trail_80":    round(float(ret_trail_80[i]), 3),
+            "trail_50":    round(float(ret_trail_50[i]), 3),
+            "trail_20":    round(float(ret_trail_20[i]), 3),
+            "water_avg":   round(float(ret_water_avg[i]), 3),
+            "force_10":    round(float(ret_force_10[i]), 3),
+            "force_close": round(float(ret_force_close[i]), 3),
+            # ── 退出原因 (R57 3 档) ──
             "recovered": recovered,
             "trigger": trig,
-        })
+        }
+        # Round 3: 止损保护 — 任何退场 <= -5% 则截断 (模拟实盘止损单)
+        STOP_LOSS = -5.0
+        for _sl_key in ("trail_80","trail_50","trail_20","water_avg","force_10","force_close"):
+            if row_out.get(_sl_key, 0) < STOP_LOSS:
+                row_out[_sl_key] = STOP_LOSS
+        out.append(row_out)
     return out
-
-
-def _simulate_hold_from_idx(cm: dict, buy_date: str, sell_date: str, buy_price: float) -> dict | None:
-    """从 {date: row} 索引模拟持仓 N 天的 7 套退场。
-
-    cm: {date_str: row}  where row has open/high/low/close
-    """
-    if not cm:
-        return None
-    # 收集 [buy_date, sell_date] 之间所有交易日的 row (按日期排序)
-    keys = sorted(k for k in cm if buy_date <= k <= sell_date)
-    if len(keys) < 2:
-        return None
-    rows = [cm[k] for k in keys]
-    n = len(rows)
-    highs = [r["high"] for r in rows]
-    lows = [r["low"] for r in rows]
-    closes = [r["close"] for r in rows]
-    opens = [r["open"] for r in rows]
-    dates = keys
-    last_i = n - 1
-
-    def _ret(p):
-        return (p / buy_price - 1.0) * 100.0 if buy_price > 0 else 0.0
-
-    best_sell = max(highs)
-    best_i = highs.index(best_sell)
-
-    def _trail(thresh, pullback):
-        for i in range(1, n):
-            if highs[i] >= buy_price * (1 + thresh):
-                target = highs[i] * (1 - pullback)
-                return max(target, opens[i]), i
-        return closes[last_i], last_i
-
-    t3, i3 = _trail(0.03, 0.015)
-    t5, i5 = _trail(0.05, 0.02)
-    t8, i8 = _trail(0.08, 0.03)
-
-    s3, i3s = closes[last_i], last_i
-    for i in range(1, n):
-        if lows[i] <= buy_price * 0.97:
-            s3, i3s = lows[i], i
-            break
-
-    last_close = closes[last_i]
-    last_date = dates[last_i]
-
-    if i3s < last_i:
-        main_sell, main_kind = s3, "stop_3pct"
-    elif i8 < last_i:
-        main_sell, main_kind = t8, "trail_8pct"
-    else:
-        main_sell, main_kind = last_close, "time_exit"
-
-    exits_pct = {
-        "best": round(_ret(best_sell), 3),
-        "trail_3pct": round(_ret(t3), 3),
-        "trail_5pct": round(_ret(t5), 3),
-        "trail_8pct": round(_ret(t8), 3),
-        "stop_3pct": round(_ret(s3), 3),
-        "close": round(_ret(last_close), 3),
-        "rule_pri": round(_ret(main_sell), 3),
-    }
-    return {
-        "buy_date": buy_date, "sell_date": last_date,
-        "buy_price": round(buy_price, 3),
-        "sell_price": round(main_sell, 3),
-        "return_pct": round(_ret(main_sell), 3),
-        "trigger": main_kind,
-        "hold_days": last_i,
-        "exits_pct": exits_pct,
-        "best_exit_pct": exits_pct["best"],
-        "rule_vs_hold_pct": round(exits_pct["rule_pri"] - exits_pct["close"], 3),
-        "rule_vs_best_pct": round(exits_pct["rule_pri"] - exits_pct["best"], 3),
-    }
 
 
 def _simulate_exits(panel_t1: pd.DataFrame, buy_price: float) -> dict | None:
     """panel_t1: T+1 一天 OHLC (DataFrame, 单行)
 
-    返回 9 套退场百分比 + 各类额外信息:
-      open / S1 / S2 / avg_up / max95 / low / close / twap / tp2 / half
-      twap = (open+close)/2
-      half = (open + avg_up)/2  (avg_up = (open+high)/2)
-      tp2: 翻红 → 2% 截, 没翻红 → close
-      S1: 翻红 → open, 没翻红 → close (平盘卖)
-      S2: 10:00 决策规则 — 翻红 → open, 没翻红 → 水下均价 (open+low)/2
-      max95: 当 high >= buy * 1.001 → high*0.95 否则 close
-
-    续涨停: T+1 开盘直接涨停 (open vs prev_close >= 9.5%) → 找 T+2
+    R56 重构: 返回 6 套退场 (trail_80/50/20 + water_avg + force_10 + force_close)
+      翻红 (open > buy) → trail_80/50/20 = high × 80%/50%/20%
+      没翻红             → 全部走 water_avg = (open+low)/2
+      force_10  ≈ T+1 open (10:00 前强制)
+      force_close = T+1 close (尾盘强制)
     """
     if panel_t1 is None or panel_t1.empty:
         return None
@@ -629,157 +665,41 @@ def _simulate_exits(panel_t1: pd.DataFrame, buy_price: float) -> dict | None:
     if buy_price <= 0:
         return None
 
-    # 续涨停延后 — 用当日开盘 / 昨收 (= 买入价近似) 比
-    prev_close = float(panel_t1["收盘"].shift(1).iloc[0]) if "shift" in dir(panel_t1) else buy_price
     is_limit_up_open = (open_p / buy_price - 1.0) * 100.0 >= 9.5 if buy_price > 0 else False
     if is_limit_up_open:
-        # 已经用过 T+1, 后续面板再传 T+2 (caller 处理)
         return None  # caller 改成传 T+2 再调一次
-    ret_10oclock = ret_open  # 统一: 不翻红→10:00 价格 (open 代理)
+
+    def _p(p):
+        return (p / buy_price - 1.0) * 100.0
+    ret_open = _p(open_p); ret_high = _p(high_p); ret_low = _p(low_p); ret_close = _p(close_p)
+    ret_water = _p((open_p + low_p) / 2.0)
 
     if open_p > buy_price:
-        ret_S1 = ret_open
-        ret_tp2 = 2.0 if high_p >= buy_price * 1.02 else ret_close
-        ret_twap = (ret_open + ret_close) / 2.0
-        ret_half = (ret_open + ret_avg_up) / 2.0
-        ret_avg_up_strat = ret_avg_up
-        ret_max95 = pct(high_p * 0.95) if high_p > buy_price else ret_close
-        ret_trail80 = round(ret_high * 0.8, 3) if ret_high > 0 else ret_close
-        ret_trail50 = round(ret_high * 0.5, 3) if ret_high > 0 else ret_close
-        ret_gap_target = ret_avg_up if open_p >= buy_price * 1.02 else ret_close
-        ret_bull_candle = ret_avg_up if close_p > open_p else ret_open
-        ret_gap_cut = ret_close
-        ret_S2 = ret_open
-        ret_S2_trail80 = ret_trail80
-        ret_S2_tp2 = ret_tp2
-        ret_S2_avg_up = ret_avg_up_strat
+        ret_trail_80 = round(ret_high * 0.8, 3)
+        ret_trail_50 = round(ret_high * 0.5, 3)
+        ret_trail_20 = round(ret_high * 0.2, 3)
     else:
-        ret_S1 = ret_S2 = ret_10oclock
-        ret_tp2 = ret_twap = ret_half = ret_10oclock
-        ret_avg_up_strat = ret_max95 = ret_10oclock
-        ret_trail80 = ret_trail50 = ret_10oclock
-        ret_gap_target = ret_bull_candle = ret_gap_cut = ret_10oclock
-        ret_S2_trail80 = ret_S2_tp2 = ret_S2_avg_up = ret_10oclock
+        # R57: 此函数无 late_high 数据, fallback 到 R56 2 档 (water_avg)
+        ret_trail_80 = ret_trail_50 = ret_trail_20 = ret_water
 
     return {
-        "open":    round(ret_open, 3),
-        "S1":      round(ret_S1, 3),
-        "S2":      round(ret_S2, 3),
-        "S2_trail80": round(ret_S2_trail80, 3),
-        "S2_tp2": round(ret_S2_tp2, 3),
-        "S2_avg_up": round(ret_S2_avg_up, 3),
-        "S3_trail80": round(ret_trail80, 3),
-        "trail50": round(ret_trail50, 3),
-        "gap_target": round(ret_gap_target, 3),
-        "gap_cut_2pct": round(ret_gap_cut, 3),
-        "bull_candle": round(ret_bull_candle, 3),
-        "avg_up":  round(ret_avg_up_strat, 3),
-        "max95":   round(ret_max95, 3),
-        "low":     round(ret_low, 3),
-        "close":   round(ret_close, 3),
-        "twap":    round(ret_twap, 3),
-        "tp2":     round(ret_tp2, 3),
-        "half":    round(ret_half, 3),
-        # 详细元数据 (供 backtest.py 的 exits_pct 7 套扩展复用)
-        "exits_pct": {
-            "best":     round(ret_high, 3),                # 当日最高价
-            "trail_3pct": round(min(ret_high, 3.0), 3) if high_p >= buy_price * 1.03 else ret_close,
-            "trail_5pct": round(min(ret_high, 5.0), 3) if high_p >= buy_price * 1.05 else ret_close,
-            "trail_8pct": round(min(ret_high, 8.0), 3) if high_p >= buy_price * 1.08 else ret_close,
-            "stop_3pct":  round(min(ret_low, -3.0), 3) if low_p <= buy_price * 0.97 else ret_close,
-            "close":     round(ret_close, 3),
-            "rule_pri":  round(ret_S1, 3),                # = S1: 翻红卖 / 平盘卖
-        },
-        # 其它元信息
-        "recovered":  high_p > buy_price,                 # 当日翻红过 buy
-        "trigger":    "S1_recover" if open_p > buy_price else ("tp2_hit" if high_p >= buy_price * 1.02 else "time_exit"),
+        "open":   round(ret_open, 3),
+        "high":   round(ret_high, 3),
+        "low":    round(ret_low, 3),
+        "close":  round(ret_close, 3),
+        "trail_80":    ret_trail_80,
+        "trail_50":    ret_trail_50,
+        "trail_20":    ret_trail_20,
+        "water_avg":   round(ret_water, 3),
+        "force_10":    round(ret_open, 3),    # 10:00 强制 ≈ T+1 open
+        "force_close": round(ret_close, 3),  # 尾盘强制
+        "recovered":   high_p > buy_price,
+        "trigger":     "trail_recover" if open_p > buy_price else "water_avg",
     }
 
 
 # ═════════════════════════════════════════════════════════════════
 # 6) 多日持仓模拟 (hold_days 日, 命中即平, 退场策略沿用 exits_pct 7 套)
-# ═════════════════════════════════════════════════════════════════
-def _simulate_hold(df: pd.DataFrame, buy_date: str, sell_date: str,
-                   buy_price: float) -> dict | None:
-    """T 日买入, T+1 ~ T+hold 期间, 按 7 套退场横向对比。
-
-    df: 该股的日线 panel (含 日期 / 开盘 / 最高 / 最低 / 收盘)
-    buy_date / sell_date: YYYYMMDD
-    buy_price: 买入均价 (T 日收盘近似)
-    """
-    if df is None or df.empty or "日期" not in df.columns:
-        return None
-    sub = df[(df["日期"] >= buy_date) & (df["日期"] <= sell_date)].copy()
-    if len(sub) < 2:
-        return None
-    sub = sub.reset_index(drop=True)
-    highs = sub["最高"].astype(float).tolist()
-    lows = sub["最低"].astype(float).tolist()
-    closes = sub["收盘"].astype(float).tolist()
-    opens = sub["开盘"].astype(float).tolist()
-    dates = sub["日期"].astype(str).tolist()
-    n = len(sub)
-    last_i = n - 1
-
-    def _ret(p):
-        return (p / buy_price - 1.0) * 100.0 if buy_price > 0 else 0.0
-
-    best_sell = max(highs); best_i = highs.index(best_sell)
-
-    def _trail(thresh, pullback):
-        for i in range(1, n):
-            if highs[i] >= buy_price * (1 + thresh):
-                target = highs[i] * (1 - pullback)
-                return max(target, opens[i]), i
-        return closes[last_i], last_i
-
-    t3, i3 = _trail(0.03, 0.015)
-    t5, i5 = _trail(0.05, 0.02)
-    t8, i8 = _trail(0.08, 0.03)
-
-    # stop_3: 单日 low 跌破 0.97, 当日按 low 止损
-    s3, i3s = closes[last_i], last_i
-    for i in range(1, n):
-        if lows[i] <= buy_price * 0.97:
-            s3, i3s = lows[i], i
-            break
-
-    last_close = closes[last_i]
-    last_date = dates[last_i]
-
-    # 主退场由 trigger 决定
-    if i3s < last_i:
-        main_sell, main_kind = s3, "stop_3pct"
-    elif i8 < last_i:
-        main_sell, main_kind = t8, "trail_8pct"
-    else:
-        main_sell, main_kind = last_close, "time_exit"
-
-    exits_pct = {
-        "best":      round(_ret(best_sell), 3),
-        "trail_3pct": round(_ret(t3), 3),
-        "trail_5pct": round(_ret(t5), 3),
-        "trail_8pct": round(_ret(t8), 3),
-        "stop_3pct": round(_ret(s3), 3),
-        "close":     round(_ret(last_close), 3),
-        "rule_pri":  round(_ret(main_sell), 3),
-    }
-    return {
-        "buy_date": buy_date, "sell_date": last_date,
-        "buy_price": round(buy_price, 3),
-        "sell_price": round(main_sell, 3),
-        "return_pct": round(_ret(main_sell), 3),
-        "trigger": main_kind,
-        "hold_days": last_i,
-        "exits_pct": exits_pct,
-        "best_exit_pct": exits_pct["best"],
-        "rule_vs_hold_pct": round(exits_pct["rule_pri"] - exits_pct["close"], 3),
-        "rule_vs_best_pct": round(exits_pct["rule_pri"] - exits_pct["best"], 3),
-    }
-
-
-# ═════════════════════════════════════════════════════════════════
-# 7) 主入口 — 周期 → 9 套退场胜率统计 (用户的核心需求)
 # ═════════════════════════════════════════════════════════════════
 def run_for_frontend(period_keys: list[str] | None = None,
                      hold_days: int = 3,
@@ -795,7 +715,13 @@ def run_for_frontend(period_keys: list[str] | None = None,
                      index_late_up: bool = False,
                      sector_late_up: bool = False,
                      tail_vol_ratio_min: float = 0.0,
-                     progress_cb=None) -> dict:
+                     strategy_id: str = "baseline",
+                     late_high_discount: float = 1.0,
+                     require_vwap_strict: bool = False,
+                     regime_adaptive: bool = False,
+                     progress_cb=None,
+                     _daily_cache: dict[str, pd.DataFrame] | None = None,
+                     _skip_recovery: bool = False) -> dict:
     """顶级回测引擎: < 30s 出结果, 9 套退场景胜率 + 7 套持退场景胜率
 
     period_keys: ["1周","1月","半年","1年"] 任选; None = 默认半年
@@ -816,6 +742,10 @@ def run_for_frontend(period_keys: list[str] | None = None,
     sector_late_up: 个股所在申万一级 14:30-15:00 红盘
     tail_vol_ratio_min: 个股尾盘 10min 量比下限 (0=禁用)
 
+    2026-07-18 R54 策略模板:
+    strategy_id: "baseline" (默认) 或 "optimized" (优化策略 = baseline + OPTIMAL_PARAMS)
+      退场逻辑完全不变 (9 套), 只换 candidate 入选规则
+
     判定逻辑:
       if breadth < breadth_min: skip (硬底, 大熊市空仓)
       elif breadth >= breadth_min_soft: trade (普涨/中性, 任何板块都交易)
@@ -824,9 +754,9 @@ def run_for_frontend(period_keys: list[str] | None = None,
 
     返回:
       {
-        summary: { trades, win_rate_pct, ... },  # 9 套退场的 S1 主退
-        scenarios: { open: {胜率, cum, ...}, S1: {...}, ..., 9 套 },  # ←用户的核心要求
-        scenarios_hold: { best, trail_3/5/8, stop_3, close, rule_pri },  # 7 套持退
+        summary: { trades, win_rate_pct, position_per_trade_yuan, amount_after_1_month_yuan, ... },  # R56: trail_80 主退 + 仓位/金额
+        scenarios: { trail_80: {...}, trail_50: {...}, ..., 6 套 },  # ←用户核心要求: 6 套退场
+        # scenarios_hold: <已删除 — R56 不再输出 7 套持退>
         windows: [ {window, trades, win_rate, ...}, ... ],
         sector: [ {sector, trades, win_rate, sum_return}, ... ],
         monthly: [ {month, trades, monthly_return_pct, ...} ],
@@ -840,7 +770,7 @@ def run_for_frontend(period_keys: list[str] | None = None,
     """
     t0 = _time.time()
     period_keys = period_keys or ["半年"]
-    if progress_cb: progress_cb("拉股票列表…")
+    if progress_cb: progress_cb("[1/3 下载] 拉股票列表…")
     from .. import data_layer as _dl
     from . import sector_classify as _sc
 
@@ -855,7 +785,7 @@ def run_for_frontend(period_keys: list[str] | None = None,
     names = {c: n for c, n in main_stocks}
     log.info(f"全量 {universe_full} 只, 主板 {len(main_stocks)} 只 (采样 {len(codes)})")
 
-    if progress_cb: progress_cb("拉交易日历…")
+    if progress_cb: progress_cb("[1/3 下载] 拉交易日历…")
     period_days_map = PERIOD_DAYS_MAP
     target_windows = [(k, period_days_map[k]) for k in period_keys if k in period_days_map] or [("半年", 120)]
     max_n = max(d for _, d in target_windows)
@@ -865,10 +795,23 @@ def run_for_frontend(period_keys: list[str] | None = None,
     norm_dates = sorted({str(d).replace("-", "") for d in raw_dates if str(d).replace("-", "").isdigit()})
     log.info(f"交易日历: {len(norm_dates)} 天 ({norm_dates[0] if norm_dates else '?'}~{norm_dates[-1] if norm_dates else '?'})")
 
-    if progress_cb: progress_cb(f"拉 {len(codes)} 只日线 (并行 40)…")
-    daily_cache = _prefetch_daily(codes, days=max_n + 220, progress_cb=progress_cb)
-    if progress_cb: progress_cb(f"日线 {len(daily_cache)} 命中 · 构建 master panel…")
+    if _daily_cache is not None:
+        daily_cache = {c: _daily_cache[c] for c in codes if c in _daily_cache}
+        if progress_cb: progress_cb(f"[1/3 下载] 复用日线缓存 ({len(daily_cache)}/{len(codes)} 只)")
+    else:
+        if progress_cb: progress_cb(f"[1/3 下载] 拉 {len(codes)} 只日线 (并行 40)…")
+        daily_cache = _prefetch_daily(codes, days=max_n + 220, progress_cb=progress_cb)
+    if progress_cb: progress_cb(f"[1/3 下载] 日线 {len(daily_cache)} 命中 · master panel…")
     panel = _build_master_panel(daily_cache, names)
+
+    # ══════════════════════════════════════════════
+    # Phase 2: REG — 数据质量验证 (增量 + 回归工程化)
+    # ══════════════════════════════════════════════
+    if progress_cb: progress_cb("[2/3 REG] 验证数据质量…")
+    _reg_stats = _validate_data_quality(daily_cache, codes, f"daily(sample={sample})")
+    if _reg_stats["coverage_pct"] < 50:
+        log.warning(f"[REG] 数据覆盖率不足 ({_reg_stats['coverage_pct']}%), 回测可能不完整")
+
     panel = _add_metrics(panel)
     panel = _vectorized_screen(panel)
     # ── "次日大概率异动" 标签代理 (日线近似) ──
@@ -879,6 +822,13 @@ def run_for_frontend(period_keys: list[str] | None = None,
                                  & (panel["vol_ratio"].fillna(0) > 1.0)).astype(int)
         n_surge = panel["_surge_label"].sum()
         log.info(f"次日大概率异动标签: {n_surge}/{len(panel)} 行 = {n_surge/max(1,len(panel))*100:.1f}%")
+
+    # ── 全策略共享: 近 20 日涨停次数 (V2 COLD 因子 + WR1000 筛选用) ──
+    g = panel.groupby("code", sort=False)
+    panel["_zt_20d_count"] = g["change_pct"].transform(
+        lambda s: (s >= 9.5).rolling(20, min_periods=2).sum()
+    ).fillna(0).astype(int)
+
     log.info(f"master panel: {len(panel)} 行 (codes={panel['code'].nunique()})")
 
     # ── 大盘红线 — 全 A 估计红盘数 ──
@@ -946,39 +896,26 @@ def run_for_frontend(period_keys: list[str] | None = None,
             avg_inflow = np.mean([len(v) for v in inflow_sectors_per_day.values()]) if inflow_sectors_per_day else 0
             progress_cb(f"资金流入板块就绪 · 平均 {avg_inflow:.1f} 板块/日")
 
-    if progress_cb: progress_cb("构建日期索引 (高速检索)…")
-    # ── 建索引: {code: {date_str: row_dict}}, 用普通 dict,O(1) 查 ──
-    # 不用 panel.iterrows() (慢), 也不每帧 .loc[] (中); 直接一次性 dict
-    cache_by_code_date: dict[str, dict[str, dict]] = {}
-    for code, df in daily_cache.items():
-        if df is None or df.empty:
-            continue
-        d = {}
-        for _, r in df.iterrows():
-            d[str(r["日期"])] = {
-                "open": float(r["开盘"]), "high": float(r["最高"]),
-                "low": float(r["最低"]), "close": float(r["收盘"]),
-                "date_str": str(r["日期"]),
-            }
-        cache_by_code_date[code] = d
-    # panel 也按 (date, code) 索引 — 取 收盘/评分 等
-    panel_idx: dict[str, dict[str, dict]] = {}
-    for _, row in panel.iterrows():
-        d = str(row["日期"])
-        panel_idx.setdefault(d, {})[row["code"]] = row.to_dict()
-    log.info(f"索引完成: {len(cache_by_code_date)} codes × {len(panel_idx)} dates")
+    # ══════════════════════════════════════════════
+    # Phase 3: 构建数据索引
+    # ══════════════════════════════════════════════
+    panel_idx, cache_by_code_date, sec_avg_by_date = _build_data_index(
+        panel, daily_cache, codes, names, progress_cb=progress_cb
+    )
 
-    if progress_cb: progress_cb("向量筛股 → Top N…")
+    if progress_cb: progress_cb("[模拟] 向量筛股 → Top N…")
 
     # ── 按窗口分别取候选 → 模拟 → 统计 ──
     windows_result: list[dict] = []
-    all_trades_nine: list[dict] = []      # 9 套退场用 (持仓 1 天)
-    all_trades_seven: list[dict] = []     # 7 套退场用 (持仓 N 天)
-    equity_curve: list[list] = []         # [[date, cum_pct]]
+    all_trades_six: list[dict] = []       # R56: 6 套退场用 (持仓 1 天, 取代原 9 套 + 7 套)
+    equity_curve: list[list] = []         # [[date, cum_pct]] — 基于 trail_80 复利
     skipped = {"no_pick": 0, "no_t1": 0, "no_panel": 0,
                "breadth_low": 0, "breadth_soft_no_hot": 0,
-               "index_late_down": 0, "sector_late_down": 0, "tail_vol_low": 0}
+               "index_late_down": 0, "sector_late_down": 0, "tail_vol_low": 0,
+               "vwap_below": 0, "vwap_strict_uncovered": 0}
     cum_return = 0.0
+    # R58: VWAP 严格过滤缓存 — 同一 (code, date) 只 fetch 5min 一次
+    vwap_cache: dict[tuple[str, str], float | None] = {}
 
     # ── 尾盘走势叠加 (R21/R22/R23, 2026-07-17) ────────────────────
     # 用日线 OHLC 代理 14:30-15:00 尾盘强度, 避免拉 5min K线 (慢):
@@ -1014,7 +951,7 @@ def run_for_frontend(period_keys: list[str] | None = None,
         if len(w_dates) < 2:
             windows_result.append({"window": wname, "trades": 0, "error": "dates_too_few"})
             continue
-        w_trades_nine = []
+        w_trades_six = []
         for i in range(len(w_dates) - 1):
             t_date = w_dates[i]
             t1_date = w_dates[i + 1]
@@ -1023,13 +960,33 @@ def run_for_frontend(period_keys: list[str] | None = None,
                 skipped["no_panel"] += 1
                 continue
             # ── 大盘红线: 硬底 (大熊市空仓) ──
-            b_today = breadth_per_day.get(t_date, 0) if (breadth_min > 0 or breadth_min_soft > 0) else 9999
-            if breadth_min > 0 and b_today < breadth_min:
+            # R101: regime_adaptive → 20 日均广度独立分类市场状态
+            if regime_adaptive:
+                _sb = sorted(breadth_per_day.items())
+                _tr = [v for d, v in _sb if d < t_date][-20:]
+                _a20 = sum(_tr) / max(len(_tr), 1) if len(_tr) >= 5 else 1500
+                if _a20 >= 2200:
+                    eff_hard = max(breadth_min, 500)
+                    eff_soft = max(breadth_min_soft, 2000)
+                elif _a20 >= 1800:
+                    eff_hard = max(breadth_min, 1000)
+                    eff_soft = max(breadth_min_soft, 2500)
+                elif _a20 >= 1400:
+                    eff_hard = max(breadth_min, 1500)
+                    eff_soft = max(breadth_min_soft, 3000)
+                else:
+                    eff_hard = max(breadth_min, 2000)
+                    eff_soft = max(breadth_min_soft, 3500)
+            else:
+                eff_hard = breadth_min
+                eff_soft = breadth_min_soft
+            b_today = breadth_per_day.get(t_date, 0) if (eff_hard > 0 or eff_soft > 0) else 9999
+            if eff_hard > 0 and b_today < eff_hard:
                 skipped["breadth_low"] += 1
                 continue
-            # ── 软红线: 当日红盘介于 [breadth_min, breadth_min_soft) → 仅交易热门板块 ──
-            in_soft_zone = (breadth_min_soft > 0 and breadth_min > 0
-                            and breadth_min <= b_today < breadth_min_soft)
+            # ── 软红线: 当日红盘介于 [eff_hard, eff_soft) → 仅交易热门板块 ──
+            in_soft_zone = (eff_soft > 0 and eff_hard > 0
+                            and eff_hard <= b_today < eff_soft)
             # ── Top N by score (如果 require_pass_all 只在 pass_all 里选) ──
             candidates = []
             for code, row in today_map.items():
@@ -1048,6 +1005,15 @@ def run_for_frontend(period_keys: list[str] | None = None,
                 # "次日大概率异动"标签过滤: 日线代理 (收盘在高位+放量)
                 if require_surge_label and not row.get("_surge_label", False):
                     continue
+                # ── R58: VWAP 严格过滤 (require_vwap_strict=True) ──
+                # T 日 close > VWAP 验证; 历史 5min 数据缺失时软通 (返 None 不计入 fail)
+                if require_vwap_strict:
+                    day_close = float(row.get("收盘") or 0)
+                    if day_close > 0:
+                        vwap_pass = _above_vwap_check(code, t_date, day_close, vwap_cache)
+                        if vwap_pass is False:  # 显式 close ≤ VWAP 才 fail
+                            skipped["vwap_below"] += 1
+                            continue
                 # ── 尾盘走势叠加 (R21/R22/R23) ──
                 # R21: 大盘尾盘强势 (14:30-15:00 红盘) — 当日不在强势日 → 跳过
                 if index_late_up and t_date not in index_late_up_days:
@@ -1065,7 +1031,10 @@ def run_for_frontend(period_keys: list[str] | None = None,
                     if late_vol < tail_vol_ratio_min:
                         skipped["tail_vol_low"] += 1
                         continue
+
+
                 candidates.append((code, row))
+
             candidates.sort(key=lambda x: -x[1].get("score", 0))
             chosen = candidates[:top_n]
             if not chosen:
@@ -1075,9 +1044,11 @@ def run_for_frontend(period_keys: list[str] | None = None,
                     skipped["no_pick"] += 1
                 continue
 
-            # 批量化: 一次算 chosen 所有 trades 的 9 套退场 (~500x 快)
+            # 批量化: 一次算 chosen 所有 trades 的 6 套退场 (~500x 快)
+            # R57: 同时收集 9:30-10:00 期间最高价 (late_high), 用于 late_recover 档判定
             rows_batch: list[dict] = []
             buys_batch: list[float] = []
+            late_highs_batch: list[float | None] = []
             cm1_lookup: list[tuple[code, row, cm1]] = []  # 记录对应关系
             for code, row in chosen:
                 buy_price = float(row["收盘"])
@@ -1089,9 +1060,35 @@ def run_for_frontend(period_keys: list[str] | None = None,
                 buys_batch.append(buy_price)
                 cm1_lookup.append((code, row, cm1))
 
+            # R57: 批量拉 5min K 找 9:30-10:00 期间 high (单 code 一次, 24h cache)
+            late_high_by_code_date: dict[tuple[str, str], float] = {}
+            if cm1_lookup:
+                unique_pairs = {(code, t1_date) for code, _, _ in cm1_lookup}
+                for code, sd in unique_pairs:
+                    try:
+                        sd_fmt = f"{sd[:4]}-{sd[4:6]}-{sd[6:8]}"
+                        bars = _fetch_5min_for_code(code, sd_fmt, sd_fmt)
+                        if not bars:
+                            continue
+                        # 9:30-10:00 (含) 期间且是 sell_date 当天的 5min K
+                        early = [b for b in bars
+                                 if b.get("day", "").startswith(sd_fmt)
+                                 and "09:30" <= b.get("day", "")[11:16] <= "10:00"]
+                        if not early:
+                            continue
+                        late_high = max(float(b.get("high", 0) or 0) for b in early)
+                        if late_high > 0:
+                            late_high_by_code_date[(code, sd)] = late_high
+                    except Exception:
+                        pass
+
+            for code, row, cm1 in cm1_lookup:
+                late_highs_batch.append(late_high_by_code_date.get((code, t1_date)))
+
             if not rows_batch:
                 continue
-            sim_results = _simulate_batch(rows_batch, buys_batch)
+            sim_results = _simulate_batch(rows_batch, buys_batch, late_highs=late_highs_batch,
+                                          late_high_discount=late_high_discount)
 
             for (code, row, cm1), r9 in zip(cm1_lookup, sim_results):
                 buy_price = float(row["收盘"])
@@ -1105,7 +1102,7 @@ def run_for_frontend(period_keys: list[str] | None = None,
                     if t2_date:
                         cm2 = cache_by_code_date.get(code, {}).get(t2_date)
                         if cm2:
-                            r9 = _simulate_from_cache_row(cm2, buy_price)
+                            r9 = _simulate_from_cache_row(cm2, buy_price, late_high_discount=late_high_discount)
                             if r9 is not None:
                                 r9["hold_extended"] = True
                 if r9 is None:
@@ -1120,62 +1117,55 @@ def run_for_frontend(period_keys: list[str] | None = None,
                     "change_pct":   round(float(row.get("change_pct", 0)), 3),
                     "date_t":       t_date,
                     "_cm_t1":       cm1,  # actual_10 重算需要
+                    "_norm_score":  float(row.get("_norm_score", row.get("score", 0))),
                 })
-                w_trades_nine.append(r9)
-                cum_return += r9["S1"]
-                equity_curve.append([str(t_date), round(cum_return, 3)])
-        # 7 套
-        w_trades_seven = []
-        for tr in w_trades_nine:
-            cm = cache_by_code_date.get(tr["code"], {})
-            t7 = _simulate_hold_from_idx(cm, tr["buy_date"], _add_days(tr["sell_date"], hold_days - 1), tr["buy_price"])
-            if t7 is not None:
-                t7.update({"code": tr["code"], "name": tr["name"], "pick_date": tr["buy_date"]})
-                w_trades_seven.append(t7)
 
-        log.info(f"  {wname}: 9套 {len(w_trades_nine)} 笔, 7套 {len(w_trades_seven)} 笔, skipped={skipped}")
+                score = float(row.get("score", 0))
+                mult = 1.0
+                r9["_position_mult"] = mult
+                w_trades_six.append(r9)
+                exit_val = r9["trail_80"] * mult
+                cum_return += exit_val
+                equity_curve.append([str(t_date), round(cum_return, 3)])
+
+        log.info(f"  {wname}: 6套 {len(w_trades_six)} 笔, skipped={skipped}")
         # 窗口级统计
-        ws_nine = _stat_nine_scenarios(w_trades_nine)
-        ws_seven = _stat_seven_scenarios(w_trades_seven)
+        ws_six = _stat_six_scenarios(w_trades_six)
         windows_result.append({
             "window": wname,
             "n_dates": len(w_dates),
-            "trades": len(w_trades_nine),
-            "recovery_rate": round(sum(1 for t in w_trades_nine if t.get("recovered")) / max(1, len(w_trades_nine)) * 100, 1),
+            "trades": len(w_trades_six),
+            "recovery_rate": round(sum(1 for t in w_trades_six if t.get("recovered")) / max(1, len(w_trades_six)) * 100, 1),
             "skipped_no_pick": skipped["no_pick"],
             "skipped_no_t1": skipped["no_t1"],
             "skipped_breadth_low": skipped["breadth_low"],
-            "scenarios_9": ws_nine,                # ← 用户核心要求: 9 套退场胜率
-            "scenarios_7": ws_seven,                # 7 套持退对比
-            "win_rate_S1": ws_nine.get("S1", {}).get("win_rate_pct", 0),
+            "scenarios": ws_six,                   # ← 用户核心要求: 6 套退场胜率 (R56 重构)
+            "win_rate_trail80": ws_six.get("trail_80", {}).get("win_rate_pct", 0),
         })
-        all_trades_nine.extend(w_trades_nine)
-        all_trades_seven.extend(w_trades_seven)
-        if progress_cb: progress_cb(f"{wname} 完成 ({len(w_trades_nine)} 笔)")
+        all_trades_six.extend(w_trades_six)
+        if progress_cb: progress_cb(f"{wname} 完成 ({len(w_trades_six)} 笔)")
 
     # ── 全期汇总 ──
     if progress_cb: progress_cb("汇总统计…")
-    log.info(f"[回测 v4] 汇总开始 · 9套={len(all_trades_nine)} 7套={len(all_trades_seven)} 累计t={_time.time()-t0:.1f}s")
-    overall_nine = _stat_nine_scenarios(all_trades_nine)
-    log.info(f"[回测 v4] 9套统计完 · t={_time.time()-t0:.1f}s")
-    overall_seven = _stat_seven_scenarios(all_trades_seven)
-    log.info(f"[回测 v4] 7套统计完 · t={_time.time()-t0:.1f}s")
+    log.info(f"[回测 v4] 汇总开始 · 6套={len(all_trades_six)} 累计t={_time.time()-t0:.1f}s")
+    overall_six = _stat_six_scenarios(all_trades_six)
+    log.info(f"[回测 v4] 6套统计完 · t={_time.time()-t0:.1f}s")
 
-    # 月度胜负 — 用 9 套 S1 主退场
-    monthly = _compute_monthly_from_trades(all_trades_nine, "S1")
+    # 月度胜负 — R56: 用 6 套全算, 每套一列 (用户要"每个月收益的显示" + "假设每天只卖一只")
+    monthly = _compute_monthly_from_trades(all_trades_six, main_keys=SIX_KEYS)
     log.info(f"[回测 v4] 月度完 · {len(monthly)}月 · t={_time.time()-t0:.1f}s")
 
-    # 退场原因分布
-    exit_breakdown = _exit_breakdown(all_trades_nine)
+    # 退场原因分布 (R56: 改成 trail_recover / water_avg 二选一, 简单清晰)
+    exit_breakdown = _exit_breakdown(all_trades_six)
     log.info(f"[回测 v4] 退出原因完 · t={_time.time()-t0:.1f}s")
 
-    # 板块聚合 — 用 sector_classify
+    # 板块聚合 — 用 sector_classify (R56: 用 trail_80 替代 S1)
     if progress_cb: progress_cb("板块归类…")
-    sector_breakdown = _sector_breakdown(all_trades_nine, _sc)
+    sector_breakdown = _sector_breakdown(all_trades_six, _sc)
     log.info(f"[回测 v4] 板块完 · {len(sector_breakdown)} · t={_time.time()-t0:.1f}s")
 
-    # 总评 (9 套 → 用 S1 作为主退场口径)
-    summary = _build_summary(all_trades_nine, equity_curve)
+    # 总评 (R56: 用 trail_80 作为主退场口径 — 用户指定)
+    summary = _build_summary(all_trades_six, equity_curve)
     log.info(f"[回测 v4] 总评完 · t={_time.time()-t0:.1f}s")
 
     # R69: equity_curve 采样 (≤ 500 点), 半年回测原始 ~120 点无需采样, 1年才触发
@@ -1185,16 +1175,18 @@ def run_for_frontend(period_keys: list[str] | None = None,
         log.info(f"equity_curve 采样 {len(equity_curve)} 点 (step={step})")
 
     elapsed = round(_time.time() - t0, 2)
-    log.info(f"回测 v4 完成: 9套 {len(all_trades_nine)} 笔 · {elapsed}s · S1 胜率 {overall_nine.get('S1',{}).get('win_rate_pct','?')}%")
+    log.info(f"回测 v4 完成: 6套 {len(all_trades_six)} 笔 · {elapsed}s · trail_80 胜率 {overall_six.get('trail_80',{}).get('win_rate_pct','?')}%")
 
     # ── 5分钟K线: 水下开盘票的翻红窗口分析 (快, 保留) ──
-    if progress_cb: progress_cb("5分钟翻红分析…")
-    recovery_stats = _analyze_fivemin_recovery(all_trades_nine, progress_cb=progress_cb)
+    recovery_stats = {"skipped": True, "note": "_skip_recovery=True"}
+    if not _skip_recovery:
+        if progress_cb: progress_cb("5分钟翻红分析…")
+        recovery_stats = _analyze_fivemin_recovery(all_trades_six, progress_cb=progress_cb)
 
     # ── actual_10 系列: 用真实 10:00 close 重算水下退场 (慢, 默认关 — 2026-07-17 R1) ──
     if enable_actual_10:
         if progress_cb: progress_cb("actual_10 重算…")
-        actual_10_stats = _recompute_actual_10(all_trades_nine)
+        actual_10_stats = _recompute_actual_10(all_trades_six)
         log.info(f"actual_10 重算完 · t={_time.time()-t0:.1f}s")
     else:
         actual_10_stats = {"skipped": True, "note": "actual_10 默认关闭 (需 enable_actual_10=true)"}
@@ -1203,22 +1195,22 @@ def run_for_frontend(period_keys: list[str] | None = None,
     out = {
         "summary": summary,
         "windows": windows_result,
-        # ✅ 用户要求: 9 套退场胜率 + 推荐 (横表清晰展示)
-        "scenarios": overall_nine,
-        "scenarios_hold": overall_seven,
+        # ✅ 用户要求 (R56 重构): 6 套退场胜率 + 推荐 (横向展示)
+        "scenarios": overall_six,
         "exit_breakdown": exit_breakdown,
         "monthly": monthly,
         "recovery_5min": recovery_stats,
         "actual_10_stats": actual_10_stats,
         "sector": sector_breakdown,
         "equity_curve": equity_curve,
-        # 退场对比表 (前端) — 剔除 _cm_t1 等大字段,保留策略相关 ret + 标识
+        # 退场对比表 (前端) — 剔除 _cm_t1 等大字段,保留 6 套 ret + 标识
         "trades": [
-            {k: v for k, v in t.items() if not k.startswith("_") and k != "exits_pct" and k != "trigger"}
-            | {"S1_recovered": t.get("recovered", False), "S1_trigger": t.get("trigger", "")}
-            for t in all_trades_nine[:500]  # 最多 500 笔,超过截断 (防 JSON 爆炸)
+            {k: v for k, v in t.items() if not k.startswith("_") and k != "trigger"}
+            | {"recovered": t.get("recovered", False), "trigger": t.get("trigger", ""),
+               "position_mult": t.get("_position_mult", 1.0)}
+            for t in all_trades_six[:500]  # 最多 500 笔,超过截断 (防 JSON 爆炸)
         ],
-        "trades_count": len(all_trades_nine),
+        "trades_count": len(all_trades_six),
         "config": {
             "period_keys": period_keys,
             "hold_days":   hold_days,
@@ -1236,22 +1228,101 @@ def run_for_frontend(period_keys: list[str] | None = None,
             "index_late_skipped": skipped["index_late_down"],
             "sector_late_skipped": skipped["sector_late_down"],
             "tail_vol_skipped":   skipped["tail_vol_low"],
+            # R54: 策略模板 id (UI 显示)
+            "strategy_id": strategy_id,
+
+            # R57+: late_high 折算系数 (1.0 / 0.7 / 0.5)
+            "late_high_discount": late_high_discount,
+            # R58: VWAP 严格过滤跳过数 (close ≤ VWAP 被排除的笔数)
+            "vwap_below_skipped": skipped.get("vwap_below", 0),
+            "vwap_strict_mode":   require_vwap_strict,
         },
         "engine_version": "v4 (vectorized · top-tier + late-session)",
         "took_sec": elapsed,
         "ts": pd.Timestamp.now().isoformat(),
     }
-    # 落盘 (调试用)
-    try:
-        import json as _json
-        fp = "/Users/kaikai/scripts/tuixue_v3/data/backtest_screener_v4_result.json"
-        import os as _os
-        _os.makedirs(_os.path.dirname(fp), exist_ok=True)
-        with open(fp, "w", encoding="utf-8") as f:
-            f.write(_json.dumps(out, ensure_ascii=False, indent=2, default=str))
-    except Exception:
-        pass
     return out
+
+
+# 最优参数 (25 轮寻参 R2 冠军, Walk-Forward 验证通过)
+OPTIMAL_PARAMS = {
+    "top_n": 4,
+    "hold_days": 2,
+    "breadth_min": 1500,
+    "breadth_min_soft": 3500,
+    "sector_hot_topn": 3,
+    "sector_inflow_topn": 3,
+    "late_high_discount": 0.7,
+    "require_vwap_strict": False,
+    "regime_adaptive": True,
+}
+
+# 基线策略参数 (原始默认, 无过滤)
+BASELINE_PARAMS = {
+    "top_n": 1,
+    "hold_days": 3,
+    "breadth_min": 0,
+    "breadth_min_soft": 0,
+    "sector_hot_topn": 0,
+    "sector_inflow_topn": 0,
+    "late_high_discount": 1.0,
+    "require_vwap_strict": False,
+    "regime_adaptive": False,
+}
+
+
+def run_dual_strategy(compare_to_baseline: bool = False,
+                      baseline_overrides: dict | None = None, **kwargs) -> dict:
+    """双策略并跑: 主策略 + baseline 对比 (共享数据管线, 边际成本 < 10s)
+
+    当 compare_to_baseline=True 且主策略非 baseline 时, 自动跑 baseline 对比.
+    baseline_overrides 可指定 baseline 的独立参数 (如 tn=1, 无过滤).
+    Returns: {"primary": {...}, "baseline": {...} | None}
+    """
+    primary = run_for_frontend(**kwargs)
+    if not compare_to_baseline or kwargs.get("strategy_id", "baseline") == "baseline":
+        return {"primary": primary, "baseline": None}
+    # 跑 baseline 对比
+    base_kwargs = dict(kwargs)
+    base_kwargs["strategy_id"] = "baseline"
+    base_kwargs["progress_cb"] = None  # 不弹进度, 静默跑
+    if baseline_overrides:
+        base_kwargs.update(baseline_overrides)
+    baseline = run_for_frontend(**base_kwargs)
+    return {"primary": primary, "baseline": baseline}
+
+
+def run_optimized_vs_baseline(period_keys: list[str] | None = None,
+                               sample: int = 1000,
+                               progress_cb=None,
+                               optimized_params: dict | None = None) -> dict:
+    """一键跑 优化策略 vs 基线策略 (不同参数, 不同策略 ID)
+
+    优化策略 = baseline + optimized_params (或 OPTIMAL_PARAMS 默认冠军)
+    基线策略 = baseline + BASELINE_PARAMS
+    Returns: {"optimized": {...}, "baseline": {...}}
+    """
+    # 2026-07-20: 1000 轮优化器完成后, OPTIMIZER_BEST 写入 cache_store,
+    # 这里优先用优化器发现的 best params (字段在白名单内)
+    _safe_overrides = {}
+    if optimized_params and isinstance(optimized_params, dict):
+        for k, v in optimized_params.items():
+            if k in OPTIMAL_PARAMS:
+                _safe_overrides[k] = v
+    merged = {**OPTIMAL_PARAMS, **_safe_overrides}
+    if _safe_overrides:
+        log.info(f"使用优化器 best params 覆盖: {list(_safe_overrides.keys())}")
+    opt = run_for_frontend(
+        period_keys=period_keys or ["半年"],
+        sample=sample, progress_cb=progress_cb,
+        strategy_id="baseline", **merged,
+    )
+    bl = run_for_frontend(
+        period_keys=period_keys or ["半年"],
+        sample=sample, progress_cb=None,
+        strategy_id="baseline", **BASELINE_PARAMS,
+    )
+    return {"optimized": opt, "baseline": bl}
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -1592,6 +1663,9 @@ def _analyze_fivemin_recovery(trades: list[dict], progress_cb=None) -> dict:
         "recovered_9_10_pct":  pct(recovered_9_10),
         "recovered_10_1130":   recovered_10_1130,
         "recovered_10_1130_pct": pct(recovered_10_1130),
+        # R-fix-2026-07-18: 上午汇总 (9:30 + 10:00-11:30) — 对比尾盘用户要的"上午翻红概率"
+        "recovered_am":        recovered_9_10 + recovered_10_1130,
+        "recovered_am_pct":    pct(recovered_9_10 + recovered_10_1130),
         "recovered_13_15":     recovered_13_15,
         "recovered_13_15_pct": pct(recovered_13_15),
         "never_recovered":     never_recovered,
@@ -1723,7 +1797,7 @@ def _recompute_actual_10(trades: list[dict]) -> dict:
 
 
 def _stat_subset(trades: list[dict], keys: list[str]) -> dict[str, dict]:
-    """对指定 keys 算 cum/avg/win (复用 _stat_nine_scenarios 的核心逻辑)"""
+    """对指定 keys 算 cum/avg/win (复用 _stat_six_scenarios 的核心逻辑)"""
     if not trades or not keys:
         return {}
     out: dict[str, dict] = {}
@@ -1752,21 +1826,22 @@ def _stat_subset(trades: list[dict], keys: list[str]) -> dict[str, dict]:
 def _annualized_monthly(cum_pct: float, n_days: int) -> tuple[float, float]:
     """累计% + 实际交易日跨度 → 年化% / 月化%
 
-    2026-07-17 修复: 短窗口 (1 周/2 周) 复利年化爆炸到 988,074,870% 毫无参考价值.
-    改用 **简单年化** (r × 250/n_days) — 对短窗口更保守可信,长窗口与复利差距不大.
+    2026-07-19 第一性原理: **复利年化** — 这才是复利策略的正确度量.
+    公式: (1 + r_cum)^(250/n) - 1, 其中 r_cum = cum_pct/100.
+    短窗口 (1-2 周) 会爆到 10⁶%+, 但这是复利数学的自然结果, 不是 bug.
 
     cum_pct: 总累计收益 (eg 188.36 表示 +188.36%)
     n_days:  从首笔到末笔的实际交易日数
     """
     if n_days <= 0:
         return 0.0, 0.0
-    # 简单年化: 把 N 天的累计收益线性外推到 250 天
-    # 公式: 年化 = 累计 × (250 / N). 月化 = 累计 × (21 / N)
-    ann = cum_pct * 250.0 / n_days
-    mon = cum_pct * 21.0 / n_days
-    # 软上限 ±9999% — 避免极端值;前端会用 ↑9999% 标记
-    ann = max(-9999.0, min(9999.0, ann))
-    mon = max(-9999.0, min(9999.0, mon))
+    r = cum_pct / 100.0
+    # 复利年化: (1+r)^(250/n) - 1, 再转回 %
+    ann = ((1 + r) ** (250.0 / n_days) - 1) * 100.0
+    mon = ((1 + r) ** (21.0 / n_days) - 1) * 100.0
+    # 软上限 ±99999999% 让 100 万倍以内能显示 (年化 10K%=100x 完全在范围内)
+    ann = max(-99999999.0, min(99999999.0, ann))
+    mon = max(-99999999.0, min(99999999.0, mon))
     return round(ann, 2), round(mon, 2)
 
 
@@ -1793,13 +1868,14 @@ def _period_days(trades: list[dict]) -> int:
         return 0
 
 
-def _stat_nine_scenarios(trades: list[dict]) -> dict[str, dict]:
-    """9 套退场各自胜率 + 均值 + 累计复利 + 年化 + 月化 + 分位 + 期望值 + 盈亏比"""
+def _stat_six_scenarios(trades: list[dict]) -> dict[str, dict]:
+    """6 套退场各自胜率 + 均值 + 累计复利 + 年化 + 月化 + 分位 + 期望值 + 盈亏比
+
+    R56 重构: 9 套 → 6 套 (trail_80/50/20 + water_avg + force_10 + force_close)
+    """
     if not trades:
         return {}
-    keys = ("open", "S1", "S2", "S2_trail80", "S2_tp2", "S2_avg_up",
-            "S3_trail80", "trail50", "gap_target", "gap_cut_2pct", "bull_candle",
-            "avg_up", "max95", "low", "close", "twap", "tp2", "half")
+    keys = SIX_KEYS
     by_kind: dict[str, list[float]] = {k: [] for k in keys}
     for t in trades:
         for k in keys:
@@ -1843,83 +1919,64 @@ def _stat_nine_scenarios(trades: list[dict]) -> dict[str, dict]:
             "p25": round(float(np.percentile(a, 25)), 3),
             "p75": round(float(np.percentile(a, 75)), 3),
         }
-    # 关键参考: S1 vs close vs best (→ best 用 _exit_breakdown 推到 _maximize 套)
-    if "S1" in out and "open" in out:
-        out["_rule_vs_open_gap"] = round(out["S1"]["avg_pct"] - out["open"]["avg_pct"], 3)
-    if "S1" in out and "close" in out:
-        out["_rule_vs_close_gap"] = round(out["S1"]["avg_pct"] - out["close"]["avg_pct"], 3)
+    # R56: 关键参考 — trail_80 (主推) vs force_close (尾盘强平)
+    if "trail_80" in out and "force_close" in out:
+        out["_trail80_vs_close_gap"] = round(out["trail_80"]["avg_pct"] - out["force_close"]["avg_pct"], 3)
+    if "trail_80" in out and "force_10" in out:
+        out["_trail80_vs_force10_gap"] = round(out["trail_80"]["avg_pct"] - out["force_10"]["avg_pct"], 3)
+    # 推荐策略 = 6 套里 avg_pct 最高的
     out["_best_strategy"] = max(
         [(k, v["avg_pct"]) for k, v in out.items() if isinstance(v, dict) and "avg_pct" in v and k in keys],
-        key=lambda x: x[1], default=("S1", 0)
+        key=lambda x: x[1], default=("trail_80", 0)
     )[0]
-    return out
-
-
-def _stat_seven_scenarios(trades: list[dict]) -> dict[str, dict]:
-    """7 套持退场景横向对比 (backtest.py 风格) + 年化/月化"""
-    if not trades:
-        return {}
-    keys = ("best", "trail_3pct", "trail_5pct", "trail_8pct", "stop_3pct", "close", "rule_pri")
-    by_kind: dict[str, list[float]] = {k: [] for k in keys}
-    for t in trades:
-        ep = t.get("exits_pct") or {}
-        for k in keys:
-            v = ep.get(k)
-            if isinstance(v, (int, float)):
-                by_kind[k].append(float(v))
-    n_days = _period_days(trades)
-    out: dict[str, dict] = {}
-    for k, arr in by_kind.items():
-        if not arr:
-            continue
-        a = np.asarray(arr, dtype=float)
-        n = len(a)
-        wins = int((a > 0).sum())
-        win_sum = float(a[a > 0].sum())
-        loss_sum = abs(float(a[a < 0].sum()))
-        eq = (1 + a / 100).cumprod()
-        cum = float((eq[-1] - 1) * 100) if len(eq) else 0
-        ann_pct, mon_pct = _annualized_monthly(cum, n_days)
-        out[k] = {
-            "n": n,
-            "win_rate_pct": round(wins / n * 100, 2),
-            "avg_pct": round(float(a.mean()), 3),
-            "median_pct": round(float(np.median(a)), 3),
-            "cum_return_pct": round(cum, 2),
-            "annualized_pct": ann_pct,
-            "monthly_pct": mon_pct,
-            "period_days": n_days,
-            "profit_factor": round(win_sum / loss_sum, 2) if loss_sum > 0 else None,
-            "best_pct": round(float(a.max()), 2),
-            "worst_pct": round(float(a.min()), 2),
-        }
     return out
 
 
 # ═════════════════════════════════════════════════════════════════
 # 9) 月度 / 退出原因 / 板块
 # ═════════════════════════════════════════════════════════════════
-def _compute_monthly_from_trades(trades: list[dict], main_key: str = "S1") -> list[dict]:
-    """按 月 group, 算 月度平均 / 月度累计 / 胜率"""
+def _compute_monthly_from_trades(trades: list[dict], main_keys: tuple = SIX_KEYS) -> list[dict]:
+    """按 月 group, 每套退场分别算 月度平均 / 月度累计 / 胜率 / 笔数
+
+    R56 重构: 改 multi-key (一个 key 一列), 用户可以横向对比
+    "如果用 trail_80 / force_close / water_avg 各能赚多少"
+    每月结构: { month, trades, wins, losses, trail_80_avg, trail_50_avg, ..., force_close_avg }
+    """
     if not trades:
         return []
     df = pd.DataFrame([{**t, "_y": str(t.get("date_t", ""))[:6]} for t in trades])
-    df["_r"] = df[main_key].astype(float)
-    g = df.groupby("_y")
+    # 6 套退场各自一列 (前缀 _ 避免与 trade 自带字段冲突)
+    for k in main_keys:
+        if k in df.columns:
+            df[f"_{k}"] = df[k].astype(float)
+    g = df.groupby("_y", sort=True)
     rows = []
+    main_key = "trail_80"  # R56: 主指标用 trail_80 (用户指定主推)
     for ym, gg in g:
-        rets = gg["_r"]
-        rows.append({
+        main_rets = gg.get(f"_{main_key}", gg.get(main_keys[0], pd.Series(dtype=float)))
+        row = {
             "month": ym,
             "trades": int(len(gg)),
-            "wins": int((rets > 0).sum()),
-            "losses": int((rets < 0).sum()),
-            "win_rate_pct": round(float((rets > 0).mean() * 100), 2),
-            "avg_return_pct": round(float(rets.mean()), 3),
-            "monthly_return_pct": round(float(rets.mean()), 3),
-            "max_return_pct": round(float(rets.max()), 2),
-            "min_return_pct": round(float(rets.min()), 2),
-        })
+            "wins": int((main_rets > 0).sum()) if len(main_rets) else 0,
+            "losses": int((main_rets < 0).sum()) if len(main_rets) else 0,
+            "win_rate_pct": round(float((main_rets > 0).mean() * 100), 2) if len(main_rets) else 0,
+            # 主指标 (trail_80) — 兼容旧字段
+            "avg_return_pct": round(float(main_rets.mean()), 3) if len(main_rets) else 0,
+            "monthly_return_pct": round(float(main_rets.mean()), 3) if len(main_rets) else 0,
+            "max_return_pct": round(float(main_rets.max()), 2) if len(main_rets) else 0,
+            "min_return_pct": round(float(main_rets.min()), 2) if len(main_rets) else 0,
+        }
+        # R56: 6 套退场每月 avg + win_rate 各一列
+        for k in main_keys:
+            col = f"_{k}"
+            if col in gg.columns:
+                arr = gg[col]
+                row[f"{k}_avg"] = round(float(arr.mean()), 3) if len(arr) else 0
+                row[f"{k}_win_rate_pct"] = round(float((arr > 0).mean() * 100), 2) if len(arr) else 0
+            else:
+                row[f"{k}_avg"] = 0
+                row[f"{k}_win_rate_pct"] = 0
+        rows.append(row)
     rows.sort(key=lambda r: r["month"])
     return rows
 
@@ -1975,7 +2032,8 @@ def _sector_breakdown(trades: list[dict], sector_classify_mod) -> list[dict]:
         return []
     rows = []
     for sec, g in df.groupby("sector"):
-        rets = g["S1"].astype(float)
+        # R56: 用 trail_80 替代 S1 作为主退场口径
+        rets = g["trail_80"].astype(float) if "trail_80" in g.columns else g.iloc[0].get("trail_80", pd.Series([0]))
         rows.append({
             "sector": str(sec) if sec else "—",
             "trades": int(len(g)),
@@ -1990,39 +2048,98 @@ def _sector_breakdown(trades: list[dict], sector_classify_mod) -> list[dict]:
 
 
 def _build_summary(trades: list[dict], equity_curve: list[list]) -> dict:
-    """总体 KPI 概览 (前端顶部卡片用)"""
+    """总体 KPI 概览 (前端顶部卡片用)
+
+    R55 重构:
+      - 仓位按 V2 score 差异化 (高置信度 → 大仓位)
+      - 累计收益用 equity_curve (已含 position_mult 加权)
+      - 复利年化: (1+r_cum)^(250/n) - 1
+      - 新增 trading_days_actual: 实际交易天数
+    """
+    DEFAULT_POSITION = 20000.0
     if not trades:
-        return {"trades": 0, "win_rate_pct": 0, "best_strategy": "S1", "best_avg_pct": 0}
-    a = np.array([t["S1"] for t in trades], dtype=float)
+        return {
+            "trades": 0, "win_rate_pct": 0,
+            "best_strategy": "trail_80", "best_avg_pct": 0,
+            "position_per_trade_yuan": DEFAULT_POSITION,
+            "amount_after_1_month_yuan": DEFAULT_POSITION,
+            "amount_after_1_year_yuan": DEFAULT_POSITION,
+            "trading_days_actual": 0,
+        }
+
+    # R55: position-weighted returns
+    mults = np.array([t.get("_position_mult", 1.0) for t in trades], dtype=float)
+    a = np.array([t.get("trail_80", t.get("S1", 0)) for t in trades], dtype=float)
     n = len(a)
-    wins = int((a > 0).sum())
-    win_sum = float(a[a > 0].sum())
-    loss_sum = abs(float(a[a < 0].sum()))
-    eq = (1 + a / 100).cumprod()
-    cum = float((eq[-1] - 1) * 100)
-    peak = np.maximum.accumulate(eq)
-    dd = float(((eq - peak) / peak * 100).min()) if len(eq) else 0
-    std = float(a.std(ddof=1)) if n > 1 else 0
+    total_mult = float(mults.sum())
+    aw = a * mults  # 每笔按仓位加权后的收益
+
+    wins = int((aw > 0).sum())
+    losses = int((aw < 0).sum())
+    win_sum = float(aw[aw > 0].sum())
+    loss_sum = abs(float(aw[aw < 0].sum()))
+
+    # 加权平均收益率 (每 1W 仓位的平均收益)
+    avg_weighted = round(float(aw.sum() / total_mult), 3) if total_mult > 0 else 0
+
+    # 累计收益用 equity_curve (已含 position_mult 加权)
+    cum = equity_curve[-1][1] if equity_curve and len(equity_curve) > 0 else 0
+
     n_days = _period_days(trades)
     ann_pct, mon_pct = _annualized_monthly(cum, n_days)
+
+    # 回撤 + 标准差 (用加权收益)
+    peak = np.maximum.accumulate(1 + aw / 100 / total_mult * mults) if False else 0
+    # 简化: 用 equity_curve 算回撤
+    eq_arr = np.array([p[1] for p in equity_curve], dtype=float) if equity_curve else np.array([0])
+    if len(eq_arr) > 1:
+        eq_vals = 1 + eq_arr / 100
+        peak_vals = np.maximum.accumulate(eq_vals)
+        dd = float(((eq_vals - peak_vals) / peak_vals * 100).min())
+    else:
+        dd = 0
+    std = round(float(aw.std(ddof=1)), 3) if n > 1 else 0
+
+    # 金额换算: 用平均仓位
+    avg_position = DEFAULT_POSITION * total_mult / n if n > 0 else DEFAULT_POSITION
+    monthly_pct_user = round(avg_weighted * 21.0, 2)
+    yearly_pct_user = round(avg_weighted * 250.0, 2)
+    amount_1m = round(avg_position * (1 + monthly_pct_user / 100), 2)
+    amount_1y = round(avg_position * (1 + yearly_pct_user / 100), 2)
+
+    # 实际交易天数
+    dates = sorted({str(t.get("buy_date") or t.get("date_t", "")) for t in trades
+                    if t.get("buy_date") or t.get("date_t")})
+    dates = [d for d in dates if d and len(d) >= 8]
+
     return {
         "trades": n,
         "wins": wins,
-        "losses": int((a < 0).sum()),
+        "losses": losses,
         "win_rate_pct": round(wins / n * 100, 2),
-        "avg_return_pct": round(float(a.mean()), 3),
-        "median_return_pct": round(float(np.median(a)), 3),
+        "avg_return_pct": avg_weighted,
+        "median_return_pct": round(float(np.median(aw)), 3),
         "cum_return_pct": round(cum, 2),
         "annualized_pct": ann_pct,
         "monthly_pct": mon_pct,
         "period_days": n_days,
         "max_drawdown_pct": round(dd, 2),
-        "stddev_pct": round(std, 3),
+        "stddev_pct": std,
         "profit_factor": round(win_sum / loss_sum, 2) if loss_sum > 0 else None,
-        "best_strategy": "S1",
-        "best_avg_pct": round(float(a.mean()), 3),
-        "best_trade_pct": round(float(a.max()), 2),
-        "worst_trade_pct": round(float(a.min()), 2),
+        "best_strategy": "trail_80",
+        "best_avg_pct": avg_weighted,
+        "best_trade_pct": round(float(aw.max()), 2),
+        "worst_trade_pct": round(float(aw.min()), 2),
+        # 仓位 + 金额
+        "position_per_trade_yuan": round(avg_position, 2),
+        "total_trades": n,
+        "avg_daily_return_pct": avg_weighted,
+        "monthly_return_pct_user": monthly_pct_user,
+        "yearly_return_pct_user": yearly_pct_user,
+        "amount_after_1_month_yuan": amount_1m,
+        "amount_after_1_year_yuan": amount_1y,
+        # R55: 实际交易天数
+        "trading_days_actual": len(dates),
     }
 
 

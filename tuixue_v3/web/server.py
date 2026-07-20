@@ -2691,10 +2691,19 @@ async def api_dashboard_signal(force: bool = False):
     if not force and _dashboard_cache["signal"] is not None and (now - _dashboard_cache["ts"]) < _DASHBOARD_TTL:
         return envelope(data=_dashboard_cache["signal"])
 
+    # 2026-07-20: 用 SingleFlight 串行化并发请求,避免 6+ 并发打爆 executor 池
+    # 旧逻辑: 多 request 并发都走 to_thread, executor 池满时第二个直接 ABORTED
+    # timeout 25s: cold cache 时 6 指数并行 + global_sentiment 8s ≈ 9s;
+    #              兜底为并发第二次时同进程复用 6 worker,允许 1 次串行 (≈18s) + buffer
+    if not hasattr(api_dashboard_signal, "_sf"):
+        api_dashboard_signal._sf = SingleFlight()
     try:
-        sig = await asyncio.wait_for(to_thread(_build_dashboard_signal), timeout=18)
-    except asyncio.TimeoutError:
-        log.warning(f"dashboard signal 超时 18s (now={now:.0f}, cached_ts={_dashboard_cache['ts']:.0f})")
+        sig = await asyncio.wait_for(
+            to_thread(api_dashboard_signal._sf.run, ("dash_signal",), _build_dashboard_signal),
+            timeout=25,
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        log.warning(f"dashboard signal 超时 25s (now={now:.0f}, cached_ts={_dashboard_cache['ts']:.0f})")
         # 兜底:返上一次缓存(可能 None)
         return envelope(error="信号计算超时", data=_dashboard_cache["signal"] or {
             "a_share": {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
@@ -4389,9 +4398,9 @@ async def api_screener_result(
     show_failed: bool = True,
     rules: str = "",   # 逗号分隔, eg. "change_pct,volume_ratio"
     mode: str = "multi",   # multi | simple
-    strategy_id: str = "baseline",   # baseline | WIN_RATE_V2
+    strategy_id: str = "baseline",   # baseline | optimized
 ):
-    """尾盘战法单策略查询接口 — 双策略模式下用 ?strategy_id=WIN_RATE_V2 切右表
+    """尾盘战法单策略查询接口 — 双策略模式下用 ?strategy_id=optimized 切右表
     SSE 已经推双 payload (`/api/screener/stream`),此 endpoint 主要用于手动 reload
     """
     try:
@@ -4541,7 +4550,7 @@ async def api_screener_stream(_request: _Request):
         "ts":      float,
         "took_ms": int,
         "baseline": {items, count, took_ms},
-        "v2":       {items, count, took_ms},
+        "optimized":       {items, count, took_ms},
       }
     """
     from sse_starlette.sse import EventSourceResponse
@@ -4554,29 +4563,29 @@ async def api_screener_stream(_request: _Request):
         try:
             # 首帧: 优先用 last-known-good 缓存 (rebuild 期间避免空白)
             last = _scr.get_last_broadcast()
-            if last and ("baseline" in last or "v2" in last):
+            if last and ("baseline" in last or "optimized" in last):
                 yield {"event": "init", "data": json.dumps(last, default=str)}
             elif last:
                 # 兼容旧单策略缓存 → 包装到 baseline slot
                 wrapped = {"status": None, "ts": last.get("ts"), "took_ms": last.get("took_ms"),
                            "baseline": {"items": last.get("items", []), "count": last.get("count", 0),
                                         "took_ms": last.get("took_ms", 0)},
-                           "v2": {"items": [], "count": 0, "took_ms": 0}}
+                           "optimized": {"items": [], "count": 0, "took_ms": 0}}
                 yield {"event": "init", "data": json.dumps(wrapped, default=str)}
             else:
                 init_status = _scr.rule_status_enriched()
                 init_base = _scr.current_results_multi(sort_spec="change_pct:desc", limit=50,
                                                        strategy_id="baseline")
-                init_v2   = _scr.current_results_multi(sort_spec="v2_score:desc", limit=50,
-                                                       strategy_id="WIN_RATE_V2")
+                init_opt   = _scr.current_results_multi(sort_spec="v2_score:desc", limit=50,
+                                                       strategy_id="optimized")
                 yield {"event": "init", "data": json.dumps({
                     "status":   init_status,
-                    "ts":       init_base.get("ts") or init_v2.get("ts") or 0.0,
+                    "ts":       init_base.get("ts") or init_opt.get("ts") or 0.0,
                     "took_ms":  init_base.get("took_ms") or 0,
                     "baseline": {"items": init_base.get("items", []), "count": init_base.get("count", 0),
                                  "took_ms": init_base.get("took_ms", 0)},
-                    "v2":       {"items": init_v2.get("items", []),   "count": init_v2.get("count", 0),
-                                 "took_ms": init_v2.get("took_ms", 0)},
+                    "optimized":       {"items": init_opt.get("items", []),   "count": init_opt.get("count", 0),
+                                 "took_ms": init_opt.get("took_ms", 0)},
                 }, default=str)}
             while True:
                 if await _request.is_disconnected():
@@ -4719,9 +4728,8 @@ class _BacktestReq(BaseModel):
     index_late_up:     bool = False    # 2026-07-17 R21: 大盘尾盘强势 (14:30-15:00 红盘)
     sector_late_up:    bool = False    # 2026-07-17 R22: 个股所在板块尾盘强势
     tail_vol_ratio_min: float = 0.0    # 2026-07-17 R23: 个股尾盘 10min 量比 ≥ X% (0=禁用)
-    # 2026-07-18 R54: strategy_id 透传, 默认 baseline (现有 8 套规则) 不破坏老调用
-    #   "WIN_RATE_1000" = 1000+ 轮 walk-forward 找出的高胜率策略
-    strategy_id:      str = "baseline"  # baseline | WIN_RATE_1000 | ...
+    # 2026-07-18 R54: strategy_id 透传, 默认 baseline
+    strategy_id:      str = "baseline"  # baseline | optimized
     # 2026-07-18 R57+: late_high 满格收益折算系数 (默认 1.0 = 用户原意满格)
     #   1.0 = 满格 (理想化: 9:30-10:00 拉到水上即满格卖出)
     #   0.7 = 保守 (实际可能错过部分高位, 7 折)
@@ -4730,10 +4738,14 @@ class _BacktestReq(BaseModel):
     # 2026-07-18 R57+: VWAP 严格过滤开关 (默认 False = 软通, 数据不全时跳过)
     #   True = 必须 VWAP 验证 (需要 48 根 5min K, 历史覆盖率 < 5%, 慎用)
     require_vwap_strict: bool = False
-    # WIN_RATE_V2 双策略对比: 自动跑 baseline + 主策略并排展示
+    # optimized 双策略对比: 自动跑 baseline + 主策略并排展示
     compare_to_baseline: bool = False
-    # 优化策略模式: 用 OPTIMAL_PARAMS + WIN_RATE_V2, 自动对比 BASELINE_PARAMS
+    # 优化策略模式: 用 OPTIMAL_PARAMS, 自动对比 BASELINE_PARAMS
     optimized_mode: bool = False
+    # 2026-07-20: 1000 轮优化器 best params 覆盖 (字段白名单: top_n/hold_days/breadth_min/
+    #   breadth_min_soft/sector_hot_topn/sector_inflow_topn/late_high_discount/require_vwap_strict/
+    #   regime_adaptive); 缺失字段用 OPTIMAL_PARAMS 默认
+    optimized_params: dict | None = None
 
 
 def _bt_period_resolver(periods: list[str]) -> list[str]:
@@ -4760,7 +4772,8 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
                late_high_discount: float = 1.0,
                require_vwap_strict: bool = False,
                compare_to_baseline: bool = False,
-               optimized_mode: bool = False) -> None:
+               optimized_mode: bool = False,
+               optimized_params: dict | None = None) -> None:
     from . import backtest_screener as _bt
 
     # R97: progress_cb 检查取消标记,每步检查一次
@@ -4803,7 +4816,7 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
             return 92 + round(4 * min(1.0, done / total))
         kw_pct = [
             ("板块映射", 42), ("热门板块就绪", 48), ("资金流入板块就绪", 53),
-            ("WIN_RATE_V2 因子就绪", 56), ("5d filter 就绪", 58),
+            ("5d filter 就绪", 58),
             ("向量筛股", 60), ("尾盘叠加", 62), ("大盘尾盘强度", 64),
             ("板块尾盘强度", 66), ("板块热门 · 取", 45), ("资金流入 · 取", 50),
             ("大盘:", 68), ("硬红线", 68), ("软红线", 68),
@@ -4839,11 +4852,12 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
     try:
         # ── 优化策略模式: 一键跑优化策略 vs 基线策略 (不同参数) ──
         if optimized_mode:
-            if _cb: _cb("[1/2 优化策略] WIN_RATE_V2 + h=1500 s=3500 top=3 inf=3 reg")
+            if _cb: _cb("[1/2 优化策略] OPTIMAL_PARAMS")
             opt_bl = _bt.run_optimized_vs_baseline(
                 period_keys=period_keys,
                 sample=sample,
                 progress_cb=_cb,
+                optimized_params=getattr(req, "optimized_params", None),
             )
             r = opt_bl.get("optimized", {})
             bl = opt_bl.get("baseline")
@@ -4851,7 +4865,7 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
                 r["_baseline_result"] = bl
                 r["_optimized_mode"] = True
                 if _cb: _cb("对比完成 ✓")
-        # WIN_RATE_V2 双策略并跑: 一次请求出 baseline + 主策略对比
+        # optimized 双策略并跑: 一次请求出 baseline + 主策略对比
         elif compare_to_baseline and strategy_id != "baseline":
             # baseline 用原始默认参数 (并非复刻主策略的参数)
             baseline_overrides = {
@@ -5035,6 +5049,7 @@ async def api_screener_backtest(req: _BacktestReq):
             req.require_vwap_strict,
             req.compare_to_baseline,
             req.optimized_mode,
+            req.optimized_params,
         )
     except Exception as e:
         with _BT_RUN_LOCK:
@@ -10177,6 +10192,259 @@ async def stream_optimize(request: Request, iterations: int | None = None):
         finally:
             if not task.done():
                 task.cancel()
+
+    return EventSourceResponse(gen())
+
+
+# ═════════════════════════════════════════════════════════════════
+# 2026-07-20: 优化器 1000 轮迭代 API (start / state / stream / stop)
+# 取代旧 10 次 grid, 用 web.backtest_optimizer.run_optimization 持续跑
+# 状态全部 cache_store 持久化, 多次会话可续跑
+# ═════════════════════════════════════════════════════════════════
+import threading as _threading_opt
+
+_OPTIM_RUNNING_LOCK = _threading_opt.Lock()
+_OPTIM_STOP_FLAG = False
+_OPTIM_LAST_RESULT = None
+
+
+def _persist_optimizer_state(state_dict: dict) -> None:
+    """保存到 cache_store (TTL 7 天, 跨进程共享)"""
+    from .. import cache_store as _cs
+    s = _cs.get_store()
+    # _encode 内部已 json.dumps,直接传 dict 即可 (不要预 encode)
+    s.set(_cs.K.OPTIMIZER_STATE, state_dict, ttl=86400 * 7)
+
+
+def _persist_optimizer_best(best: dict) -> None:
+    from .. import cache_store as _cs
+    s = _cs.get_store()
+    s.set(_cs.K.OPTIMIZER_BEST, best, ttl=86400 * 30)
+
+
+def _persist_optimizer_stream(msg: str) -> None:
+    """追加一行 progress 到 list (50 条 cap, 给前端 SSE 失败 fallback polling 用)"""
+    from .. import cache_store as _cs
+    s = _cs.get_store()
+    try:
+        key = _cs.K.OPTIMIZER_STREAM
+        raw = s.get(key)
+        lst = raw if isinstance(raw, list) else (json.loads(raw) if raw else [])
+        if not isinstance(lst, list):
+            lst = []
+        lst.append({"t": time.time(), "msg": msg[:500]})
+        lst = lst[-50:]
+        s.set(key, lst, ttl=86400)
+    except Exception:
+        pass
+
+
+def _optim_run_thread(max_iterations: int) -> None:
+    """后台线程跑优化器, 状态/cache_store/SSE 三路推送"""
+    global _OPTIM_STOP_FLAG, _OPTIM_LAST_RESULT
+    from .. import cache_store as _cs
+    from .backtest_optimizer import run_optimization as _run_opt
+
+    _OPTIM_STOP_FLAG = False
+    s = _cs.get_store()
+    s.set(_cs.K.OPTIMIZER_LOCK, b"1", ttl=86400 * 7)
+
+    # 初始化 state
+    state_dict = {
+        "status": "running",
+        "iteration": 0,
+        "max_iterations": max_iterations,
+        "best_score": None,
+        "best_params": None,
+        "baseline_score": None,
+        "baseline_cum": None,
+        "baseline_wr": None,
+        "history_summary": [],
+        "started_at": time.time(),
+        "last_update": time.time(),
+    }
+    _persist_optimizer_state(state_dict)
+    _persist_optimizer_stream(f"[启动] max_iterations={max_iterations}")
+
+    def _cb(msg: str) -> None:
+        if _OPTIM_STOP_FLAG:
+            raise KeyboardInterrupt("优化器停止")
+        _persist_optimizer_stream(msg)
+        # 解析 "[i/max] ..." 更新 iteration 计数 + ETA
+        try:
+            import re as _re2
+            m2 = _re2.match(r"\s*\[(\d+)\s*/\s*(\d+)[^\]]*\]\s*(.*)", msg)
+            if m2:
+                state_dict["iteration"] = int(m2.group(1))
+                state_dict["max_iterations"] = int(m2.group(2))
+                state_dict["last_update"] = time.time()
+                # ETA: 平均每 iter 耗时 = (now - started_at) / iteration
+                if state_dict["iteration"] > 0:
+                    elapsed = state_dict["last_update"] - state_dict["started_at"]
+                    avg_per_iter = elapsed / state_dict["iteration"]
+                    eta_s = max(0, (state_dict["max_iterations"] - state_dict["iteration"]) * avg_per_iter)
+                    state_dict["eta_sec"] = int(eta_s)
+            if "新最佳" in msg:
+                # 解析 score=数字
+                m_sc = _re2.search(r"score=([-\d.]+)", msg)
+                if m_sc:
+                    state_dict["best_score"] = float(m_sc.group(1))
+                _persist_optimizer_state(state_dict)
+            elif "✓" in msg or "新最佳" in msg or "异常" in msg:
+                _persist_optimizer_state(state_dict)
+        except Exception:
+            pass
+
+    try:
+        opt_state = _run_opt(
+            strategy_id="WIN_RATE_V2",
+            period_keys=["半年"],
+            max_iterations=max_iterations,
+            progress_cb=_cb,
+        )
+
+        # 完成后写入 state
+        history_summary = [{
+            "iteration": h["iteration"],
+            "score": h["score"],
+            "cum_return": h["cum_return"],
+            "win_rate": h["win_rate"],
+            "delta_cum": h.get("delta_cum"),
+            "delta_wr": h.get("delta_wr"),
+            "trades": h["trades"],
+        } for h in (opt_state.history[-100:] if hasattr(opt_state, "history") else [])]
+
+        state_dict = {
+            "status": "done",
+            "iteration": opt_state.iteration,
+            "max_iterations": opt_state.max_iterations,
+            "best_score": opt_state.best_score,
+            "best_params": dict(opt_state.best_params) if opt_state.best_params else None,
+            "baseline_score": getattr(opt_state, "baseline_score", None),
+            "baseline_cum": getattr(opt_state, "baseline_cum", None),
+            "baseline_wr": getattr(opt_state, "baseline_wr", None),
+            "history_summary": history_summary,
+            "started_at": getattr(opt_state, "started_at", time.time()),
+            "last_update": time.time(),
+        }
+        _persist_optimizer_state(state_dict)
+
+        # best_params 写 OPTIMIZER_BEST (前端 ⭐ 优化策略按钮会用)
+        if opt_state.best_result:
+            best = {
+                "params": dict(opt_state.best_params),
+                "score": opt_state.best_score,
+                "summary": opt_state.best_result.get("summary") or {},
+                "scenario_trail_80": (opt_state.best_result.get("scenarios") or {}).get("trail_80") or {},
+                "completed_at": time.time(),
+                "iterations": opt_state.iteration,
+            }
+            _persist_optimizer_best(best)
+            _OPTIM_LAST_RESULT = best
+            _persist_optimizer_stream(f"[完成] {opt_state.iteration} 轮 · best_score={opt_state.best_score:.2f}")
+    except KeyboardInterrupt:
+        state_dict["status"] = "stopped"
+        state_dict["last_update"] = time.time()
+        _persist_optimizer_state(state_dict)
+        _persist_optimizer_stream("[停止] 用户中断")
+    except Exception as e:
+        state_dict["status"] = "error"
+        state_dict["error"] = str(e)[:500]
+        state_dict["last_update"] = time.time()
+        _persist_optimizer_state(state_dict)
+        _persist_optimizer_stream(f"[错误] {e}")
+    finally:
+        s.delete(_cs.K.OPTIMIZER_LOCK)
+
+
+@app.post("/api/optimize/start")
+async def api_optimize_start(request: Request, max_iterations: int = 50):
+    """启动优化器 (后台线程) — 默认 50 轮/批"""
+    from .. import cache_store as _cs
+    s = _cs.get_store()
+    if s.get(_cs.K.OPTIMIZER_LOCK):
+        return envelope(error="优化器已在运行", data={"status": "running"})
+    t = _threading_opt.Thread(target=_optim_run_thread, args=(max_iterations,), daemon=True)
+    t.start()
+    return envelope(data={"status": "started", "max_iterations": max_iterations})
+
+
+@app.post("/api/optimize/stop")
+async def api_optimize_stop(request: Request):
+    global _OPTIM_STOP_FLAG
+    _OPTIM_STOP_FLAG = True
+    return envelope(data={"status": "stopping"})
+
+
+@app.get("/api/optimize/state")
+async def api_optimize_state():
+    """读当前优化器状态 + best_params (前端轮询/SSE fallback)"""
+    from .. import cache_store as _cs
+    s = _cs.get_store()
+    raw = s.get(_cs.K.OPTIMIZER_STATE)
+    if isinstance(raw, dict):
+        state = raw
+    elif raw:
+        try:
+            state = json.loads(raw)
+        except Exception:
+            state = {"status": "error", "raw": str(raw)[:200]}
+    else:
+        state = {"status": "idle"}
+    best_raw = s.get(_cs.K.OPTIMIZER_BEST)
+    if isinstance(best_raw, dict):
+        best = best_raw
+    elif best_raw:
+        try:
+            best = json.loads(best_raw)
+        except Exception:
+            best = None
+    else:
+        best = None
+    return envelope(data={"state": state, "best": best})
+
+
+@app.get("/api/optimize/stream")
+async def api_optimize_stream(request: Request):
+    """SSE 推送: optimizer_state 变化 + progress 消息"""
+    if (r := _check_sse_origin(request)) is not None:
+        return r
+    from .. import cache_store as _cs
+    from sse_starlette.sse import EventSourceResponse
+
+    s = _cs.get_store()
+
+    async def gen():
+        last_state_raw = ""
+        last_msg_count = 0
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                # 1. state diff
+                raw = s.get(_cs.K.OPTIMIZER_STATE)
+                if raw and raw != last_state_raw:
+                    last_state_raw = raw
+                    state = json.loads(raw)
+                    yield {"event": "state", "data": json.dumps(state, default=str)}
+                    if state.get("status") == "done":
+                        # 推一次 best 然后退出
+                        best_raw = s.get(_cs.K.OPTIMIZER_BEST)
+                        if best_raw:
+                            yield {"event": "best", "data": best_raw.decode() if isinstance(best_raw, bytes) else best_raw}
+                        break
+                # 2. progress diff
+                stream_raw = s.get(_cs.K.OPTIMIZER_STREAM)
+                if stream_raw:
+                    lst = json.loads(stream_raw)
+                    if len(lst) > last_msg_count:
+                        for m in lst[last_msg_count:]:
+                            yield {"event": "progress", "data": json.dumps(m)}
+                        last_msg_count = len(lst)
+                yield {"event": "ping", "data": json.dumps({"t": time.time()})}
+                await asyncio.sleep(1.5)
+        except asyncio.CancelledError:
+            pass
 
     return EventSourceResponse(gen())
 

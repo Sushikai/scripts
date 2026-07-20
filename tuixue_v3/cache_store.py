@@ -871,6 +871,11 @@ class K:
     # R-fix-2026-07-18 A5: LLM fire-and-forget 防抖锁 + 完成通知
     AI_BG_LOCK = "ai_bg_lock:{code}"          # String SETNX lock, TTL 300s (每只 5min 最多 1 次)
     AI_READY = "ai_ready:{code}"              # 完成后写,前端 SSE 订阅看到, TTL 600s
+    # 2026-07-20: 优化器状态 + 最佳参数 (1000 轮迭代持续保存)
+    OPTIMIZER_STATE = "optim:state"          # JSON {iteration, max_iter, best_score, best_params, history_summary, status: idle|running|done|error, started_at}
+    OPTIMIZER_BEST   = "optim:best"           # JSON {params, score, summary, completed_at} — 替换前端 ⭐ 优化策略
+    OPTIMIZER_LOCK   = "optim:lock"           # String "1" — 防多 worker 同时跑
+    OPTIMIZER_STREAM = "optim:stream"         # List 最近 50 条 progress 消息 (SSE fallback 给 polling)
 
 
 def ttl_until_midnight() -> int:

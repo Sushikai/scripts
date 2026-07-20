@@ -905,20 +905,68 @@
   <!-- ─── OPTIMIZE ─── -->
   <section class="view view-optimize" data-view="optimize" hidden>
     <header class="view-head">
-      <p class="caption">调优 · 06</p>
+      <p class="caption">调优 · 06 · 1000 轮迭代</p>
       <h1 class="display">参数<span class="accent">调优</span></h1>
-      <p class="lede">10 次迭代网格扫描 · 自动恢复最佳参数</p>
+      <p class="lede">随机搜索 + walk-forward 验证 · 自动写入 ⭐ 优化策略</p>
     </header>
 
+    <!-- 控制面板 + 进度 -->
     <article class="card">
-      <div class="card-eyebrow">RUN · 触发</div>
-      <p class="card-text">网格扫描 30+ 阈值组合 · 综合得分 = 0.5×月均 + 0.3×胜率 + 0.2×盈亏比。</p>
-      <button class="btn btn-primary" id="run-optimize">
-        <span>开始调优</span><span class="btn-arrow">↗</span>
-      </button>
-      <p class="caption dim" id="optimize-status" style="margin-top: .75rem">未运行</p>
+      <div class="card-eyebrow">RUN · 触发 + 进度</div>
+      <p class="card-text">综合得分 = <code>(1 + cum/100) × (1 + pf) / max(0.5, |DD| + 2)</code> · 兼顾累计收益、盈亏比、回撤。1000 轮后写入 ⭐ 优化策略按钮。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:.5rem 0">
+        <input type="number" id="optim-max-iter" value="50" min="5" max="500" step="5"
+               style="background:#1a1612;color:#fbfbfd;border:1px solid #3a3024;border-radius:3px;padding:4px 8px;font-size:12px;width:80px">
+        <button class="btn btn-primary" id="run-optimize">
+          <span>开始调优</span><span class="btn-arrow">↗</span>
+        </button>
+        <button class="btn btn-ghost" id="stop-optimize" hidden>
+          <span>停止</span><span class="btn-arrow">⏹</span>
+        </button>
+        <span class="caption dim" style="margin-left:auto">轮数 / 批次</span>
+      </div>
+      <!-- 进度条 -->
+      <div style="margin-top: .75rem">
+        <div class="bt-progress-bar show" id="opt-progress-bar"
+             style="height:6px;background:#1a1612;border-radius:3px;overflow:hidden">
+          <div id="opt-progress-fill" style="height:100%;background:linear-gradient(90deg,#84f4a8,#c084f4);width:0%;transition:width .4s ease"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:.4rem;font-size:11.5px;color:#a09882">
+          <span id="opt-progress-text">未运行</span>
+          <span id="opt-eta" class="dim">—</span>
+        </div>
+      </div>
     </article>
 
+    <!-- 最佳参数 + 可行性 + 交易策略 三件套 -->
+    <article class="card mt-32" id="opt-best-card" hidden>
+      <div class="card-eyebrow">⭐ 最佳参数 · 1000 轮冠军</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:.5rem 0">
+        <div><span class="caption dim">综合得分</span><br><strong id="opt-best-score" style="font-size:18px;color:#c084f4">—</strong></div>
+        <div><span class="caption dim">累计收益</span><br><strong id="opt-best-cum" style="font-size:18px">—</strong></div>
+        <div><span class="caption dim">交易笔数</span><br><strong id="opt-best-trades" style="font-size:18px">—</strong></div>
+        <div><span class="caption dim">胜率</span><br><strong id="opt-best-wr">—</strong></div>
+        <div><span class="caption dim">盈亏比</span><br><strong id="opt-best-pf">—</strong></div>
+        <div><span class="caption dim">最大回撤</span><br><strong id="opt-best-dd">—</strong></div>
+      </div>
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer;color:#84f4a8;font-size:12px">📋 完整参数 (JSON)</summary>
+        <pre id="opt-best-params-json" style="background:#0a0806;color:#a09882;padding:.75rem;border-radius:4px;font-size:11px;overflow-x:auto;margin:.5rem 0 0;line-height:1.4"></pre>
+      </details>
+    </article>
+
+    <!-- 交易策略 + 可行性分析 (自动生成) -->
+    <article class="card mt-32" id="opt-strategy-card" hidden>
+      <div class="card-eyebrow">📜 交易策略说明</div>
+      <div id="opt-strategy-text" style="line-height:1.7;font-size:13px;color:#e8e1d4;margin-top:.5rem"></div>
+    </article>
+
+    <article class="card mt-32" id="opt-feasibility-card" hidden>
+      <div class="card-eyebrow">📊 可行性分析</div>
+      <div id="opt-feasibility-text" style="line-height:1.7;font-size:13px;color:#e8e1d4;margin-top:.5rem"></div>
+    </article>
+
+    <!-- 历史报告 (旧功能保留) -->
     <article class="card mt-32">
       <div class="card-eyebrow">REPORTS · 历史报告</div>
       <div class="table-wrap">
@@ -1489,7 +1537,7 @@
         <button id="scr-filter-reset" class="btn-mini" title="重置全部筛选">重置筛选</button>
       </div>
 
-      <!-- 主表 (双策略并排: 基线 7 条 + WIN_RATE_V2 多因子) -->
+      <!-- 主表 (双策略并排: 基线 7 条 + 优化策略 多因子) -->
       <div id="main-area">
         <!-- 双策略说明 (用户要求: 页面要说明两种策略分别是啥) -->
         <div class="scr-strategy-legend">
@@ -1497,8 +1545,8 @@
             <b style="color:#d8cdb4">📊 基线 · 7 条规则</b>
             <span class="dim">主板+涨幅3~5%+量比≥1+市值40~300亿+换手5~10%+近20日有涨停+股价在分时均价之上 · 同池同条件,1s tick</span>
           </div>
-          <div class="scr-leg-item" data-leg="v2">
-            <b style="color:#c084f4">🎯 WIN_RATE_V2 · 多因子评分</b>
+          <div class="scr-leg-item" data-leg="optimized">
+            <b style="color:#c084f4">⭐ 优化策略 · 多因子评分</b>
             <span class="dim">同池+多因子打分(0.30·IRS + 0.25·VM20 + 0.20·反转 + 0.25·涨停占比),分数高=次日易继续涨</span>
           </div>
         </div>
@@ -1516,16 +1564,16 @@
               </table>
             </div>
           </div>
-          <div class="scr-col" data-strategy="v2">
+          <div class="scr-col" data-strategy="optimized">
             <div class="scr-col-head">
-              <span class="scr-col-title">🎯 WIN_RATE_V2 · 多因子</span>
-              <span class="pill" id="cnt-pill-v2">0 行</span>
-              <span class="pill" id="pass-rate-pill-v2" hidden>通过 0</span>
+              <span class="scr-col-title">⭐ 优化策略 · 多因子</span>
+              <span class="pill" id="cnt-pill-optimized">0 行</span>
+              <span class="pill" id="pass-rate-pill-optimized" hidden>通过 0</span>
             </div>
             <div class="scr-table-wrap">
-              <table class="scr-table" id="scr-table-v2">
-                <thead><tr id="scr-thead-row-v2"></tr></thead>
-                <tbody id="scr-tbody-v2"></tbody>
+              <table class="scr-table" id="scr-table-optimized">
+                <thead><tr id="scr-thead-row-optimized"></tr></thead>
+                <tbody id="scr-tbody-optimized"></tbody>
               </table>
             </div>
           </div>
@@ -1670,14 +1718,7 @@
           </div>
           <div class="bt-presets" style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
             <span style="font-size:10px;color:#888;margin-right:4px;white-space:nowrap">场景预设:</span>
-            <button class="bt-preset" data-p0="" data-p1="" data-p2="0" data-p3="0" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">基线无过滤</button>
-            <button class="bt-preset" data-p0="1500" data-p1="3000" data-p2="5" data-p3="0" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">大盘+热门Top5</button>
-            <button class="bt-preset" data-p0="0" data-p1="0" data-p2="0" data-p3="3" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">资金流入Top3</button>
-            <button class="bt-preset" data-p0="0" data-p1="0" data-p2="0" data-p3="5" style="background:#2a241c;color:#e8e1d4;border:1px solid #3a3024;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">资金流入Top5</button>
-            <button class="bt-preset" data-p0="1500" data-p1="3000" data-p2="5" data-p3="5" style="background:#3a2c1a;color:#f4d384;border:1px solid #5a4a2a;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">全叠最强</button>
-            <button class="bt-preset" data-p0="" data-p1="" data-p2="0" data-p3="0" data-strategy="WIN_RATE_1000" style="background:#1f3a2c;color:#84f4a8;border:1px solid #2a5a3e;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">🔥 高胜率(1000轮)</button>
-            <button class="bt-preset" data-p0="" data-p1="" data-p2="0" data-p3="0" data-strategy="WIN_RATE_V2" style="background:#2a1f3a;color:#c084f4;border:1px solid #4a2a6a;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:4px">🔮 V2多因子</button>
-            <button class="bt-preset" data-optimized="1" style="background:#3a1a2a;color:#f4a4c4;border:1px solid #6a2a4a;border-radius:4px;padding:2px 10px;font-size:11px;cursor:pointer;margin-left:4px;font-weight:bold">⭐ 优化策略 (R2冠军)</button>
+            <button class="bt-preset" data-optimized="1" style="background:#3a1a2a;color:#f4a4c4;border:1px solid #6a2a4a;border-radius:4px;padding:4px 14px;font-size:12px;cursor:pointer;font-weight:bold">⭐ 优化策略 (R2冠军 · 自动对比基线)</button>
           </div>
 
           <!-- R-ship-2026-07-19: 历史回测列表 (最近 10 次, cache_db.bt_runs) -->
@@ -1691,12 +1732,8 @@
             </div>
           </details>
 
-          <!-- R54: 策略 tab 切换 (baseline / WIN_RATE_1000 双策略并存) -->
-          <div class="bt-tabs" style="display:flex;gap:0;margin-top:10px;border-bottom:1px solid #3a3024">
-            <button class="bt-tab" data-strategy="baseline" style="background:#1c1a14;color:#e8e1d4;border:1px solid #3a3024;border-bottom:none;border-radius:6px 6px 0 0;padding:6px 14px;font-size:12px;cursor:pointer;margin-right:2px">基线 8 规则</button>
-            <button class="bt-tab" data-strategy="WIN_RATE_1000" style="background:#1c1a14;color:#84f4a8;border:1px solid #2a5a3e;border-bottom:none;border-radius:6px 6px 0 0;padding:6px 14px;font-size:12px;cursor:pointer">🔥 高胜率 1000 轮</button>
-            <button class="bt-tab" data-strategy="WIN_RATE_V2" style="background:#1c1a14;color:#c084f4;border:1px solid #4a2a6a;border-bottom:none;border-radius:6px 6px 0 0;padding:6px 14px;font-size:12px;cursor:pointer;margin-left:2px">🔮 V2 多因子</button>
-          </div>
+          <!-- 2026-07-20: 删策略 tab,只留优化策略 + 基线对照 (双表自动渲染, 不需要切) -->
+          <!-- <div class="bt-tabs" hidden>...</div> -->
 
           <!-- v4: 单 mount, 由 btRenderV4(data) 整体渲染 -->
           <div id="bt-mount" style="display:flex;flex-direction:column;gap:14px;margin-top:14px;width:100%">
@@ -1754,8 +1791,8 @@
             <!-- 双策略说明 (用户要求: 页面要说明两种策略分别是啥) -->
             <div class="bt-strategy-legend" id="bt-strategy-legend">
               <div class="bt-leg-item" data-leg="primary">
-                <b style="color:#c084f4">🔮 主策略 (用户选 · 默认 WIN_RATE_V2)</b>
-                <span class="dim">多因子评分选股:0.30·IRS + 0.25·VM20 + 0.20·反转 + 0.25·涨停占比 · 候选池走 V2 排序</span>
+                <b style="color:#c084f4">⭐ 优化策略</b>
+                <span class="dim">多因子评分选股:0.30·IRS + 0.25·VM20 + 0.20·反转 + 0.25·涨停占比 · R2 冠军参数 · 候选池走 V2 排序</span>
               </div>
               <div class="bt-leg-item" data-leg="baseline">
                 <b style="color:#d8cdb4">📊 基线 (自动对照 · baseline)</b>
@@ -1912,10 +1949,10 @@
         let STATUS = {};
         let THRESHOLDS = {};
         let TOGGLES   = {};
-        // R-fix 2026-07-19: 双策略并排 — baseline + WIN_RATE_V2 各持独立 items + rAF 队列
+        // R-fix 2026-07-19: 双策略并排 — baseline + optimized 各持独立 items + rAF 队列
         // 保持向下兼容:LAST_ITEMS 仍可用,代表 baseline (主表视觉锚点)
         let LAST_ITEMS = [];                          // baseline (单策略兼容)
-        let LAST_ITEMS_BY_STRATEGY = { baseline: [], v2: [] };
+        let LAST_ITEMS_BY_STRATEGY = { baseline: [], optimized: [] };
         let HIST_DATE = '';
         let REPLAY_MODE = false;
         let REPLAY_FILTER = null;        // 当前回放的快照 code→row 索引
@@ -1928,8 +1965,8 @@
 
         // ═══════ rAF 批处理 — 避免 1s 多次 DOM 写入 ═══════
         // 双策略版: rAF 入队两份策略, 各自写自己的 tbody
-        const _pendingSched = { baseline: false, v2: false };
-        const _pendingItems = { baseline: null, v2: null };
+        const _pendingSched = { baseline: false, optimized: false };
+        const _pendingItems = { baseline: null, optimized: null };
         let _pendingRAF = null;
         function _consume(strategy) {
           _pendingSched[strategy] = false;
@@ -1946,7 +1983,7 @@
           _pendingRAF = requestAnimationFrame(() => {
             _pendingRAF = null;
             if (_pendingSched.baseline) _consume('baseline');
-            if (_pendingSched.v2)       _consume('v2');
+            if (_pendingSched.optimized)       _consume('optimized');
           });
         }
         function scheduleRender(strategy) {
@@ -1956,7 +1993,7 @@
           _scheduleRAF();
         }
         function setItemsAndRender(strategy, payload) {
-          // 双策略: strategy = 'baseline' | 'v2'
+          // 双策略: strategy = 'baseline' | 'optimized'
           // payload = {items, count, took_ms}
           if (!strategy) strategy = 'baseline';
           const items = (payload && Array.isArray(payload.items)) ? payload.items
@@ -2029,7 +2066,7 @@
         // V2 列只追加到右表; 列顺序共享 localStorage
         const V2_ONLY_COLS = [
           { key:'v2_score',     label:'V2·综合分', sortable:true, fmt: v => v==null?'—':v.toFixed(3),
-            title:'WIN_RATE_V2 复合同分 (0.30·IRS + 0.25·VM20 + 0.20·reversal + 0.25·zt_ratio)' },
+            title:'优化策略 复合同分 (0.30·IRS + 0.25·VM20 + 0.20·reversal + 0.25·zt_ratio)' },
           { key:'v2_irs',       label:'IRS',      sortable:true, fmt: v => v==null?'—':v.toFixed(2),
             title:'日内强度 (close-low)/(high-low)' },
           { key:'v2_vm20',      label:'VM20',     sortable:true, fmt: v => v==null?'—':v.toFixed(2),
@@ -2040,7 +2077,7 @@
             title:'近20日涨停天数占比' },
         ];
         function renderThead() {
-          // 列顺序也存 localStorage — 共享 baseline + v2 同一份
+          // 列顺序也存 localStorage — 共享 baseline + optimized 同一份
           let order = JSON.parse(localStorage.getItem('screener_col_order') || '[]');
           const allKeysBase = COLUMNS.map(c => c.key);
           const allKeysV2   = [...COLUMNS.map(c => c.key), ...V2_ONLY_COLS.map(c => c.key)];
@@ -2058,9 +2095,9 @@
           };
           const colsBase = COLUMNS.slice().sort(sortFn);
           const colsV2   = [...COLUMNS, ...V2_ONLY_COLS].sort(sortFn);
-          const colsByStrategy = { baseline: colsBase, v2: colsV2 };
+          const colsByStrategy = { baseline: colsBase, optimized: colsV2 };
 
-          ['baseline','v2'].forEach(strategy => {
+          ['baseline','optimized'].forEach(strategy => {
             const tr = $(`#scr-thead-row-${strategy}`);
             if (!tr) return;
             const cols = colsByStrategy[strategy];
@@ -2085,7 +2122,7 @@
                 }
                 renderSortSpec();
                 renderTable('baseline');
-                renderTable('v2');
+                renderTable('optimized');
                 if (!REPLAY_MODE) startLiveLoad();
               });
             });
@@ -2109,7 +2146,7 @@
                 localStorage.setItem('screener_col_order', JSON.stringify(order));
                 renderThead();
                 renderTable('baseline');
-                renderTable('v2');
+                renderTable('optimized');
               });
             });
           });
@@ -2212,11 +2249,11 @@
         }
 
         // ═══════ 表行渲染 — 双策略版 ═══════
-        // strategy: "baseline" | "v2"  — 各写自己 tbody + KPI pill
-        const _renderKey = { baseline: '', v2: '' };
+        // strategy: "baseline" | "optimized"  — 各写自己 tbody + KPI pill
+        const _renderKey = { baseline: '', optimized: '' };
         function renderBothStrategies() {
           renderTable('baseline');
-          renderTable('v2');
+          renderTable('optimized');
         }
         function renderTable(strategy) {
           strategy = strategy || 'baseline';
@@ -2229,7 +2266,7 @@
           _renderKey[strategy] = filterKey;
 
           const order = JSON.parse(localStorage.getItem('screener_col_order') || '[]');
-          const colsAll = strategy === 'v2'
+          const colsAll = strategy === 'optimized'
             ? [...COLUMNS, ...V2_ONLY_COLS]
             : COLUMNS;
           const cols = colsAll.slice().sort((a, b) => {
@@ -2289,7 +2326,7 @@
 
           if (!items.length) {
             const emptyMsg = REPLAY_MODE ? '该时间点无数据' : (
-              strategy === 'v2' && itemsRaw.length === 0 ? '评估中…' : '无满足规则的标的'
+              strategy === 'optimized' && itemsRaw.length === 0 ? '评估中…' : '无满足规则的标的'
             );
             const emptyHint = REPLAY_MODE ? '试试别的日期或时间点' : (STATUS.reason === 'before_open' ? '14:30 启, 会自动刷新' : (STATUS.reason === 'non_trade_day' ? '今日非交易日' : '可关规则 / 改阈值'));
             tb.innerHTML = `<tr><td colspan="${cols.length}" style="text-align:center;padding:2rem;color:#888;font-size:13px">
@@ -2505,8 +2542,8 @@
               if (d.baseline && Array.isArray(d.baseline.items)) {
                 window._dataTs = d.ts || 0;
                 setItemsAndRender('baseline', d.baseline);
-                if (d.v2 && Array.isArray(d.v2.items)) setItemsAndRender('v2', d.v2);
-                const totalCnt = (d.baseline.items?.length || 0) + (d.v2?.items?.length || 0);
+                if (d.optimized && Array.isArray(d.optimized.items)) setItemsAndRender('optimized', d.optimized);
+                const totalCnt = (d.baseline.items?.length || 0) + (d.optimized?.items?.length || 0);
                 $('#conn-state').textContent = `${nowStr()} · 双策略 ${totalCnt}`;
               } else if (d.items) {
                 // 兼容老单策略 (如 cron 离线后,只推 baseline)
@@ -2525,8 +2562,8 @@
             if (d.baseline && Array.isArray(d.baseline.items)) {
               window._dataTs = d.ts || 0;
               setItemsAndRender('baseline', d.baseline);
-              if (d.v2 && Array.isArray(d.v2.items)) setItemsAndRender('v2', d.v2);
-              const tookMax = Math.max(d.baseline.took_ms || 0, d.v2?.took_ms || 0);
+              if (d.optimized && Array.isArray(d.optimized.items)) setItemsAndRender('optimized', d.optimized);
+              const tookMax = Math.max(d.baseline.took_ms || 0, d.optimized?.took_ms || 0);
               $('#took-pill').hidden = false;
               $('#took-pill').textContent = `${tookMax || '?'}ms`;
               $('#took-pill').title = '双策略评估耗时 (max, 毫秒)';
@@ -2563,13 +2600,13 @@
             // 双策略并行拉取 (基础 + V2) — 轮询兜底, SSE 是主路
             const [r1, r2] = await Promise.all([
               fetch(`/api/screener/result?sort=${encodeURIComponent(sort)}&limit=200&mode=multi&strategy_id=baseline`, { signal: POLL_ABORT.signal }),
-              fetch(`/api/screener/result?sort=${encodeURIComponent(sort)}&limit=200&mode=multi&strategy_id=WIN_RATE_V2`, { signal: POLL_ABORT.signal }),
+              fetch(`/api/screener/result?sort=${encodeURIComponent(sort)}&limit=200&mode=multi&strategy_id=optimized`, { signal: POLL_ABORT.signal }),
             ]);
             const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
             if (j1?.data?.items) {
               window._dataTs = j1.data.ts || 0;
               setItemsAndRender('baseline', j1.data);
-              if (j2?.data?.items) setItemsAndRender('v2', j2.data);
+              if (j2?.data?.items) setItemsAndRender('optimized', j2.data);
               const totalCnt = (j1.data.count || 0) + (j2?.data?.count || 0);
               $('#conn-state').textContent = `${nowStr()} · 双策略 ${totalCnt}`;
               const tookMax = Math.max(j1.data.took_ms || 0, j2?.data?.took_ms || 0);
@@ -3383,9 +3420,8 @@ function btRenderMonthly(monthly) {
           if (current?._baseline_result) results.baseline = current._baseline_result;
           const currentSig = typeof _btParamsSig === 'function' ? _btParamsSig(window._BT_LAST_BODY || {}) : '';
           const defs = [
-            ['baseline', '基线策略', '#d8cdb4'],
-            ['WIN_RATE_1000', '高胜率 1000 轮', '#84f4a8'],
-            ['WIN_RATE_V2', 'V2 多因子', '#c084f4'],
+            ['baseline', '基线策略 (8 规则 · 对照)', '#d8cdb4'],
+            ['optimized', '⭐ 优化策略 (V2 多因子)', '#c084f4'],
           ];
           const groups = defs.map(([id, label, color]) => ({ id, label, color, result: results[id] }))
             .filter(g => g.result && (g.id === currentId || current?._baseline_result === g.result || !currentSig || window._BT_RESULT_SIG?.[g.id] === currentSig));
@@ -3532,7 +3568,7 @@ function btRenderMonthly(monthly) {
             window._BT_RESULTS['baseline'] = r._baseline_result;
             const bl = r._baseline_result;
             const isOpt = !!r._optimized_mode;
-            const optLabel = isOpt ? '⭐ 优化策略 (R2冠军)' : '🔮 V2 多因子';
+            const optLabel = '⭐ 优化策略 (R2冠军)';   // 2026-07-20: 统一显示, 只剩优化策略一种
             const blLabel  = '📊 基线策略';
             const _extract = (res) => {
               const s = (res.summary || {});
@@ -3679,13 +3715,10 @@ function btRenderMonthly(monthly) {
           if (cfg.index_late_up)  meta += ` · 大盘尾盘强(跳过${cfg.index_late_skipped||0})`;
           if (cfg.sector_late_up) meta += ` · 板块尾盘强(跳过${cfg.sector_late_skipped||0})`;
           if (cfg.tail_vol_ratio_min > 0) meta += ` · 尾盘量≥${cfg.tail_vol_ratio_min}(跳过${cfg.tail_vol_skipped||0})`;
-          // R54: 显示策略 id + 跳过数
+          // 显示策略 id + 跳过数 (2026-07-20: 只剩 optimized)
           if (cfg.strategy_id && cfg.strategy_id !== 'baseline') {
-            const skip = cfg.strategy_id === 'WIN_RATE_V2'
-              ? cfg.win_rate_v2_skipped || 0
-              : cfg.win_rate_1000_skipped || 0;
-            const icon = cfg.strategy_id === 'WIN_RATE_V2' ? '🔮' : '🔥';
-            meta += ` · ${icon}${cfg.strategy_id}(跳过${skip})`;
+            const skip = cfg.optimized_skipped || 0;
+            meta += ` · ⭐优化策略(跳过${skip})`;
           }
           $('#bt-meta').textContent = meta;
           $('#bt-meta').hidden = false;
@@ -3719,25 +3752,8 @@ function btRenderMonthly(monthly) {
             exit_logic: '6 套退场 (翻红→high×80/50/20%; 没翻红→水下均价; 强10:00/强尾盘对比)',
             source: 'web/screener.py + web/backtest_screener.py 长期迭代沉淀',
           },
-          'WIN_RATE_1000': {
-            name: '🔥 高胜率 1000 轮 (R54 新增)',
-            color: '#84f4a8',
-            rules: [
-              { k: '主板 only',        v: '60/00/30 开头' },
-              { k: '今日涨幅',         v: '[0.5%, 5.0%] (放宽下限, 接受温和上涨)' },
-              { k: '量比 (今日 / 5d 均)', v: '≥ 1.5 (主力介入更强信号)' },
-              { k: '近 20 日涨停数',   v: '≥ 1 次 (强势股基因)' },
-              { k: '大盘 5d 累计',     v: '≥ -5% (regime filter, 避开系统性风险)' },
-              { k: '退出: 6 套退场',   v: '同 baseline, 完全不变 (只换候选)' },
-              { k: '持仓',             v: 'T+1 (尾盘买, T+1 卖)' },
-              { k: '默认参数',         v: 'top_n=2, stop_loss=-3%, exit=t1_close' },
-            ],
-            exit_logic: '6 套退场逻辑完全不变, 候选入选规则替换为 4 维过滤',
-            source: 'web/tests/strategy_searcher.py 1000+ 轮 walk-forward 验证',
-            validation: 'WF consistency 1.03 · 24/24 月正 · 日均 6.21% · max_dd -10.61%',
-          },
-          'WIN_RATE_V2': {
-            name: '🔮 V2 多因子正交评分',
+          'optimized': {
+            name: '⭐ 优化策略 (V2 多因子正交评分)',
             color: '#c084f4',
             rules: [
               { k: '核心哲学',     v: '5 正交因子加权评分 → composite score 排名取 Top N, 不禁铜墙' },
@@ -3771,46 +3787,9 @@ function btRenderMonthly(monthly) {
           host.innerHTML = html;
         }
 
-        // R54: tab 切换 — 不重新跑, 重渲染已缓存结果
-        window._BT_ACTIVE_STRATEGY = 'baseline';
-        // R54: 初始渲染 baseline 策略规则 (页面打开就显示, 不需等回测)
-        _renderStrategyRules('baseline', null);
-        document.querySelector('.bt-tabs')?.addEventListener('click', (e) => {
-          const btn = e.target.closest('.bt-tab');
-          if (!btn) return;
-          const strategyId = btn.dataset.strategy;
-          if (!strategyId) return;
-          window._BT_ACTIVE_STRATEGY = strategyId;
-          // tab 高亮: 每个 tab 保留自己的 inactive border 色
-          document.querySelectorAll('.bt-tab').forEach(t => {
-            const active = t.dataset.strategy === strategyId;
-            t.style.background = active ? '#2a241c' : '#1c1a14';
-            if (active) {
-              t.style.borderColor = '#5a4a2a';
-            } else {
-              const s = t.dataset.strategy;
-              t.style.borderColor = s === 'WIN_RATE_1000' ? '#2a5a3e'
-                                  : s === 'WIN_RATE_V2'  ? '#4a2a6a'
-                                  : '#3a3024';
-            }
-          });
-          // 渲染缓存结果 (若有)
-          const cached = (window._BT_RESULTS || {})[strategyId];
-          if (cached) {
-            btRenderV4(cached);
-            try { _btRenderThreeWay(); } catch (e) { console.warn('[bt-3way]', e); }
-            toast(`已切换到 ${STRATEGY_RULES[strategyId]?.name || strategyId}`, 1800);
-          } else {
-            // 无缓存: 清空 bt-mount, 显示提示
-            ['#bt-kpis','#bt-scenarios-9-host','#bt-exit-host','#bt-sector-host','#bt-windows-host','#bt-5min-host','#bt-actual10-host','#bt-exits-compare-host','#bt-trades-host']
-              .forEach(sel => { const el = $(sel); if (el) el.innerHTML = ''; });
-            $('#bt-monthly tbody').innerHTML = '<tr><td colspan="12" class="empty" style="text-align:center;color:#888">未运行 — 请点击「▶ 开始回测」或上方场景预设</td></tr>';
-            $('#bt-equity-chart').innerHTML = '';
-            $('#bt-meta').hidden = true;
-            _renderStrategyRules(strategyId, null);
-            toast(`${STRATEGY_RULES[strategyId]?.name || strategyId} · 尚未运行`, 1800);
-          }
-        });
+        // 2026-07-20: 删 bt-tab 切换 (只保留 优化策略 单策略 + 双表自动渲染 baseline 对比)
+        window._BT_ACTIVE_STRATEGY = 'optimized';   // 默认 V2 (== 优化策略)
+        _renderStrategyRules('optimized', null);
 
         // ── R71-77: 导出 + 分享 ──
         function _btToast(msg, color='#4ade80') {
@@ -3926,19 +3905,18 @@ function btRenderMonthly(monthly) {
           } catch (e) { prompt('复制此 URL:', url); }
         }
         // ── 三方案统一对比卡片 (基线 + WR1000 + V2) ──
-        function _btRenderThreeWay() {
+        function _btRenderDual() {
           const results = window._BT_RESULTS || {};
           const baseline = results['baseline'];
-          const wr1000   = results['WIN_RATE_1000'];
-          const v2       = results['WIN_RATE_V2'] || window._BT_LAST_RESULT;
-          // V2 dual-run: _baseline_result 已有 baseline, V2 主结果就是 v2
-          if (v2 && v2._baseline_result && !baseline) {
-            results['baseline'] = v2._baseline_result;
+          // 优化策略主结果: optimized (含 optimized_mode)
+          const opt = results['optimized'] || (window._BT_LAST_RESULT?.config?.strategy_id === 'optimized' ? window._BT_LAST_RESULT : null);
+          // dual-run: _baseline_result 已有 baseline, 优化策略主结果就是 opt
+          if (opt && opt._baseline_result && !baseline) {
+            results['baseline'] = opt._baseline_result;
           }
           const hasBaseline = !!results['baseline'];
-          const hasWR1000   = !!results['WIN_RATE_1000'];
-          const hasV2       = !!results['WIN_RATE_V2'] || (window._BT_LAST_RESULT?.config?.strategy_id === 'WIN_RATE_V2');
-          if (!hasBaseline && !hasWR1000 && !hasV2) return;
+          const hasOpt       = !!opt;
+          if (!hasBaseline && !hasOpt) return;
 
           const _s = (r) => r?.scenarios?.trail_80 || r?.summary || {};
           const _t = (r) => r?.trades || [];
@@ -3968,16 +3946,12 @@ function btRenderMonthly(monthly) {
           };
 
           let html = '<div class="card" style="margin-bottom:10px;border-left:3px solid #c9a24b;background:rgba(201,162,75,.04)"><div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px">';
-          html += '<div style="font-weight:bold;font-size:11.5px;color:#c9a24b;padding:4px 6px 0 0;white-space:nowrap">三方案对比</div>';
-          if (hasBaseline || (v2?._baseline_result && !results['baseline'])) {
-            const bl = results['baseline'] || v2._baseline_result;
+          html += '<div style="font-weight:bold;font-size:11.5px;color:#c9a24b;padding:4px 6px 0 0;white-space:nowrap">⭐ 优化策略 vs 基线</div>';
+          if (hasBaseline || (opt?._baseline_result && !results['baseline'])) {
+            const bl = results['baseline'] || opt._baseline_result;
             html += _stats(bl, '基线 8 规则', '#e8e1d4');
           }
-          if (hasWR1000) html += _stats(results['WIN_RATE_1000'], '🔥 高胜率1000', '#84f4a8');
-          if (hasV2) {
-            const v2r = results['WIN_RATE_V2'] || window._BT_LAST_RESULT;
-            if (v2r && v2r.config?.strategy_id === 'WIN_RATE_V2') html += _stats(v2r, '🔮 V2 多因子 ×2', '#c084f4');
-          }
+          if (hasOpt) html += _stats(opt, '⭐ 优化策略', '#c084f4');
           html += '</div></div>';
 
           const $kpi = $('#bt-kpis');
@@ -3991,6 +3965,9 @@ function btRenderMonthly(monthly) {
             if (existing) existing.innerHTML = html;
           }
         }
+        // 兼容旧名: 三方案对比调用点保留 (现在内部走双方案)
+        window._btRenderThreeWay = _btRenderDual;
+        window._btRenderDual = _btRenderDual;
         window.btSavePreset = function() {
           const r = window._BT_LAST_RESULT; if (!r) return;
           const name = prompt('为这个回测配置起个名字 (≤ 30 字):', '回测预设 ' + new Date().toLocaleDateString());
@@ -4028,8 +4005,11 @@ function btRenderMonthly(monthly) {
 
           // ⭐ 优化策略模式
           const optimized_mode = !!window._BT_OPTIMIZED_MODE;
+          // 2026-07-20: 优化器 1000 轮迭代 best params (点击 ⭐ 时写入)
+          const optimized_params = (optimized_mode && window._BT_OPTIMIZER_BEST && Object.keys(window._BT_OPTIMIZER_BEST).length)
+                                    ? window._BT_OPTIMIZER_BEST : null;
           // R56: 记录本轮 body (auto-compare 用同参数跑对手策略)
-          window._BT_LAST_BODY = { periods, hold_days, top_n, sample, breadth_min, breadth_min_soft, sector_hot_topn, sector_inflow_topn, require_surge_label, index_late_up, sector_late_up, tail_vol_ratio_min, late_high_discount, require_vwap_strict, optimized_mode };
+          window._BT_LAST_BODY = { periods, hold_days, top_n, sample, breadth_min, breadth_min_soft, sector_hot_topn, sector_inflow_topn, require_surge_label, index_late_up, sector_late_up, tail_vol_ratio_min, late_high_discount, require_vwap_strict, optimized_mode, optimized_params };
           $('#bt-run').disabled = true;
           $('#bt-cancel').hidden = false;
           BT_SSE_RETRY = 0;                              // R99: 新一轮重置重连计数
@@ -4049,7 +4029,8 @@ function btRenderMonthly(monthly) {
           try {
             const r = await api('/api/screener/backtest', {
               method: 'POST',
-              body: JSON.stringify({ periods, hold_days, top_n, sample, breadth_min, breadth_min_soft, sector_hot_topn, sector_inflow_topn, require_surge_label, index_late_up, sector_late_up, tail_vol_ratio_min, strategy_id, late_high_discount, require_vwap_strict, compare_to_baseline: strategy_id === 'WIN_RATE_V2' && !optimized_mode, optimized_mode }),
+              // 双策略对比: 优化策略都自动跑 baseline (2026-07-20: 优化策略也加 baseline 对比)
+              body: JSON.stringify({ periods, hold_days, top_n, sample, breadth_min, breadth_min_soft, sector_hot_topn, sector_inflow_topn, require_surge_label, index_late_up, sector_late_up, tail_vol_ratio_min, strategy_id, late_high_discount, require_vwap_strict, compare_to_baseline: strategy_id === 'optimized' || optimized_mode, optimized_mode, optimized_params }),
             });
             if (r.error) {
               toast(r.error, 3500);
@@ -4063,8 +4044,7 @@ function btRenderMonthly(monthly) {
             BT_RUN_ID = r.data.run_id;
             // R54: toast 显示 strategy_id
             const _stratTag = optimized_mode ? ' · ⭐优化策略+基线对比'
-              : strategy_id === 'WIN_RATE_1000' ? ' · 🔥高胜率'
-              : strategy_id === 'WIN_RATE_V2' ? ' · 🔮V2+基线对比' : '';
+              : strategy_id === 'optimized' ? ' · ⭐优化策略+基线对比' : '';
             toast(`回测启动${_stratTag} · ${periods.join('+')} · ${sample}只 · run=${r.data.run_id.slice(3, 16)}…`, 2400);
             const tStart = Date.now();
             // R4: SSE 优先, 失败回退 1.5s 轮询
@@ -4188,9 +4168,9 @@ function btRenderMonthly(monthly) {
                   toast(`渲染失败: ${e.message?.slice(0,60) || '未知'}`, 3500);
                 }
                 // R56: 自动对比 baseline vs WR1000 (端到端闭环)
-                // 展开面板 + 渲染三方案对比
+                // 展开面板 + 渲染双策略对比 (优化策略 + 基线)
                 $('#backtest-panel').classList.remove('collapsed');
-                try { _btRenderThreeWay(); } catch (e) { console.warn('[bt-3way]', e); }
+                try { _btRenderDual(); } catch (e) { console.warn('[bt-dual]', e); }
                 try { _btMaybeAutoCompare(final); } catch (e) { console.error('[bt-compare]', e); }
               } else {
                 toast('回测完成但结果为空', 2500);
@@ -4222,97 +4202,11 @@ function btRenderMonthly(monthly) {
         // 每轮回测完成后调用: 若对手策略结果 (同参数) 已就绪 → 渲染对比;
         // 否则自动用同参数跑一次对手策略, 完成后再渲染对比 (仅自动链一次, 防死循环)
         function _btMaybeAutoCompare(final) {
-          // WIN_RATE_V2 自带 dual-run, 不需要 auto-compare 链
+          // 2026-07-20: 优化策略已 compare_to_baseline=true, 客户端无需 auto-compare 链
           if (final?._baseline_result) return;
-          const curSig = _btParamsSig(window._BT_LAST_BODY || {});
-          const curStrat = final?.config?.strategy_id || 'baseline';
-          window._BT_RESULT_SIG = window._BT_RESULT_SIG || {};
-          window._BT_RESULT_SIG[curStrat] = curSig;
-          const other = curStrat === 'WIN_RATE_1000' ? 'baseline' : 'WIN_RATE_1000';
-          const otherReady = (window._BT_RESULTS?.[other]) && (window._BT_RESULT_SIG[other] === curSig);
-          if (otherReady) {
-            window._BT_AUTO_COMPARE_RUNNING = false;
-            btRenderCompare(curSig);
-            return;
-          }
-          if (!window._BT_AUTO_COMPARE_RUNNING) {
-            // 启动一次对手策略自动跑 (同参数)
-            window._BT_AUTO_COMPARE_RUNNING = true;
-            window._BT_STRATEGY_ID = other;
-            const otherLabel = other === 'WIN_RATE_1000' ? '🔥高胜率' : '基线';
-            toast(`自动对比: 用相同参数继续跑 ${otherLabel} 方案…`, 2600);
-            setTimeout(() => btStart(), 500);
-          } else {
-            // 自动第二轮已跑完但仍未匹配 (参数漂移) → 停止链, 尝试渲染现有
-            window._BT_AUTO_COMPARE_RUNNING = false;
-            btRenderCompare(curSig);
-          }
+          // 普通 baseline 跑: 不再 auto-compare (WIN_RATE_1000 已删)
         }
-
-        function btRenderCompare(sig) {
-          const host = $('#bt-compare-host');
-          if (!host) return;
-          const b = window._BT_RESULTS?.['baseline'];
-          const w = window._BT_RESULTS?.['WIN_RATE_1000'];
-          if (!b || !w) { host.innerHTML = ''; return; }
-          const bs = b.summary || {}, ws = w.summary || {};
-          const bt80 = b.scenarios?.trail_80 || {}, wt80 = w.scenarios?.trail_80 || {};
-          // 行定义: [标签, 取值fn, 单位, higherBetter]
-          const yuan = (v) => '¥' + Number(v ?? 0).toLocaleString('zh-CN', {maximumFractionDigits: 0});
-          const rows = [
-            ['成交笔数',      s => s.trades ?? 0,                '',  true,  v => String(v)],
-            ['胜率 (trail_80)', s => s.win_rate_pct ?? 0,         '%', true,  v => v.toFixed(1)+'%'],
-            ['平均日收益',    s => s.avg_daily_return_pct ?? 0,  '%', true,  v => (v>=0?'+':'')+v.toFixed(2)+'%'],
-            ['月收益率',      s => s.monthly_return_pct_user ?? 0,'%', true,  v => (v>=0?'+':'')+v.toFixed(1)+'%'],
-            ['年收益率',      s => s.yearly_return_pct_user ?? 0, '%', true,  v => (v>=0?'+':'')+v.toFixed(1)+'%'],
-            ['累计复利',      s => s.cum_return_pct ?? 0,        '%', true,  v => (v>=0?'+':'')+v.toFixed(1)+'%'],
-            ['最大回撤',      s => s.max_drawdown_pct ?? 0,      '%', false, v => v.toFixed(1)+'%'],
-            ['盈亏比',        s => s.profit_factor ?? 0,         '',  true,  v => (v??0).toFixed(2)],
-            ['1 月后 (2万本金)', s => s.amount_after_1_month_yuan ?? 20000, '', true, yuan],
-            ['1 年后 (2万本金)', s => s.amount_after_1_year_yuan ?? 20000,  '', true, yuan],
-          ];
-          let bWins = 0, wWins = 0;
-          const bodyHtml = rows.map(([label, fn, unit, higherBetter, fmt]) => {
-            const bv = fn(bs), wv = fn(ws);
-            let winner = 0; // 0=tie, -1=baseline, 1=wr1000
-            if (bv !== wv) {
-              const bBetter = higherBetter ? bv > wv : bv < wv;
-              winner = bBetter ? -1 : 1;
-              if (winner === -1) bWins++; else wWins++;
-            }
-            const bStyle = winner === -1 ? 'color:#4ade80;font-weight:bold' : 'color:#d8cdb4';
-            const wStyle = winner === 1  ? 'color:#4ade80;font-weight:bold' : 'color:#d8cdb4';
-            const badge = winner === 0 ? '' : (winner === 1
-              ? '<span style="color:#84f4a8">🔥胜</span>'
-              : '<span style="color:#e8c86a">基线胜</span>');
-            return `<tr>
-              <td style="padding:4px 10px;color:#a89878;border-bottom:1px dashed #2a241c">${label}</td>
-              <td class="num" style="padding:4px 10px;${bStyle};border-bottom:1px dashed #2a241c">${fmt(bv)}</td>
-              <td class="num" style="padding:4px 10px;${wStyle};border-bottom:1px dashed #2a241c">${fmt(wv)}</td>
-              <td style="padding:4px 10px;text-align:center;border-bottom:1px dashed #2a241c">${badge}</td>
-            </tr>`;
-          }).join('');
-          const verdict = wWins > bWins
-            ? `<span style="color:#84f4a8">🔥 高胜率方案综合占优 (${wWins} : ${bWins})</span>`
-            : (bWins > wWins
-              ? `<span style="color:#e8c86a">基线方案综合占优 (${bWins} : ${wWins})</span>`
-              : `<span style="color:#d8cdb4">两方案打平 (${bWins} : ${wWins})</span>`);
-          host.innerHTML = `
-            <div style="padding:12px 16px;background:#12100b;border:1px solid #4a3a1e;border-radius:8px">
-              <div style="font-weight:bold;color:#c9a24b;font-size:13px;margin-bottom:8px">⚖ 方案对比 · 基线 vs 高胜率 (trail_80 口径 · 同参数)</div>
-              <table style="border-collapse:collapse;width:100%;font-size:11.5px">
-                <thead><tr style="color:#c9a24b;text-align:left">
-                  <th style="padding:4px 10px;border-bottom:1px solid #3a3024">指标</th>
-                  <th style="padding:4px 10px;border-bottom:1px solid #3a3024;text-align:right">基线 8 规则</th>
-                  <th style="padding:4px 10px;border-bottom:1px solid #3a3024;text-align:right">🔥 高胜率 1000</th>
-                  <th style="padding:4px 10px;border-bottom:1px solid #3a3024;text-align:center">优胜</th>
-                </tr></thead>
-                <tbody>${bodyHtml}</tbody>
-              </table>
-              <div style="margin-top:10px;font-size:12px;text-align:right">${verdict}</div>
-            </div>`;
-        }
-        window.btRenderCompare = btRenderCompare;
+        // btRenderCompare 已删 (单策略时代不再需要 baseline vs 高胜率 对比表, 双表自身已展示)
 
         // 用户手动点「开始回测」→ 视为新对比周期 (清 auto-compare 标记)
         $('#bt-run').addEventListener('click', () => {
@@ -4344,26 +4238,51 @@ function btRenderMonthly(monthly) {
         }
 
         // 场景预设: 填参数 + 自动开始
-        document.querySelector('.bt-presets')?.addEventListener('click', (e) => {
+        document.querySelector('.bt-presets')?.addEventListener('click', async (e) => {
           const btn = e.target.closest('.bt-preset');
           if (!btn) return;
-          // ⭐ 优化策略: 设置所有最优参数
+          // ⭐ 优化策略: 优先用 1000 轮优化器的 best params, 否则用 OPTIMAL_PARAMS 默认
           if (btn.dataset.optimized === '1') {
-            document.getElementById('bt-hold').value = '2';
-            document.getElementById('bt-topn').value = '4';
-            document.getElementById('bt-breadth').value = '1500';
-            document.getElementById('bt-breadth-soft').value = '3500';
-            document.getElementById('bt-sector-hot').value = '3';
-            document.getElementById('bt-sector-inflow').value = '3';
-            // lhd = 0.7
-            window._BT_LATE_HIGH_DISCOUNT = 0.7;
+            // 1) 从 cache_store (经 API) 拿优化器最新 best
+            let bestParams = null;
+            try {
+              const st = await api('/api/optimize/state');
+              if (st?.data?.best?.params) bestParams = st.data.best.params;
+            } catch (e) { /* ignore — 用默认 */ }
+            // 白名单字段 (避免注入)
+            const safe = {};
+            if (bestParams && typeof bestParams === 'object') {
+              for (const k of ['top_n','hold_days','breadth_min','breadth_min_soft',
+                                'sector_hot_topn','sector_inflow_topn','late_high_discount',
+                                'require_vwap_strict','regime_adaptive']) {
+                if (k in bestParams) safe[k] = bestParams[k];
+              }
+            }
+            window._BT_OPTIMIZER_BEST = safe;
+            // 填 UI (safe 缺失 → 默认)
+            const topn = safe.top_n ?? 4;
+            const hold = safe.hold_days ?? 2;
+            const bm = safe.breadth_min ?? 1500;
+            const bms = safe.breadth_min_soft ?? 3500;
+            const sht = safe.sector_hot_topn ?? 3;
+            const sif = safe.sector_inflow_topn ?? 3;
+            const lhd = safe.late_high_discount ?? 0.7;
+            document.getElementById('bt-hold').value = String(hold);
+            document.getElementById('bt-topn').value = String(topn);
+            document.getElementById('bt-breadth').value = String(bm);
+            document.getElementById('bt-breadth-soft').value = String(bms);
+            document.getElementById('bt-sector-hot').value = String(sht);
+            document.getElementById('bt-sector-inflow').value = String(sif);
+            window._BT_LATE_HIGH_DISCOUNT = lhd;
             document.querySelectorAll('.bt-lhd').forEach((b) => {
-              const active = parseFloat(b.dataset.v) === 0.7;
+              const active = parseFloat(b.dataset.v) === lhd;
               b.style.background = active ? '#1f3a2c' : '#2a241c';
               b.style.color      = active ? '#84f4a8' : '#e8e1d4';
               b.style.borderColor = active ? '#2a5a3e' : '#3a3024';
             });
-            window._BT_STRATEGY_ID = 'WIN_RATE_V2';
+            const tip = bestParams ? '优化器 best' : 'OPTIMAL_PARAMS 默认';
+            toast(`⭐ 优化策略 · 参数来源: ${tip}`, 1800);
+            window._BT_STRATEGY_ID = 'optimized';
             window._BT_OPTIMIZED_MODE = true;
             window._BT_AUTO_COMPARE_RUNNING = false;
             btStart();
@@ -4489,8 +4408,7 @@ function btRenderMonthly(monthly) {
         function _stratBadge(s) {
           const map = {
             'baseline':      { label: '基线', color: '#d8cdb4', bg: '#2a241c' },
-            'WIN_RATE_1000': { label: '🔥1000轮', color: '#84f4a8', bg: '#1f3a2c' },
-            'WIN_RATE_V2':   { label: '🔮V2',    color: '#c084f4', bg: '#2a1f3a' },
+            'optimized':   { label: '⭐优化策略', color: '#c084f4', bg: '#2a1f3a' },
           };
           const cfg = map[s] || { label: s || '?', color: '#d8cdb4', bg: '#2a241c' };
           return `<span style="color:${cfg.color};background:${cfg.bg};border:1px solid #3a3024;border-radius:3px;padding:1px 6px;font-size:10.5px">${cfg.label}</span>`;
@@ -4570,11 +4488,9 @@ function btRenderMonthly(monthly) {
             window._BT_LAST_RESULT = result;
             window._BT_RESULTS = window._BT_RESULTS || {};
             window._BT_RESULTS[result.strategy_id || meta.strategy_id] = result;
-            // 切 tab + 渲染
-            const targetTab = result.strategy_id || meta.strategy_id || 'baseline';
-            const tab = document.querySelector(`.bt-tab[data-strategy="${targetTab}"]`);
-            if (tab) tab.click();
-            else btRenderV4(result);
+            // 2026-07-20: 删 bt-tab,直接渲染 (双表自动跑 baseline 对比)
+            btRenderV4(result);
+            try { _btRenderDual(); } catch (e) { console.warn('[bt-dual]', e); }
             toast(`已加载历史 · ${meta.trades_count}笔 · ${_fmtBtRelTime(meta.ts_started)}`, 2400);
             $('#backtest-panel')?.classList.remove('collapsed');
           } catch (e) {
@@ -4594,7 +4510,7 @@ function btRenderMonthly(monthly) {
               if (cached && !window._BT_LAST_RESULT) {
                 window._BT_LAST_RESULT = cached;
                 try { _origBtRenderV4(cached); } catch (e) { console.warn('[bt-ls-restore]', e); }
-                try { _btRenderThreeWay(); } catch (e) { console.warn('[bt-ls-restore-3way]', e); }
+                try { _btRenderDual(); } catch (e) { console.warn('[bt-ls-restore-dual]', e); }
                 const age = Math.round((Date.now()/1000 - cached.ts) / 60);
                 toast(`已恢复上回回测 (${age} 分钟前)`, 2400);
                 // 展开面板让用户看到结果
