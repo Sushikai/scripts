@@ -33,7 +33,12 @@
 //                    4) app.js _routeFromHash valid 列表加 'sector'
 //                    5) multi_source_fetchers.fetch_hot_sectors EM 列名变更适配 (今日涨跌幅 / 今日主力净流入-净额)
 //                    6) server.py api_dashboard_signal: 加 SingleFlight + timeout 18s→25s 修并发 ABORTED
-const CACHE = 'tuixue-v3-shell-v142';
+// v143 (2026-07-20): 尾盘战法 [data-code] 代码/名称点击改 in-app showView('stock')+loadStockDetail (前 window.open 被弹窗拦截);
+//                    自选 view 紧凑表格 (.view-watchlist #wl-table font 13→11.5px, padding 8/10→3/6);
+//                    优化器持续 200 轮
+// v144 (2026-07-20): 尾盘战法 click listener 绑到 #scr-tbody (已不存在,拆 baseline + optimized 两组) → 实际死绑 null
+//                    → 改成监听 #scr-tbody-baseline + #scr-tbody-optimized 两个 tbody
+const CACHE = 'tuixue-v3-shell-v144';
 const PRECACHE = [
   '/',
   '/static/app.js',

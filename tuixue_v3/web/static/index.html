@@ -2447,8 +2447,10 @@
             }
           } catch (_) {}
         }
-        const _scrTbody = $('#scr-tbody');
-        if (_scrTbody) _scrTbody.addEventListener('click', async (e) => {
+        // R-fix (2026-07-20): 旧 ID `#scr-tbody` 已拆 baseline + optimized 两组,原单 tbody listener 死绑 null → 不工作
+        // → 绑到两个 tbody 都生效
+        const _scrTbodies = $$('#scr-tbody-baseline, #scr-tbody-optimized');
+        const _scrTbodyHandler = async (e) => {
           // ⭐ (toggle: 已加 → 取消; 未加 → 加)
           const star = e.target.closest('.star');
           if (star) {
@@ -2477,10 +2479,16 @@
             }
             return;
           }
-          // 代码 / 名称点击 → 个股详情
+          // 代码 / 名称点击 → 同 app 切换到 stock view (R-fix 2026-07-20: 改 in-app 跳转, 之前 window.open 新窗口被弹窗拦截)
           const cd = e.target.closest('[data-code]');
           if (cd && (cd.classList.contains('code') || cd.classList.contains('name'))) {
-            window.open(`/?code=${cd.dataset.code}`, '_blank', 'noopener');
+            const code = cd.dataset.code;
+            if (/^\d{6}$/.test(code)) {
+              try { window.history.replaceState(null, '', `/#stock=${code}`); } catch {}
+              showView('stock');
+              if (typeof loadStockDetail === 'function') loadStockDetail(code);
+              window.scrollTo({top: 0, behavior: 'instant'});
+            }
             return;
           }
           // 板块跳转 (R18 2026-07-14: 同 app 切换 view,不开新窗口)
@@ -2499,7 +2507,8 @@
             }
             return;
           }
-        });
+        };
+        _scrTbodies.forEach(tb => tb.addEventListener('click', _scrTbodyHandler));
 
         // ═══════ 时间门 / 状态同步 ═══════
         function renderClock() {
@@ -4247,7 +4256,8 @@ function btRenderMonthly(monthly) {
             let bestParams = null;
             try {
               const st = await api('/api/optimize/state');
-              if (st?.data?.best?.params) bestParams = st.data.best.params;
+              // api() 已剥 envelope → 直接 st.best,不是 st.data.best
+              if (st?.best?.params) bestParams = st.best.params;
             } catch (e) { /* ignore — 用默认 */ }
             // 白名单字段 (避免注入)
             const safe = {};

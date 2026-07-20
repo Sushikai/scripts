@@ -162,7 +162,7 @@ body {
   /* 2026-07-18: scrollIntoView 不会跨过 tabbar → 格子滚到 tabbar 下被挡 */
   scroll-padding-bottom: calc(var(--tabbar-h, 56px) + 12px);
 }
-@media (max-width: 979px) {
+@media (max-width: 980px) {
   body { padding-bottom: var(--tabbar-h); }
 }
 
@@ -2142,7 +2142,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border-top: 1px solid var(--line);
   padding: 4px 0 calc(4px + var(--safe-bottom));
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(9, 1fr);
   gap: 0;
   height: var(--tabbar-h);
   contain: layout style;
@@ -3603,7 +3603,7 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   50% { opacity: 1; }
 }
 /* 移动端隐藏次要列 */
-@media (max-width: 979px) {
+@media (max-width: 980px) {
   .review-table .rv-hide-tablet { display: none; }
 }
 @media (max-width: 640px) {
@@ -5427,9 +5427,9 @@ button:active:not(:disabled) { transform: scale(0.97); }
 }
 
 /* ≤980px: 显示汉堡按钮 (现在作为 topbar inline flex item 排第一位), sidebar 改为抽屉式 */
-@media (max-width: 979px) {
+@media (max-width: 980px) {
   .menu-btn { display: inline-flex; }
-  body { padding-left: 0 !important; }
+  body { padding-left: 0; }
   .sidebar {
     display: flex;
     transform: translateX(-100%);
@@ -5491,7 +5491,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 /* ─── Round 1-5: 侧栏 + 顶栏 + 主区域 全面加固 ─── */
 
 /* 主内容区在 sidebar 打开时不被遮挡 */
-@media (max-width: 979px) {
+@media (max-width: 980px) {
   body.sidebar-open .canvas,
   body.sidebar-open .topbar-inner,
   body.sidebar-open .tabbar {
@@ -5519,221 +5519,117 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 }
 
 /* ─── Round 6-10: 输入框 iOS 16px 防放大 ─── */
+/* ─── Round 11-50: 768px (tablet / 大屏手机) 全部合并 ─── */
 @media (max-width: 768px) {
-  input, select, textarea {
-    font-size: 16px !important;  /* iOS Safari 在 < 16px 会自动放大视图 */
-  }
-  .toolbar input[type=text],
-  .toolbar input[type=number],
-  .toolbar input[type=date],
-  .toolbar select,
-  .search-input,
-  .qb-input {
-    font-size: 16px !important;
-  }
-  /* 日期选择器箭头更明显 */
-  input[type=date]::-webkit-calendar-picker-indicator {
-    width: 22px;
-    height: 22px;
-    cursor: pointer;
-  }
-  /* select 触摸更友好 */
+  input, select, textarea { font-size: 16px !important; }
+  .toolbar input[type=text], .toolbar input[type=number], .toolbar input[type=date],
+  .toolbar select, .search-input, .qb-input { font-size: 16px !important; }
+  input[type=date]::-webkit-calendar-picker-indicator { width: 22px; height: 22px; cursor: pointer; }
   select { min-height: 38px; }
-}
-
-/* ─── Round 11-15: 字号 / 间距 / 卡片 移动端紧凑 ─── */
-@media (max-width: 768px) {
   .canvas { padding: 16px 14px 32px !important; }
   .view-head { margin-bottom: 18px !important; }
-  .view-head .display {
-    font-size: 22px !important;
-    line-height: 1.18 !important;
-    letter-spacing: -.02em !important;
-  }
+  .view-head .display { font-size: 22px !important; line-height: 1.18 !important; letter-spacing: -.02em !important; }
   .view-head .lede { font-size: 13px !important; line-height: 1.5 !important; }
   .view-head .caption { font-size: 10.5px !important; margin-bottom: 8px !important; }
-  /* 个股标题横向滑动 (移动端太长时) */
-  .view-stock .view-head { overflow-x: auto; /* iOS 13+ 已默认 momentum-scroll,不需要 webkit-overflow-scrolling */ white-space: nowrap; }
+  .view-stock .view-head { overflow-x: auto; white-space: nowrap; }
   .view-stock .view-head::-webkit-scrollbar { height: 2px; }
   .view-stock .view-head::-webkit-scrollbar-thumb { background: var(--ink-3, #555); border-radius: 4px; }
   .card { padding: 12px 14px !important; border-radius: 12px !important; }
   .card-h { font-size: 15px !important; margin-bottom: 8px !important; }
   .card-eyebrow { font-size: 10px !important; margin-bottom: 5px !important; }
+  /* R2: 分时图 controls 移动端 → title 在上,controls 在下横向滚动 */
+  .view-stock [data-tab-pane="intraday"] .card-eyebrow {
+    flex-direction: column; align-items: stretch; gap: 6px;
+  }
+  .view-stock [data-tab-pane="intraday"] .card-eyebrow .view-actions {
+    flex-wrap: nowrap !important; overflow-x: auto !important;
+    gap: 6px !important; margin-top: 0 !important;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .view-stock [data-tab-pane="intraday"] .card-eyebrow .view-actions::-webkit-scrollbar { display: none; }
+  #intra-day-pick { min-width: 0; width: auto; max-width: 120px; font-size: .8rem !important; }
+  #intra-day-label { font-size: .7rem !important; white-space: nowrap; }
   .signal-col { padding: 13px 14px 12px !important; }
   .signal-col .sig-pct { font-size: 23px !important; }
   .signal-news li { font-size: 12.5px !important; padding: 6px 0 !important; }
-}
-
-/* ─── Round 16-20: 表格触摸体验 ─── */
-@media (max-width: 768px) {
-  .table-wrap { overflow-x: auto; /* iOS 13+ 已默认 momentum-scroll,不需要 webkit-overflow-scrolling */ }
-  /* 表格横向滚动时给视觉提示 (左/右渐变) */
-  .table-wrap { position: relative; }
+  .table-wrap { overflow-x: auto; position: relative; }
   .data-table { font-size: 12px !important; }
-  .data-table th, .data-table td {
-    padding: 9px 8px !important;
-    white-space: nowrap;
-  }
+  .data-table th, .data-table td { padding: 9px 8px !important; white-space: nowrap; }
   .data-table tbody tr { border-bottom: 1px solid var(--line-3); }
-  /* 长表格横向滚动 sticky 首列 */
-  .data-table.sticky-first-col th:first-child,
-  .data-table.sticky-first-col td:first-child {
-    position: sticky; left: 0; z-index: 1;
-    background: var(--bg-card);
-    box-shadow: 1px 0 0 var(--line);
+  .data-table.sticky-first-col th:first-child, .data-table.sticky-first-col td:first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--bg-card); box-shadow: 1px 0 0 var(--line);
   }
-}
-
-/* ─── Round 21-25: 按钮触摸目标 ≥44px ─── */
-@media (max-width: 768px) {
   .btn { min-height: 44px; padding: 10px 16px; font-size: 13px; }
   .btn-mini { min-height: 38px; padding: 8px 12px; font-size: 12px; }
   .iconbtn { width: 44px; height: 44px; }
-  /* 主操作按钮大一点 */
   .btn-primary { padding: 12px 20px; font-size: 14px; }
-  /* 标签栏滚动横向 */
   .tabs { padding: 3px; gap: 2px; }
   .tab { padding: 7px 12px; font-size: 12px; }
-  /* review form 行高 + 触摸 */
   .rf-row label { min-height: 44px; }
   .rf-row input, .rf-row select { padding: 9px 10px; }
-}
-
-/* ─── Round 26-30: 图表 / ECharts 移动端 ─── */
-@media (max-width: 768px) {
   .echart, [id$="-chart"] { max-height: 50vh; }
   #flow-chart { height: 200px !important; }
   #kline-chart { height: 250px !important; }
   #intra-day-chart { height: 220px !important; }
   #intraday5d-chart { height: 180px !important; }
   #equity-chart { height: 240px !important; }
-  /* R-fix 2026-07-15: 图表突破卡片 padding 占满屏幕宽度 — 数值/KPI 留卡片内,画布用负 margin 抵掉 card padding */
   .view-stock [data-tab-pane="flow"]    #flow-chart,
   .view-stock [data-tab-pane="kline"]   #kline-chart,
   .view-stock [data-tab-pane="kline"]   .kline-toolbar,
   .view-stock [data-tab-pane="intraday"] #intra-day-chart {
-    margin-left: -16px !important;
-    margin-right: -16px !important;
-    width: calc(100% + 32px) !important;
-    border-radius: 0 !important;
+    margin-left: -16px !important; margin-right: -16px !important;
+    width: calc(100% + 32px) !important; border-radius: 0 !important;
   }
-  /* kline toolbar 的 rx 圆角还原 */
-  .view-stock [data-tab-pane="kline"] .kline-toolbar {
-    border-radius: 6px !important;
-  }
-  /* kpi 网格移动端单列 */
-  .kpi-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
-  .kpi-grid .kpi { padding: 10px 12px !important; }
-  .kpi-grid .kpi .kpi-value { font-size: 16px !important; }
-  /* quote bento 更紧凑 */
+  .view-stock [data-tab-pane="kline"] .kline-toolbar { border-radius: 6px !important; }
+  .kpi-grid { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }
+  .kpi-grid .kpi { padding: 8px 10px !important; }
+  .kpi-grid .kpi .kpi-value { font-size: 15px !important; }
+  .view-stock [data-tab-pane="intraday"] .kpi-grid .kpi { padding: 5px 8px !important; }
   .quote-bento { gap: 8px !important; }
   .quote-cell { padding: 12px 12px !important; }
   .quote-cell .qc-value { font-size: 18px !important; }
   .quote-cell .qc-value.large { font-size: 28px !important; }
-  /* R-fix 2026-07-15: hero 2 列在窄屏会切掉价格列 → 改成 1 列堆叠 + 横向滚动兜底 */
   .quote-hero {
     grid-template-columns: minmax(0, 1fr) !important;
-    padding: 14px 16px !important;
-    gap: 10px !important;
-    overflow-x: auto !important;
+    padding: 14px 16px !important; gap: 10px !important; overflow-x: auto !important;
   }
   .quote-hero > div { min-width: 0; }
   .qh-price-wrap {
     display: flex !important; flex-direction: column; gap: 4px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--line-2);
+    padding-top: 8px; border-top: 1px dashed var(--line-2);
   }
   .qh-price { font-size: 32px !important; }
-}
-
-/* ─── Round 31-35: 顶部 KPI 网格 / 卡片栅格 ─── */
-@media (max-width: 768px) {
   .grid-2, .grid-4 { grid-template-columns: 1fr !important; gap: 12px !important; }
   .signal-grid { gap: 12px !important; }
   .hs-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
   .hs-tile { padding: 10px 12px !important; }
   .hs-tile .hs-name { font-size: 12.5px !important; }
   .hs-tile .hs-meta { font-size: 10.5px !important; }
-  /* role-row 单列 */
   .role-row { grid-template-columns: 1fr !important; }
-  /* searchbar 紧凑 — 2026-07-16: 改回横向,按钮不再 100% 宽太大突兀 */
   .searchbar { flex-direction: row; gap: 8px; align-items: center; }
   .searchbar .search-input { flex: 1; min-width: 0; }
   .searchbar .btn { flex: 0 0 auto; padding: 8px 14px; font-size: 12.5px; }
-  /* next-pick list 紧凑 */
   .next-pick-list .np-row { padding: 8px 10px !important; gap: 8px !important; }
-}
-
-/* ─── Round 36-40: 触摸交互 / 反馈 ─── */
-@media (max-width: 768px) {
-  /* iOS 风格回弹 */
-  * { /* iOS 13+ 已默认 momentum-scroll,不需要 webkit-overflow-scrolling */ }
-  /* 长按禁用菜单 (除了图片) */
   body { -webkit-touch-callout: none; }
-  /* 链接点击高亮 */
   a { -webkit-tap-highlight-color: hsla(212,80%,60%,.12); }
-  /* 表单聚焦放大 */
-  input:focus, select:focus, textarea:focus {
-    transform: translateZ(0);
-    transition: box-shadow .15s;
-  }
-  /* 按钮按压反馈 */
-  .btn:active, .btn-mini:active, button:active {
-    transform: scale(.97);
-    transition: transform .08s;
-  }
-}
-
-/* ─── Round 41-45: 性能优化 ─── */
-@media (max-width: 768px) {
-  /* GPU 加速 */
-  .card, .signal-col, .quote-cell {
-    transform: translateZ(0);
-    will-change: transform;
-  }
-  /* 减少阴影成本 */
+  input:focus, select:focus, textarea:focus { transform: translateZ(0); transition: box-shadow .15s; }
+  .btn:active, .btn-mini:active, button:active { transform: scale(.97); transition: transform .08s; }
+  .card, .signal-col, .quote-cell { transform: translateZ(0); will-change: transform; }
   .glass-shadow { box-shadow: 0 1px 2px rgba(15,23,42,.04) !important; }
-  /* 隐藏离屏元素节省渲染 */
   .nav-extra, .breadcrumb-extra { display: none !important; }
-}
-
-/* ─── Round 46-50: 细节 / Toast / Modal ─── */
-@media (max-width: 768px) {
   .toast {
     bottom: calc(var(--tabbar-h, 56px) + var(--safe-bottom) + 12px) !important;
-    left: 12px !important; right: 12px !important;
-    text-align: center;
-    max-width: none !important;
-    border-radius: 10px !important;
-    padding: 11px 16px !important;
-    font-size: 13px !important;
+    left: 12px !important; right: 12px !important; text-align: center;
+    max-width: none !important; border-radius: 10px !important;
+    padding: 11px 16px !important; font-size: 13px !important;
   }
-  /* Modal 全屏化 */
   .modal, [data-modal], .dp-panel {
-    width: calc(100vw - 16px) !important;
-    max-width: calc(100vw - 16px) !important;
-    max-height: calc(100vh - 80px) !important;
-    border-radius: 14px !important;
+    width: calc(100vw - 16px) !important; max-width: calc(100vw - 16px) !important;
+    max-height: calc(100vh - 80px) !important; border-radius: 14px !important;
   }
-  /* tab 选中动画 */
-  .tab.active::after {
-    content: '';
-    position: absolute;
-    left: 50%; bottom: 2px;
-    transform: translateX(-50%);
-    width: 24px; height: 2px;
-    background: white;
-    border-radius: 2px;
-  }
-  /* 滚动条细线 */
+  .tab.active::after { content: ''; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); width: 24px; height: 2px; background: white; border-radius: 2px; }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
-  /* 文本溢出省略 */
-  .text-ellipsis-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
+  .text-ellipsis-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }
 
 /* ─── ≤480px (iPhone SE 1 代 / 小米) 极致紧凑 ─── */
@@ -5780,7 +5676,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 }
 
 /* ─── 横屏移动 (740-980px) — 用空间不浪费 ─── */
-@media (min-width: 741px) and (max-width: 979px) and (orientation: landscape) {
+@media (min-width: 741px) and (max-width: 980px) and (orientation: landscape) {
   .signal-grid { grid-template-columns: repeat(3, 1fr) !important; }
   .grid-2 { grid-template-columns: repeat(2, 1fr) !important; }
   .kpi-grid { grid-template-columns: repeat(3, 1fr) !important; }
@@ -5906,6 +5802,89 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   flex: 1; min-height: 0; display: flex; flex-direction: column;
                   border: 1px solid var(--line); background: var(--glass-bg);
                   max-height: calc(100vh - 360px); }
+
+/* ── 双策略并排 (2026-07-19) ── */
+.scr-dual-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  flex: 1; min-height: 0;
+}
+.scr-col {
+  display: flex; flex-direction: column;
+  background: var(--glass-bg, rgba(255,255,255,0.02));
+  border: 1px solid var(--line, rgba(255,255,255,0.10));
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+.scr-col-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-2, rgba(255,255,255,0.06));
+  background: var(--surface-1, rgba(255,255,255,0.02));
+  font-size: 12px; font-weight: 600;
+  color: var(--ink-2);
+}
+.scr-col-title { flex: 1; }
+.scr-col-head .pill { font-size: 10.5px; padding: 1px 7px; }
+.scr-col .scr-table-wrap {
+  max-height: calc(100vh - 420px);
+  flex: 1;
+}
+.scr-col .scr-table { min-width: 100%; }
+/* 桌面 ≥1024 双列, <1024 单列堆叠 */
+@media (max-width: 1023px) {
+  .scr-dual-wrap { grid-template-columns: 1fr; }
+}
+/* light 主题颜色微调 */
+:root[data-theme="light"] .scr-col {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.08);
+}
+:root[data-theme="light"] .scr-col-head {
+  background: #f8fafc;
+  border-bottom-color: rgba(0,0,0,0.06);
+}
+
+/* ── 回测页双策略并排 (2026-07-19) — bt-trade-group 改横向 grid ── */
+.bt-dual-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.bt-dual-wrap .bt-trade-group { margin-top: 0 !important; }
+.bt-dual-wrap .bt-trade-group .table-wrap { max-height: 420px; }
+@media (max-width: 1023px) {
+  .bt-dual-wrap { grid-template-columns: 1fr; }
+}
+
+/* ── 双策略说明卡 (2026-07-19) — 尾盘战法页 + 回测页共用 ── */
+.scr-strategy-legend, .bt-strategy-legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 6px 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.scr-leg-item, .bt-leg-item {
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--line-2, rgba(255,255,255,0.08));
+  border-radius: 4px;
+}
+.scr-leg-item b, .bt-leg-item b { display: block; margin-bottom: 2px; font-size: 12px; }
+.scr-leg-item .dim, .bt-leg-item .dim { color: var(--ink-3, #a89878); }
+@media (max-width: 1023px) {
+  .scr-strategy-legend, .bt-strategy-legend { grid-template-columns: 1fr; }
+}
+:root[data-theme="light"] .scr-leg-item,
+:root[data-theme="light"] .bt-leg-item {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,0.08);
+}
 #main-area { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .view-screener { display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .view-screener .scr-inner { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
@@ -6017,8 +5996,6 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
                             white-space: normal; line-height: 1.3; overflow: hidden;
                             text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2;
                             -webkit-box-orient: vertical; }
-                            white-space: normal; line-height: 1.45;
-                            text-align: left !important; }
 .scr-table .pass-count { font-size: 10px; padding: 1px 5px; border-radius: 3px;
                          background: rgba(34,197,94,.12); color: #16a34a; font-weight: 600; }
 .scr-table .pass-count.miss { background: rgba(239,68,68,.12); color: #dc2626; }
@@ -6631,6 +6608,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   position: relative;
   border-left: 3px solid transparent;
   transition: background .15s var(--ease);
+  content-visibility: auto;
+  contain-intrinsic-size: 32px;
 }
 .view-all_stocks .stocks-table tbody tr:hover {
   background: hsla(212,80%,56%,.06);
@@ -6721,23 +6700,19 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .view-all_stocks .stocks-table .down { color: var(--down); font-weight: 600; }
 .view-all_stocks .stocks-table .dim  { color: var(--ink-3); }
 
-/* —— 行入场动画 (fade-in-up) —— */
-.view-all_stocks .stocks-table tbody tr:not(.skeleton-row) {
-  animation: row-fade-in .3s var(--ease-glide) backwards;
+/* R7: 个股页离屏 card 延迟布局,减少首屏渲染压力 */
+#q-streak-host, #q-weekly-bull-card, #q-recovery-card, #q-strategy-match-card,
+#flow-card, #crash-panel, #ai-panel {
+  content-visibility: auto;
+  contain-intrinsic-size: 120px;
 }
-.view-all_stocks .stocks-table tbody tr:nth-child(1)  { animation-delay: 0ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(2)  { animation-delay: 12ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(3)  { animation-delay: 24ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(4)  { animation-delay: 36ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(5)  { animation-delay: 48ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(6)  { animation-delay: 60ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(7)  { animation-delay: 72ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(8)  { animation-delay: 84ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(9)  { animation-delay: 96ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(10) { animation-delay: 108ms; }
-.view-all_stocks .stocks-table tbody tr:nth-child(n+11) { animation-delay: 120ms; }
+
+/* —— 行入场动画 (fade-in-up) — content-visibility:auto 时离屏行自动跳过 —— */
+.view-all_stocks .stocks-table tbody tr:not(.skeleton-row) {
+  animation: row-fade-in .25s var(--ease-glide) backwards;
+}
 @keyframes row-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -8171,9 +8146,67 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .ma5-rules-list b { color: var(--accent); }
 .ma5-rules-list::marker { color: var(--ink-2); font-weight: 600; }
 
+/* 策略匹配度卡片 (2026-07-19) */
+#q-strategy-match-card { --sm-gap: 8px; }
+.sm-total-row { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.sm-total-number { font-size:36px; font-weight:800; line-height:1; min-width:64px; text-align:center; }
+.sm-total-meta { flex:1; min-width:0; }
+.sm-total-label { font-size:12px; color:var(--ink-2); margin-bottom:4px; }
+.sm-total-bar { height:6px; background:var(--bg-3); border-radius:4px; overflow:hidden; }
+.sm-total-bar-fill { height:100%; border-radius:4px; transition:width .4s ease; }
+.sm-strategies { display:flex; flex-direction:column; gap:var(--sm-gap); }
+.sm-row { display:flex; flex-direction:column; gap:2px; }
+.sm-row-head { display:flex; justify-content:space-between; align-items:center; }
+.sm-chk { display:inline-block; width:16px; font-size:12px; }
+.sm-bar { height:4px; background:var(--bg-3); border-radius:2px; overflow:hidden; }
+.sm-bar-fill { height:100%; border-radius:2px; transition:width .4s ease; }
+.sm-row-extra { font-size:11px; color:var(--ink-2); line-height:1.4; }
+.sm-breakdown { margin-top:8px; padding-top:6px; border-top:1px solid var(--border); font-size:11px; line-height:1.5; }
+@media (max-width: 480px) {
+  .sm-total-number { font-size:28px; min-width:48px; }
+  .sm-row-extra { font-size:10px; }
+}
+
 /* ─── R-WB 移动端: 买点卡紧凑 ─── */
 @media (max-width: 640px) {
   .recovery-grid { grid-template-columns: repeat(2, 1fr); gap: 4px 10px; font-size: 12px; }
   .wb-card-reasons { font-size: 11px; }
   .ma5-rules-list { font-size: 12px; padding-left: 18px; }
+}
+
+/* ─── R-SP (2026-07-19) 策略选股器 ─── */
+.sp-filters { margin: 4px 0 8px 0; }
+.sp-filter-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.sp-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 13px; }
+.sp-toggle input { cursor: pointer; }
+.sp-mini-select { font-size: 11px; padding: 2px 4px; border-radius: 4px; border: 1px solid var(--line-3); background: var(--bg-2); color: var(--ink-1); }
+.sp-mode-group { display: inline-flex; gap: 10px; padding-left: 8px; border-left: 1px solid var(--line-3); font-size: 12px; color: var(--ink-2); }
+.sp-mode-group label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.sp-keybits { font-size: 11px; line-height: 1.4; }
+.sp-table { font-size: 12px; }
+.sp-table td:nth-child(2) { font-family: var(--font-mono); }
+
+/* ─── R-SP 移动端 ─── */
+@media (max-width: 640px) {
+  .sp-filter-row { gap: 6px; }
+  .sp-toggle { font-size: 12px; }
+  .sp-mode-group { padding-left: 4px; }
+  .sp-table td:nth-child(5), .sp-table th:nth-child(5) { display: none; }
+}
+
+/* ─── 自选 view 紧凑表格 (R-fix 2026-07-20) ───
+   默认 .data-table font 13px / padding 8px 10px 在 12 列表格上太宽松,
+   自选一个屏只能看 6-7 只, 紧凑后一页 12-14 只, 信息密度 +1 倍 */
+.view-watchlist #wl-table { font-size: 11.5px; }
+.view-watchlist #wl-table th,
+.view-watchlist #wl-table td { padding: 3px 6px; }
+.view-watchlist #wl-table thead th { font-size: 10px; padding: 4px 6px; }
+.view-watchlist #wl-addbar { gap: 6px; }
+.view-watchlist #wl-addbar .search-input { padding: 4px 8px; font-size: 12px; }
+.view-watchlist .wl-toolbar .btn { padding: 3px 8px; font-size: 11px; }
+@media (max-width: 767px) {
+  .view-watchlist #wl-table { font-size: 10.5px; }
+  .view-watchlist #wl-table th,
+  .view-watchlist #wl-table td { padding: 2px 4px; }
+  .view-watchlist #wl-table thead th { font-size: 9.5px; }
 }
