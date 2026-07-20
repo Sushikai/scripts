@@ -20,6 +20,7 @@ import time
 from datetime import datetime, time as dtime, timedelta
 from pathlib import Path
 from threading import Lock
+import threading
 
 import random
 import urllib.request
@@ -45,6 +46,46 @@ def _fast_get(url, **kw):
 # 注：python-telegram-bot v20+ 是纯异步库，sync 调用会触发
 # "coroutine was never awaited" 警告且消息不会真正发出。
 # 这里改用直接的 REST API，不依赖库版本。
+
+# ─── Telegram DNS 旁路 ───
+# 某些网络环境把 api.telegram.org 劫持到假 IP (108.160.167.147 等),
+# requests 直接连就 ConnectTimeout。在 socket 层 patch getaddrinfo,
+# 强制走真 Telegram 服务器 IP (官方公布的 IP 段),绕过 DNS 劫持。
+# 作用范围: 仅 api.telegram.org,其它域名不受影响。
+import socket as _socket_mod
+_TG_REAL_IPS = ("91.108.56.99", "149.154.167.99", "91.108.56.130")  # 真 Telegram 集群 IP
+_TG_DOMAIN = "api.telegram.org"
+_TG_RESOLVED_IP: str | None = None
+_orig_getaddrinfo = _socket_mod.getaddrinfo
+
+
+def _tg_pick_ip(port: int) -> str | None:
+    """TCP 探一下真 IP,挑第一个连得通的;缓存结果。"""
+    global _TG_RESOLVED_IP
+    if _TG_RESOLVED_IP:
+        return _TG_RESOLVED_IP
+    for ip in _TG_REAL_IPS:
+        try:
+            with _socket_mod.create_connection((ip, port), timeout=2.5) as s:
+                pass
+            _TG_RESOLVED_IP = ip
+            return ip
+        except Exception:
+            continue
+    return None
+
+
+def _patched_getaddrinfo(host, port, *args, **kwargs):
+    if host == _TG_DOMAIN:
+        ip = _tg_pick_ip(port)
+        if ip:
+            # AF_INET, SOCK_STREAM, IPPROTO_TCP = (2, 1, 6)
+            return [(2, 1, 6, "", (ip, port or 443))]
+        # 所有真 IP 都不通 → 退回系统 DNS (大概率还是失败,但不阻断)
+    return _orig_getaddrinfo(host, port, *args, **kwargs)
+
+
+_socket_mod.getaddrinfo = _patched_getaddrinfo
 
 # ═══════════════════════════════════════════════════════
 # 路径常量
@@ -219,6 +260,10 @@ _source_health = {
     "yahoo_finance": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "Yahoo"},
     "em_h5api": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "东财H5"},
     "xueqiu_kline": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "雪球"},
+    # 2026-07-16 新增: 多源逃生
+    "efinance_quote": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "efinance(东财轻封装)"},
+    "itick_rest":     {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "iTick免费REST"},
+    "baostock_daily": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "Baostock日线"},
 }
 _source_lock = Lock()
 
@@ -301,7 +346,9 @@ def _fetch_with_retry(fn, code: str, src_name: str, max_retry: int = 3):
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
         if i < max_retry - 1:
-            time.sleep(0.5 * (2 ** i))
+            # 2026-07-20: 0.5/1/2 = 3.5s × 4 源 = 14s 兜底太长 — 自选 9 码偶尔挂到 16s
+            # 收紧到 0.2/0.4 = 0.6s × 4 源 = 2.4s (几乎所有失败 case 1s 内切下一源)
+            time.sleep(0.2 * (2 ** i))
     return False, None, last_err
 
 
@@ -708,6 +755,25 @@ def _daily_xueqiu(code: str, days: int):
     return pd.DataFrame(rows).reset_index(drop=True)
 
 
+def _daily_baostock(code: str, days: int):
+    """源 11 (2026-07-16 新增): Baostock 历史日线, 合规稳定。
+    仅在 baostock 装好 + login 成功时启用; akshare/EM/sina/yahoo 全挂时兜底。
+    注册免费, 5000次/天, https://baostock.com
+    注: baostock 要求 YYYY-MM-DD 日期格式 (非 YYYYMMDD)
+    """
+    try:
+        from multi_source_fetchers import fetch_daily_baostock
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=days * 2)).strftime("%Y-%m-%d")
+        df = fetch_daily_baostock(code, start, end, adj="qfq")
+        if df is None or df.empty:
+            return None
+        return df.tail(days).reset_index(drop=True)
+    except Exception as e:
+        logging.debug(f"baostock daily {code} 失败: {e}")
+        return None
+
+
 _DAILY_SOURCES = [
     ("tencent_qq", _daily_tencent),  # 2026-07 起最稳定
     ("em_push2delay", _daily_eastmoney_push2delay),
@@ -719,6 +785,7 @@ _DAILY_SOURCES = [
     ("yahoo_finance", _daily_yahoo),
     ("em_h5api", _daily_eastmoney_h5),
     ("xueqiu_kline", _daily_xueqiu),
+    ("baostock_daily", _daily_baostock),  # 2026-07-16: 合规兜底
 ]
 
 
@@ -1250,6 +1317,68 @@ def _realtime_akshare_sina(code: str):
         return None
 
 
+def _realtime_efinance(code: str):
+    """源8 (2026-07-16 新增): efinance.stock.get_quote_snapshot
+    东方财富轻量 Python 封装，pip 即装无 token。字段与现有 quote 高度一致
+    （最新价/涨跌额/涨跌幅/最高/最低/换手率/成交额/五档），适合做 akshare 失效
+    时的兜底。底层仍是 push2his.eastmoney.com（沙箱内可能 DNS 劫持），故强制
+    threading + join(timeout=4) 防止 hang。"""
+    box = {"ok": False, "data": None, "err": ""}
+    def _run():
+        try:
+            import efinance as ef
+            s = ef.stock.get_quote_snapshot(code)
+            if s is None:
+                box["err"] = "snapshot 返回 None"
+                return
+            d = s.to_dict() if hasattr(s, "to_dict") else dict(s)
+            price = float(d.get("最新价", 0) or 0)
+            last_close = float(d.get("昨收", 0) or 0)
+            if not price or not last_close:
+                box["err"] = "最新价/昨收 为 0"
+                return
+            change_amt = float(d.get("涨跌额", 0) or 0)
+            box["data"] = {
+                "最新价": price,
+                "今开":   float(d.get("今开", 0) or 0),
+                "昨收":   last_close,
+                "最高":   float(d.get("最高", 0) or 0),
+                "最低":   float(d.get("最低", 0) or 0),
+                "涨跌幅": float(d.get("涨跌幅", 0) or 0) or (price - last_close) / last_close * 100,
+                "涨跌额": change_amt,
+                "成交量": float(d.get("成交量", 0) or 0),
+                "成交额": float(d.get("成交额", 0) or 0),
+                "换手率": float(d.get("换手率", 0) or 0),
+                "时间":   str(d.get("时间", "")) or time.strftime("%Y-%m-%d %H:%M:%S"),
+                "_efinance_name": str(d.get("名称", "")),  # 顺手带回名称
+            }
+            box["ok"] = True
+        except Exception as e:
+            box["err"] = f"{type(e).__name__}: {str(e)[:60]}"
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=4)
+    if not box["ok"]:
+        if box["err"]:
+            logging.debug(f"efinance realtime {code} 失败: {box['err']}")
+        return None
+    return box["data"]
+
+
+def _realtime_itick_rest(code: str):
+    """源9 (2026-07-16 新增): iTick 免费 REST, 仅在 ITICK_TOKEN 配置时生效。
+    见 web/itick_source.py。返回 None 表示未启用或失败,由 _source_health 冷却。
+    """
+    try:
+        from tuixue_v3.web import itick_source
+        if not itick_source.ITICK_ENABLED:
+            return None
+        return itick_source.fetch_itick_rest(code)
+    except Exception as e:
+        logging.debug(f"itick_rest realtime {code} 失败: {e}")
+        return None
+
+
 _REALTIME_SOURCES = [
     ("tencent_qq",       _realtime_tencent),         # 源1: 腾讯 qt.gtimg (0.1s)
     ("tencent_ifzq",     _realtime_tencent_ifzq),   # 源2: 腾讯 web.ifzq (0.1s)
@@ -1258,6 +1387,8 @@ _REALTIME_SOURCES = [
     ("sina_hq",          _realtime_sina),           # 源5: 新浪 hq.sinajs (经常 timeout)
     ("akshare_spot",     _realtime_akshare_sina),   # 源6: akshare 全市场查表 (4-8s, 终极兜底)
     ("akshare_em",       _realtime_akshare),        # 源7: akshare hist_min
+    ("efinance_quote",   _realtime_efinance),       # 源8: efinance (东方财富轻封装, akshare 备选)
+    ("itick_rest",       _realtime_itick_rest),     # 源9: iTick 免费 REST (需 token, 缺失时跳过)
 ]
 
 
@@ -1349,7 +1480,22 @@ def fetch_realtime(code: str) -> dict | None:
     每源 3 次重试（0.5/1/2s），连续失败 5 次冷却 5 分钟。
     akshare hist_min_em 在盘后仍能拿到当天最后一根分钟线（11:30 / 15:00），
     保证盘中午休也有"今日收盘价"，不会误用昨收。
+
+    2026-07-16: iTick WS 推送的 tick 优先于所有 REST/HTTP 源 (10s 内有效),
+    这样 WS 推送正常时直接用 tick, 不再走东财/sina/akshare 等慢源。
     """
+    # 0) iTick WS tick (最快, 仅 token 配置时生效, 10s TTL)
+    try:
+        from tuixue_v3.web import itick_source
+        if itick_source.ITICK_ENABLED:
+            tick = itick_source._get_tick(code)
+            if tick is not None:
+                tick["_source"] = "itick_ws_tick"
+                tick["_fetch_time"] = time.strftime("%H:%M:%S")
+                return tick
+    except Exception:
+        pass
+
     # 指数代码（000xxx / 399xxx）走专用指数实时源
     # 关键:000001/000688 既是上证/科创综指 又是平安银行/科创板股票,
     #     默认用户查的是"股票"而非"指数",要主动用 sz000001/sh688xxx 这种 stock 前缀

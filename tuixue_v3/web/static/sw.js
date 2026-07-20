@@ -38,7 +38,9 @@
 //                    优化器持续 200 轮
 // v144 (2026-07-20): 尾盘战法 click listener 绑到 #scr-tbody (已不存在,拆 baseline + optimized 两组) → 实际死绑 null
 //                    → 改成监听 #scr-tbody-baseline + #scr-tbody-optimized 两个 tbody
-const CACHE = 'tuixue-v3-shell-v144';
+// v145 (2026-07-20): 自选页慢 — /api/watchlist 加 30s SW cache + _fetch_with_retry 退避 0.5/1/2 → 0.2/0.4
+//                    (自选 9 码 × 多源 fallback 偶尔挂 16s, 收紧后单源失败 ≤ 1s 切下一源)
+const CACHE = 'tuixue-v3-shell-v145';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -64,6 +66,9 @@ const _CACHEABLE_API_PREFIXES = [
   '/api/all_stocks/l1',
   '/api/dashboard/signal',
   '/api/dashboard/hot_sectors',
+  // 2026-07-20: 自选页慢 — 后端 9 码 × 多源 fallback 偶尔 16s (单源失败 0.5+1+2=3.5s × 4 源=14s+ fetch)
+  // SW 30s 缓存保底,二次访问 < 5ms (第一次慢也只影响首屏)
+  '/api/watchlist',
 ];
 // R1 (Batch 1): /api/stock/{code}/full 单独长缓存 5min — server-side Redis 5s 已是新鲜度门,
 // SW 这层只防冷启动穿透 (5s 之后重访直接走 SW, ~5ms 而非 ~20ms)
