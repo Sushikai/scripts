@@ -1121,7 +1121,9 @@ def run_for_frontend(period_keys: list[str] | None = None,
                 })
 
                 score = float(row.get("score", 0))
-                mult = 1.0
+                # 2026-07-20 R-fix: 无杠杆 — 每日 top_n 只均分仓位,每只贡献 1/top_n 收益
+                # (之前 mult=1.0 隐含 100% 资金押每只, top_n=4 实质 4x 杠杆, 月化被虚高 ~4×)
+                mult = 1.0 / max(1, top_n)
                 r9["_position_mult"] = mult
                 w_trades_six.append(r9)
                 exit_val = r9["trail_80"] * mult

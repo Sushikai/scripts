@@ -4857,7 +4857,7 @@ def _bt_run_bg(run_id: str, period_keys: list[str], hold_days: int, top_n: int, 
                 period_keys=period_keys,
                 sample=sample,
                 progress_cb=_cb,
-                optimized_params=getattr(req, "optimized_params", None),
+                optimized_params=optimized_params,
             )
             r = opt_bl.get("optimized", {})
             bl = opt_bl.get("baseline")
