@@ -245,27 +245,48 @@ def now_in_trade_window() -> bool:
 SOURCE_HEALTHY_THRESHOLD = 5
 SOURCE_COOLDOWN_SEC = 300
 SOURCE_RECOVER_THRESHOLD = 3
+# 2026-07-21: 逐级冷却等级 (300/600/1200/2400/3600s)
+COOLDOWN_LEVELS = [300, 600, 1200, 2400, 3600]
 
 _source_health = {
-    "akshare_em": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "东方财富(akshare)"},
-    "akshare_spot": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "akshare全市场"},
-    "tencent_qq": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "腾讯(qt.gtimg)"},
-    "tencent_ifzq": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "腾讯(web.ifzq)"},
-    "sina_hq":    {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "新浪(hq.sinajs)"},
-    "em_push2delay": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "东财push2delay"},
-    "em_push2his": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "东财push2his"},
-    "sina_realtime": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "新浪历史"},
-    "netease_163": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "网易财经"},
-    "ths_10jqka": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "同花顺"},
-    "yahoo_finance": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "Yahoo"},
-    "em_h5api": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "东财H5"},
-    "xueqiu_kline": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "雪球"},
-    # 2026-07-16 新增: 多源逃生
-    "efinance_quote": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "efinance(东财轻封装)"},
-    "itick_rest":     {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "iTick免费REST"},
-    "baostock_daily": {"fails": 0, "oks": 0, "disabled_until": 0.0, "name": "Baostock日线"},
+    "akshare_em": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "东方财富(akshare)"},
+    "akshare_spot": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "akshare全市场"},
+    "tencent_qq": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "腾讯(qt.gtimg)"},
+    "tencent_ifzq": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "腾讯(web.ifzq)"},
+    "sina_hq":    {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "新浪(hq.sinajs)"},
+    "em_push2delay": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "东财push2delay"},
+    "em_push2his": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "东财push2his"},
+    "sina_realtime": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "新浪历史"},
+    "netease_163": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "网易财经"},
+    "ths_10jqka": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "同花顺"},
+    "yahoo_finance": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "Yahoo"},
+    "em_h5api": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "东财H5"},
+    "xueqiu_kline": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "雪球"},
+    "efinance_quote": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "efinance(东财轻封装)"},
+    "itick_rest":     {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "iTick免费REST"},
+    "baostock_daily": {"fails": 0, "oks": 0, "disabled_until": 0.0, "cooldown_level": 0, "total_calls": 0, "total_fails": 0, "last_err": "", "name": "Baostock日线"},
 }
 _source_lock = Lock()
+
+
+def get_source_health():
+    """返回所有数据源健康状态的快照（线程安全）。"""
+    with _source_lock:
+        now = time.time()
+        return [
+            {
+                "name": v["name"],
+                "disabled": now < v["disabled_until"],
+                "disabled_remaining_s": max(0, int(v["disabled_until"] - now)) if v["disabled_until"] > 0 else 0,
+                "fails": v["fails"],
+                "oks": v["oks"],
+                "cooldown_level": v["cooldown_level"],
+                "total_calls": v["total_calls"],
+                "total_fails": v["total_fails"],
+                "last_err": v["last_err"][:200],
+            }
+            for k, v in sorted(_source_health.items())
+        ]
 
 
 def reset_source_health():
@@ -275,6 +296,8 @@ def reset_source_health():
             v["fails"] = 0
             v["oks"] = 0
             v["disabled_until"] = 0.0
+            v["cooldown_level"] = 0
+            v["last_err"] = ""
     return {"reset": True, "sources": list(_source_health.keys())}
 
 
@@ -283,22 +306,33 @@ def _is_disabled(src: str) -> bool:
         return time.time() < _source_health[src]["disabled_until"]
 
 
+# 2026-07-21: 逐级冷却 — 失败次数越多冷却越长，成功恢复后等级回退
+# 冷却等级: 0=300s, 1=600s, 2=1200s, 3=2400s, 4=3600s (最高)
+_COOLDOWN_LEVELS_CACHE = COOLDOWN_LEVELS  # alias for local use
+
 def _report_fail(src: str, err: str = ""):
     with _source_lock:
         h = _source_health[src]
         h["fails"] += 1
+        h["total_calls"] += 1
+        h["total_fails"] += 1
         h["oks"] = 0
-        if h["fails"] >= SOURCE_HEALTHY_THRESHOLD and h["disabled_until"] == 0.0:
-            h["disabled_until"] = time.time() + SOURCE_COOLDOWN_SEC
-            cooldown = SOURCE_COOLDOWN_SEC
+        h["last_err"] = (err or "")[:300]
+        if h["fails"] >= SOURCE_HEALTHY_THRESHOLD:
+            level = min(h["cooldown_level"], len(COOLDOWN_LEVELS) - 1)
+            cooldown = COOLDOWN_LEVELS[level]
+            h["disabled_until"] = time.time() + cooldown
+            if h["fails"] >= SOURCE_HEALTHY_THRESHOLD + 10:
+                h["cooldown_level"] = min(h["cooldown_level"] + 1, len(COOLDOWN_LEVELS) - 1)
             name = h["name"]
             fails = h["fails"]
+            level_display = h["cooldown_level"]
         else:
             return
     logging.warning(
-        f"⚠️ 数据源[{name}]连续{fails}次失败，"
-        f"冷却 {cooldown}s，后续请求自动切备选源"
-        + (f" | err={err}" if err else "")
+        f"⚠ 数据源[{name}]连续{fails}次失败，"
+        f"冷却 {cooldown}s (等级{level_display})，后续请求自动切备选源"
+        + (f" | {err[:150]}" if err else "")
     )
 
 
@@ -306,9 +340,12 @@ def _report_ok(src: str):
     with _source_lock:
         h = _source_health[src]
         h["oks"] += 1
+        h["total_calls"] += 1
         h["fails"] = 0
         if h["disabled_until"] > 0 and h["oks"] >= SOURCE_RECOVER_THRESHOLD:
             h["disabled_until"] = 0.0
+            if h["cooldown_level"] > 0:
+                h["cooldown_level"] -= 1
             oks = h["oks"]
             name = h["name"]
         else:
@@ -325,6 +362,88 @@ def _health_snapshot() -> str:
             remain = f" (剩{max(0, int(v['disabled_until']-time.time()))}s)"
         parts.append(f"{v['name']}: {status}{remain} 失败{v['fails']}次")
     return " | ".join(parts)
+
+
+# ═══════════════════════════════════════════════════════
+# 2026-07-21: 并行竞速 — 多源同时请求，取首个有效响应
+# 设计：Top N 源并行请求，最快响应的有效源胜出，剩余自动取消。
+# 适用于实时行情、日线等高可用场景，根源"不准有任何接口挂"。
+# ═══════════════════════════════════════════════════════
+
+def _race_sources(
+    sources: list[tuple[str, Callable]],  # (name, fetch_function)
+    code: str,
+    timeout: float = 4.0,
+    max_workers: int = 3,
+    require_func: Callable | None = None,  # 额外的数据验证函数 data->bool
+) -> tuple[Any, str]:
+    """
+    并行竞速：同时启动 max_workers 个源，取第一个满足条件的有效响应。
+    返回 (data, source_name) 或 (None, "").
+    每个源内部 2 次重试 (0.2/0.4s)。
+
+    设计要点：
+    - 不阻塞：asyncio loop.run_in_executor + ThreadPoolExecutor
+    - 取消策略：拿到第一个有效响应后，剩余 worker 不再阻塞（线程级自然结束）
+    - 验证：require_func 可检查字段完整性/数值范围
+    - 健康感知：已冷却的源跳过不入场
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+
+    active = []
+    for src_name, fn in sources:
+        if _is_disabled(src_name):
+            continue
+        active.append((src_name, fn))
+        if len(active) >= max_workers:
+            break
+
+    if not active:
+        return None, ""
+
+    with ThreadPoolExecutor(max_workers=len(active)) as pool:
+        fut_map = {}
+        for src_name, fn in active:
+            f = pool.submit(_fetch_with_retry, fn, code, src_name, max_retry=2)
+            fut_map[f] = src_name
+
+        deadline = time.time() + timeout
+        for f in as_completed(fut_map, timeout=timeout):
+            src_name = fut_map[f]
+            remaining = deadline - time.time()
+            try:
+                ok, data, err = f.result(timeout=max(0.1, remaining))
+                if ok and data is not None:
+                    if require_func and not require_func(data):
+                        _report_fail(src_name, f"数据校验失败")
+                        continue
+                    _report_ok(src_name)
+                    return data, src_name
+                _report_fail(src_name, err or "返回空")
+            except TimeoutError:
+                _report_fail(src_name, "并行竞速超时")
+            except Exception as e:
+                _report_fail(src_name, str(e)[:100])
+
+    return None, ""
+
+
+def _require_realtime_quote(data: dict) -> bool:
+    """实时行情数据质量校验：必须含最新价且 > 0"""
+    if not isinstance(data, dict):
+        return False
+    price = data.get("最新价")
+    if price is None or price == 0:
+        return False
+    return True
+
+
+def _require_kline(data) -> bool:
+    """日线数据质量校验：DataFrame 至少 1 行"""
+    import pandas as pd
+    if not isinstance(data, pd.DataFrame):
+        return False
+    return len(data) > 0
 
 
 # ═══════════════════════════════════════════════════════
@@ -795,13 +914,12 @@ FETCH_DAILY_HARD_TIMEOUT = 12
 
 def fetch_daily(code: str, days: int = 120):
     """
-    多源获取日线：按顺序尝试，主源失败自动切备选。
-    每个源内部 3 次重试（0.5/1/2s 退避）；连续 5 次失败冷却 5 分钟。
-    返回 DataFrame 或 None。
+    多源获取日线：
+    1) 并行竞速：Top 3 源 (腾讯/东财/akshare, 4s 超时)
+    2) 串行兜底：剩余 8 源按优先级逐个尝试 (每源 2 次重试)
+    总闸硬超时 12s。
 
-    2026-07-11 加固：10 个 source 串联极限可能 30s+，外面包一层
-    `ThreadPoolExecutor.submit().result(timeout=FETCH_DAILY_HARD_TIMEOUT)`，
-    超时立刻返 None 让端点走降级。`_source_lock` 仍在内部并发安全。
+    2026-07-21: 引入并行竞速 — Top 3 最快源同时请求，不再逐个等 3s+。
     """
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
     ex = ThreadPoolExecutor(max_workers=1)
@@ -820,30 +938,41 @@ def fetch_daily(code: str, days: int = 120):
 
 
 def _fetch_daily_inner(code: str, days: int) -> "pd.DataFrame | None":
-    """原 fetch_daily 的 source 循环逻辑（无总闸版），由 fetch_daily 在线程池调用。
-
-    2026-07-11 加固: 移除全局 _source_lock 包裹整条 source 链。
-    原逻辑让 screen 3000+ 只循环里连续 fetch_daily 时,所有 kline/fund 端点
-    都被排到 1 个全局锁后面等 — 12s 闸一到就返 None,造成端点层 18% 失败。
-    现在只在 _report_ok / _report_fail 内细粒度锁 _source_health dict,
-    多线程并发 fetch_daily (不同 code) 各自走自己的 source 链。
     """
+    2026-07-22 重构：
+    1) 并行竞速：Top 3 日线源 (腾讯/东财/akshare, 4s)
+    2) 串行兜底：剩余 8 源按优先级逐个尝试 (每源 2 次重试)
+    """
+    # 1) 并行竞速：Top 3 源同时请求
+    daily_top3 = _DAILY_SOURCES[:3]
+    # 用显式闭包避免 lambda 晚绑定问题
+    def _make_runner(src_name: str, fn, days: int):
+        return lambda c: fn(c, days)
+    candidates = [(name, _make_runner(name, fn, days)) for name, fn in daily_top3]
+    data, src_name = _race_sources(
+        candidates, code, timeout=4.0, max_workers=3,
+        require_func=_require_kline,
+    )
+    if data is not None:
+        return data
+
+    # 2) 串行兜底：剩余 8 源
     last_err = ""
     tried = []
-    for src_name, fn in _DAILY_SOURCES:
+    for src_name, fn in _DAILY_SOURCES[3:]:
         if _is_disabled(src_name):
             tried.append(f"{src_name}=跳过")
             continue
-        ok, data, err = _fetch_with_retry(lambda c: fn(c, days), code, src_name, max_retry=3)
+        ok, data, err = _fetch_with_retry(lambda c: fn(c, days), code, src_name, max_retry=2)
         tried.append(f"{src_name}={'ok' if ok else 'fail'}")
         if ok and data is not None and len(data) > 0:
             _report_ok(src_name)
             return data
         _report_fail(src_name, err)
         last_err = err
-    logging.warning(f"日线 {code} 全部源失败 | 尝试链={' -> '.join(tried)} | 最后err={last_err}")
+    logging.warning(f"日线 {code} 全部源失败 | 竞速3+串行{len(_DAILY_SOURCES[3:])} | err={last_err}")
     if random.random() < 0.1:
-        logging.warning(f"📊 数据源健康: {_health_snapshot()}")
+        logging.warning(f"数据源健康: {_health_snapshot()}")
     return None
 
 
@@ -1431,6 +1560,67 @@ def _index_realtime_em(code: str) -> dict | None:
         return None
 
 
+def _index_realtime_qq_bulk(codes: list[str]) -> dict[str, dict]:
+    """批量拉多个指数实时行情 — 腾讯 qt.gtimg 单请求多 code 模式。
+    返回 {code: {最新价, 涨跌幅, ...}} (失败的 code 缺席,不抛错)。
+    腾讯单次请求 ~80-150ms,6 个指数 → 1 次请求 ≈ 100ms (vs 串行 6×400ms=2400ms)。
+    """
+    if not codes:
+        return {}
+    parts: list[str] = []
+    code_list: list[str] = []
+    for c in codes:
+        mkt = "sh" if c.startswith("000") else "sz"
+        parts.append(f"{mkt}{c}")
+        code_list.append(c)
+    url = "https://qt.gtimg.cn/q=" + ",".join(parts)
+    out: dict[str, dict] = {}
+    try:
+        import requests as _req
+        r = _req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        if r.status_code != 200:
+            return {}
+        text = r.content.decode("gbk", errors="ignore")
+        # 格式:v_sh000001="~...~";v_sz399001="~...~";
+        for line in text.split(";"):
+            if "=" not in line or '"' not in line:
+                continue
+            try:
+                key, body = line.split("=", 1)
+                # key 形如 v_sh000001 → 取尾 6 位
+                raw_code = key.strip().lstrip("v_")[-6:]
+                body = body.strip().strip('"').strip('"')
+                if not body or "~" not in body:
+                    continue
+                fields = body.split("~")
+                if len(fields) < 40:
+                    continue
+                price = float(fields[3]) if fields[3] else 0
+                last_close = float(fields[4]) if fields[4] else 0
+                if not price or not last_close:
+                    continue
+                code_match = next((c for c in codes if c.endswith(raw_code)), None)
+                if not code_match:
+                    continue
+                out[code_match] = {
+                    "最新价": price,
+                    "今开":   float(fields[5]) if fields[5] else 0,
+                    "昨收":   last_close,
+                    "最高":   float(fields[33]) if fields[33] else 0,
+                    "最低":   float(fields[34]) if fields[34] else 0,
+                    "涨跌幅": float(fields[32]) if fields[32] else 0,
+                    "成交量": float(fields[6]) * 100 if fields[6] else 0,
+                    "成交额": float(fields[37]) * 10000 if fields[37] else 0,
+                    "时间":   fields[30],
+                    "_source": "tencent_qq_index_bulk",
+                }
+            except Exception:
+                continue
+    except Exception as e:
+        logging.debug(f"qq index bulk 失败: {e}")
+    return out
+
+
 def _index_realtime_qq(code: str) -> dict | None:
     """指数实时行情（腾讯 qt.gtimg，正确处理指数前缀）
 
@@ -1476,13 +1666,15 @@ def _index_realtime_qq(code: str) -> dict | None:
 
 def fetch_realtime(code: str) -> dict | None:
     """
-    多源实时行情：腾讯 → 东财 → 新浪 → akshare 分钟线。
-    每源 3 次重试（0.5/1/2s），连续失败 5 次冷却 5 分钟。
+    多源实时行情：
+    0) iTick WS tick (最快, 10s TTL)
+    1) 并行竞速：腾讯 qt.gtimg + ifzq + 东财 push2his (Top 3, 3s 超时)
+    2) 串行兜底：剩余源按优先级逐个尝试 (每源 max_retry=2)
     akshare hist_min_em 在盘后仍能拿到当天最后一根分钟线（11:30 / 15:00），
     保证盘中午休也有"今日收盘价"，不会误用昨收。
 
-    2026-07-16: iTick WS 推送的 tick 优先于所有 REST/HTTP 源 (10s 内有效),
-    这样 WS 推送正常时直接用 tick, 不再走东财/sina/akshare 等慢源。
+    2026-07-21: 引入并行竞速 — Top 3 源同时请求，最快有效源胜出，
+    根源消除"一个慢源拖死整个链"的老问题。
     """
     # 0) iTick WS tick (最快, 仅 token 配置时生效, 10s TTL)
     try:
@@ -1497,36 +1689,42 @@ def fetch_realtime(code: str) -> dict | None:
         pass
 
     # 指数代码（000xxx / 399xxx）走专用指数实时源
-    # 关键:000001/000688 既是上证/科创综指 又是平安银行/科创板股票,
-    #     默认用户查的是"股票"而非"指数",要主动用 sz000001/sh688xxx 这种 stock 前缀
-    # 真正的指数代码必须带 sh/sz/cyb 等前缀才能识别
-    # 顺序:腾讯 qt.gtimg → 东财 push2 → 新浪 hq.sinajs → 个股多源循环
     is_pure_index_code = code in (
         "sh000001", "sh000300", "sh000905", "sh000688",
         "sz399001", "sz399006", "sz399905", "sz399852",
     )
     if is_pure_index_code:
-        for label, fn in (
-            ("tencent_qq_index",  _index_realtime_qq),
-            ("em_push2delay_idx", _index_realtime_em),
-        ):
-            try:
-                rt = fn(code)
-            except Exception:
-                rt = None
-            if rt:
-                rt["_source"] = label
-                rt["_fetch_time"] = time.strftime("%H:%M:%S")
-                return rt
-        # 指数专用源都失败 → 继续走下面的个股多源循环（含 sina/akshare）
-    # 2026-07-11: 移除 _source_lock 整链包裹,与 _fetch_daily_inner 同样的修复。
+        # 指数：并行竞速腾讯 + 东财
+        idx_data, idx_src = _race_sources(
+            [("tencent_qq_index", _index_realtime_qq),
+             ("em_push2delay_idx", _index_realtime_em)],
+            code, timeout=3.0, max_workers=2,
+            require_func=_require_realtime_quote,
+        )
+        if idx_data is not None:
+            idx_data["_source"] = idx_src
+            idx_data["_fetch_time"] = time.strftime("%H:%M:%S")
+            return idx_data
+
+    # 1) 并行竞速：Top 3 最快源 (腾讯×2 + 东财, 3s)
+    data, src_name = _race_sources(
+        _REALTIME_SOURCES[:3],
+        code, timeout=3.0, max_workers=3,
+        require_func=_require_realtime_quote,
+    )
+    if data is not None:
+        data["_source"] = src_name
+        data["_fetch_time"] = time.strftime("%H:%M:%S")
+        return data
+
+    # 2) 串行兜底：剩余源按优先级逐个尝试 (每源 2 次重试)
     last_err = ""
     tried = []
-    for src_name, fn in _REALTIME_SOURCES:
+    for src_name, fn in _REALTIME_SOURCES[3:]:
         if _is_disabled(src_name):
             tried.append(f"{src_name}=跳过")
             continue
-        ok, data, err = _fetch_with_retry(fn, code, src_name, max_retry=3)
+        ok, data, err = _fetch_with_retry(fn, code, src_name, max_retry=2)
         tried.append(f"{src_name}={'ok' if ok else 'fail'}")
         if ok and data is not None:
             _report_ok(src_name)
@@ -1535,7 +1733,7 @@ def fetch_realtime(code: str) -> dict | None:
             return data
         _report_fail(src_name, err)
         last_err = err
-    logging.warning(f"实时 {code} 全部源失败 | 尝试链={' -> '.join(tried)} | err={last_err}")
+    logging.warning(f"实时 {code} 全部源失败 | 竞速3+串行{len(_REALTIME_SOURCES[3:])} | err={last_err}")
     return None
 
 

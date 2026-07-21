@@ -863,6 +863,76 @@ def envelope(data: Any = None, error: str | None = None, **extra) -> dict:
     }
 
 
+# 2026-07-21: 陈旧数据缓存 + 降级模式基础设施
+# 设计：每个关键端点维护一个最后一次成功的数据快照，
+# 当数据源全部失败时，返回快照 + _degraded 标志，
+# 前端据此显示降级状态而非空白/零值。
+_STALE_CACHE: dict[str, dict] = {}
+_STALE_CACHE_LOCK = threading.Lock()
+_STALE_TTL = {
+    "market_overview": 300,       # 5 分钟
+    "dashboard_signal": 600,      # 10 分钟
+    "hot_sectors": 300,           # 5 分钟
+    "stock_core": 600,            # 10 分钟
+    "stock_kline": 3600,          # 60 分钟
+    "stock_fund": 1800,           # 30 分钟
+    "stock_seats": 86400,         # 24 小时
+    "stock_intraday": 3600,       # 60 分钟
+    "stock_intraday_5d": 3600,    # 60 分钟
+}
+
+
+def _stale_save(key: str, data: Any):
+    """保存陈旧数据缓存，供后续降级使用。"""
+    with _STALE_CACHE_LOCK:
+        _STALE_CACHE[key] = {"data": data, "ts": time.time()}
+
+
+def _stale_load(key: str, max_age: float = 300) -> tuple[Any, float] | tuple[None, None]:
+    """
+    加载陈旧数据缓存。
+    返回 (data, age_seconds) 或 (None, None)。
+    max_age: 超过此秒数的陈旧数据不再可用。
+    """
+    with _STALE_CACHE_LOCK:
+        entry = _STALE_CACHE.get(key)
+        if entry is None:
+            return None, None
+        age = time.time() - entry["ts"]
+        if age > max_age:
+            return None, None
+        return entry["data"], age
+
+
+def envelope_degraded(
+    data: Any = None,
+    stale_key: str = "",
+    stale_max_age: float = 300,
+    degraded_reason: str = "data_unavailable",
+    fresh: bool = False,
+    **extra,
+) -> dict:
+    """
+    生成降级信封：优先返回陈旧数据 + _degraded 标志，
+    无陈旧数据时才返回原始 data + _degraded。
+    fresh=True：跳过陈旧数据，直接返回降级 data。
+
+    注意：_degraded 放在 data 内部而非 envelope 层，因为前端 api()
+    会剥掉 envelope 只留 data，_degraded 必须随 data 到达渲染函数。
+    """
+    if not fresh and stale_key:
+        stale_data, age = _stale_load(stale_key, max_age=stale_max_age)
+        if stale_data is not None:
+            if isinstance(stale_data, dict):
+                stale_data["_degraded"] = degraded_reason
+                stale_data["_stale_age_s"] = round(age)
+                stale_data["_stale_ts"] = time.time() - age
+            return envelope(data=stale_data, **extra)
+    if isinstance(data, dict):
+        data["_degraded"] = data.get("_degraded", degraded_reason)
+    return envelope(data=data, **extra)
+
+
 def json_etag_response(request: _Request, payload: dict, *, max_age: int = 0) -> _Response:
     """R-perf-023: 路由级 ETag + 条件请求 304。
 
@@ -1353,6 +1423,21 @@ async def healthz():
     """K8s liveness probe — 进程活着就 200。
     不做 IO / 不查 DB / 不读磁盘。用于 k8s/load balancer 检测进程崩溃。"""
     return {"ok": True, "kind": "live"}
+
+
+@app.get("/api/sources/health")
+async def sources_health():
+    """2026-07-21: 数据源健康状态 — 每个源的冷却/失败/调用统计。
+    返回逐源状态,供前端调试面板和自动告警使用。"""
+    from .. import lib_common as _lc
+    sources = _lc.get_source_health()
+    disabled_count = sum(1 for s in sources if s["disabled"])
+    return envelope(data={
+        "sources": sources,
+        "disabled_count": disabled_count,
+        "total_sources": len(sources),
+        "healthy": disabled_count == 0,
+    })
 
 
 @app.get("/api/metrics")
@@ -2382,8 +2467,9 @@ def _normalize_quote(q: dict | None) -> dict:
 
 @app.get("/api/market/overview")
 async def market_overview():
-    """6 大指数并行拉取 + 涨停数估算(东财限频时降级到部分数据)
-    2026-07-11: indices 与 zt_count 并行跑 (互不依赖), 总闸 8s。
+    """6 大指数并行拉取 + 涨停数估算。
+    2026-07-21: 数据源全挂时返回陈旧数据 + _degraded 标志，
+    绝不让前端看到全零指数。
     """
     async def _zt_count():
         from .. import multi_source_fetchers as msf
@@ -2403,23 +2489,38 @@ async def market_overview():
             timeout=8,
         )
     except asyncio.TimeoutError:
-        indices_raw, zt = (
-            [{"code": c, "name": n, "price": 0, "change_pct": 0, "amount": 0} for c, n in INDICES],
-            None,
-        )
+        indices_raw, zt = None, None
 
-    if isinstance(indices_raw, Exception) or not isinstance(indices_raw, list):
-        indices = [{"code": c, "name": n, "price": 0, "change_pct": 0, "amount": 0} for c, n in INDICES]
-    else:
+    has_index_data = isinstance(indices_raw, list) and len(indices_raw) > 0 and any(
+        i.get("price", 0) > 0 for i in indices_raw)
+    has_zt_data = isinstance(zt, list)
+
+    if has_index_data:
         indices = indices_raw
-    zt_count = len(zt) if isinstance(zt, list) else 0
+    else:
+        indices = [{"code": c, "name": n, "price": 0, "change_pct": 0, "amount": 0} for c, n in INDICES]
+    zt_count = len(zt) if has_zt_data else 0
 
-    return envelope(data={
+    out = {
         "indices": indices,
         "limit_up": zt_count,
-        "limit_up_available": isinstance(zt, list),
+        "limit_up_available": has_zt_data,
         "ts": time.time(),
-    })
+    }
+
+    if has_index_data or has_zt_data:
+        _stale_save("market_overview", out)
+        return envelope(data=out)
+
+    # 全部源失败 → 陈旧数据兜底
+    return envelope_degraded(
+        data=out,
+        stale_key="market_overview",
+        stale_max_age=_STALE_TTL["market_overview"],
+        degraded_reason="all_sources_failed",
+        limit_up=zt_count,
+        limit_up_available=False,
+    )
 
 
 # ───────────────────────────────────────────────────────────
@@ -2453,21 +2554,29 @@ async def global_sentiment(force: bool = False):
         )
     except asyncio.TimeoutError:
         log.warning("global_sentiment 超时 12s")
+        stale_data, _age = _stale_load("global_sentiment", max_age=3600)
+        if stale_data:
+            stale_data["_degraded"] = "stale"
+            return envelope(data=stale_data)
         return envelope(error="全球情绪拉取超时", data={
-            "sentiment": "neutral",
-            "sentiment_score": 0.0,
+            "sentiment": "neutral", "sentiment_score": 0.0,
             "indices": [], "us_leaders": [], "us_losers": [],
-            "kr_leaders": [], "sector_impact": {},
+            "kr_leaders": [], "sector_impact": {}, "_degraded": "timeout",
         })
     except Exception as e:
         log.warning(f"global_sentiment 失败: {e}")
+        stale_data, _age = _stale_load("global_sentiment", max_age=3600)
+        if stale_data:
+            stale_data["_degraded"] = "stale"
+            return envelope(data=stale_data)
         return envelope(error=f"全球情绪失败: {e}", data={
             "sentiment": "neutral", "sentiment_score": 0.0,
             "indices": [], "us_leaders": [], "us_losers": [],
-            "kr_leaders": [], "sector_impact": {},
+            "kr_leaders": [], "sector_impact": {}, "_degraded": "failed",
         })
 
     _cache_global.set(("global_sentiment",), result)
+    _stale_save("global_sentiment", result)
     return envelope(data=result)
 
 
@@ -2494,7 +2603,48 @@ async def global_sentiment_prompt():
 # 首页 dashboard 信号面板 — A股 / 韩股 / 美股 是否适合买 + 热门板块
 # ───────────────────────────────────────────────────────────
 _dashboard_cache: dict[str, Any] = {"ts": 0.0, "signal": None, "hot": None}
-_DASHBOARD_TTL = 30.0
+_DASHBOARD_TTL = 300.0  # R-T5x (2026-07-21): 30s→300s,bench P95 11s → <100ms (走 Redis 共享)
+
+# R-T5x (2026-07-21): 4 worker 共享 dashboard 缓存,避免冷路径重复 11s 计算
+# 每 worker 进程内 dict 缓存只覆盖自己,bench 20 并发 → 4 worker × 5 = 4 次冷算
+# 改走 cache_store (Redis 主,SQLite fallback),跨进程共享,二次访问秒开
+import json as _json_dash
+import threading as _th_dash  # R-T6x: SWR 后台刷新锁
+_DASH_REDIS_KEY = "tuixue:dashboard:signal:v1"  # 300s TTL,key 内自带 ts
+_DASH_BG_LOCK = _th_dash.Lock()
+_DASH_BG_RUNNING = False
+
+
+def _bg_dashboard_signal() -> None:
+    """R-T6x (2026-07-22): 后台异步刷 dashboard signal。
+    TTL 过期后,请求立即返旧数据,不阻塞用户。Redis 写回让下次访问秒开。
+    """
+    global _DASH_BG_RUNNING
+    if _DASH_BG_RUNNING:
+        return
+    with _DASH_BG_LOCK:
+        if _DASH_BG_RUNNING:
+            return
+        _DASH_BG_RUNNING = True
+
+    def _run():
+        global _DASH_BG_RUNNING
+        try:
+            sig = _build_dashboard_signal()
+            if sig:
+                _dashboard_cache["signal"] = sig
+                _dashboard_cache["ts"] = time.time()
+                try:
+                    cache_store.get_store().set(_DASH_REDIS_KEY,
+                        _json_dash.dumps(sig, ensure_ascii=False).encode(), ttl=300)
+                except Exception:
+                    pass
+        except Exception as e:
+            log.debug(f"_bg_dashboard_signal: {e}")
+        finally:
+            _DASH_BG_RUNNING = False
+
+    _th_dash.Thread(target=_run, name="dash-sig-bg", daemon=True).start()
 
 
 def _verdict_from_pct(avg_pct: float, allow: float = 0.3, block: float = -0.3) -> str:
@@ -2557,16 +2707,40 @@ def _build_dashboard_signal() -> dict:
     from .. import lib_common as lc
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    # 1) A股 — 6 指数并行
+    # 1) A股 — 6 指数走腾讯 qt.gtimg 单请求 bulk (~100ms),
+    #    命中即用,miss 则落回 per-code 并行兜底。R-T6x: 4.5s → 0.1s 提 45x。
     a_indices: list[dict] = []
     a_pcts: list[float] = []
     try:
-        with _TPE(max_workers=6) as _pool:
-            results = list(_pool.map(lambda cn: _fetch_index_sync(cn[0], cn[1]), INDICES))
-        for r in results:
-            if r and r.get("change_pct") is not None:
-                a_indices.append(r)
-                a_pcts.append(r["change_pct"])
+        idx_codes = [c for (c, _n) in INDICES]
+        bulk = lc._index_realtime_qq_bulk(idx_codes) if hasattr(lc, "_index_realtime_qq_bulk") else {}
+        if bulk:
+            for (code, name) in INDICES:
+                rt = bulk.get(code) or {}
+                if not rt or rt.get("最新价", 0) <= 0:
+                    continue
+                fetch_time = rt.get("时间") or ""
+                data_date = ""
+                if fetch_time and len(str(fetch_time)) >= 8:
+                    s = str(fetch_time)
+                    data_date = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+                a_indices.append({
+                    "code": code,
+                    "name": name,
+                    "price": _safe_float(rt.get("最新价") or rt.get("price")),
+                    "change_pct": _safe_float(rt.get("涨跌幅") or rt.get("change_pct")),
+                    "_source": rt.get("_source", "tencent_qq_index_bulk"),
+                    "_fetch_time": fetch_time,
+                    "data_date": data_date,
+                })
+                a_pcts.append(a_indices[-1]["change_pct"])
+        if not a_indices:
+            with _TPE(max_workers=6) as _pool:
+                results = list(_pool.map(lambda cn: _fetch_index_sync(cn[0], cn[1]), INDICES))
+            for r in results:
+                if r and r.get("change_pct") is not None:
+                    a_indices.append(r)
+                    a_pcts.append(r["change_pct"])
     except Exception as e:
         log.warning(f"dashboard A股 indices 失败: {e}")
 
@@ -2645,6 +2819,7 @@ def _build_dashboard_signal() -> dict:
             if n >= 3:
                 us_warnings.append(f"⚠ {sw} {pct:+.1f}% 关联拖累")
 
+    gm_degraded = not gm_data or not gm_data.get("indices")
     return {
         "a_share": {
             "verdict": a_verdict,
@@ -2670,6 +2845,7 @@ def _build_dashboard_signal() -> dict:
             "data_date": gm_data.get("us_date", ""),
         },
         "ts": time.time(),
+        "_degraded": "gm_unavailable" if gm_degraded else False,
     }
 
 
@@ -2686,15 +2862,42 @@ def _pick_data_date(indices: list[dict], fallback: str = "") -> str:
 async def api_dashboard_signal(force: bool = False):
     """首页三市场信号面板 — A/KR/US verdict + 关键指数 + 不利新闻。
     30s 内存缓存; force=true 强制重算 (数据源冷启动或调试)。
+    R-T5x (2026-07-21): 跨 worker 共享 Redis 缓存,避免 4 worker × cold path 11s × N
     """
     now = time.time()
     if not force and _dashboard_cache["signal"] is not None and (now - _dashboard_cache["ts"]) < _DASHBOARD_TTL:
         return envelope(data=_dashboard_cache["signal"])
+    # R-T5x: Redis 共享 — bench 20 并发 → 4 worker 全命中, 二次 < 5ms
+    if not force:
+        try:
+            cached = cache_store.get_store().get(_DASH_REDIS_KEY)
+            if cached:
+                sig = _json_dash.loads(cached)
+                _dashboard_cache["signal"] = sig
+                _dashboard_cache["ts"] = now
+                return envelope(data=sig)
+        except Exception as e:
+            log.debug(f"dashboard signal redis get fail: {e}")
 
-    # 2026-07-20: 用 SingleFlight 串行化并发请求,避免 6+ 并发打爆 executor 池
-    # 旧逻辑: 多 request 并发都走 to_thread, executor 池满时第二个直接 ABORTED
-    # timeout 25s: cold cache 时 6 指数并行 + global_sentiment 8s ≈ 9s;
-    #              兜底为并发第二次时同进程复用 6 worker,允许 1 次串行 (≈18s) + buffer
+    # R-T6x (2026-07-22): SWR — 有任意缓存即立即返(即使过期),后台异步重建。
+    # 这样 TTL 失效后用户不会撞 4s 阻塞,而是看到上一拍快照 + 后台静默更新。
+    if not force and _dashboard_cache["signal"] is not None:
+        if (now - _dashboard_cache["ts"]) >= _DASHBOARD_TTL:
+            _bg_dashboard_signal()
+        return envelope(data=_dashboard_cache["signal"])
+    if not force:
+        try:
+            cached = cache_store.get_store().get(_DASH_REDIS_KEY)
+            if cached:
+                sig = _json_dash.loads(cached)
+                _dashboard_cache["signal"] = sig
+                _dashboard_cache["ts"] = now
+                # Redis 命中但本机超期 → 后台刷
+                return envelope(data=sig)
+        except Exception as e:
+            log.debug(f"dashboard signal redis get fail: {e}")
+
+    # force=true 或首次冷启 (无任何缓存) → 必须同步算,但有超时兜底
     if not hasattr(api_dashboard_signal, "_sf"):
         api_dashboard_signal._sf = SingleFlight()
     try:
@@ -2720,6 +2923,11 @@ async def api_dashboard_signal(force: bool = False):
 
     _dashboard_cache["signal"] = sig
     _dashboard_cache["ts"] = now
+    _stale_save("dashboard_signal", sig)
+    try:
+        cache_store.get_store().set(_DASH_REDIS_KEY, _json_dash.dumps(sig, ensure_ascii=False).encode(), ttl=300)
+    except Exception as e:
+        log.debug(f"dashboard signal redis set fail: {e}")
     return envelope(data=sig)
 
 
@@ -2728,10 +2936,21 @@ async def api_dashboard_hot_sectors(force: bool = False):
     """今日热门板块 — 简化版:fetch_hot_sectors 拿 18 个板块(涨跌+资金净流入),
     按 (涨停数 × 2 + 涨幅% × 10) 综合排序,取 Top 5。
     避开了 score_dragons 中不稳定的小 Racer/V8 调用(2026-07-11 libmini_racer 段错误)。
+    R-T5x (2026-07-21): Redis 跨 worker 共享 (30s TTL)
     """
     now = time.time()
     if not force and _dashboard_cache["hot"] is not None and (now - _dashboard_cache["ts"]) < _DASHBOARD_TTL:
         return envelope(data=_dashboard_cache["hot"])
+    if not force:
+        try:
+            cached = cache_store.get_store().get("tuixue:dashboard:hot:v1")
+            if cached:
+                hot = _json_dash.loads(cached)
+                _dashboard_cache["hot"] = hot
+                _dashboard_cache["ts"] = now
+                return envelope(data=hot)
+        except Exception as e:
+            log.debug(f"hot_sectors redis get fail: {e}")
 
     def _load():
         from .. import multi_source_fetchers as msf
@@ -2827,14 +3046,30 @@ async def api_dashboard_hot_sectors(force: bool = False):
         out = await asyncio.wait_for(to_thread(_load), timeout=20)
     except asyncio.TimeoutError:
         log.warning("dashboard hot_sectors 超时 20s")
-        return envelope(error="热门板块超时", data={"mainline": [], "sentiment": {}})
+        return envelope_degraded(
+            data={"mainline": [], "sentiment": {"label": "—", "zt_count": 0}},
+            stale_key="hot_sectors",
+            stale_max_age=_STALE_TTL["hot_sectors"],
+            degraded_reason="timeout",
+        )
     except Exception as e:
         log.warning(f"dashboard hot_sectors 失败: {e}")
-        return envelope(error=str(e), data={"mainline": [], "sentiment": {}})
+        return envelope_degraded(
+            data={"mainline": [], "sentiment": {"label": "—", "zt_count": 0}},
+            stale_key="hot_sectors",
+            stale_max_age=_STALE_TTL["hot_sectors"],
+            degraded_reason=str(e)[:100],
+        )
 
     out["ts"] = time.time()
+    if out.get("mainline"):
+        _stale_save("hot_sectors", out)
     _dashboard_cache["hot"] = out
     _dashboard_cache["ts"] = now
+    try:
+        cache_store.get_store().set("tuixue:dashboard:hot:v1", _json_dash.dumps(out, ensure_ascii=False).encode(), ttl=300)
+    except Exception as e:
+        log.debug(f"hot_sectors redis set fail: {e}")
     return envelope(data=out)
 
 
@@ -2926,7 +3161,15 @@ async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
         kline = await asyncio.wait_for(to_thread(_load, code, days), timeout=15)
     except asyncio.TimeoutError:
         log.warning(f"stock_kline {code} 15s 超时,降级")
+        stale_data, age = _stale_load(f"stock_kline:{code}", max_age=_STALE_TTL["stock_kline"])
+        if stale_data:
+            stale_data["_degraded"] = "stale"
+            stale_data["_stale_ts"] = time.time() - age
+            return envelope(data=stale_data)
         return envelope(data={"code": code, "kline": [], "_degraded": "upstream_timeout"})
+
+    if kline:
+        _stale_save(f"stock_kline:{code}", {"code": code, "kline": kline})
     return envelope(data={"code": code, "kline": kline or []})
 
 
@@ -3057,7 +3300,15 @@ async def stock_fund(code: str, days: int = Query(60, ge=10, le=180),
         flow = await asyncio.wait_for(to_thread(_load, code, days), timeout=12)
     except asyncio.TimeoutError:
         log.warning(f"stock_fund {code} 12s 超时,降级")
+        stale_data, age = _stale_load(f"stock_fund:{code}", max_age=_STALE_TTL["stock_fund"])
+        if stale_data:
+            stale_data["_degraded"] = "stale"
+            stale_data["_stale_ts"] = time.time() - age
+            return envelope(data=stale_data)
         return envelope(data={"code": code, "today": None, "history": [], "_degraded": "upstream_timeout"})
+
+    if flow and flow.get("today"):
+        _stale_save(f"stock_fund:{code}", flow)
     return envelope(data=flow or {"code": code, "today": None, "history": []})
 
 
@@ -3065,9 +3316,17 @@ async def stock_fund(code: str, days: int = Query(60, ge=10, le=180),
 async def stock_seats(code: str, days: int = Query(30, ge=5, le=90)):
     code = _require_valid_code(code)
     seats = await to_thread(seat_lookup.get_stock_seats, code, days)
-    return envelope(data=seats or {"code": code, "rows": [], "blacklisted": False,
-                                    "seat_count": 0, "total_lhb_rows": 0,
-                                    "known_groups": []})
+    if seats:
+        _stale_save(f"stock_seats:{code}", seats)
+        return envelope(data=seats)
+    stale_data, age = _stale_load(f"stock_seats:{code}", max_age=_STALE_TTL["stock_seats"])
+    if stale_data:
+        stale_data["_degraded"] = "stale"
+        stale_data["_stale_age_s"] = round(age)
+        return envelope(data=stale_data)
+    return envelope(data={"code": code, "rows": [], "blacklisted": False,
+                           "seat_count": 0, "total_lhb_rows": 0,
+                           "known_groups": [], "_degraded": "no_data"})
 
 
 @app.get("/api/stock/{code}/seat_breakdown")
@@ -3361,6 +3620,14 @@ async def _warm_intraday_today_async(code: str, cache_key: str):
         result = await asyncio.wait_for(to_thread(_load), timeout=40)
     except asyncio.TimeoutError:
         log.warning(f"intraday_5d {code} 超时 40s, 尝试读 partial cache")
+    except Exception as e:
+        log.warning(f"intraday_5d {code} 异常: {e}")
+        return envelope_degraded(
+            data={"code": code, "daily_5d": [], "intraday_today": None},
+            stale_key=f"stock_intraday_5d:{code}",
+            stale_max_age=_STALE_TTL["stock_intraday_5d"],
+            degraded_reason="intraday_5d_error",
+        )
         # 超时兜底 — 试 L1 partial
         cached_today = _store_get(cache_key_today, ttl=60)
         cached_hist  = _store_get(cache_key_hist, ttl=1800)
@@ -3372,10 +3639,19 @@ async def _warm_intraday_today_async(code: str, cache_key: str):
             out["_cache_level"] = "l1_redis_partial_fallback"
             out["_degraded"] = "timeout_partial"
             return envelope(data=out)
-        return envelope(error="intraday_5d 超时 40s",
-                        data={"code": code, "daily_5d": [], "intraday_today": None})
+        return envelope_degraded(
+            data={"code": code, "daily_5d": [], "intraday_today": None},
+            stale_key=f"stock_intraday_5d:{code}",
+            stale_max_age=_STALE_TTL["stock_intraday_5d"],
+            degraded_reason="intraday_5d_timeout",
+        )
     if result is None:
-        return envelope(error="intraday_5d 上游异常（详见日志）", data={"code": code, "daily_5d": [], "intraday_today": None})
+        return envelope_degraded(
+            data={"code": code, "daily_5d": [], "intraday_today": None},
+            stale_key=f"stock_intraday_5d:{code}",
+            stale_max_age=_STALE_TTL["stock_intraday_5d"],
+            degraded_reason="intraday_5d_failed",
+        )
     # R51 (Batch 6): 写双段缓存 — 今日 60s, 历史 30min
     if not fresh and isinstance(result, dict):
         # today part
@@ -3385,6 +3661,9 @@ async def _warm_intraday_today_async(code: str, cache_key: str):
         hist_only = {k: v for k, v in result.items() if k != "intraday_today"}
         if hist_only.get("daily_5d") or hist_only.get("intraday_per_day"):
             _store_set(cache_key_hist, hist_only, ttl=1800)
+    # 保存陈旧数据供降级兜底
+    if isinstance(result, dict):
+        _stale_save(f"stock_intraday_5d:{code}", result)
     return envelope(data=result)
 
 
@@ -3807,8 +4086,20 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=12)
     except asyncio.TimeoutError:
-        return envelope(error="intraday 超时 12s",
-                        data={"code": code, "date": d, "ticks": [], "ticks_n": 0, "note": "超时"})
+        return envelope_degraded(
+            data={"code": code, "date": d, "ticks": [], "ticks_n": 0, "note": "超时"},
+            stale_key=f"stock_intraday:{code}:{d}",
+            stale_max_age=_STALE_TTL["stock_intraday"],
+            degraded_reason="intraday_timeout",
+        )
+    except Exception as e:
+        log.warning(f"intraday {code} {d} 异常: {e}")
+        return envelope_degraded(
+            data={"code": code, "date": d, "ticks": [], "ticks_n": 0, "note": str(e)[:200]},
+            stale_key=f"stock_intraday:{code}:{d}",
+            stale_max_age=_STALE_TTL["stock_intraday"],
+            degraded_reason="intraday_error",
+        )
     # R53: 写 L0;L1 Redis 复用 K.INTRADAY:{date}:{code} (TTL 30min 历史/盘中兜底)
     if result and result.get("ticks"):
         # 2026-07-19: 注入支撑/压力位 (1/3 回升位 + A/B + 5日线) — 复用 weekly_bull + recovery_level 缓存
@@ -3847,6 +4138,9 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
             get_store().set(cache_key, result, ttl=ttl)
         except Exception:
             pass
+    # 保存陈旧数据供降级兜底
+    if isinstance(result, dict):
+        _stale_save(f"stock_intraday:{code}:{d}", result)
     return envelope(data=result)
 
 
@@ -3893,7 +4187,7 @@ async def news_list(refresh: bool = Query(False, description="是否强制刷新
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=15)
     except asyncio.TimeoutError:
-        return envelope(error="news 拉取超时", data={"news": [], "count": 0})
+        return envelope(error="news 拉取超时", data={"news": [], "count": 0, "_degraded": "timeout"})
     if not refresh and result:
         _cache_news.set(("news_list",), result)
     return envelope(data=result)
@@ -3928,7 +4222,7 @@ async def news_analyze():
     try:
         result = await asyncio.wait_for(to_thread(_run), timeout=120)
     except asyncio.TimeoutError:
-        return envelope(error="news AI 超时 120s", data={"analyzed": 0})
+        return envelope(error="news AI 超时 120s", data={"analyzed": 0, "_degraded": "ai_timeout"})
     return envelope(data=result)
 
 
@@ -3961,7 +4255,7 @@ async def news_refresh():
     try:
         result = await asyncio.wait_for(to_thread(_run), timeout=130)
     except asyncio.TimeoutError:
-        return envelope(error="news refresh 超时", data={"fetched": 0, "analyzed": 0})
+        return envelope(error="news refresh 超时", data={"fetched": 0, "analyzed": 0, "_degraded": "timeout"})
     return envelope(data=result)
 
 
@@ -4002,7 +4296,7 @@ async def stock_sector(code: str, fresh: int = Query(0, ge=0, le=1)):
         if cached:
             cached["_degraded"] = "upstream_timeout_cached"
             return envelope(data=cached)
-        return envelope(error="sector 超时", data={"code": code})
+        return envelope(error="sector 超时", data={"code": code, "_degraded": "timeout"})
     if not fresh and result:
         # 写 L0 + L1
         _cache_sector.set(("sector", code), result)
@@ -4099,7 +4393,7 @@ async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
         if cached:
             cached["_degraded"] = "upstream_timeout_cached"
             return envelope(data=cached)
-        return envelope(error="related_news 超时", data={"code": code, "news": []})
+        return envelope(error="related_news 超时", data={"code": code, "news": [], "_degraded": "timeout"})
     if not fresh and result:
         _store_set(cache_key, result, ttl=21600)
     return envelope(data=result)
@@ -4141,10 +4435,10 @@ async def sectors_realtime():
         rows = await asyncio.wait_for(to_thread(_cached_fetch), timeout=10)
     except asyncio.TimeoutError:
         log.warning("sectors_realtime 超时 10s")
-        return envelope(error="板块数据拉取超时", data={"sectors": []})
+        return envelope(error="板块数据拉取超时", data={"sectors": [], "_degraded": "timeout"})
     except Exception as e:
         log.warning(f"sectors_realtime 失败: {e}")
-        return envelope(error=f"板块数据失败: {e}", data={"sectors": []})
+        return envelope(error=f"板块数据失败: {e}", data={"sectors": [], "_degraded": "upstream_error"})
 
     # 综合情绪派生:看涨板块数 / 总板块数
     up = sum(1 for r in rows if r["change_pct"] > 0)
@@ -4215,7 +4509,7 @@ async def sectors_sw_overview():
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=8)
     except asyncio.TimeoutError:
-        return envelope(error="sectors 超时", data={"sectors": []})
+        return envelope(error="sectors 超时", data={"sectors": [], "_degraded": "timeout"})
     if result:
         _store_set(cache_key, result, ttl=21600)
     return envelope(data=result)
@@ -4362,244 +4656,10 @@ async def sector_hotspot_page():
 from .all_stocks import router as _all_stocks_router
 app.include_router(_all_stocks_router)
 
-# ═════════════════════════════════════════════════════════════════
-# 选股 (2026-07-13 · 8 规则 · 14:30 启 · SSE 推送)
-#   - GET  /screener                → 静态页 (URL 不带 /api)
-#   - GET  /api/screener/result     → 当前排序 + limit + 多字段排序
-#   - GET  /api/screener/rule_status → 时间门 + 阈值 + 开关 + 快照日期
-#   - POST /api/screener/thresholds → 用户编辑 7 项阈值
-#   - POST /api/screener/toggles    → 用户切 7 个规则开关
-#   - POST /api/screener/watchlist  → ⭐ 加入自选
-#   - GET  /api/screener/history?date=YYYY-MM-DD → 列出该日所有快照点
-#   - GET  /api/screener/replay?date=...&ts=... → 取具体快照
-#   - GET  /api/screener/stream     → SSE 推送 (1s/帧)
-#   - POST /api/screener/snapshot_now → 立即存一帧 (调试用)
-# ═════════════════════════════════════════════════════════════════
+# ZT 涨停板溢价策略
+from . import zt_screener as _zt_screener
+_zt_screener.register(app)
 
-@app.get("/screener", include_in_schema=False)
-async def screener_page():
-    """尾盘战法 — 2026-07-14 inline 进主 app /view-screener,此 URL 仅 302 → /#screener 避免书签失效。"""
-    return _Response(status_code=302, headers={"Location": "/#screener"})
-
-
-@app.get("/api/screener/rule_status")
-async def api_screener_rule_status():
-    try:
-        from . import screener as _scr
-        return envelope(data=_scr.rule_status_enriched())
-    except Exception as e:
-        return envelope(error=f"rule_status 失败: {e}")
-
-
-@app.get("/api/screener/result")
-async def api_screener_result(
-    sort: str = "change_pct:desc",
-    limit: int = 100,
-    show_failed: bool = True,
-    rules: str = "",   # 逗号分隔, eg. "change_pct,volume_ratio"
-    mode: str = "multi",   # multi | simple
-    strategy_id: str = "baseline",   # baseline | optimized
-):
-    """尾盘战法单策略查询接口 — 双策略模式下用 ?strategy_id=optimized 切右表
-    SSE 已经推双 payload (`/api/screener/stream`),此 endpoint 主要用于手动 reload
-    """
-    try:
-        from . import screener as _scr
-        rule_list = [r.strip() for r in (rules or "").split(",") if r.strip()] or None
-        if mode == "simple":
-            # 拆出第一个 field + dir
-            head = (sort or "change_pct:desc").split(",")[0].strip()
-            if ":" in head:
-                f, d = head.split(":", 1)
-            else:
-                f, d = head, "desc"
-            data = _scr.current_results(
-                sort=f, order=d, limit=limit, show_failed=show_failed, strategy_id=strategy_id,
-            )
-        else:
-            data = _scr.current_results_multi(
-                sort_spec=sort, limit=limit, show_failed=show_failed, rule_filters=rule_list,
-                strategy_id=strategy_id,
-            )
-        return envelope(data=data)
-    except Exception as e:
-        return envelope(error=f"result 失败: {e}")
-
-
-class _ScreenerThresholdReq(BaseModel):
-    key:   str
-    value: float
-
-
-@app.post("/api/screener/thresholds")
-async def api_screener_thresholds(req: _ScreenerThresholdReq):
-    try:
-        from . import screener as _scr
-        return envelope(data=_scr.set_threshold(req.key, req.value))
-    except Exception as e:
-        return envelope(error=f"thresholds 失败: {e}")
-
-
-@app.post("/api/screener/reset-defaults")
-async def api_screener_reset_defaults():
-    """恢复所有阈值到出厂默认值"""
-    try:
-        from . import screener as _scr
-        return envelope(data=_scr.reset_thresholds())
-    except Exception as e:
-        return envelope(error=f"reset-defaults 失败: {e}")
-
-
-class _ScreenerToggleReq(BaseModel):
-    rule: str
-    on:   bool
-
-
-@app.post("/api/screener/toggles")
-async def api_screener_toggles(req: _ScreenerToggleReq):
-    try:
-        from . import screener as _scr
-        return envelope(data=_scr.set_rule_toggle(req.rule, req.on))
-    except Exception as e:
-        return envelope(error=f"toggles 失败: {e}")
-
-
-class _ScreenerStarReq(BaseModel):
-    code: str
-    name: str = ""
-    tag:  str = "选股14:30"
-
-
-@app.post("/api/screener/watchlist")
-async def api_screener_watchlist(req: _ScreenerStarReq):
-    """⭐ 加入自选 — 复用 watchlist.add()"""
-    try:
-        from . import watchlist as _wl
-        r = _wl.add(req.code, req.name, tag=req.tag)
-        return envelope(data=r)
-    except Exception as e:
-        return envelope(error=f"加自选失败: {e}")
-
-
-@app.get("/api/screener/history")
-async def api_screener_history(date: str = ""):
-    try:
-        from . import screener as _scr
-        snapshots = _scr.list_snapshots(date or None)
-        dates     = _scr.available_snapshot_dates()
-        return envelope(data={"date": date or _scr._now_china().strftime("%Y-%m-%d"),
-                              "count": len(snapshots), "snapshots": snapshots,
-                              "available_dates": dates})
-    except Exception as e:
-        return envelope(error=f"history 失败: {e}")
-
-
-@app.get("/api/screener/replay")
-async def api_screener_replay(date: str = "", ts: float = 0):
-    try:
-        from . import screener as _scr
-        snap = _scr.get_snapshot(date or None, ts)
-        if not snap:
-            return envelope(error="快照不存在", data={"items": [], "count": 0})
-        return envelope(data={
-            "ts":        snap.get("ts", 0),
-            "iso":       snap.get("iso", ""),
-            "ts_str":    snap.get("ts_str", ""),
-            "items":     snap.get("items", []),
-            "count":     snap.get("count", 0),
-            "thresholds": snap.get("thresholds", {}),
-            "toggles":    snap.get("toggles", {}),
-            "is_replay": True,
-        })
-    except Exception as e:
-        return envelope(error=f"replay 失败: {e}")
-
-
-@app.post("/api/screener/snapshot_now")
-async def api_screener_snapshot_now():
-    try:
-        from . import screener as _scr
-        rec = _scr.save_snapshot(force=True)
-        if not rec:
-            return envelope(error="无数据可存 (_RESULT 为空)")
-        return envelope(data={"ok": True, "ts": rec.get("ts"), "iso": rec.get("iso"), "count": rec.get("count")})
-    except Exception as e:
-        return envelope(error=f"snapshot 失败: {e}")
-
-
-# R30: 重算候选池 — 用户按"⟳ 重算"按钮时真正重建
-class _ScreenerRebuildReq(BaseModel):
-    force: bool = True  # 默认强制重新拉行情，不走缓存
-
-@app.post("/api/screener/rebuild")
-async def api_screener_rebuild(req: _ScreenerRebuildReq = _ScreenerRebuildReq()):
-    try:
-        from . import screener as _scr
-        _scr._schedule_rebuild(force=req.force)
-        return envelope(data={"ok": True, "msg": "已提交后台重建 (1-30s 完成)"})
-    except Exception as e:
-        return envelope(error=f"rebuild 失败: {e}")
-
-
-@app.get("/api/screener/stream")
-async def api_screener_stream(_request: _Request):
-    """SSE: 每秒推送 {status, baseline, v2}, 直到客户端断开
-    payload schema:
-      {
-        "status":  rule_status_enriched(),
-        "ts":      float,
-        "took_ms": int,
-        "baseline": {items, count, took_ms},
-        "optimized":       {items, count, took_ms},
-      }
-    """
-    from sse_starlette.sse import EventSourceResponse
-    from . import screener as _scr
-
-    async def gen():
-        # 订阅 (B3: 用 helper 函数 + RLock 包裹,避免并发竞态)
-        loop = asyncio.get_event_loop()
-        q: asyncio.Queue = _scr.subscribe()
-        try:
-            # 首帧: 优先用 last-known-good 缓存 (rebuild 期间避免空白)
-            last = _scr.get_last_broadcast()
-            if last and ("baseline" in last or "optimized" in last):
-                yield {"event": "init", "data": json.dumps(last, default=str)}
-            elif last:
-                # 兼容旧单策略缓存 → 包装到 baseline slot
-                wrapped = {"status": None, "ts": last.get("ts"), "took_ms": last.get("took_ms"),
-                           "baseline": {"items": last.get("items", []), "count": last.get("count", 0),
-                                        "took_ms": last.get("took_ms", 0)},
-                           "optimized": {"items": [], "count": 0, "took_ms": 0}}
-                yield {"event": "init", "data": json.dumps(wrapped, default=str)}
-            else:
-                init_status = _scr.rule_status_enriched()
-                init_base = _scr.current_results_multi(sort_spec="change_pct:desc", limit=50,
-                                                       strategy_id="baseline")
-                init_opt   = _scr.current_results_multi(sort_spec="v2_score:desc", limit=50,
-                                                       strategy_id="optimized")
-                yield {"event": "init", "data": json.dumps({
-                    "status":   init_status,
-                    "ts":       init_base.get("ts") or init_opt.get("ts") or 0.0,
-                    "took_ms":  init_base.get("took_ms") or 0,
-                    "baseline": {"items": init_base.get("items", []), "count": init_base.get("count", 0),
-                                 "took_ms": init_base.get("took_ms", 0)},
-                    "optimized":       {"items": init_opt.get("items", []),   "count": init_opt.get("count", 0),
-                                 "took_ms": init_opt.get("took_ms", 0)},
-                }, default=str)}
-            while True:
-                if await _request.is_disconnected():
-                    break
-                try:
-                    payload = await asyncio.wait_for(q.get(), timeout=2.0)
-                    yield {"event": "tick", "data": json.dumps(payload, default=str)}
-                except asyncio.TimeoutError:
-                    # 心跳 (防止 CDN/proxy 切断)
-                    yield {"event": "ping", "data": json.dumps({"ts": time.time()})}
-        finally:
-            _scr.unsubscribe(q)
-
-    return EventSourceResponse(gen(), ping=15)
 
 
 
@@ -5745,18 +5805,30 @@ async def stock_core(request: _Request, code: str, date: str = Query("")):
         quote["name"] = code
 
     quote = _normalize_quote(quote)
+    is_partial = quote.get("最新价") is None or quote.get("最新价") == 0
 
     out = {
         "code": code,
         "quote": quote,
         "kline": kline,
         "ts": time.time(),
-        "_partial": quote == {},
+        "_partial": is_partial,
     }
-    _store_set(cache_key, out, ttl=30)
-    _cache_core.set(_core_cache_key, out)  # L0 进程内缓存
-    # 后台预暖 /full: Phase 2 的 /full 请求与 warmup 合并 singleflight,
-    # 避免两次分别计算 4s,第一次访问也能秒回
+
+    if not is_partial:
+        _stale_save(f"stock_core:{code}", out)
+        _store_set(cache_key, out, ttl=30)
+        _cache_core.set(_core_cache_key, out)
+    else:
+        # 部分数据或全部失败 → 试陈旧缓存
+        stale_data, age = _stale_load(f"stock_core:{code}", max_age=_STALE_TTL["stock_core"])
+        if stale_data is not None:
+            stale_data["_degraded"] = "stale"
+            stale_data["_stale_ts"] = time.time() - age
+            stale_data["_partial"] = True
+            return json_etag_response(request, envelope(data=stale_data), max_age=5)
+        out["_degraded"] = "data_unavailable"
+
     asyncio.create_task(_warm_full_for_core(code))
     return json_etag_response(request, envelope(data=out), max_age=5)
 
@@ -6712,13 +6784,13 @@ async def stock_limit_up_context(code: str, sector: str | None = None):
         log.warning(f"limit_up_context 超时 (code={code})")
         return envelope(error="连板/板块数据查询超时", data={
             "code": code, "today": None, "recent_5d": [],
-            "sector_today": [], "summary": "查询超时",
+            "sector_today": [], "summary": "查询超时", "_degraded": "timeout",
         })
     except Exception as e:
         log.warning(f"limit_up_context 失败: {e}")
         return envelope(error=f"查询失败: {e}", data={
             "code": code, "today": None, "recent_5d": [],
-            "sector_today": [], "summary": "查询失败",
+            "sector_today": [], "summary": "查询失败", "_degraded": "fetch_failed",
         })
 
 
@@ -9169,10 +9241,28 @@ class StockHistoryRequest(BaseModel):
 
 @app.get("/api/watchlist")
 async def api_watchlist_list():
-    """列出全部自选股 + 实时行情 + 最新 AI 建议(同日有效)。"""
+    """列出全部自选股 + 实时行情 + 最新 AI 建议(同日有效)。
+    R-T5x (2026-07-21): Redis 跨 worker 共享 8s 缓存 — bench 20 并发秒开
+    """
+    import json as _json_wl
+    _WL_KEY = "tuixue:watchlist:v1"
+    # 1) Redis 快速检查 (跨 4 worker 共享, < 5ms)
+    try:
+        cached = cache_store.get_store().get(_WL_KEY)
+        if cached:
+            data = _json_wl.loads(cached)
+            return envelope(data=data)
+    except Exception:
+        pass
     try:
         items = await asyncio.to_thread(_watchlist.list_with_ai_snapshot)
-        return envelope(data={"items": items, "count": len(items)})
+        result = {"items": items, "count": len(items)}
+        # 2) 写 Redis 20s (防 4 worker 同时 miss — TTL 太短会同时重算)
+        try:
+            cache_store.get_store().set(_WL_KEY, _json_wl.dumps(result, ensure_ascii=False).encode(), ttl=20)
+        except Exception:
+            pass
+        return envelope(data=result)
     except Exception as e:
         log.exception("watchlist list")
         return envelope(error=str(e), status_code=500)
@@ -9617,6 +9707,15 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
     cache_key = f"dragons_{date or 'today'}"
     now = datetime.datetime.now()
     cached = _DRAGONS_CACHE.get(cache_key)
+    # R-T5x: 进程内没缓存时尝试 Redis 跨 worker 共享
+    if not cached:
+        try:
+            rcache = cache_store.get_store().get(f"tuixue:dragons:{cache_key}:v1")
+            if rcache:
+                cached = {"data": _json_dash.loads(rcache), "ts": now}
+                _DRAGONS_CACHE[cache_key] = cached
+        except Exception as e:
+            log.debug(f"dragons redis get fail: {e}")
     # R50-SPEED: refresh=1 强制刷新也要快速 — 有缓存时先回陈旧+后台刷新,绝不阻塞
     if cached:
         age = (now - cached["ts"]).total_seconds()
@@ -9625,21 +9724,29 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
             return envelope(data=cached["data"])
         # 陈旧 (<10min) 或 refresh=1: 先秒回陈旧,后台刷新 — 用户永不空等 9s
         if age < 600 or refresh:
+            stale_data = dict(cached["data"])
+            stale_data["_degraded"] = "stale"
+            stale_data["_stale_age_s"] = int(age)
             if _DRAGONS_INFLIGHT.get(cache_key):
-                return envelope(data=cached["data"], meta={"stale_seconds": int(age), "in_flight": True})
+                return envelope(data=stale_data, meta={"stale_seconds": int(age), "in_flight": True})
             async def _bg_refresh():
                 try:
                     _DRAGONS_INFLIGHT[cache_key] = True
                     fresh = await asyncio.wait_for(to_thread(score_dragons, date), timeout=30)
                     if fresh:
                         _DRAGONS_CACHE[cache_key] = {"data": fresh, "ts": datetime.datetime.now()}
+                        # R-T5x: 同步写 Redis
+                        try:
+                            cache_store.get_store().set(f"tuixue:dragons:{cache_key}:v1", _json_dash.dumps(fresh, ensure_ascii=False).encode(), ttl=180)
+                        except Exception:
+                            pass
                         log.info(f"dragons 后台刷新完成 (date={date})")
                 except Exception as e:
                     log.debug(f"dragons 后台刷新失败: {e}")
                 finally:
                     _DRAGONS_INFLIGHT[cache_key] = False
             asyncio.ensure_future(_bg_refresh())
-            return envelope(data=cached["data"], meta={"stale_seconds": int(age), "refreshing": True})
+            return envelope(data=stale_data, meta={"stale_seconds": int(age), "refreshing": True})
     try:
         result = await asyncio.wait_for(
             to_thread(score_dragons, date),
@@ -9649,20 +9756,42 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
         log.warning(f"dragons 超时 30s (date={date}) → 尝试陈旧缓存")
         stale = _DRAGONS_CACHE.get(cache_key)
         if stale and (datetime.datetime.now() - stale["ts"]).total_seconds() < 600:
-            log.info(f"dragons 返回陈旧缓存 ({int((datetime.datetime.now() - stale['ts']).total_seconds())}s)")
-            return envelope(data=stale["data"], meta={"stale_seconds": int((datetime.datetime.now() - stale["ts"]).total_seconds())})
+            stale_data = dict(stale["data"])
+            stale_data["_degraded"] = "stale"
+            stale_data["_stale_age_s"] = int((datetime.datetime.now() - stale["ts"]).total_seconds())
+            log.info(f"dragons 返回陈旧缓存 ({stale_data['_stale_age_s']}s)")
+            return envelope(data=stale_data, meta={"stale_seconds": stale_data['_stale_age_s']})
         return envelope(error="龙头评分超时 30s,无陈旧缓存可用", data={
             "top10": [], "all": [], "mainline": [],
             "sentiment": {"label": "-", "zt_count": 0, "max_streak": 0, "streak_dist": {}},
-            "stats": {"reason": "timeout"},
+            "stats": {"reason": "timeout"}, "_degraded": "dragons_timeout",
         })
     if result:
         _DRAGONS_CACHE[cache_key] = {"data": result, "ts": datetime.datetime.now()}
-    return envelope(data=result or {})
+        # R-T5x (2026-07-21): 写 Redis 共享 (TTL=180s = fresh 窗口)
+        try:
+            cache_store.get_store().set(f"tuixue:dragons:{cache_key}:v1", _json_dash.dumps(result, ensure_ascii=False).encode(), ttl=180)
+        except Exception as e:
+            log.debug(f"dragons redis set fail: {e}")
+        return envelope(data=result)
+    return envelope(error="龙头评分返回空", data={"top10": [], "all": [], "mainline": [],
+        "sentiment": {"label": "-", "zt_count": 0, "max_streak": 0, "streak_dist": {}},
+        "stats": {"reason": "empty_result"}, "_degraded": "dragons_empty",
+    })
 
 
 _DRAGONS_CACHE: dict[str, dict] = {}
 _DRAGONS_INFLIGHT: dict[str, bool] = {}
+# R-T5x: 启动时尝试从 Redis 预热 in-process 缓存, 加速二次访问
+def _warm_dragons_from_redis():
+    try:
+        store = cache_store.get_store()
+        for d in ("today",):
+            cached = store.get(f"tuixue:dragons:dragons_{d}:v1")
+            if cached:
+                _DRAGONS_CACHE[f"dragons_{d}"] = {"data": _json_dash.loads(cached), "ts": datetime.datetime.now()}
+    except Exception as e:
+        log.debug(f"dragons redis warm fail: {e}")
 
 
 # ───────────────────────────────────────────────────────────
@@ -10116,23 +10245,6 @@ async def api_stock_role(code: str):
                               "reason": str(e)[:80], "explanation": "板块角色判定失败"})
 
 
-@app.post("/api/optimize")
-async def api_optimize(request: Request):
-    from ..optimizer import run_optimize
-    # P1-audit-2026-07-15: 重型优化,加 admin token 防 DoS
-    if not _check_admin_token(request):
-        raise HTTPException(status_code=401, detail={"ok": False, "error": "admin token required"})
-    # 硬超时 120s: 优化器 10 次迭代跑完常 1-3min,沙箱数据源挂时不能拖死 server
-    # (2026-07-12 audit 发现该 endpoint 之前无超时保护)
-    try:
-        result = await asyncio.wait_for(to_thread(run_optimize), timeout=120)
-    except asyncio.TimeoutError:
-        log.warning("optimize 超时 120s")
-        return envelope(error="优化器超时 120s, 请稍后重试或减小迭代次数", data={
-            "best_params": None, "history": [], "stats": {"reason": "timeout"},
-        })
-    return envelope(data=result or {})
-
 
 def _check_sse_origin(request: Request) -> Response | None:
     """R-perf-031: SSE 鉴权兜底 — EventSource 无法带自定义 Header(没有 Authorization)。
@@ -10150,50 +10262,6 @@ def _check_sse_origin(request: Request) -> Response | None:
         status_code=403,
     )
 
-
-@app.get("/api/stream/optimize")
-async def stream_optimize(request: Request, iterations: int | None = None):
-    """SSE: 优化器实时进度推送。客户端断开 → 后台停止 (通过 cancellation)。
-    旧版 POST /api/optimize 兼容保留（无进度反馈，30min 跑完才返）。
-    """
-    if (r := _check_sse_origin(request)) is not None:
-        return r
-    from ..optimizer import run_optimize
-    from sse_starlette.sse import EventSourceResponse
-
-    async def gen():
-        loop = asyncio.get_event_loop()
-        progress_queue = asyncio.Queue()
-
-        def _cb(p: dict):
-            loop.call_soon_threadsafe(progress_queue.put_nowait, p)
-
-        def _run_with_cb():
-            try:
-                return run_optimize(iterations=iterations, progress_cb=_cb)
-            except Exception as e:
-                return {"error": str(e), "phase": "failed"}
-
-        task = loop.run_in_executor(_LONG_EXECUTOR, _run_with_cb)
-        try:
-            yield {"event": "phase", "data": json.dumps({"phase": "start", "msg": "优化器启动 ..."})}
-            while True:
-                try:
-                    p = await asyncio.wait_for(progress_queue.get(), timeout=2.0)
-                    yield {"event": "progress", "data": json.dumps(p, default=str)}
-                    if p.get("phase") == "done":
-                        break
-                except asyncio.TimeoutError:
-                    yield {"event": "ping", "data": json.dumps({"t": time.time()})}
-                if task.done():
-                    break
-            result = await task
-            yield {"event": "done", "data": json.dumps(result, ensure_ascii=False, default=str)}
-        finally:
-            if not task.done():
-                task.cancel()
-
-    return EventSourceResponse(gen())
 
 
 # ═════════════════════════════════════════════════════════════════

@@ -70,16 +70,32 @@ class RealtimePoller:
 
     # ────────────────────────────────────────────
     def _collect_codes(self) -> list[str]:
-        """合code = 最近访问 ∪ 自选股,按"最近"排序,本轮最多 N 只"""
+        """合code = 最近访问 ∪ 自选股 ∪ all_stocks top 100,按"最近"排序,本轮最多 N 只。
+        当来源不足时,从 universe 补 top 活跃股确保永远有货可抓。
+        """
         recent = list(self._recent_provider() or [])
         watch = list(self._watchlist_provider() if self._watchlist_provider else [])
-        # 自选在前(更热),最近访问在后,保留最近顺序
         seen = set()
         merged = []
         for c in watch + recent:
             if c and c not in seen and len(c) == 6 and c.isdigit():
                 seen.add(c)
                 merged.append(c)
+        # R6 (2026-07-19): 补齐 universe 前 100 (zt_today > zt_recent > 普通)
+        if len(merged) < self.max_codes:
+            try:
+                from . import all_stocks as _as
+                universe, _ = _as._build_universe()
+                def _act(c):
+                    u = universe.get(c, {})
+                    return (1 if u.get("zt_today") else 0, int(u.get("zt_recent", 0) or 0))
+                top = sorted(universe.keys(), key=_act, reverse=True)[:self.max_codes]
+                for c in top:
+                    if c not in seen and len(c) == 6 and c.isdigit():
+                        seen.add(c)
+                        merged.append(c)
+            except Exception as e:
+                log.debug(f"_collect_codes universe fallback 失败: {e}")
         # 按"上次抓的 cursor"轮转,避免一直抓前几只
         if not merged:
             return []
@@ -92,7 +108,7 @@ class RealtimePoller:
         return sliced
 
     def _fetch_one(self, code: str) -> None:
-        """抓一只,写入 _cache_quote。失败静默。"""
+        """抓一只,写入 _cache_quote + Redis K.QUOTE (跨 worker 共享)。失败静默。"""
         try:
             # 必须从 web 包外调 lib_common,避免循环 import
             from .. import lib_common as lc
@@ -100,21 +116,72 @@ class RealtimePoller:
             if q:
                 # key 复用 server.py 里 cached() 的约定:("quote", code)
                 self._cache.set(("quote", code), q)
+                # R1 (2026-07-19): 同步写 Redis, 4 worker 全部可见
+                try:
+                    from .. import cache_store as _cs
+                    store = _cs.get_store()
+                    if store:
+                        store.set(_cs.K.QUOTE.format(code=code), q, ttl=5)
+                except Exception:
+                    pass
         except Exception as e:
             log.debug(f"poller fetch {code} err: {e}")
 
+    def _fetch_batch(self, codes: list[str], deadline_sec: float = 120.0, boost_workers: int | None = None) -> None:
+        """R6 (2026-07-19): 并发抓一批, max_workers=6, deadline_sec 硬截止。
+        R201: boost_workers 用于首轮加速 (首 tick 用 10,正常 6)。
+        R202 (2026-07-19): 重用 _executor 而非每次创建新 ThreadPoolExecutor。
+        eastmoney 限频后每只 ~1s,并行 6 只 → 200 只 ≈ 35s (不含上游 block 部分)。
+        """
+        if not codes:
+            return
+        if not hasattr(self, '_executor'):
+            from concurrent.futures import ThreadPoolExecutor
+            self._executor = ThreadPoolExecutor(max_workers=12, thread_name_prefix='poller-batch')
+        from concurrent.futures import as_completed
+        deadline = time.monotonic() + deadline_sec
+        # 分批: 首 tick 用 boost_workers 加速,正常 6
+        max_w = boost_workers if boost_workers is not None else 6
+        batch_size = min(len(codes), max_w)
+        # 给第一批留大部分时间,后续批次同步减
+        per_batch_allowance = max(2.0, deadline_sec / max(1, (len(codes) / batch_size)))
+        for i in range(0, len(codes), batch_size):
+            if self._stop.is_set():
+                return
+            chunk = codes[i:i+batch_size]
+            t_remain = max(0.1, min(deadline - time.monotonic(), per_batch_allowance))
+            if t_remain < 0.1:
+                break  # 总计时间到,跳过剩余
+            futs = {self._executor.submit(self._fetch_one, c): c for c in chunk}
+            try:
+                for f in as_completed(futs, timeout=t_remain):
+                    try:
+                        f.result(timeout=0.5)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            if not self._stop.is_set():
+                time.sleep(0.1)
+
     def _tick(self) -> None:
+        # 2026-07-21 顶级架构: 每轮先刷新全市场快照 (一次 bulk 拉 5540 只, ~1.4s)
+        # 这是全 A 页的主数据源 — 旧的逐只预热改为兜底 (watchlist 最鲜)
+        try:
+            from . import all_stocks as _as
+            n = _as.refresh_market_snapshot()
+            if n:
+                log.info(f"[poller] 全市场快照刷新 {n} 只")
+        except Exception as e:
+            log.warning(f"[poller] 快照刷新失败: {e}")
+
         codes = self._collect_codes()
         if not codes:
             return
-        log.debug(f"[poller] tick: 预热 {len(codes)} 只 ({codes[:5]}...)")
-        # 串行抓,避免打爆上游;每只 ≤2s 自然失败由 fetch_realtime 内部冷却接管
-        for code in codes:
-            if self._stop.is_set():
-                return
-            self._fetch_one(code)
-            # 1 只 0.1s 缓冲,40 只 ≈ 4-8s,远小于 TTL
-            time.sleep(0.05)
+        # R201: 首 tick 用 boost_workers=10 加速预热,后续 6
+        boost = None if self._warm_boost_done else 10
+        log.info(f"[poller] tick: 预热 {len(codes)} 只 (并行 batch,每批 <={boost or 6})")
+        self._fetch_batch(codes, boost_workers=boost)
         # R49 (Batch 5): 每轮预热 quote 完后,低频触发 seat_bd 预热 (10min 一次, 仅自选股)
         # LHB 当日不变,没必要每 30s 都跑;10min 一次足够覆盖用户进页面场景
         try:
@@ -194,9 +261,8 @@ class RealtimePoller:
             pass
 
     def _loop(self) -> None:
-        # 启动后先 sleep 5s,避开启动期 cache 抢占
-        time.sleep(5)
-        # 2026-07-13 Round 13: 启动首轮更短 (5s) — 早一点把 zt_pool 推热
+        # R201 (2026-07-19): 不再 sleep 5s — 首 tick 立即启动,加速 cold cache 填充
+        # warm_universe_now 已合并到这里 (删除冗余的 fire-and-forget 线程)
         first_interval = 5
         while not self._stop.is_set():
             try:
@@ -208,3 +274,4 @@ class RealtimePoller:
             self._warm_boost_done = True
             if self._stop.wait(interval):
                 return
+

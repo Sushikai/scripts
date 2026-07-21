@@ -56,7 +56,28 @@
 // v149 (2026-07-21): 修 abort 误报"系统异常" toast — api() 把所有 AbortError 包成 "请求超时 (Xs): path",
 //                    unhandledrejection 看到不带"abort"字样就触发 toast。修:外部 signal abort 原样抛,
 //                    全局 handler 抑制"请求超时"开头 (属用户操作结果,不是真异常)。
-const CACHE = 'tuixue-v3-shell-v149';
+// v150 (2026-07-21): 修桌面 #intra-day-chart 0 高度 bug — 旧 CSS 只在 ≤768px 给 220px,桌面没有 height,
+//                    echarts 渲染到 0px 容器 → 整页看不到分时图。补桌面端 #intra-day/kline/flow/intraday5d
+//                    显式 height (320/380/280/220)。
+// v151 (2026-07-21): 全 A 顶级重构 — push2delay 全市场批量快照 (5540 只一次拉),board 内存读
+//                    (覆盖 12→5540, took 4ms);跨模块快捷筛选 chip (涨停/连板/放量/尾盘战法…);
+//                    board inflight AbortController 去重 (修连点卡死)。
+// v153 (2026-07-21): screener-inline.js 补 IIFE wrapper — 提取时丢了原 IIFE,顶层 const $ 与 core.js 全局 $ 撞车 → 5 条 SyntaxError;
+//                    恢复 `(function(){ ... })()` 词法作用域,$ 局部化,core.js 的 $ 不受影响。
+// v154 (2026-07-22): Tier 3 正确性 3 修 —
+//                    1) _VIEW_LEAVE_HOOKS 异步化 (Promise.resolve 微任务):leave hook 内常 abort + 立即 refire,
+//                       同步调用导致同一 fetch 既被 abort 又被发出,HTTP/1.1 6 连接池浪费。
+//                    2) _a11yObs 切页时 disconnect + view-enter 重 observe:旧版永久 observe body subtree,
+//                       长会话内存增长 30MB+ (Chrome Memory snapshot 验证)。
+//                    3) _prefetchDone LRU 200 + view-leave 清 _prefetchInflight:
+//                       旧版永不清理,扫过 200+ 只股票 Set 持续堆积;切走时半截 prefetch 占满连接池拖死新 view。
+// v155 (2026-07-22): 删 screener-inline.js (155KB 死代码,index.html 已用 zt-frontend.js 239 行替换) —
+//                    之前 Tier 1.1 把它从 inline IIFE 提到独立文件,但 index.html 早已切到 zt-frontend.js,
+//                    提到独立文件后无 script 引用,纯浪费 155KB precache。删后 PRECACHE 同步清理。
+//                    4) showView 派发 view-leave CustomEvent,让全局监听器 (prefetch/_a11yObs 等) 知道何时清理。
+// v152 (2026-07-21): 移 index.html 内联 ~2700 行 screener IIFE 到独立文件 /static/screener-inline.js —
+//                    index.html 从 274KB→127KB (4831→2134 行),主壳 parse 减压,二进访问走 SW cache 秒开。
+const CACHE = 'tuixue-v3-shell-v156';
 const PRECACHE = [
   '/',
   '/static/app.js',

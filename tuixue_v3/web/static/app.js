@@ -189,34 +189,34 @@ async function _refreshDebugPanel() {
 
 // 主题色 — 跟随 [data-theme] 动态刷新 (let 不是 const)
 // 2026-07-10: 涨跌色已切 CN 标准（红涨绿跌）
-var ACCENT = '#d4a056';
-var UP     = '#e84545';
-var DOWN   = '#34c759';
-var INK    = '#e8e3d8';
-var INK2   = '#a8a39a';
-var INK3   = '#6b6660';
+var ACCENT = 'var(--accent)';
+var UP     = 'var(--up)';
+var DOWN   = 'var(--down)';
+var INK    = 'var(--ink-1)';
+var INK2   = 'var(--ink-2)';
+var INK3   = 'var(--ink-3)';
 var GRID   = 'rgba(232,227,216,0.06)';
 
 function _cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 function refreshThemeColors() {
-  ACCENT = _cssVar('--accent')   || '#d4a056';
-  UP     = _cssVar('--up')       || '#e84545';
-  DOWN   = _cssVar('--down')     || '#34c759';
-  INK    = _cssVar('--ink')      || '#e8e3d8';
-  INK2   = _cssVar('--ink-2')    || '#a8a39a';
-  INK3   = _cssVar('--ink-3')    || '#6b6660';
+  ACCENT = _cssVar('--accent');
+  UP     = _cssVar('--up');
+  DOWN   = _cssVar('--down');
+  INK    = _cssVar('--ink-1');
+  INK2   = _cssVar('--ink-2');
+  INK3   = _cssVar('--ink-3');
   GRID   = 'rgba(127,127,127,0.12)';
 }
 // ECharts 特定色 — 用 CSS 变量,跟随主题
-var CHART_LINE        = '#B8B0A8';
-var CHART_TOOLTIP_BG  = '#FFFFFF';
-var CHART_TOOLTIP_BORDER = '#DDD8D0';
+  CHART_LINE        = 'var(--chart-line)';
+  CHART_TOOLTIP_BG  = 'var(--chart-tooltip-bg)';
+  CHART_TOOLTIP_BORDER = 'var(--chart-tooltip-border)';
 function refreshChartColors() {
-  CHART_LINE        = _cssVar('--chart-line')        || '#B8B0A8';
-  CHART_TOOLTIP_BG  = _cssVar('--chart-tooltip-bg')  || '#FFFFFF';
-  CHART_TOOLTIP_BORDER = _cssVar('--chart-tooltip-border') || '#DDD8D0';
+  CHART_LINE        = _cssVar('--chart-line');
+  CHART_TOOLTIP_BG  = _cssVar('--chart-tooltip-bg');
+  CHART_TOOLTIP_BORDER = _cssVar('--chart-tooltip-border');
 }
 
 // 初始化图表色
@@ -683,7 +683,7 @@ function _showOffline() {
   if (_offlineBanner) return;
   const b = document.createElement('div');
   b.id = 'offline-banner';
-  b.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px 12px;background:#d97706;color:#fff;text-align:center;font-size:13px;z-index:99999;font-weight:600';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px 12px;background:var(--warn);color:var(--bg-1);text-align:center;font-size:13px;z-index:99999;font-weight:600';
   b.textContent = '网络已断开 · 显示缓存数据 · 恢复后将自动刷新';
   document.body.appendChild(b);
   _offlineBanner = b;
@@ -967,7 +967,13 @@ function showView(name, opts) {
   // R-ui-012: 先清理上一个 view 的资源(timers/interval) → 避免在多个 view 间反复切页
   // 时堆叠定时器、把后台 fetcher 全部 hold 住
   if (cur && cur !== name && _VIEW_LEAVE_HOOKS[cur]) {
-    try { _VIEW_LEAVE_HOOKS[cur](); } catch (e) { console.warn('leave hook err:', e); }
+    // R-T3 (2026-07-22): leave hook 异步化 (Promise.resolve 微任务) —
+    // 原同步调用:leave hook 内常 abort + 立即 refire 同 tick,
+    // 导致同一 fetch 既被 abort 又被发出 (HTTP/1.1 6 连接池浪费 + 旧请求堆积)。
+    const _leaveHook = _VIEW_LEAVE_HOOKS[cur];
+    Promise.resolve().then(() => {
+      try { _leaveHook(); } catch (e) { console.warn('leave hook err:', e); }
+    });
   }
   $$('.view').forEach(v => v.hidden = (v.dataset.view !== name));
   $$('.tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.jump === name));
@@ -1007,7 +1013,12 @@ function showView(name, opts) {
     } catch (e) {}
   }
   // 触发全局 view-enter 事件,R5 解耦各模块初始化
-  document.dispatchEvent(new CustomEvent('view-enter', { detail: { name } }));
+  document.dispatchEvent(new CustomEvent('view-enter', { detail: { name, prev: cur } }));
+  // R-T3 (2026-07-22): 触发 view-leave 让全局监听器有机会清理 (prefetch 队列 / observer 等)。
+  // 旧版只 dispatch view-enter,模块级清理全靠 _VIEW_LEAVE_HOOKS,容易漏。
+  if (cur && cur !== name) {
+    window.dispatchEvent(new CustomEvent('view-leave', { detail: { name, prev: cur } }));
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 // 浏览器后退/前进 → 切回栈上 view,不重新触发 push
@@ -1186,20 +1197,22 @@ async function refreshTicker(loadDash) {
     const data = await api('/api/market/overview');
     lastRefreshTs = data.ts || Date.now() / 1000;
     const indices = data.indices || [];
+    const degraded = data._degraded;
     const fragments = indices.map(i => {
       const c = colorFor(i.change_pct);
+      const hasVal = i.price > 0;
       return `<span class="tk-item">
         <span class="tk-name">${escapeHtml(i.name)}</span>
-        <span class="tk-price">${fmtN(i.price, 2)}</span>
-        <span class="tk-chg" style="color:${c}">${fmtPct(i.change_pct)}</span>
+        <span class="tk-price">${hasVal ? fmtN(i.price, 2) : '—'}</span>
+        <span class="tk-chg" style="color:${hasVal ? c : 'var(--text-muted)'}">${hasVal ? fmtPct(i.change_pct) : '—'}</span>
       </span>`;
     });
     bar.innerHTML = fragments.join('') +
-      `<span class="tk-item"><span class="tk-name">涨停</span><span class="tk-price">${data.limit_up || 0}</span></span>`;
-    // 顶部小时间戳
+      `<span class="tk-item"><span class="tk-name">涨停</span><span class="tk-price">${data.limit_up || 0}</span></span>` +
+      (degraded ? '<span class="tk-degraded-label" title="数据源异常，显示可能延迟">数据暂断</span>' : '');
     if ($('#ts-stamp')) {
       const d = new Date(lastRefreshTs * 1000);
-      $('#ts-stamp').textContent = `已刷新 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+      $('#ts-stamp').textContent = `已刷新 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}${degraded ? ' ⚠' : ''}`;
     }
     // P-perf: 分阶段渲染 dashboard — 仅当位于 dash 页面时加载
     if (loadDash) _dashLoadPhased();
@@ -1271,8 +1284,12 @@ function _paintHotSectors(d) {
   const tiles = d.mainline || [];
   const host = $('#hot-sectors-tiles');
   const sub  = $('#hot-sectors-sub');
+  const degraded = d._degraded;
   if (!host) return;
-  if (!tiles.length) {
+  if (degraded) {
+    host.innerHTML = '<div class="hs-empty hs-degraded"><span class="stale-label">数据暂断 · 最后已知板块</span></div>';
+  }
+  if (!tiles.length && !degraded) {
     host.innerHTML = '<div class="hs-empty"><span class="retry-link" data-action="refresh-dashboard">暂无主线数据 · 点此重试</span></div>';
     if (sub) sub.textContent = '';
     return;
@@ -1859,7 +1876,20 @@ async function _renderHist() {
 // R37: 后台 idle 预拉热门个股 — 用户切走 ~100ms 内出数据,不阻塞主线程
 // 数据量: 50 只 × 5KB (Redis 命中) = 250KB ≈ 一次性,跑在 requestIdleCallback
 var _prefetchInflight = new Set();
+// R-T3 (2026-07-22): _prefetchDone 加 LRU 上限 200,避免长会话内存无限增长。
+// 旧版永不清理,扫过 200+ 只股票后 Set 持续堆积 (Chrome DevTools Memory snapshot 验证)。
+const _PREFETCH_MAX = 200;
 var _prefetchDone = new Set();
+// 队列尾部 push,头部 shift (FIFO) — LRU 简化版,够用
+function _prefetchMark(code) {
+  if (_prefetchDone.has(code)) return;
+  _prefetchDone.add(code);
+  if (_prefetchDone.size > _PREFETCH_MAX) {
+    // 删最老的 (insertion order)
+    const first = _prefetchDone.values().next().value;
+    _prefetchDone.delete(first);
+  }
+}
 var _prefetchQueue = [];
 var _prefetchHoverT = null;
 function _prefetchOne(code) {
@@ -1870,7 +1900,7 @@ function _prefetchOne(code) {
     .then(r => r.ok ? r.json() : null)
     .then(() => {
       _prefetchInflight.delete(code);
-      _prefetchDone.add(code);
+      _prefetchMark(code);
     })
     .catch(() => _prefetchInflight.delete(code));
 }
@@ -1965,6 +1995,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // R16 (Batch 2): app boot 后 5s 触发 idle prefetch — 首屏 5s 后用户可能就开始点击
   setTimeout(() => _scheduleIdlePrefetch(), 5000);
+});
+
+// R-T3 (2026-07-22): 监听 view-leave 清空 prefetch 状态,避免 view 切换时半截 prefetch 占着连接池。
+// 旧版 _prefetchInflight 不清 → 切到 stock view 时还有 5+ 只 /core 排队,
+  // 把 HTTP/1.1 6 连接池占满,股票页面 fetch 全部排队等。
+window.addEventListener('view-leave', () => {
+  try {
+    _prefetchInflight.clear();
+    // _prefetchDone 保留 — 已经预拉过的 code 没必要再拉
+  } catch (e) {}
 });
 
 async function doStockSearch() {
@@ -3412,8 +3452,8 @@ function drawFlowChart(history) {
     dataZoom: [{ type: 'inside', start: 60, end: 100 }, { type: 'slider', height: 18, bottom: 8, textStyle: { color: INK2 } }],
     series: [
       { name: '主力',     type: 'bar', stack: 'm', data: history.map(h => h.main_net),  itemStyle: { color: ACCENT } },
-      { name: '超大单',   type: 'bar', data: history.map(h => h.super_net), itemStyle: { color: '#a78bcf' } },
-      { name: '大单',     type: 'bar', data: history.map(h => h.big_net),   itemStyle: { color: '#7b9bd1' } },
+      { name: '超大单',   type: 'bar', data: history.map(h => h.super_net), itemStyle: { color: 'var(--accent-3)' } },
+      { name: '大单',     type: 'bar', data: history.map(h => h.big_net),   itemStyle: { color: 'var(--accent-2)' } },
       { name: '中单',     type: 'bar', data: history.map(h => h.mid_net),   itemStyle: { color: '#7a8088' } },
       { name: '小单',     type: 'bar', data: history.map(h => h.small_net), itemStyle: { color: '#54565b' } },
     ],
@@ -3594,15 +3634,15 @@ function drawKlineChart() {
   // MA 叠加（主图）
   if (ind.ma) {
     series.push({ name: 'MA5',  type: 'line', data: ma5,  smooth: true, lineStyle: { color: '#e8b75a', width: 1 }, symbol: 'none', connectNulls: true });
-    series.push({ name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { color: '#7b9bd1', width: 1 }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { color: 'var(--accent-2)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'MA20', type: 'line', data: ma20, smooth: true, lineStyle: { color: ACCENT,  width: 1.2 }, symbol: 'none', connectNulls: true });
-    series.push({ name: 'MA60', type: 'line', data: ma60, smooth: true, lineStyle: { color: '#a78bcf', width: 1.2 }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'MA60', type: 'line', data: ma60, smooth: true, lineStyle: { color: 'var(--accent-3)', width: 1.2 }, symbol: 'none', connectNulls: true });
   }
   // BOLL 叠加（主图）
   if (boll) {
-    series.push({ name: 'BOLL上', type: 'line', data: boll.upper, smooth: true, lineStyle: { color: '#5b8def', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
-    series.push({ name: 'BOLL中', type: 'line', data: boll.mid,   smooth: true, lineStyle: { color: '#5b8def', width: 0.8, opacity: 0.7 }, symbol: 'none', connectNulls: true });
-    series.push({ name: 'BOLL下', type: 'line', data: boll.lower, smooth: true, lineStyle: { color: '#5b8def', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'BOLL上', type: 'line', data: boll.upper, smooth: true, lineStyle: { color: 'var(--accent)', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'BOLL中', type: 'line', data: boll.mid,   smooth: true, lineStyle: { color: 'var(--accent)', width: 0.8, opacity: 0.7 }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'BOLL下', type: 'line', data: boll.lower, smooth: true, lineStyle: { color: 'var(--accent)', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
   }
   // 量（grid 1）
   series.push({
@@ -3614,9 +3654,9 @@ function drawKlineChart() {
   // MACD 副图（grid 2）
   if (subIndicator === 'macd' && macdData) {
     series.push({ name: 'DIF', type: 'line', data: macdData.dif, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#5b8def', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--accent)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'DEA', type: 'line', data: macdData.dea, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#f0c075', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--warn)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'MACD', type: 'bar', data: macdData.hist.map(v => v == null ? 0 : v), xAxisIndex: 2, yAxisIndex: 2,
       barWidth: '50%',
       itemStyle: { color: p => (p.value >= 0 ? UP : DOWN) } });
@@ -3624,11 +3664,11 @@ function drawKlineChart() {
   // KDJ 副图（grid 2）
   if (subIndicator === 'kdj' && kdjData) {
     series.push({ name: 'K', type: 'line', data: kdjData.k, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#5b8def', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--accent)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'D', type: 'line', data: kdjData.d, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#f0c075', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--warn)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'J', type: 'line', data: kdjData.j, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#a78bcf', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--accent-3)', width: 1 }, symbol: 'none', connectNulls: true });
   }
 
   // ── Tooltip ── THS 风格精确读数
@@ -3731,8 +3771,8 @@ function drawKlineChart() {
         markLine: {
           silent: true, symbol: 'none',
           data: [
-            { yAxis: 80, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
-            { yAxis: 20, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
+            { yAxis: 80, label: { show: false }, lineStyle: { color: 'var(--ink-4)', type: 'dotted', width: 0.8 } },
+            { yAxis: 20, label: { show: false }, lineStyle: { color: 'var(--ink-4)', type: 'dotted', width: 0.8 } },
           ],
         },
       } : y),
@@ -4203,9 +4243,9 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
       .sort((a, b) => (a.date < b.date ? -1 : 1));
     const closesUpTo = bars.map(k => +k.close);
     const maSpecs = [
-      [5,  '#ff9f43', 1.6],
-      [10, '#7fc8c9', 1.1],
-      [20, '#9a8cff', 1.1],
+      [5,  'var(--warn)', 1.6],
+      [10, 'var(--accent-2)', 1.1],
+      [20, 'var(--accent-3)', 1.1],
     ];
     for (const [n, color, w] of maSpecs) {
       if (closesUpTo.length < n) continue;
@@ -4284,8 +4324,8 @@ function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp) {
         areaStyle: { color: 'rgba(212,160,86,0.08)' },
         markLine: { silent: true, symbol: 'none', data: [...timeMarkers, ...refLines] } },
       { name: '均价', type: 'line', data: avgLine, showSymbol: false,
-        lineStyle: { color: '#ff9f43', width: 1.8, type: 'solid' },
-        itemStyle: { color: '#ff9f43' },
+        lineStyle: { color: 'var(--warn)', width: 1.8, type: 'solid' },
+        itemStyle: { color: 'var(--warn)' },
         z: 3 },
       { name: '昨收', type: 'line', data: refLine, showSymbol: false,
         lineStyle: { color: INK3, type: 'dashed', width: 1 } },
@@ -4358,10 +4398,10 @@ function _optRenderBest(best) {
   strategy += `<b>2. 持有期</b>：${holds === 2 ? 'T+1 早盘冲高即出 (主推)' : `T+${holds-1} 持有`},回撤超 ${(Math.abs(s.max_drawdown_pct||0)*0.3).toFixed(1)}% 强制止损。<br>`;
   strategy += `<b>3. 大盘红线</b>：`;
   if (bm > 0 && bms > 0) {
-    strategy += `全 A 红盘 < <b>${bm}</b> 只 → 当日 <b style="color:#f4a4c4">硬空仓</b> (不下单);`;
+    strategy += `全 A 红盘 < <b>${bm}</b> 只 → 当日 <b style="color:var(--up-strong)">硬空仓</b> (不下单);`;
     strategy += `红盘介于 ${bm}-${bms} → 只在 <b>前 ${sht} 热门板块</b> 里选股 (规避弱市风险)。`;
   } else if (bm > 0) {
-    strategy += `全 A 红盘 < <b>${bm}</b> 只 → 当日 <b style="color:#f4a4c4">硬空仓</b>;否则正常选股。`;
+    strategy += `全 A 红盘 < <b>${bm}</b> 只 → 当日 <b style="color:var(--up-strong)">硬空仓</b>;否则正常选股。`;
   } else {
     strategy += `无大盘过滤 — 全市场可参与。`;
   }
@@ -4384,10 +4424,10 @@ function _optRenderBest(best) {
 
   let feas = '';
   let riskLevel, riskColor;
-  if (dd > 25) { riskLevel = '高风险'; riskColor = '#f4a4c4'; }
-  else if (dd > 15) { riskLevel = '中等'; riskColor = '#f4d484'; }
-  else { riskLevel = '低风险'; riskColor = '#84f4a8'; }
-  feas += `<b>1. 收益水平</b>：半年累计 <b style="color:#c084f4">${cum.toFixed(1)}%</b>,月化约 <b>${monthly.toFixed(1)}%</b>;`;
+  if (dd > 25) { riskLevel = '高风险'; riskColor = 'var(--up-strong)'; }
+  else if (dd > 15) { riskLevel = '中等'; riskColor = 'var(--warn)'; }
+  else { riskLevel = '低风险'; riskColor = 'var(--down-strong)'; }
+  feas += `<b>1. 收益水平</b>：半年累计 <b style="color:var(--accent-3)">${cum.toFixed(1)}%</b>,月化约 <b>${monthly.toFixed(1)}%</b>;`;
   feas += `总交易 <b>${trades}</b> 笔,笔均 <b>${expPerTrade.toFixed(2)}%</b>。<br>`;
   feas += `<b>2. 胜率</b>：<b>${wr.toFixed(1)}%</b> ${wr >= 60 ? '✅ 优秀 (>60%)' : wr >= 50 ? '✅ 及格' : '⚠ 偏低 (<50%)'};`;
   feas += `盈亏比 <b>${pf.toFixed(2)}</b> ${pf >= 1.8 ? '✅ 优秀 (>1.8)' : pf >= 1.3 ? '✅ 健康' : '⚠ 偏低 (<1.3)'}。<br>`;
@@ -5183,7 +5223,7 @@ function applyTheme(theme) {
   // 同步 meta theme-color (Safari 顶栏)
   const meta = document.querySelector('meta[name="theme-color"]:not([media])') ||
                document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'light' ? '#fbfbfd' : '#0a0908');
+  if (meta) meta.setAttribute('content', theme === 'light' ? 'var(--bg-1)' : 'var(--bg-page)');
 }
 $('#theme-toggle')?.addEventListener('click', () => {
   const cur = getActiveTheme();
@@ -5209,9 +5249,13 @@ $('#theme-toggle')?.addEventListener('click', () => {
       });
     } catch {}
   });
-  // 当前可见的 view 重渲一次 (showView 内部有 view-specific 加载)
-  const activeView = $$('.view').find(v => !v.hidden)?.dataset?.view;
-  if (activeView) showView(activeView);
+  // R-fix-2026-07-22: 不要再 showView(currentView) —— 它会触发 view-leave 钩子
+  // 把 screener poller / realtime fetcher / watchlist timer 全部 dispose → 重建,
+  // 用户感知为"切换无反应/页面闪一下"。改用最小化:
+  // 1. echarts 已 setOption 更新颜色
+  // 2. CSS 变量切换让 [data-theme] 选择器自动改 body 颜色 (style.css:8225/8236)
+  // 3. 发自定义事件, 各 view 自行决定 (默认不响应)
+  document.dispatchEvent(new CustomEvent('theme-changed', { detail: { from: cur, to: next } }));
   toast(next === 'light' ? '已切换至浅色模式' : '已切换至深色模式', 'info', 1500);
 });
 // 系统主题变更时,如果用户没显式选择则跟随
@@ -5434,7 +5478,7 @@ async function loadNewsList(forceRefresh) {
   }
   try {
     const data = forceRefresh
-      ? await (await fetch('/api/news/refresh', { method: 'POST' })).json().then(d => d.data || {})
+      ? await (await fetch('/api/news/refresh', { method: 'POST' })).json().then(d => d.data || {}).catch(e => (console.warn('news refresh fail:', e), {}))
       : (await api('/api/news')) || {};
     newsCache = data;
     const fa = data.fetched_at ? new Date(data.fetched_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
@@ -5574,7 +5618,7 @@ async function loadSectorsList(forceRefresh) {
   if (forceRefresh) {
     meta.textContent = '刷新中…';
     meta.style.color = INK2;
-    await (await fetch('/api/news/refresh', { method: 'POST' })).json();
+    await (await fetch('/api/news/refresh', { method: 'POST' })).json().catch(e => console.warn('news refresh fail:', e));
   }
   try {
     const data = await api('/api/sectors/sw') || {};
@@ -5657,10 +5701,10 @@ async function loadStockSector(code) {
       <div class="kv-row"><span>涨跌幅</span><b>±${b.pct_limit || '—'}%</b></div>
       <div class="kv-row"><span>门槛</span><b>${b.capital_floor_wan ? b.capital_floor_wan + ' 万' : '无'}</b></div>`;
     const inds = [
-      ['申万',  sec.sw,    '#a78bcf'],
-      ['证监会', sec.csrc, '#7fb6c9'],
-      ['中证',  sec.cics,  '#d4a056'],
-      ['GICS',  sec.gics,  '#4fb074'],
+      ['申万',  sec.sw,    'var(--accent-3)'],
+      ['证监会', sec.csrc, 'var(--accent-2)'],
+      ['中证',  sec.cics,  'var(--warn)'],
+      ['GICS',  sec.gics,  'var(--down-strong)'],
     ];
     const stdChips = inds.filter(([,v]) => v).map(([k,v,c]) =>
       `<span class="chip" style="border-color:${c};color:${c}">${k}·${escapeHtml(v)}</span>`
@@ -5668,13 +5712,13 @@ async function loadStockSector(code) {
     // AI 概念标（机器人/AI 各子赛道）
     const aiTags = sec.ai_tags || {labels: [], is_main_field: false};
     const aiColors = {
-      '机器人本体': '#ff5722', '机器人零部件': '#ff7043', '机器视觉': '#ff8a65',
-      'AI 算力': '#9c27b0', 'AI 芯片': '#7b1fa2', 'AI 软件': '#ba68c8',
-      '智能驾驶': '#03a9f4', '半导体': '#00bcd4', '新能源车': '#4caf50',
-      '传统行业': '#9e9e9e', '未分类': '#bdbdbd'
+      '机器人本体': 'var(--warn)', '机器人零部件': 'var(--warn)', '机器视觉': 'var(--warn)',
+      'AI 算力': 'var(--accent-3)', 'AI 芯片': 'var(--accent-3)', 'AI 软件': 'var(--accent-3)',
+      '智能驾驶': 'var(--accent)', '半导体': 'var(--accent-2)', '新能源车': 'var(--down-strong)',
+      '传统行业': 'var(--ink-4)', '未分类': 'var(--ink-4)'
     };
     const aiChips = aiTags.labels.map(l => {
-      const c = aiColors[l] || '#9e9e9e';
+      const c = aiColors[l] || 'var(--ink-4)';
       const warn = (l === '传统行业' || l === '未分类') ? ' ⚠️非主战场' : '';
       return `<span class="chip" style="border-color:${c};color:${c};font-weight:bold">${escapeHtml(l)}${warn}</span>`;
     }).join('');
@@ -5758,10 +5802,10 @@ async function loadStockLimitUp(code, sectorName) {
     // ─── 顶部 hero: 股性 + 龙头 + 概念 chips ───
     const natureTier = nature.tier || '—';
     const natureColors = {
-      '妖股':  { bg: '#d32f2f', fg: '#fff' },
-      '活跃':  { bg: '#f57c00', fg: '#fff' },
-      '一般':  { bg: '#9e9e9e', fg: '#fff' },
-      '死股':  { bg: '#424242', fg: '#bbb' },
+      '妖股':  { bg: 'var(--up)', fg: 'var(--bg-1)' },
+      '活跃':  { bg: 'var(--warn)', fg: 'var(--bg-1)' },
+      '一般':  { bg: 'var(--ink-4)', fg: 'var(--bg-1)' },
+      '死股':  { bg: 'var(--bg-3)', fg: 'var(--ink-2)' },
     };
     const nc = natureColors[natureTier] || natureColors['死股'];
     const natureBadge = `
@@ -5773,14 +5817,14 @@ async function loadStockLimitUp(code, sectorName) {
     `;
     const leaderBadge = leader.role && leader.role !== '—' ? `
       <span class="chip"
-            style="background:${leader.streak >= 5 ? '#b71c1c' : leader.streak >= 3 ? '#d32f2f' : leader.streak >= 2 ? '#f57c00' : '#7b1fa2'};color:#fff;padding:.25rem .55rem;font-weight:700;border:none"
+            style="background:${leader.streak >= 5 ? 'var(--up-strong)' : leader.streak >= 3 ? 'var(--up)' : leader.streak >= 2 ? 'var(--warn)' : 'var(--accent-3)'};color:var(--bg-1);padding:.25rem .55rem;font-weight:700;border:none"
             title="${escapeHtml(leader.reason || '')}">
         ${leader.role}${leader.is_top_in_sector ? ' · 板块最高' : ''}
       </span>
     ` : '';
     const conceptChips = (nature.concepts || []).map(c => `
       <span class="chip"
-            style="border:1px solid ${c.level === 'L4' ? ACCENT : c.level === 'L3' ? '#7b9bd1' : INK2};color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? '#7b9bd1' : INK2};font-size:.78rem"
+            style="border:1px solid ${c.level === 'L4' ? ACCENT : c.level === 'L3' ? 'var(--accent-2)' : INK2};color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? 'var(--accent-2)' : INK2};font-size:.78rem"
             title="${c.level} · ${c.role || ''}">
         <span class="cap" style="font-size:.65rem">${c.level}</span>
         <b>${escapeHtml(c.name)}</b>
@@ -5792,7 +5836,7 @@ async function loadStockLimitUp(code, sectorName) {
     const sectorLeaderHtml = sl ? `
       <div class="kv-row" style="font-size:.85rem;cursor:pointer" data-action="open-stock:${escapeHtml(sl.code)}" title="点击查看 ${escapeHtml(sl.name)}">
         <span>板块龙头股</span>
-        <b style="color:#b71c1c">
+        <b style="color:var(--up-strong)">
           👑 ${escapeHtml(sl.name)} <span class="caption dim">${escapeHtml(sl.code)}</span>
           · ${sl.streak} 连板
           ${sl.封单金额 ? ' · 封单 ' + (sl.封单金额 / 1e8).toFixed(2) + '亿' : ''}
@@ -5938,7 +5982,7 @@ function renderSectorRows(rows, code) {
         const isMe = String(s.代码).padStart(6, '0') === String(code).padStart(6, '0');
         const isMax = (s.连板数 || 0) === maxLb && (s.连板数 || 0) >= 2;
         const tagIcon = isMe ? '👑' : (isMax ? '★' : '');
-        const tagColor = isMe ? '#b71c1c' : (isMax ? '#d32f2f' : INK2);
+        const tagColor = isMe ? 'var(--up-strong)' : (isMax ? 'var(--up)' : INK2);
         let conceptHtml = '<span class="caption dim">—</span>';
         try {
           const sTax = (window._taxCache && window._taxCache[String(s.代码).padStart(6, '0')]) || null;
@@ -5950,7 +5994,7 @@ function renderSectorRows(rows, code) {
           }
           if (sConcepts.length) {
             conceptHtml = sConcepts.slice(0, 2).map(c =>
-              `<span class="chip" style="font-size:.7rem;padding:1px 5px;color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? '#7b9bd1' : INK2};border:1px solid currentColor">${escapeHtml(c.name)}</span>`
+              `<span class="chip" style="font-size:.7rem;padding:1px 5px;color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? 'var(--accent-2)' : INK2};border:1px solid currentColor">${escapeHtml(c.name)}</span>`
             ).join('');
           }
         } catch (e) {}
@@ -5985,7 +6029,7 @@ function renderDragonRows(rows, code) {
         const isMe = codeS === String(code).padStart(6, '0');
         const isMax = (s.streak || 0) === maxLb && (s.streak || 0) >= 2;
         const tagIcon = isMe ? '👑' : (isMax ? '★' : '');
-        const tagColor = isMe ? '#b71c1c' : (isMax ? '#d32f2f' : INK2);
+        const tagColor = isMe ? 'var(--up-strong)' : (isMax ? 'var(--up)' : INK2);
         const secLabel = s.taxonomy?.l1 || s.sector || '—';
         const secColor = s.taxonomy?.l1_color || INK2;
         return `
@@ -6649,7 +6693,7 @@ async function _inlineEditName(span) {
   inp.value = orig;
   inp.className = 'np-name-input';
   inp.maxLength = 32;
-  inp.style.cssText = 'width:11em;font:inherit;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:#fff;color:var(--ink-1)';
+  inp.style.cssText = 'width:11em;font:inherit;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--bg-1);color:var(--ink-1)';
   span.textContent = '';
   span.appendChild(inp);
   inp.focus();
@@ -7215,7 +7259,7 @@ function showToast(msg, type) {
   }
   // 兜底 (toast 未定义时): 保留老 inline 行为
   if (window.__toastBox) window.__toastBox.remove();
-  const colors = { info: '#d4a056', success: '#4fb074', error: '#d97a6c' };
+  const colors = { info: 'var(--warn)', success: 'var(--down-strong)', error: 'var(--up-strong)' };
   const box = document.createElement('div');
   box.textContent = msg;
   box.style.cssText = `
@@ -7614,7 +7658,7 @@ function _reviewBindScreenshot() {
     const total = _snapState.trades.length;
     if (!total) {
       setStatus('✗ 没识别出任何有效交易,请手填或换 OCR', 'err');
-      if (tag) { tag.textContent = '失败'; tag.style.color = '#f87171'; }
+      if (tag) { tag.textContent = '失败'; tag.style.color = 'var(--up-strong)'; }
       return;
     }
     const ai  = _snapState.trades.filter(t => t.source === 'ai').length;
@@ -7625,7 +7669,7 @@ function _reviewBindScreenshot() {
     );
     if (tag) {
       tag.textContent = ai ? `🤖 AI ${ai}` : (ocr ? '🔤 OCR' : '已就绪');
-      tag.style.color = ai ? '#4ade80' : '#d4a056';
+      tag.style.color = ai ? 'var(--down-strong)' : 'var(--warn)';
     }
     // 缩略图保留(显示计数);若有单笔且表单为空,可自动填
     if (total === 1 && !$('#rf-code').value) {
@@ -8883,7 +8927,9 @@ document.addEventListener('DOMContentLoaded', () => {
     hasMore: true,
     loading: false,
     l1: '', l2: '', l3: '', l4: '', domain: '',
+    presets: new Set(), signals: new Set(),
     sort: 'amount', order: 'desc',
+    _boardAbort: null,
     _filterData: null,
     _clusterSwMap: null,  // { clusterName → [sw1, sw2, ...] }
     _chainSwMap: null,    // { chainName → {sw, l4: [..]} }
@@ -8906,19 +8952,31 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // === 3. fetchJSON =======================================================
-  async function fetchJSON(path, params) {
+  async function fetchJSON(path, params, opts) {
     params = params || {};
+    opts = opts || {};
     const url = new URL(path, location.origin);
     Object.entries(params).forEach(([k, v]) => {
       if (v == null || v === '') return;
       if (Array.isArray(v)) v.forEach(x => url.searchParams.append(k, x));
       else url.searchParams.set(k, v);
     });
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: opts.signal });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const env = await r.json();
     if (!env.ok) throw new Error(env.error || 'API err');
     return env.data;
+  }
+
+  // 把当前 filter 状态拼成 board 查询参数 (含跨模块 preset/signal)
+  function boardParams(extra) {
+    return Object.assign({
+      l1: state.l1 || '', l2: state.l2 || '', l3: state.l3 || '',
+      l4: state.l4 || '', domain: state.domain || '',
+      preset: Array.from(state.presets).join(','),
+      signal: Array.from(state.signals).join(','),
+      sort: state.sort, order: state.order, with_fund: true,
+    }, extra || {});
   }
 
   // === 4. computePageSize =================================================
@@ -9007,7 +9065,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, el('span', { class: 'dot', style: 'background: var(--accent-grad-rainbow);' }), '全部');
     row.appendChild(all);
     clusters.forEach(c => {
-      const color = c.color || '#888';
+      const color = c.color || 'var(--ink-4)';
       const chip = el('span', {
         class: 'cluster-chip' + (state.l1 === c.name ? ' active' : ''),
         'data-l1': c.name,
@@ -9106,23 +9164,19 @@ document.addEventListener('DOMContentLoaded', () => {
     state.hasMore = true;
     state.pageSize = computePageSize();
 
+    // inflight abort: 连点 filter/sort 时中止上一发,防连接池占满卡死
+    if (state._boardAbort) { try { state._boardAbort.abort(); } catch (_) {} }
+    const ac = ('AbortController' in window) ? new AbortController() : null;
+    state._boardAbort = ac;
+
     const tbody = $('#as-stocks-tbody');
     tbody.innerHTML = renderSkeleton(state.pageSize);
     setSentinel('loading', '首屏加载中…');
 
     try {
-      const data = await fetchJSON('/api/all_stocks/board', {
-        page_size: state.pageSize,
-        offset: 0,
-        l1: state.l1 || '',
-        l2: state.l2 || '',
-        l3: state.l3 || '',
-        l4: state.l4 || '',
-        domain: state.domain || '',
-        sort: state.sort,
-        order: state.order,
-        with_fund: true,
-      });
+      const data = await fetchJSON('/api/all_stocks/board',
+        boardParams({ page_size: state.pageSize, offset: 0 }),
+        { signal: ac ? ac.signal : undefined });
       if (!data.items || !data.items.length) {
         // R7 (2026-07-19): cold cache / filter 无匹配 → 显示 "加载中"
         tbody.innerHTML = `<tr><td colspan="20" class="empty">
@@ -9163,6 +9217,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newPS = computePageSize();
       if (Math.abs(newPS - state.pageSize) > 4 && state.hasMore) state.pageSize = newPS;
     } catch (e) {
+      if (e && e.name === 'AbortError') { return; }  // 被新请求取代,静默
       console.error('loadBoard failed:', e);
       tbody.innerHTML = `<tr><td colspan="20" class="empty">
         <div class="empty-icon">!</div>
@@ -9191,18 +9246,8 @@ document.addEventListener('DOMContentLoaded', () => {
     state.loading = true;
     setSentinel('loading', '加载中…');
     try {
-      const data = await fetchJSON('/api/all_stocks/board', {
-        page_size: state.pageSize,
-        offset: state.offset,
-        l1: state.l1 || '',
-        l2: state.l2 || '',
-        l3: state.l3 || '',
-        l4: state.l4 || '',
-        domain: state.domain || '',
-        sort: state.sort,
-        order: state.order,
-        with_fund: true,
-      });
+      const data = await fetchJSON('/api/all_stocks/board',
+        boardParams({ page_size: state.pageSize, offset: state.offset }));
       renderRows(data, true);
       state.offset = data.next_offset || (state.offset + ((data.items && data.items.length) || 0));
       state.loadedCount = state.offset;
@@ -9316,7 +9361,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ? domains.map(d => `<span class="chip chip-domain chip-click" data-goto-domain="${escapeHtml(d)}" title="查看所有「${escapeHtml(d)}」标的">${escapeHtml(d)}</span>`).join('')
         : '<span class="dim">—</span>';
       const l1 = tax.l1
-        ? `<span class="chip chip-l1" style="--chip-bg:${tax.l1_color || '#888'}22;--chip-fg:${tax.l1_color || '#888'};border-color:${tax.l1_color || '#888'};" title="L1 集群">${escapeHtml(tax.l1)}</span>`
+        ? `<span class="chip chip-l1" style="--chip-bg:${tax.l1_color || 'var(--ink-4)'}22;--chip-fg:${tax.l1_color || 'var(--ink-4)'};border-color:${tax.l1_color || 'var(--ink-4)'};" title="L1 集群">${escapeHtml(tax.l1)}</span>`
         : '<span class="dim">—</span>';
       const l2 = tax.l2
         ? `<span class="chip chip-click" data-goto-l2="${escapeHtml(tax.l2)}" title="查看所有 ${escapeHtml(tax.l2)} 标的">${escapeHtml(tax.l2)}</span>`
@@ -9440,7 +9485,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return [x, y];
     });
     const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-    const color = closes[closes.length - 1] >= closes[0] ? 'var(--up, #e84545)' : 'var(--down, #34c759)';
+    const color = closes[closes.length - 1] >= closes[0] ? 'var(--up)' : 'var(--down)';
     const lastPt = pts[pts.length - 1];
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;margin:0 auto;">
       <path d="${d}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -9584,9 +9629,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const fund = stats.total_main_fund_wan || 0;
     const fundYi = fund / 10000;  // 万 → 亿
     const fundStr = (fundYi >= 0 ? '+' : '') + fundYi.toFixed(2) + '亿';
-    const fundColor = fundYi >= 0 ? 'var(--up, #e74c3c)' : 'var(--down, #2ecc71)';
+    const fundColor = fundYi >= 0 ? 'var(--up)' : 'var(--down)';
     const avgPct = stats.avg_change_pct || 0;
-    const avgColor = avgPct >= 0 ? 'var(--up, #e74c3c)' : 'var(--down, #2ecc71)';
+    const avgColor = avgPct >= 0 ? 'var(--up)' : 'var(--down)';
     // 内联 SVG 图标 — 避免外部资源依赖,主题色用 currentColor
     const ICO = {
       total: '<svg class="kpi-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="3" height="10" rx="1"/><rect x="6.5" y="6" width="3" height="7" rx="1"/><rect x="11" y="2" width="3" height="11" rx="1"/></svg>',
@@ -9604,9 +9649,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const downPct = (downN / totalBars * 100).toFixed(1);
     const upFlatBar = `<div class="kpi-bars" aria-label="涨平跌比例"><span class="kb-seg kb-up" style="width:${upPct}%" title="涨 ${upN} (${upPct}%)"></span><span class="kb-seg kb-flat" style="width:${flatPct}%" title="平 ${flatN} (${flatPct}%)"></span><span class="kb-seg kb-down" style="width:${downPct}%" title="跌 ${downN} (${downPct}%)"></span></div>`;
     host.innerHTML = `
-      <div class="kpi-group"><span class="kpi-label">${ICO.total}统计覆盖</span><span class="kpi-value">${sourceCnt}<span class="kpi-sep">/</span><span style="color:var(--ink-3);font-size:0.85em">${totalCnt}</span></span><span class="kpi-sub" style="${coverageLow ? 'color:var(--warn,#f4d384)' : ''}">${coverageLow ? ` 仅覆盖 ${coveragePct}% · 滚动/筛选会累加` : `基于 ${coveragePct}% · 全 universe 聚合`} · 加载 ${state.loadedCount || 0}</span></div>
-      <div class="kpi-group"><span class="kpi-label">${ICO.up}涨 / 平 / 跌</span><span class="kpi-value" style="color:var(--up, #e74c3c)">${upN}<span class="kpi-sep">·</span><span style="color:var(--ink-2)">${flatN}</span><span class="kpi-sep">·</span><span style="color:var(--down, #2ecc71)">${downN}</span></span>${upFlatBar}<span class="kpi-sub">${upPct}% / ${flatPct}% / ${downPct}%</span></div>
-      <div class="kpi-group"><span class="kpi-label">${ICO.zt}涨停家数</span><span class="kpi-value" style="color:var(--zt, #ff5722)">${stats.limit_up}</span><span class="kpi-sub">${stats.limit_up > 0 ? `占 ${(stats.limit_up / Math.max(1, totalAvail) * 100).toFixed(1)}%` : '今日尚无'}</span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.total}统计覆盖</span><span class="kpi-value">${sourceCnt}<span class="kpi-sep">/</span><span style="color:var(--ink-3);font-size:0.85em">${totalCnt}</span></span><span class="kpi-sub" style="${coverageLow ? 'color:var(--warn,var(--warn))' : ''}">${coverageLow ? ` 仅覆盖 ${coveragePct}% · 滚动/筛选会累加` : `基于 ${coveragePct}% · 全 universe 聚合`} · 加载 ${state.loadedCount || 0}</span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.up}涨 / 平 / 跌</span><span class="kpi-value" style="color:var(--up)">${upN}<span class="kpi-sep">·</span><span style="color:var(--ink-2)">${flatN}</span><span class="kpi-sep">·</span><span style="color:var(--down)">${downN}</span></span>${upFlatBar}<span class="kpi-sub">${upPct}% / ${flatPct}% / ${downPct}%</span></div>
+      <div class="kpi-group"><span class="kpi-label">${ICO.zt}涨停家数</span><span class="kpi-value" style="color:var(--zt, var(--warn))">${stats.limit_up}</span><span class="kpi-sub">${stats.limit_up > 0 ? `占 ${(stats.limit_up / Math.max(1, totalAvail) * 100).toFixed(1)}%` : '今日尚无'}</span></div>
       ${fundKpi}
       <div class="kpi-group"><span class="kpi-label">${ICO.mcap}成交额 / 市值</span><span class="kpi-value">${(stats.total_amount_yi || 0).toFixed(0)}亿</span><span class="kpi-sub">总市值 ${((stats.total_mcap_yi || 0) / 10000).toFixed(2)}万亿 · 均涨 <span style="color:${avgColor}">${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></span></div>
     `;
@@ -9638,7 +9683,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const { label, prefix } = candidates[0];
     const avgPct = stats.avg_change_pct || 0;
-    const color = avgPct >= 0 ? 'var(--up, #e84545)' : 'var(--down, #34c759)';
+    const color = avgPct >= 0 ? 'var(--up)' : 'var(--down)';
     const sign = avgPct >= 0 ? '+' : '';
     el.innerHTML = `<span class="as-title-pct-label">${escapeHtml(label)}</span><span class="as-title-pct-val" style="color:${color}">${sign}${avgPct.toFixed(2)}%</span>`;
     el.hidden = false;
@@ -9820,10 +9865,30 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
+    // 跨模块快捷筛选 chip (涨停/连板/放量/高换手/尾盘战法…)
+    const presetRow = $('#as-preset-row');
+    if (presetRow) {
+      $$('.preset-chip', presetRow).forEach(chip => {
+        chip.addEventListener('click', () => {
+          const p = chip.dataset.preset, sg = chip.dataset.signal;
+          if (p) {
+            if (state.presets.has(p)) state.presets.delete(p); else state.presets.add(p);
+          } else if (sg) {
+            if (state.signals.has(sg)) state.signals.delete(sg); else state.signals.add(sg);
+          }
+          chip.classList.toggle('active');
+          state.offset = 0;
+          syncUrl(); _debouncedBoardLoad();
+        });
+      });
+    }
+
     // 重置
     const resetBtn = $('#as-btn-reset');
     if (resetBtn) resetBtn.addEventListener('click', () => {
       state.l1 = ''; state.l2 = ''; state.l3 = ''; state.l4 = ''; state.domain = '';
+      state.presets = new Set(); state.signals = new Set();
+      $$('#as-preset-row .preset-chip').forEach(c => c.classList.remove('active'));
       state.sort = 'amount'; state.order = 'desc';
       state.pageSize = 30;
       state.offset = 0;
@@ -10152,8 +10217,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const b = el('button', {
           class: 'sheet-cluster-chip' + (state.l1 === c.name ? ' active' : ''),
           'data-l1': c.name,
-          style: '--cc:' + (c.color || '#888'),
-        }, el('span', { class: 'dot', style: `background:${c.color || '#888'}` }), (c.icon || '') + c.name);
+          style: '--cc:' + (c.color || 'var(--ink-4)'),
+        }, el('span', { class: 'dot', style: `background:${c.color || 'var(--ink-4)'}` }), (c.icon || '') + c.name);
         clusterRow.appendChild(b);
       });
       clusterRow.addEventListener('click', (e) => {
