@@ -1,0 +1,124 @@
+{
+  "ts": 1784214184.55335,
+  "total": 16,
+  "counts": {
+    "PASS": 12,
+    "FAIL": 1,
+    "ERROR": 3,
+    "SKIP": 0
+  },
+  "results": [
+    {
+      "name": "api /api/dashboard/signal",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 21.0
+    },
+    {
+      "name": "api /api/dashboard/hot_sectors",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.0
+    },
+    {
+      "name": "api /api/all_stocks/board",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.1
+    },
+    {
+      "name": "api /api/screener/backtest (无 run_id)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.7
+    },
+    {
+      "name": "api /api/screener/backtest POST 非法入参",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "HTTPError: HTTP Error 422: ",
+      "elapsed_ms": 2.7
+    },
+    {
+      "name": "api /api/screener/backtest POST 合法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.0
+    },
+    {
+      "name": "api /api/review/portfolio",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 261.8
+    },
+    {
+      "name": "api /api/review/positions",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "HTTPError: HTTP Error 404: ",
+      "elapsed_ms": 1.8
+    },
+    {
+      "name": "api /api/stock/999999/intraday 404",
+      "group": "API",
+      "status": "FAIL",
+      "msg": "unexpected ok: {'ok': True, 'data': {'code': '999999', 'date': '2026-07-16', 'ticks': [{'time': '', 'price': None, 'volume_hand': 0.0, 'amount': None, 'open': None, 'high': None, 'low': None, 'side': ''}], 'ticks_n': 1, 'source': 'tencent_minute', 'note': ''}, 'error': None, 'ts': 1784214180.485883}",
+      "elapsed_ms": 6581.6
+    },
+    {
+      "name": "api /api/global/sentiment",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 4012.8
+    },
+    {
+      "name": "api /api/nonexistent/foo 404",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.8
+    },
+    {
+      "name": "api GET / (index.html)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.1
+    },
+    {
+      "name": "static /static/app.js",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.3
+    },
+    {
+      "name": "static /static/style.css",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 4.6
+    },
+    {
+      "name": "XSS /api/stock/<script>...</script>",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "HTTPError: HTTP Error 404: ",
+      "elapsed_ms": 11.6
+    },
+    {
+      "name": "XSS /api/screener/backtest payload",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 28.2
+    }
+  ]
+}

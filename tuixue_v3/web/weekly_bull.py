@@ -117,11 +117,20 @@ def p_zhanwen_5w(wk: List[dict]) -> Tuple[bool, str]:
     return False, ""
 
 
-def p_tupo_pingtai(wk: List[dict]) -> Tuple[bool, str]:
-    """突破震荡平台: 周收盘突破前 4-5 周高点"""
+def p_tupo_pingtai(wk: List[dict], aggressive: bool = False) -> Tuple[bool, str]:
+    """突破震荡平台: 周收盘突破前 4-5 周高点
+
+    aggressive=True: 激进版, 只要本周收盘 > 前三周最高收盘价就触发
+                      (行情好时更早上车)
+    """
     if len(wk) < 6:
         return False, "周线不足 6 周"
     last = wk[-1]
+    if aggressive:
+        prev_close = max(w["close"] for w in wk[-4:-1])  # 前三周最高收盘价
+        if last["close"] > prev_close:
+            return True, f"周收 {last['close']:.2f} 突破前 3 周收盘 {prev_close:.2f} (激进)"
+        return False, ""
     prev_high = max(w["high"] for w in wk[-6:-1])
     if last["close"] > prev_high:
         return True, f"周收 {last['close']:.2f} 突破前 5 周高点 {prev_high:.2f}"
@@ -168,11 +177,12 @@ def p_zhouxian_duiliang(wk: List[dict]) -> Tuple[bool, str]:
 # ─── 公共 API ──────────────────────────────────────────────────────────────
 
 PATTERNS: Dict[str, Tuple[str, callable]] = {
-    "sanxing_taodi":     ("三星探底", p_sanxing_taodi),
-    "zhanwen_5w":        ("站稳5周线", p_zhanwen_5w),
-    "tupo_pingtai":      ("突破震荡平台", p_tupo_pingtai),
-    "junxian_fangxiang": ("均线方向", p_junxian_fangxiang),
-    "zhouxian_duiliang": ("周线堆量", p_zhouxian_duiliang),
+    "sanxing_taodi":              ("三星探底",     p_sanxing_taodi),
+    "zhanwen_5w":                 ("站稳5周线",    p_zhanwen_5w),
+    "tupo_pingtai":               ("突破震荡平台",  lambda wk: p_tupo_pingtai(wk, aggressive=False)),
+    "tupo_pingtai_aggressive":    ("突破3周收盘(激进)", lambda wk: p_tupo_pingtai(wk, aggressive=True)),
+    "junxian_fangxiang":          ("均线方向",     p_junxian_fangxiang),
+    "zhouxian_duiliang":          ("周线堆量",     p_zhouxian_duiliang),
 }
 
 
@@ -240,16 +250,19 @@ def scan_universe(codes: List[str] = None, max_workers: int = 8) -> dict:
         try:
             from .all_stocks import _build_universe
             u = _build_universe()
-            # _build_universe() 可能返回 dict 或 tuple (dict, ...)
+            _name_map = {}
             if isinstance(u, tuple):
+                _name_map = u[1] if len(u) > 1 else {}
                 u = u[0] if u else {}
-            codes = list((u or {}).keys())[:500]  # cap 500 避免超时
+            codes = list(u.keys())[:200]
         except Exception as e:
             log.warning("[weekly-bull] _build_universe failed: %s", e)
             codes = []
+            _name_map = {}
+    else:
+        _name_map = {}
 
     if not codes:
-        # 兜底:从 hot sectors 取常见代码
         codes = ["000001", "002747", "300750", "600519", "601318", "000333", "600036", "601012"]
 
     t0 = time.time()
@@ -269,7 +282,10 @@ def scan_universe(codes: List[str] = None, max_workers: int = 8) -> dict:
     def _analyze(code):
         return analyze_one(code, _loader)
 
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+    # 4 workers: 避免 macOS 端口耗尽 (8 workers × 11 数据源 × retry = 88 并发连接)
+    max_w = min(max_workers or 8, 4)
+    ex = ThreadPoolExecutor(max_workers=max_w)
+    try:
         futs = {ex.submit(_analyze, code): code for code in codes}
         try:
             for fut in as_completed(futs, timeout=25):
@@ -282,6 +298,7 @@ def scan_universe(codes: List[str] = None, max_workers: int = 8) -> dict:
                 if r.get("matched"):
                     signals.append({
                         "code": r["code"],
+                        "name": _name_map.get(r["code"]) or _name_map.get(r["code"][:6], ""),
                         "matched": r["matched"],
                         "reasons": r["reasons"],
                         "count": r["count"],
@@ -291,10 +308,21 @@ def scan_universe(codes: List[str] = None, max_workers: int = 8) -> dict:
                         if k in by_pattern:
                             by_pattern[k].append(r["code"])
         except TimeoutError:
-            log.warning(f"[weekly-bull] scan timeout, got {len(signals)} signals so far")
+            log.warning(f"[weekly-bull] scan timeout (20s), got {len(signals)} signals so far")
+    finally:
+        ex.shutdown(wait=False)  # 不阻塞: 慢 worker 丢弃
 
-    # 按 count desc + code asc 排
-    signals.sort(key=lambda x: (-x["count"], x["code"]))
+    # 质量评分 (0-100)
+    _WB_SCORE_WEIGHTS = {
+        "sanxing_taodi": 30, "tupo_pingtai": 25, "tupo_pingtai_aggressive": 15,
+        "zhanwen_5w": 20, "zhouxian_duiliang": 15, "junxian_fangxiang": 10,
+    }
+    for s in signals:
+        score = sum(_WB_SCORE_WEIGHTS.get(p, 0) for p in (s.get("matched") or []))
+        s["score"] = min(score, 100)
+
+    # 按 score desc + count desc + code asc 排
+    signals.sort(key=lambda x: (-(x.get("score") or 0), -x["count"], x["code"]))
 
     return {
         "signals": signals,

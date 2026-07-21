@@ -1,0 +1,7 @@
+[      44ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:7799/?cb=999:0
+[   23505ms] ReferenceError: sec is not defined
+    at loadStockSector (http://localhost:7799/static/app.js:2557:26)
+[   47582ms] ReferenceError: sec is not defined
+    at loadStockSector (http://localhost:7799/static/app.js:2557:26)
+[   71244ms] ReferenceError: sec is not defined
+    at loadStockSector (http://localhost:7799/static/app.js:2557:26)

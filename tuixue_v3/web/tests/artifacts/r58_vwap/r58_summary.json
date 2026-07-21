@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "trades": 72,
+    "win_rate_pct": 98.61,
+    "avg_return_pct": 25.188,
+    "cum_return_pct": 374478723.21,
+    "vwap_below_skipped": 0,
+    "vwap_strict_mode": false,
+    "late_high_discount": 1
+  },
+  "strict_d1": {
+    "trades": 42,
+    "win_rate_pct": 97.62,
+    "avg_return_pct": 13.876,
+    "cum_return_pct": 20520.72,
+    "vwap_below_skipped": 32,
+    "vwap_strict_mode": true,
+    "late_high_discount": 1
+  },
+  "strict_d07": {
+    "trades": 42,
+    "win_rate_pct": 97.62,
+    "avg_return_pct": 9.844,
+    "cum_return_pct": 4734,
+    "vwap_below_skipped": 32,
+    "vwap_strict_mode": true,
+    "late_high_discount": 0.7
+  }
+}

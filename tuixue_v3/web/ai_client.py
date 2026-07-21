@@ -45,9 +45,35 @@ class _Bucket:
     total_latency_ms: float = 0.0
     last_latency_ms: float = 0.0
     ttfb_ms: float = 0.0
+    total_tokens: int = 0      # R7: 累计消耗 token
+    total_cost_usd: float = 0.0  # R7: 累计成本估算
     model: str = "unknown"
     name: str = "unknown"
     last_5_min: deque = field(default_factory=lambda: deque(maxlen=256))
+
+
+# R7: 模型 token 单价 (USD per 1k tokens) — 主流 MiniMax/Claude/GPT 估算
+# 实际计费按 provider 公告,这里用保守价,前端展示给用户参考
+_MODEL_PRICES = {
+    "MiniMax-M3":  {"input": 0.0008, "output": 0.0024},   # 占位价
+    "claude-opus-4-7":   {"input": 0.015, "output": 0.075},
+    "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
+    "claude-haiku-4-5":  {"input": 0.0008, "output": 0.004},
+    "gpt-4o":     {"input": 0.005, "output": 0.015},
+    "gpt-4o-mini":{"input": 0.00015, "output": 0.0006},
+}
+
+
+def _estimate_cost_usd(model: str, total_tokens: int) -> float:
+    """粗估一次调用的成本 (美元)。只用于指标展示,不作为计费依据。"""
+    if total_tokens <= 0:
+        return 0.0
+    p = _MODEL_PRICES.get(model) or _MODEL_PRICES.get("MiniMax-M3")
+    if not p:
+        return 0.0
+    # 简化: 50/50 input/output (实际 server 不会给 input/output 拆分)
+    blended = (p["input"] + p["output"]) / 2
+    return round(blended * total_tokens / 1000, 6)
 
 
 _BUCKETS: dict[str, _Bucket] = {}
@@ -167,8 +193,32 @@ def get_metrics() -> dict:
                 "last_latency_ms":round(b.last_latency_ms, 1),
                 "last_5_min_evt_count": len(b.last_5_min),
                 "model":          b.model,
+                "total_tokens":   b.total_tokens,
+                "total_cost_usd": round(b.total_cost_usd, 4),
             }
-        return out
+        # R7: 累加所有 bucket 的总成本,便于前端 dashboard 一眼看出
+        total_cost = sum(b.total_cost_usd for b in _BUCKETS.values())
+        total_tokens = sum(b.total_tokens for b in _BUCKETS.values())
+        out["total_cost_usd"] = round(total_cost, 4)
+        out["total_tokens"]   = total_tokens
+    # R-perf-020: 暴露熔断状态给前端 degraded UI(open=断路中,剩余冷却秒数)
+    now = time.monotonic()
+    breakers = {}
+    any_open = False
+    with _CB_LOCK:
+        for name, cb in _CB.items():
+            open_until = cb.get("open_until", 0.0)
+            is_open = open_until > now
+            if is_open:
+                any_open = True
+            breakers[name] = {
+                "open": is_open,
+                "cooldown_sec": round(max(0.0, open_until - now), 1),
+                "fail_streak": cb.get("fail_streak", 0),
+            }
+    out["breakers"] = breakers
+    out["any_breaker_open"] = any_open
+    return out
 
 
 def _record_metric(b: _Bucket, *, ok: bool, latency_ms: float, retry: int = 0,
@@ -321,6 +371,28 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]+?)(?:```|$)", re.IGNORECASE)
 _BODY_RE = re.compile(r"\{[\s\S]+")
 _TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 _PYTHON_LITERAL_RE = re.compile(r":\s*(True|False|None)\b")
+# R-sec-007: 清洗错误体里的 API key / cookie / token
+_AUTH_RE = re.compile(r'(?i)\b(authorization|x-api-key|api[_-]?key|cookie|set-cookie|token|secret)\b\s*[=:]\s*["\']?([^"\',;}{]+)')
+_BEARER_RE = re.compile(r"(?i)bearer\s+([a-z0-9._\-]{8,})")
+_SK_PREFIX_RE = re.compile(r"sk-[a-z0-9]{8,}", re.I)
+
+
+def _scrub_secrets(text: str | None) -> str:
+    """从错误体/响应里清掉 API key / token / cookie 等敏感片段。
+
+    上游常把请求头或回带完整片段放 4xx/5xx 错误里,这些字段进 last_err 后会:
+      - 进 log (磁盘)
+      - 进 toast/前端 (网络)
+      - 进抛出异常的 str
+    全部都要先 scrub。返回原长度基本一致,但所有 key 字段替换成 '[REDACTED]'。
+    """
+    if not text:
+        return text or ""
+    s = text
+    s = _AUTH_RE.sub(r"\1=[REDACTED]", s)
+    s = _BEARER_RE.sub("Bearer [REDACTED]", s)
+    s = _SK_PREFIX_RE.sub("sk-[REDACTED]", s)
+    return s
 
 
 def _try_json(s: str) -> dict | None:
@@ -675,15 +747,25 @@ def call(spec: CallSpec) -> tuple[str, dict, dict]:
                 t_req = time.monotonic()
                 r = _requests.post(spec.url, json=body, headers=spec.headers, timeout=spec.timeout)
                 last_status = r.status_code
-                last_body = r.text
+                # R-sec-007: 先清洗再存 — 上游错误体里会回带 request headers 完整片段
+                # (包括 Authorization: Bearer sk-xxx),错误如果直接进 last_err 会被 throw 到
+                # 上层日志/前端 toast → 泄露 API key
+                last_body = _scrub_secrets(r.text)
                 info["status"] = r.status_code
                 info["ttfb_ms"] = round((time.monotonic() - t_req) * 1000, 1)
 
                 if r.status_code == 200:
-                    j = r.json()
-                    content = j.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-                    finish = j.get("choices", [{}])[0].get("finish_reason", "?")
-                    usage = j.get("usage", {}) or {}
+                    j = r.json() or {}
+                    if not isinstance(j, dict):
+                        last_err = f"unexpected json type: {type(j).__name__}"
+                        log.warning(f"AI {last_err} name={spec.name} attempt={idx+1}")
+                        n_retries += 1
+                        continue
+                    choice = (j.get("choices") or [{}])[0] or {}
+                    msg = choice.get("message") or {}
+                    content = msg.get("content") or ""
+                    finish = choice.get("finish_reason", "?")
+                    usage = j.get("usage") or {}
                     info["tokens"] = usage.get("total_tokens")
                     if content.strip():
                         text = content
@@ -699,7 +781,7 @@ def call(spec: CallSpec) -> tuple[str, dict, dict]:
                     last_err = f"HTTP {r.status_code}"
                     continue
                 else:
-                    last_err = f"HTTP {r.status_code}: {r.text[:200]}"
+                    last_err = f"HTTP {r.status_code}: {_scrub_secrets(r.text)[:200]}"
                     break
             except _requests.exceptions.ReadTimeout as e:
                 last_err = f"ReadTimeout: {e}"
@@ -721,6 +803,15 @@ def call(spec: CallSpec) -> tuple[str, dict, dict]:
                 break
 
         info["latency_ms"] = round((time.monotonic() - t_start) * 1000, 1)
+
+        # R7: 累计 token + 成本估算
+        _tok = info.get("tokens") or 0
+        if _tok:
+            try:
+                b.total_tokens   += int(_tok)
+                b.total_cost_usd += _estimate_cost_usd(b.model, int(_tok))
+            except Exception:
+                pass
 
         if not text:
             _record_metric(b, ok=False, latency_ms=info["latency_ms"], retry=n_retries)
@@ -752,3 +843,27 @@ def default_url() -> str:
 
 def default_model() -> str:
     return os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+
+
+# R7: 批量并发调用 (限并发,避免打挂上游)
+async def call_batch(specs: list, max_concurrent: int = 4, return_exceptions: bool = True):
+    """并发跑多个 CallSpec,返回 [(text, parsed, info) | Exception] 同序列表。
+
+    用法:
+        specs = [build_spec(s) for s in items]
+        results = await ai_client.call_batch(specs, max_concurrent=3)
+        for item, res in zip(items, results):
+            if isinstance(res, Exception): ...
+    """
+    import asyncio
+    sem = asyncio.Semaphore(max_concurrent)
+    async def _one(spec):
+        async with sem:
+            try:
+                # call() 是同步,丢到默认 executor 避免阻塞事件循环
+                return await asyncio.get_running_loop().run_in_executor(None, call, spec)
+            except Exception as e:
+                if return_exceptions:
+                    return e
+                raise
+    return await asyncio.gather(*[_one(s) for s in specs])

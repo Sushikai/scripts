@@ -1,0 +1,92 @@
+- generic [active] [ref=f1e1]:
+  - link "跳到主内容" [ref=f1e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - complementary "主导航" [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - generic [ref=f1e5]: TUIXUE · 操作台
+      - generic [ref=f1e6]: 退学v3
+    - generic [ref=f1e7]: 工作台
+    - button "首页 01" [ref=f1e8] [cursor=pointer]:
+      - generic [ref=f1e15]: 首页
+      - generic [ref=f1e16]: "01"
+    - button "全 A 风向 02" [ref=f1e17] [cursor=pointer]:
+      - generic [ref=f1e23]: 全 A 风向
+      - generic [ref=f1e24]: "02"
+    - button "龙头 03" [ref=f1e25] [cursor=pointer]:
+      - generic [ref=f1e29]: 龙头
+      - generic [ref=f1e30]: "03"
+    - button "个股 04" [ref=f1e31] [cursor=pointer]:
+      - generic [ref=f1e37]: 个股
+      - generic [ref=f1e38]: "04"
+    - button "自选 05" [ref=f1e39] [cursor=pointer]:
+      - generic [ref=f1e43]: 自选
+      - generic [ref=f1e44]: "05"
+    - button "尾盘战法 09" [ref=f1e45] [cursor=pointer]:
+      - generic [ref=f1e51]: 尾盘战法
+      - generic [ref=f1e52]: "09"
+    - generic [ref=f1e53]: 系统
+    - button "调优 06" [ref=f1e54] [cursor=pointer]:
+      - generic [ref=f1e59]: 调优
+      - generic [ref=f1e60]: "06"
+    - button "心法 07" [ref=f1e61] [cursor=pointer]:
+      - generic [ref=f1e66]: 心法
+      - generic [ref=f1e67]: "07"
+    - button "周线擒牛 08" [ref=f1e68] [cursor=pointer]:
+      - generic [ref=f1e72]: 周线擒牛
+      - generic [ref=f1e73]: "08"
+    - button "策略选股 09" [ref=f1e74] [cursor=pointer]:
+      - generic [ref=f1e79]: 策略选股
+      - generic [ref=f1e80]: "09"
+    - button "复盘 08" [ref=f1e81] [cursor=pointer]:
+      - generic [ref=f1e86]: 复盘
+      - generic [ref=f1e87]: "08"
+    - generic [ref=f1e88]: 系统在线
+  - banner [ref=f1e92]:
+    - generic [ref=f1e93]:
+      - generic [ref=f1e94]:
+        - generic [ref=f1e95]: 退学
+        - generic [ref=f1e96]: v3
+        - generic [ref=f1e97]: TUIXUE · 操作台
+      - generic "连接正常 · 25s 心跳保活" [ref=f1e217]: 在线
+      - generic [ref=f1e171]: 已刷新 21:21:35
+      - button "切换主题" [ref=f1e101] [cursor=pointer]
+      - button "刷新" [ref=f1e105] [cursor=pointer]
+    - generic [ref=f1e108]:
+      - button "上证指数 3,764.15 -3.05%" [ref=f1e836] [cursor=pointer]:
+        - generic [ref=f1e837]: 上证指数
+        - generic [ref=f1e838]: 3,764.15
+        - generic [ref=f1e839]: "-3.05%"
+      - button "深证成指 13,706.88 -5.40%" [ref=f1e840] [cursor=pointer]:
+        - generic [ref=f1e841]: 深证成指
+        - generic [ref=f1e842]: 13,706.88
+        - generic [ref=f1e843]: "-5.40%"
+      - button "创业板指 3,428.63 -7.15%" [ref=f1e844] [cursor=pointer]:
+        - generic [ref=f1e845]: 创业板指
+        - generic [ref=f1e846]: 3,428.63
+        - generic [ref=f1e847]: "-7.15%"
+      - button "沪深300 4,529.10 -3.60%" [ref=f1e848] [cursor=pointer]:
+        - generic [ref=f1e849]: 沪深300
+        - generic [ref=f1e850]: 4,529.10
+        - generic [ref=f1e851]: "-3.60%"
+      - button "科创50 1,715.40 -7.12%" [ref=f1e852] [cursor=pointer]:
+        - generic [ref=f1e853]: 科创50
+        - generic [ref=f1e854]: 1,715.40
+        - generic [ref=f1e855]: "-7.12%"
+      - button "中证500 7,513.76 -5.55%" [ref=f1e856] [cursor=pointer]:
+        - generic [ref=f1e857]: 中证500
+        - generic [ref=f1e858]: 7,513.76
+        - generic [ref=f1e859]: "-5.55%"
+      - generic [ref=f1e860]:
+        - generic [ref=f1e861]: 涨停
+        - generic [ref=f1e862]: "33"
+  - main [ref=f1e110]:
+    - generic [ref=f1e863]:
+      - generic [ref=f1e864]:
+        - paragraph [ref=f1e865]: 周线 · 03b
+        - heading "周线擒牛" [level=1] [ref=f1e866]
+        - paragraph [ref=f1e867]: 5 大信号全市场扫描 · 三星探底 / 站稳5周线 / 突破震荡平台 / 均线方向 / 周线堆量
+        - generic [ref=f1e868]: —
+      - article [ref=f1e870]:
+        - generic [ref=f1e871]: SIGNALS · 5 大买点信号扫描
+        - paragraph [ref=f1e872]: "加载失败: 未知错误"
+    - text: 律 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段

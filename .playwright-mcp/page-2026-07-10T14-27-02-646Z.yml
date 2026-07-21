@@ -1,0 +1,81 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: 退学
+        - generic [ref=e6]: v3
+        - generic [ref=e7]: TUIXUE · 操作台
+      - button "切换主题" [ref=e8] [cursor=pointer]:
+        - img [ref=e9]
+      - button "刷新" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+    - generic [ref=e15]: 加载市场概览 …
+  - main [ref=e16]:
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - paragraph [ref=e19]: CONTROL DECK · 01
+        - heading "把模型交给纪律， 把判断留给人。" [level=1] [ref=e20]:
+          - text: 把模型交给纪律，
+          - text: 把判断留给人。
+        - paragraph [ref=e21]: 退学炒股四层流水线 · 远程触发 · 实时出结论
+      - generic [ref=e22]:
+        - article [ref=e23]:
+          - generic [ref=e24]: SCREEN · 实时龙头股
+          - heading "一键扫描" [level=2] [ref=e25]
+          - paragraph [ref=e26]: 跑完 L1 风控 → L2 周期闸门 → L3 形态 → L4 分时，按 L4→L1 优先级返回当日候选。
+          - button "立即扫描 ↗" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: 立即扫描
+            - generic [ref=e29]: ↗
+        - article [ref=e30]:
+          - generic [ref=e31]: ACCESS · 外网访问
+          - heading "扫码访问" [level=2] [ref=e32]
+          - paragraph [ref=e33]: 启动 Cloudflare Quick Tunnel,把本机操作台暴露到公网。
+          - generic [ref=e34]:
+            - generic [ref=e37]: 状态读取失败
+            - button "启动隧道" [ref=e38] [cursor=pointer]:
+              - generic [ref=e39]: 启动隧道
+          - generic [ref=e40]:
+            - generic [ref=e41]: —
+            - button "QR" [ref=e42] [cursor=pointer]
+          - generic [ref=e43]:
+            - img "QR Code" [ref=e44]
+            - paragraph [ref=e45]: 手机扫码 · 临时 URL · 重启会变
+          - group [ref=e46]:
+            - generic "如何换永久 URL？" [ref=e47] [cursor=pointer]
+      - generic [ref=e48]:
+        - article [ref=e49]:
+          - generic [ref=e50]: SECTOR · 板块快照
+          - heading "涨停池" [level=3] [ref=e51]
+          - generic [ref=e52]:
+            - generic [ref=e53]: —
+            - generic [ref=e54]: 只
+          - paragraph [ref=e55]: 今日连板家数 · 实时
+        - article [ref=e56]:
+          - generic [ref=e57]: SECTOR · 板块快照
+          - heading "沪深成交" [level=3] [ref=e58]
+          - generic [ref=e59]:
+            - generic [ref=e60]: —
+            - generic [ref=e61]: 亿
+          - paragraph [ref=e62]: 今日两市成交额（实时）
+        - article [ref=e63]:
+          - generic [ref=e64]: SECTOR · 系统状态
+          - heading "缓存命中" [level=3] [ref=e65]
+          - generic [ref=e66]:
+            - generic [ref=e67]: —
+            - generic [ref=e68]: "%"
+          - paragraph [ref=e69]: 最近一次扫描命中率
+      - article [ref=e70]:
+        - generic [ref=e71]: QUICK · 快捷入口
+        - heading "个股深查" [level=3] [ref=e72]
+        - generic [ref=e73]:
+          - textbox "输入股票代码或名称（如 600519 / 茅台）" [ref=e74]
+          - button "查询 →" [ref=e75] [cursor=pointer]
+    - text: 律
+  - navigation [ref=e76]:
+    - button "01 · 首页" [ref=e77] [cursor=pointer]
+    - button "02 · 扫描" [ref=e78] [cursor=pointer]
+    - button "03 · 龙头" [ref=e79] [cursor=pointer]
+    - button "04 · 个股" [ref=e80] [cursor=pointer]
+    - button "06 · 调优" [ref=e81] [cursor=pointer]
+    - button "07 · 心法" [ref=e82] [cursor=pointer]
+    - button "08 · 复盘" [ref=e83] [cursor=pointer]

@@ -1,0 +1,293 @@
+{
+  "summary": {
+    "universe_size": 3000,
+    "date_range": "20251017 ~ 20260715",
+    "data_source": "真实 4 层筛股流水线 + 日线 OHLC (并行 1000 只)",
+    "disclaimer": "买入价=T 日收盘(近似 14:30); 卖出用 T+1 OHLC 估算 9:30-10:00 区间; 涨跌比基于日线统计(全主板); L4(分时承接)在回测模式软通过(无历史分时); 续涨停延后一天处理",
+    "avg_monthly_by_strategy": {
+      "open": -3.84,
+      "S1": 1.21,
+      "avg_up": 5.02,
+      "max95": -1.36,
+      "low": -10.5,
+      "close": 0.24,
+      "twap": -1.77,
+      "tp2": 5.83,
+      "half": 0.54
+    },
+    "best_strategy": "tp2",
+    "best_avg_monthly": 5.83,
+    "total_trades": 3,
+    "recovery_rate": 100.0,
+    "recommend_reason": "tp2 跨窗口月均 +5.83% 最强 · 翻红率 100.0% · 涨跌比过滤阈值 60%"
+  },
+  "windows": [
+    {
+      "trades": 0,
+      "error": "no_trades",
+      "window": "1周",
+      "skipped_market": 3,
+      "skipped_no_pick": 0,
+      "skipped_data": 2
+    },
+    {
+      "trades": 3,
+      "n_dates": 22,
+      "months": 1.05,
+      "detail": [
+        {
+          "code": "002378",
+          "name": "章源钨业",
+          "score": 0,
+          "date_t": "20260615",
+          "date_t1": "20260616",
+          "buy_price": 37.28,
+          "sell_open": 36.2,
+          "hold_extended": false,
+          "open": -2.897,
+          "S1": 0.1,
+          "avg_up": 1.878,
+          "max95": 1.32,
+          "low": -3.729,
+          "close": 1.288,
+          "twap": -0.805,
+          "tp2": 2.0,
+          "half": -0.51,
+          "recovered": true,
+          "_advance_rate": 0.6629778672032193,
+          "_regime": "正常"
+        },
+        {
+          "code": "002440",
+          "name": "闰土股份",
+          "score": 0,
+          "date_t": "20260701",
+          "date_t1": "20260702",
+          "buy_price": 11.28,
+          "sell_open": 11.4,
+          "hold_extended": false,
+          "open": 1.064,
+          "S1": 1.064,
+          "avg_up": 1.108,
+          "max95": -3.905,
+          "low": -3.28,
+          "close": -2.394,
+          "twap": -0.665,
+          "tp2": 2.0,
+          "half": 1.086,
+          "recovered": true,
+          "_advance_rate": 0.8095238095238095,
+          "_regime": "全面牛市"
+        },
+        {
+          "code": "002038",
+          "name": "双鹭药业",
+          "score": 0,
+          "date_t": "20260703",
+          "date_t1": "20260706",
+          "buy_price": 6.39,
+          "sell_open": 6.25,
+          "hold_extended": false,
+          "open": -2.191,
+          "S1": 0.1,
+          "avg_up": 2.191,
+          "max95": 1.244,
+          "low": -4.382,
+          "close": 1.408,
+          "twap": -0.391,
+          "tp2": 2.0,
+          "half": -0.0,
+          "recovered": true,
+          "_advance_rate": 0.7019423978566645,
+          "_regime": "正常"
+        }
+      ],
+      "recovered": 3,
+      "hold_extended": 0,
+      "recovery_rate": 100.0,
+      "open": {
+        "total": -4.01,
+        "monthly": -3.84,
+        "win_rate": 33.3
+      },
+      "S1": {
+        "total": 1.27,
+        "monthly": 1.21,
+        "win_rate": 100.0
+      },
+      "avg_up": {
+        "total": 5.26,
+        "monthly": 5.02,
+        "win_rate": 100.0
+      },
+      "max95": {
+        "total": -1.43,
+        "monthly": -1.36,
+        "win_rate": 66.7
+      },
+      "low": {
+        "total": -10.97,
+        "monthly": -10.5,
+        "win_rate": 0.0
+      },
+      "close": {
+        "total": 0.26,
+        "monthly": 0.24,
+        "win_rate": 66.7
+      },
+      "twap": {
+        "total": -1.85,
+        "monthly": -1.77,
+        "win_rate": 0.0
+      },
+      "tp2": {
+        "total": 6.12,
+        "monthly": 5.83,
+        "win_rate": 100.0
+      },
+      "half": {
+        "total": 0.57,
+        "monthly": 0.54,
+        "win_rate": 33.3
+      },
+      "win_rate_open": 33.3,
+      "win_rate_S1": 100.0,
+      "window": "1月",
+      "skipped_market": 16,
+      "skipped_no_pick": 0,
+      "skipped_data": 2
+    }
+  ],
+  "scenarios": {
+    "_regime_counts": {
+      "全面牛市": 1,
+      "正常": 2
+    },
+    "全面牛市": {
+      "trades": 1,
+      "open": {
+        "avg_pct": 1.06,
+        "win_rate": 100.0,
+        "cum_return_pct": 1.06,
+        "n": 1
+      },
+      "S1": {
+        "avg_pct": 1.06,
+        "win_rate": 100.0,
+        "cum_return_pct": 1.06,
+        "n": 1
+      },
+      "avg_up": {
+        "avg_pct": 1.11,
+        "win_rate": 100.0,
+        "cum_return_pct": 1.11,
+        "n": 1
+      },
+      "max95": {
+        "avg_pct": -3.9,
+        "win_rate": 0.0,
+        "cum_return_pct": -3.91,
+        "n": 1
+      },
+      "close": {
+        "avg_pct": -2.39,
+        "win_rate": 0.0,
+        "cum_return_pct": -2.39,
+        "n": 1
+      },
+      "twap": {
+        "avg_pct": -0.67,
+        "win_rate": 0.0,
+        "cum_return_pct": -0.67,
+        "n": 1
+      },
+      "tp2": {
+        "avg_pct": 2.0,
+        "win_rate": 100.0,
+        "cum_return_pct": 2.0,
+        "n": 1
+      },
+      "half": {
+        "avg_pct": 1.09,
+        "win_rate": 100.0,
+        "cum_return_pct": 1.09,
+        "n": 1
+      },
+      "low": {
+        "avg_pct": -3.28,
+        "win_rate": 0.0,
+        "cum_return_pct": -3.28,
+        "n": 1
+      }
+    },
+    "正常": {
+      "trades": 2,
+      "open": {
+        "avg_pct": -2.54,
+        "win_rate": 0.0,
+        "cum_return_pct": -5.02,
+        "n": 2
+      },
+      "S1": {
+        "avg_pct": 0.1,
+        "win_rate": 100.0,
+        "cum_return_pct": 0.2,
+        "n": 2
+      },
+      "avg_up": {
+        "avg_pct": 2.03,
+        "win_rate": 100.0,
+        "cum_return_pct": 4.11,
+        "n": 2
+      },
+      "max95": {
+        "avg_pct": 1.28,
+        "win_rate": 100.0,
+        "cum_return_pct": 2.58,
+        "n": 2
+      },
+      "close": {
+        "avg_pct": 1.35,
+        "win_rate": 100.0,
+        "cum_return_pct": 2.71,
+        "n": 2
+      },
+      "twap": {
+        "avg_pct": -0.6,
+        "win_rate": 0.0,
+        "cum_return_pct": -1.19,
+        "n": 2
+      },
+      "tp2": {
+        "avg_pct": 2.0,
+        "win_rate": 100.0,
+        "cum_return_pct": 4.04,
+        "n": 2
+      },
+      "half": {
+        "avg_pct": -0.26,
+        "win_rate": 0.0,
+        "cum_return_pct": -0.51,
+        "n": 2
+      },
+      "low": {
+        "avg_pct": -4.06,
+        "win_rate": 0.0,
+        "cum_return_pct": -7.95,
+        "n": 2
+      }
+    }
+  },
+  "market_filter": {
+    "total_dates": 180,
+    "traded_dates": 164,
+    "skipped_market": 16,
+    "skip_rate": 8.9,
+    "threshold_pct": 60.0,
+    "threshold_desc": "大盘上涨比 < 60% (≈ 3000/5000 家) 时放弃交易"
+  },
+  "advance_rate_dates": 327,
+  "ts": "2026-07-15T20:07:19.980243",
+  "took_sec": 56.4,
+  "engine_version": "v3 (真实流水线 + 涨跌比过滤 + 场景分析)"
+}

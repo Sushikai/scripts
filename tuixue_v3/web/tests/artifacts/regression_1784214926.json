@@ -1,0 +1,131 @@
+{
+  "ts": 1784214926.775221,
+  "total": 17,
+  "counts": {
+    "PASS": 17,
+    "FAIL": 0,
+    "ERROR": 0,
+    "SKIP": 0
+  },
+  "results": [
+    {
+      "name": "api /api/dashboard/signal",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 8180.1
+    },
+    {
+      "name": "api /api/dashboard/hot_sectors",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.7
+    },
+    {
+      "name": "api /api/all_stocks/board",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.2
+    },
+    {
+      "name": "api /api/screener/backtest (无 run_id)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.9
+    },
+    {
+      "name": "api /api/screener/backtest POST 非法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.1
+    },
+    {
+      "name": "api /api/screener/backtest POST 合法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.6
+    },
+    {
+      "name": "api /api/review/portfolio",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 149.9
+    },
+    {
+      "name": "api /api/review/portfolio positions",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 17.6
+    },
+    {
+      "name": "api /api/stock/999999/intraday 404",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2254.8
+    },
+    {
+      "name": "api /api/global/sentiment",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 31.6
+    },
+    {
+      "name": "api /api/nonexistent/foo 404",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 22.6
+    },
+    {
+      "name": "api GET / (index.html)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 71.4
+    },
+    {
+      "name": "static /static/app.js",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 64.1
+    },
+    {
+      "name": "static /static/style.css",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 32.8
+    },
+    {
+      "name": "XSS /api/stock/<script>...</script>",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 31.0
+    },
+    {
+      "name": "XSS /api/screener/backtest payload",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 366.3
+    },
+    {
+      "name": "RCE /api/capital_flow 白名单拦截",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 42.0
+    }
+  ]
+}

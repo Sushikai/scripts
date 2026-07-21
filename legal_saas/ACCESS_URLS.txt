@@ -1,0 +1,23 @@
+# Legal SaaS 访问入口 · Sat Jul 18 21:51:45 CST 2026
+本机 (Mac):           http://127.0.0.1:7800
+局域网 (同 WiFi):     http://192.168.110.79:7800
+公网 (任意网络):       https://f9ccd0c3299a9b47-183-131-109-33.serveousercontent.com
+                       (首次访问点 "Continue to Site" 跳过警告页)
+
+视图数:  12 (dashboard/files/chat/templates/editor/generator/search/statutes/review/settings/tasks/logs)
+进程:    uvicorn PID 66822 · serveo PID 21098
+21775
+21794
+23653
+23961
+25684
+26369
+26603
+30874
+31417
+66402 · 端口 7800
+访问入口: 顶栏「🌐 访问」按钮 / 移动端 hamburger 菜单
+
+停止:
+  pkill -f 'uvicorn app.main'
+  pkill -f 'serveo.net'

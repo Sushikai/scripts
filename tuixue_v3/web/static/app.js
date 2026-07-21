@@ -1040,6 +1040,66 @@ function _viewFromHash() {
 var _VIEW_LEAVE_HOOKS = {};
 function _registerViewLeave(name, fn) { _VIEW_LEAVE_HOOKS[name] = fn; }
 
+// R-perf-024: 非首屏 view 保持经典脚本全局契约,但只在首次进入相关 view 时加载。
+// view-other 依赖 view-stock 的全局状态,固定顺序避免迁移期的 var 重置改变行为。
+const _VIEW_SCRIPT_PLAN = {
+  stock: ['view-stock.js'],
+  dragons: ['view-stock.js', 'view-other.js'],
+  watchlist: ['view-stock.js', 'view-other.js'],
+  review: ['view-stock.js', 'view-other.js'],
+  'ai-review': ['view-stock.js', 'view-other.js'],
+  weekly_bull: ['view-weekly_bull.js'],
+  strategy_picker: ['view-strategy_picker.js'],
+};
+const _VIEW_SCRIPT_PROMISES = new Map();
+const _VIEW_SCRIPT_LOADED = new Set();
+
+function _onDomReady(fn) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
+  } else {
+    queueMicrotask(fn);
+  }
+}
+
+function _assetVersionQuery() {
+  const appScript = Array.from(document.scripts).find((s) => /\/static\/app\.js(?:\?|$)/.test(s.src));
+  if (!appScript) return '';
+  try {
+    const version = new URL(appScript.src, location.href).searchParams.get('v');
+    return version ? `?v=${encodeURIComponent(version)}` : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function _loadViewScript(file) {
+  if (_VIEW_SCRIPT_LOADED.has(file)) return Promise.resolve();
+  if (_VIEW_SCRIPT_PROMISES.has(file)) return _VIEW_SCRIPT_PROMISES.get(file);
+  const promise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `/static/${file}${_assetVersionQuery()}`;
+    script.dataset.viewScript = file;
+    script.onload = () => {
+      _VIEW_SCRIPT_LOADED.add(file);
+      document.dispatchEvent(new CustomEvent('view-script-ready', { detail: { file } }));
+      resolve();
+    };
+    script.onerror = () => {
+      _VIEW_SCRIPT_PROMISES.delete(file);
+      reject(new Error(`加载 view 脚本失败: ${file}`));
+    };
+    document.head.appendChild(script);
+  });
+  _VIEW_SCRIPT_PROMISES.set(file, promise);
+  return promise;
+}
+
+function _ensureViewScripts(name) {
+  const files = _VIEW_SCRIPT_PLAN[name] || [];
+  return files.reduce((chain, file) => chain.then(() => _loadViewScript(file)), Promise.resolve());
+}
+
 // R5: hash 路由 — 让 #stock=603881 / #review / #dragons 都能深链
 // R31: 支持 ?view=screener search param + #bt&...&run=xxx hash params 自动触发 btStart
 function _routeFromHash() {
@@ -5002,65 +5062,52 @@ $('#dragons-refresh')?.addEventListener('click', () => loadDragons(true));
 // 全局绑定
 // ────────────────────────────────────────────
 var _origShowView = showView;
-showView = function(name, ctx) {
-  _origShowView(name);
+function _runViewEntry(name, ctx) {
   if (name === 'dragons') {
-    // R-fix-2026-07-20: 同样 race — view-other.js 还没 load 完毕时调 loadDragons 会抛
-    const _dragonsKickoff = () => {
-      if (typeof loadDragons !== 'function') return false;
-      if (!_dragonsLoaded) loadDragons(false);
-      return true;
-    };
-    if (!_dragonsKickoff()) {
-      window.addEventListener('DOMContentLoaded', _dragonsKickoff, { once: true });
-    }
+    if (typeof loadDragons === 'function' && !_dragonsLoaded) loadDragons(false);
   }
   if (name === 'weekly_bull') {
     const h = (location.hash || '');
     const m = h.match(/[?&]pattern=([^&]+)/);
     if (m && typeof _wbFilter !== 'undefined') {
       const pat = decodeURIComponent(m[1]);
-      if (_wbFilter !== pat) {
-        window._wbFilterOverride = pat;
-      }
+      if (_wbFilter !== pat) window._wbFilterOverride = pat;
     }
-    // R-fix-2026-07-20: view-weekly_bull.js 还在 defer load 中, 需等 DOMContentLoaded
-    // 否则 _routeFromHash 同步调用时 window.loadWeeklyBull 还不存在 → TypeError
-    const _wbKickoff = () => {
-      if (typeof window.loadWeeklyBull !== 'function') return false;
-      if (!window._wbLoaded || !window._wbLoaded()) {
-        window.loadWeeklyBull(false);
-      } else if (window._wbFilterOverride && typeof renderWeeklyBull === 'function') {
+    if (typeof window.loadWeeklyBull === 'function') {
+      if (!window._wbLoaded || !window._wbLoaded()) window.loadWeeklyBull(false);
+      else if (window._wbFilterOverride && typeof renderWeeklyBull === 'function') {
         _wbFilter = window._wbFilterOverride;
         window._wbFilterOverride = null;
         renderWeeklyBull();
       }
-      return true;
-    };
-    if (!_wbKickoff()) {
-      // 等 view 脚本就绪再重试一次
-      window.addEventListener('DOMContentLoaded', _wbKickoff, { once: true });
     }
   }
   if (name === 'strategy_picker') {
-    // R-fix-2026-07-20: 同样 race — view-strategy_picker.js 还没 load 完毕
-    const _spKickoff = () => {
-      if (typeof window.loadStrategyPicker !== 'function') return false;
-      if (!window._spLoaded || !window._spLoaded()) {
-        window.loadStrategyPicker(false);
-      }
-      return true;
-    };
-    if (!_spKickoff()) {
-      window.addEventListener('DOMContentLoaded', _spKickoff, { once: true });
+    if (typeof window.loadStrategyPicker === 'function' && (!window._spLoaded || !window._spLoaded())) {
+      window.loadStrategyPicker(false);
     }
   }
-  if (name === 'review') _reviewOnViewEnter();
-  if (name === 'watchlist') _watchlistOnViewEnter();
-  // 注: 板块详情页 (view-sector) 自 commit b95ae23 24项优化后, 跳转入口已统一改到
-  //     all_stocks?l2=NAME 过滤, 不再走 sector 视图. 这里保留判断避免将来误用.
-  if (name === 'sector') renderSectorDetail(ctx);
+  if (name === 'review' && typeof _reviewOnViewEnter === 'function') _reviewOnViewEnter();
+  if (name === 'watchlist' && typeof _watchlistOnViewEnter === 'function') _watchlistOnViewEnter();
+  if (name === 'ai-review' && typeof _airvOnViewEnter === 'function') _airvOnViewEnter();
+  if (name === 'sector' && typeof renderSectorDetail === 'function') renderSectorDetail(ctx);
+}
+showView = function(name, ctx) {
+  _origShowView(name, ctx);
+  _ensureViewScripts(name).then(() => {
+    if (_currentViewName === name) _runViewEntry(name, ctx);
+  }).catch((e) => {
+    console.error('[view-loader]', e);
+    toast(`${name} 页面脚本加载失败`, 'error');
+  });
 };
+
+// 个股入口在脚本加载完成前排队,避免 app.js 的旧实现先发一轮请求。
+const _appStockLoadStockDetail = window.loadStockDetail;
+window.loadStockDetail = (...args) => _loadViewScript('view-stock.js').then(() => {
+  const impl = window.__tx3StockLoadStockDetail;
+  return typeof impl === 'function' ? impl(...args) : _appStockLoadStockDetail(...args);
+});
 $$('[data-jump]').forEach(el => {
   el.addEventListener('click', () => {
     showView(el.dataset.jump);

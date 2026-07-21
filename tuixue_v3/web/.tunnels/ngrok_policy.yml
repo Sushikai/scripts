@@ -1,0 +1,15 @@
+# 2026-07-16: ngrok traffic policy — 在 on_http_response 阶段给所有响应注入 Set-Cookie,
+# 自动给浏览器种 abuse_interstitial cookie (value=domain) — 30 天有效期,
+# 期内访问都 bypass ngrok 6024 警告页。
+#
+# cookie 来源:
+#   1. 用户首次访问 → ngrok 6024 警告页 → 用户点 "Visit Site" 按钮
+#   2. ngrok 自己也种 abuse_interstitial cookie → reload → bypass 6024
+#   3. 之后本 policy 在 on_http_response 阶段再加 Set-Cookie 续期
+#   4. 用户后续 30 天访问都直接进 app,不需任何操作
+on_http_response:
+  - actions:
+      - type: add-headers
+        config:
+          headers:
+            set-cookie: "abuse_interstitial=nondepreciative-florentino-mimically.ngrok-free.dev; Path=/; Max-Age=2592000; Secure; SameSite=None"

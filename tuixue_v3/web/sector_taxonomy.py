@@ -359,6 +359,154 @@ def count_zt_by_chain(zt_codes: Iterable[str],
     return counts
 
 
+def _zt_pool_codes() -> list[str]:
+    """今日涨停代码 (走 data_layer 的统一入口,带 3 套逃生)。"""
+    try:
+        from .. import data_layer as dl
+        pool = dl.fetch_limit_up_pool() or []
+        return [str(z.get("code") or "").zfill(6) for z in pool]
+    except Exception:
+        return []
+
+
+def _build_zt_l2l3l4_index(zt_codes: list[str],
+                           sector_lookup=None) -> dict[str, dict[str, int]]:
+    """建立 3 层 (L2 sw / L3 chain / L4 sub) × 当日涨停代码 zt_count 索引。
+
+    返回: {"L2": {sw_name: n}, "L3": {chain_name: n}, "L4": {sub_name: n}}
+    所有 3 层并行计数,空层不会出现在结果 dict。
+    """
+    idx: dict[str, dict[str, int]] = {"L2": {}, "L3": {}, "L4": {}}
+    if not zt_codes:
+        return idx
+    if sector_lookup is None:
+        try:
+            from .sector_classify import get_sector
+            sector_lookup = get_sector
+        except Exception:
+            return idx
+
+    for code in zt_codes:
+        try:
+            sec = sector_lookup(code) or {}
+        except Exception:
+            continue
+        tax = sec.get("taxonomy") or {}
+        l2 = (tax.get("level2_sw") or "").strip()
+        l3 = (tax.get("level3_chain") or "").strip()
+        l4_list = tax.get("level4_subconcept") or []
+        # 涨停代码本身可能没 sector(冷门),也别漏
+        if not (l2 or l3 or l4_list):
+            sw_fallback = (sec.get("sw") or "").strip()
+            if sw_fallback:
+                idx["L2"][sw_fallback] = idx["L2"].get(sw_fallback, 0) + 1
+            continue
+        if l2:
+            idx["L2"][l2] = idx["L2"].get(l2, 0) + 1
+        if l3:
+            idx["L3"][l3] = idx["L3"].get(l3, 0) + 1
+        for sub in l4_list or []:
+            sub = (sub or "").strip()
+            if not sub:
+                continue
+            idx["L4"][sub] = idx["L4"].get(sub, 0) + 1
+    return idx
+
+
+# 2026-07-14: 用户要求 "板块涨停股数 跟每只个股对应,多股性列多个"。
+# 每个 code → 多层 chips (L2 sw / L3 chain / 每个 L4 sub),每条带"今日同 X 涨停 N 家"。
+def zt_chains_per_code(codes: list[str],
+                       zt_codes: list[str] | None = None,
+                       sector_lookup=None,
+                       mainline_threshold: int = MAINLINE_ZT_THRESHOLD) -> dict[str, list[dict]]:
+    """批量:对每个 code 给出"它所属的 L2/L3/L4 板块今日涨停股数",多股性列多条。
+
+    返回: {code: [
+        {"chain": "电子",       "level": "L2", "zt_count": 22, "is_mainline": True,  "samples": ["..."]},
+        {"chain": "HBM 存储",   "level": "L3", "zt_count": 8,  "is_mainline": False, "samples": ["..."]},
+        {"chain": "800G 光模块","level": "L4", "zt_count": 3,  "is_mainline": False, "samples": ["..."]},
+    ]}
+    列表按 zt_count 倒序。
+    """
+    out: dict[str, list[dict]] = {}
+    if not codes:
+        return out
+    if zt_codes is None:
+        zt_codes = _zt_pool_codes()
+    # 一次性建 3 层计数 + 抽样(每个 chain 前 3 只今天涨停的代码,便于前端 hover 看样本)
+    idx = _build_zt_l2l3l4_index(zt_codes, sector_lookup)
+
+    # 抽样:每个 chain 抽出至多 3 只 zt 样本(代码 → 名称,前端 hover 显示)
+    samples: dict[str, list[str]] = {"L2": {}, "L3": {}, "L4": {}}
+    if zt_codes and sector_lookup is None:
+        try:
+            from .sector_classify import get_sector
+            sector_lookup = get_sector
+        except Exception:
+            sector_lookup = None
+
+    if zt_codes and sector_lookup:
+        seen: dict[tuple[str, str], int] = {}
+        for c in zt_codes:
+            try:
+                sec = sector_lookup(c) or {}
+            except Exception:
+                continue
+            t = sec.get("taxonomy") or {}
+            name = sec.get("name") or c
+            sw = (t.get("level2_sw") or sec.get("sw") or "").strip()
+            l3 = (t.get("level3_chain") or "").strip()
+            l4s = t.get("level4_subconcept") or []
+            for level, chain, sample_name in (
+                ("L2", sw, name),
+                ("L3", l3, name),
+                *((("L4", s, name)) for s in l4s if s.strip()),
+            ):
+                if not chain:
+                    continue
+                key = (level, chain)
+                if seen.get(key, 0) >= 3:
+                    continue
+                samples.setdefault(level, {}).setdefault(chain, []).append(sample_name)
+                seen[key] = seen.get(key, 0) + 1
+
+    # 对每个 code,枚举它的所有 L2/L3/L4 板块,逐个查今天涨停数
+    if sector_lookup is None:
+        try:
+            from .sector_classify import get_sector
+            sector_lookup = get_sector
+        except Exception:
+            sector_lookup = lambda _c: {}
+
+    for code in codes:
+        cc = str(code).strip().zfill(6)
+        sec = sector_lookup(cc) or {}
+        tax = sec.get("taxonomy") or {}
+        l2 = (tax.get("level2_sw") or sec.get("sw") or "").strip()
+        l3 = (tax.get("level3_chain") or "").strip()
+        l4_list = [(s or "").strip() for s in (tax.get("level4_subconcept") or []) if (s or "").strip()]
+        rows: list[dict] = []
+        for level, chain in (
+            ("L2", l2),
+            ("L3", l3),
+            *((("L4", s)) for s in l4_list),
+        ):
+            if not chain:
+                continue
+            cnt = idx.get(level, {}).get(chain, 0)
+            rows.append({
+                "chain": chain,
+                "level": level,
+                "zt_count": cnt,
+                "is_mainline": (level == "L3" and cnt >= mainline_threshold),
+                "samples": samples.get(level, {}).get(chain, [])[:3],
+            })
+        # 按 zt_count 倒序,顶层热点排前面
+        rows.sort(key=lambda r: (-r["zt_count"], r["level"]))
+        out[cc] = rows
+    return out
+
+
 def detect_mainline(zt_codes: Iterable[str] | None = None,
                     chain_counts: dict[str, int] | None = None,
                     sector_lookup=None,
@@ -499,6 +647,70 @@ def fmt_taxonomy_short(tax: dict) -> str:
     if sub:
         parts.append("/".join(sub[:3]))
     return "·".join(p for p in parts if p)
+
+
+def classify_sector_name(name: str | None) -> dict:
+    """把一个「板块 / 概念名」字符串映射到 4 层 taxonomy 的紧凑格式。
+
+    用于只有板块名(没有个股代码)的场景:
+      - 首页 主线 Top5 (hot_sectors tiles)
+      - 龙头页 STEP2 今日主线 / STEP3 龙头候选 / STEP4 全部涨停
+
+    返回 (与 all_stocks 前端一致的 compact key):
+      {l1, l1_color, l2, l3, l3_source, l4, role}
+
+    匹配顺序:
+      1) 名字直接命中某条 L3 产业链 (ALL_CHAINS) → source=chain
+      2) 名字命中某个 L4 细分标签 → 反推 L3 → source=l4
+      3) normalize_to_sw + 启发式关键词 → source=heur
+      4) 兜底: 只有 L1/L2 或全空
+    """
+    empty = {"l1": "", "l1_color": "#888", "l2": "", "l3": "",
+             "l3_source": "", "l4": [], "role": ""}
+    name = (name or "").strip()
+    if not name:
+        return dict(empty)
+
+    def _pack(cluster: str, sw: str, l3: str, l4: list, src: str) -> dict:
+        return {
+            "l1": cluster or "",
+            "l1_color": CLUSTERS.get(cluster, {}).get("color", "#888"),
+            "l2": sw or "",
+            "l3": l3 or "",
+            "l3_source": src,
+            "l4": list(l4 or []),
+            "role": "",
+        }
+
+    # 1) 直接命中 L3 产业链
+    if name in ALL_CHAINS:
+        info = ALL_CHAINS[name]
+        sw = info.get("sw", "")
+        return _pack(sw_to_cluster(sw), sw, name, [], "chain")
+
+    # 2) 命中某个 L4 细分 → 反推它挂的 L3
+    for chain, info in ALL_CHAINS.items():
+        for sub in info.get("l4", []):
+            if sub and sub == name:
+                sw = info.get("sw", "")
+                return _pack(sw_to_cluster(sw), sw, chain, [sub], "l4")
+
+    # 3) normalize_to_sw + 启发式
+    sw: str | None = None
+    try:
+        from .sector_classify import normalize_to_sw
+        sw = normalize_to_sw(name)
+    except Exception:
+        sw = None
+    l3, l4 = _heuristic_from_text(name)
+    if l3 and not sw:
+        sw = l3_to_sw(l3) or ""
+    cluster = sw_to_cluster(sw) if sw else (sw_to_cluster(l3_to_sw(l3)) if l3 else "其他")
+    if sw or l3:
+        return _pack(cluster, sw or "", l3 or "", l4, "heur" if l3 else "sw")
+
+    # 4) 兜底全空
+    return dict(empty)
 
 
 def fmt_taxonomy_full(tax: dict) -> str:

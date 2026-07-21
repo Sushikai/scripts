@@ -1,166 +1,50 @@
-[2026-07-10 10:00:05] ============================================================
-[2026-07-10 10:00:05] YouTube故事AI视频搬运流水线启动
-[2026-07-10 10:00:15] [网络] YouTube预检失败: <urlopen error _ssl.c:999: The handshake operation timed out>，继续...
-[2026-07-10 10:00:29] [LLM] 生成关键词: ['AI generated emotional drama', 'Machine story sci-fi adventure', 'Artificial intelligence fantasy worlds', 'AI narrative romantic moments', 'Surprising horror tales AI created']
-[2026-07-10 10:00:29] [关键词] LLM关键词不足，自动补足: AI cinematic viral short
-[2026-07-10 10:00:29] [关键词] LLM关键词不足，自动补足: AI cinematic viral short
-[2026-07-10 10:00:29] [关键词] LLM关键词不足，自动补足: AI horror mystery short film
-[2026-07-10 10:00:29] [关键词] 共8个: ['AI generated emotional drama', 'Machine story sci-fi adventure', 'Artificial intelligence fantasy worlds', 'AI narrative romantic moments', 'Surprising horror tales AI created']...
-[2026-07-10 10:00:29] [搜索] YouTube关键词: AI generated emotional drama
-[2026-07-10 10:00:42]   [搜索] ytsearch 'AI generated emotional drama' 找到 20 个
-[2026-07-10 10:00:42]   找到 20 个视频
-[2026-07-10 10:00:44] [搜索] YouTube关键词: Machine story sci-fi adventure
-[2026-07-10 10:00:46]   [搜索] ytsearch 'Machine story sci-fi adventure' 找到 20 个
-[2026-07-10 10:00:46]   找到 20 个视频
-[2026-07-10 10:00:48] [搜索] YouTube关键词: Artificial intelligence fantasy worlds
-[2026-07-10 10:00:49]   [搜索] ytsearch 'Artificial intelligence fantasy worlds' 找到 20 个
-[2026-07-10 10:00:49]   找到 20 个视频
-[2026-07-10 10:00:51] [搜索] YouTube关键词: AI narrative romantic moments
-[2026-07-10 10:01:05]   [搜索] ytsearch 'AI narrative romantic moments' 找到 20 个
-[2026-07-10 10:01:05]   找到 20 个视频
-[2026-07-10 10:01:07] [搜索] YouTube关键词: Surprising horror tales AI created
-[2026-07-10 10:01:09]   [搜索] ytsearch 'Surprising horror tales AI created' 找到 20 个
-[2026-07-10 10:01:09]   找到 20 个视频
-[2026-07-10 10:01:11] [搜索] YouTube关键词: AI cinematic viral short
-[2026-07-10 10:02:39]   [搜索] ytsearch 'AI cinematic viral short' 失败(尝试1/3):  filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
-
-[2026-07-10 10:03:08]   [搜索] ytsearch 'AI cinematic viral short' 找到 20 个
-[2026-07-10 10:03:08]   找到 20 个视频
-[2026-07-10 10:03:10] [搜索] YouTube关键词: AI cinematic viral short
-[2026-07-10 10:03:23]   [搜索] ytsearch 'AI cinematic viral short' 找到 20 个
-[2026-07-10 10:03:23]   找到 20 个视频
-[2026-07-10 10:03:26] [搜索] YouTube关键词: AI horror mystery short film
-[2026-07-10 10:03:27]   [搜索] ytsearch 'AI horror mystery short film' 找到 20 个
-[2026-07-10 10:03:27]   找到 20 个视频
-[2026-07-10 10:03:29] [搜索] 共找到 160 个视频
-[2026-07-10 10:03:29] [候选] 155个（已排除下载过-14个 + 已上传19个）
-[2026-07-10 10:03:30]   评分 [7gZq6LbqGuw] rate=0.0 heat=0.1 dur=62.3 → 12.48 (播:1 赞:0 评:0 时长:179s)
-[2026-07-10 10:03:30]   [7gZq6LbqGuw] 赞:0 播:0 时长:179s → 评分:12.4750
-[2026-07-10 10:03:30]   评分 [CzejMMChyFw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1972s)
-[2026-07-10 10:03:30]   评分 [-482TEpzM98] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:7s)
-[2026-07-10 10:03:30]   [CzejMMChyFw] 赞:0 播:0 时长:1972s → 评分:2.0150
-[2026-07-10 10:03:30]   [-482TEpzM98] 赞:0 播:0 时长:7s → 评分:12.0150
-[2026-07-10 10:03:30]   评分 [Wld9e_zlLlI] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1148s)
-[2026-07-10 10:03:30]   评分 [f79ebC7MyJc] rate=0.0 heat=0.1 dur=76.4 → 15.30 (播:1 赞:0 评:0 时长:132s)
-[2026-07-10 10:03:30]   [Wld9e_zlLlI] 赞:0 播:0 时长:1148s → 评分:2.0150
-[2026-07-10 10:03:30]   [f79ebC7MyJc] 赞:0 播:0 时长:132s → 评分:15.2950
-[2026-07-10 10:03:30]   评分 [EwOE3J12Kw4] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-07-10 10:03:30]   [EwOE3J12Kw4] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-07-10 10:03:30]   评分 [c87u7Ed4JVU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1905s)
-[2026-07-10 10:03:30]   [c87u7Ed4JVU] 赞:0 播:0 时长:1905s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [N06-u6zOMXA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:630s)
-[2026-07-10 10:03:30]   [N06-u6zOMXA] 赞:0 播:0 时长:630s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [virmxkTGM-A] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:3572s)
-[2026-07-10 10:03:30]   [virmxkTGM-A] 赞:0 播:0 时长:3572s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [wErdtEO-bCE] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-07-10 10:03:30]   评分 [Sk7VXMh_wvk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:8112s)
-[2026-07-10 10:03:30]   评分 [b9edLYbs9fU] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-07-10 10:03:30]   [wErdtEO-bCE] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-07-10 10:03:30]   [b9edLYbs9fU] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-07-10 10:03:30]   [Sk7VXMh_wvk] 赞:0 播:0 时长:8112s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [Rq7FfciYgSk] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:4749s)
-[2026-07-10 10:03:30]   [Rq7FfciYgSk] 赞:0 播:0 时长:4749s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [Zk5KBGotA78] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1494s)
-[2026-07-10 10:03:30]   评分 [y6R4UOkDCJE] rate=0.0 heat=0.1 dur=60.0 → 12.02 (播:1 赞:0 评:0 时长:9s)
-[2026-07-10 10:03:30]   [Zk5KBGotA78] 赞:0 播:0 时长:1494s → 评分:2.0150
-[2026-07-10 10:03:30]   [y6R4UOkDCJE] 赞:0 播:0 时长:9s → 评分:12.0150
-[2026-07-10 10:03:30]   评分 [Bd7s0MsBweg] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:31s)
-[2026-07-10 10:03:30]   [Bd7s0MsBweg] 赞:0 播:0 时长:31s → 评分:20.0150
-[2026-07-10 10:03:30]   评分 [0v0kKyuCgCY] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:474s)
-[2026-07-10 10:03:30]   [0v0kKyuCgCY] 赞:0 播:0 时长:474s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [B46JA6LBpDc] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1072s)
-[2026-07-10 10:03:30]   [B46JA6LBpDc] 赞:0 播:0 时长:1072s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [GbbprRV-2-s] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1166s)
-[2026-07-10 10:03:30]   评分 [fsG_knvLj74] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:1982s)
-[2026-07-10 10:03:30]   [GbbprRV-2-s] 赞:0 播:0 时长:1166s → 评分:2.0150
-[2026-07-10 10:03:30]   [fsG_knvLj74] 赞:0 播:0 时长:1982s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [oTPR-pfTNVo] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:12707s)
-[2026-07-10 10:03:30]   [oTPR-pfTNVo] 赞:0 播:0 时长:12707s → 评分:2.0150
-[2026-07-10 10:03:30]   评分 [No-8n0pPu-4] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:2113s)
-[2026-07-10 10:03:30]   评分 [0s0rQWkM1ow] rate=0.0 heat=0.1 dur=100.0 → 20.02 (播:1 赞:0 评:0 时长:88s)
-[2026-07-10 10:03:30]   [No-8n0pPu-4] 赞:0 播:0 时长:2113s → 评分:2.0150
-[2026-07-10 10:03:30]   [0s0rQWkM1ow] 赞:0 播:0 时长:88s → 评分:20.0150
-[2026-07-10 10:03:30]   评分 [_lzBTMXvwoY] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:427s)
-[2026-07-10 10:03:30]   [_lzBTMXvwoY] 赞:0 播:0 时长:427s → 评分:2.0150
-[2026-07-10 10:03:31]   评分 [uWCGK4nneeU] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:569s)
-[2026-07-10 10:03:31]   [uWCGK4nneeU] 赞:0 播:0 时长:569s → 评分:2.0150
-[2026-07-10 10:03:31]   评分 [KWNhInG9b-k] rate=0.0 heat=0.1 dur=74.6 → 14.94 (播:1 赞:0 评:0 时长:138s)
-[2026-07-10 10:03:31]   [KWNhInG9b-k] 赞:0 播:0 时长:138s → 评分:14.9350
-[2026-07-10 10:03:31]   评分 [vP_l_4CV0V0] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:306s)
-[2026-07-10 10:03:31]   [vP_l_4CV0V0] 赞:0 播:0 时长:306s → 评分:2.0150
-[2026-07-10 10:03:31]   评分 [gFBw2nT5KXA] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:6296s)
-[2026-07-10 10:03:31]   [gFBw2nT5KXA] 赞:0 播:0 时长:6296s → 评分:2.0150
-[2026-07-10 10:03:31]   评分 [4gKBHYjbUAM] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:573s)
-[2026-07-10 10:03:31]   [4gKBHYjbUAM] 赞:0 播:0 时长:573s → 评分:2.0150
-[2026-07-10 10:03:31]   评分 [CioZkdZchaw] rate=0.0 heat=0.1 dur=10.0 → 2.02 (播:1 赞:0 评:0 时长:615s)
-[2026-07-10 10:03:31]   [CioZkdZchaw] 赞:0 播:0 时长:615s → 评分:2.0150
-[2026-07-10 10:03:31] [时长过滤] 30 -> 10 个（排除>300秒的）
-[2026-07-10 10:03:31] [选中] 将处理 2 个视频
-[2026-07-10 10:03:31] 
-========================================
-[2026-07-10 10:03:31] [处理] Bd7s0MsBweg: DANGEROUS LOVE – Episode 1 Part 3-4 Teaser ⚡ When Two Worlds Collide | GL SERIES
-[2026-07-10 10:03:31] [下载] 开始下载...
-[2026-07-10 10:03:31]   [下载] [1/3] Bd7s0MsBweg (单流MP4(hv))
-[2026-07-10 10:03:31]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:31]   [下载] [1/3] Bd7s0MsBweg (单流MP4(sys))
-[2026-07-10 10:03:31]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:31]   [下载] [1/3] Bd7s0MsBweg (720p合并)
-[2026-07-10 10:03:31]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:36]   [下载] [2/3] Bd7s0MsBweg (单流MP4(hv))
-[2026-07-10 10:03:37]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:37]   [下载] [2/3] Bd7s0MsBweg (单流MP4(sys))
-[2026-07-10 10:03:37]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:37]   [下载] [2/3] Bd7s0MsBweg (720p合并)
-[2026-07-10 10:03:37]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:47]   [下载] [3/3] Bd7s0MsBweg (单流MP4(hv))
-[2026-07-10 10:03:48]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:48]   [下载] [3/3] Bd7s0MsBweg (单流MP4(sys))
-[2026-07-10 10:03:48]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:48]   [下载] [3/3] Bd7s0MsBweg (720p合并)
-[2026-07-10 10:03:48]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:48]   [下载] 最终失败: Bd7s0MsBweg
-[2026-07-10 10:03:48] [下载] 失败，跳过
-[2026-07-10 10:03:48] 
-========================================
-[2026-07-10 10:03:48] [处理] 0s0rQWkM1ow: The Lazer Machine: A Sci-Fi Adventure Beyond the Stars
-[2026-07-10 10:03:48] [下载] 开始下载...
-[2026-07-10 10:03:48]   [下载] [1/3] 0s0rQWkM1ow (单流MP4(hv))
-[2026-07-10 10:03:48]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:48]   [下载] [1/3] 0s0rQWkM1ow (单流MP4(sys))
-[2026-07-10 10:03:48]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:48]   [下载] [1/3] 0s0rQWkM1ow (720p合并)
-[2026-07-10 10:03:48]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:54]   [下载] [2/3] 0s0rQWkM1ow (单流MP4(hv))
-[2026-07-10 10:03:54]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:54]   [下载] [2/3] 0s0rQWkM1ow (单流MP4(sys))
-[2026-07-10 10:03:54]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:03:54]   [下载] [2/3] 0s0rQWkM1ow (720p合并)
-[2026-07-10 10:03:54]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:04:04]   [下载] [3/3] 0s0rQWkM1ow (单流MP4(hv))
-[2026-07-10 10:04:05]   [下载] 单流MP4(hv)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:04:05]   [下载] [3/3] 0s0rQWkM1ow (单流MP4(sys))
-[2026-07-10 10:04:05]   [下载] 单流MP4(sys)失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:04:05]   [下载] [3/3] 0s0rQWkM1ow (720p合并)
-[2026-07-10 10:04:05]   [下载] 720p合并失败: could not find chrome cookies database in "/Users/kaikai/Library/Application Support/Google/Chrome"
-
-[2026-07-10 10:04:05]   [下载] 最终失败: 0s0rQWkM1ow
-[2026-07-10 10:04:05] [下载] 失败，跳过
-[2026-07-10 10:04:05] ============================================================
-[2026-07-10 10:04:05] ✅ 流水线完成!
+[2026-07-21 20:00:05] ============================================================
+[2026-07-21 20:00:05] YouTube故事AI视频搬运流水线启动
+[2026-07-21 20:00:15] [网络] YouTube预检失败: <urlopen error timed out>，继续...
+[2026-07-21 20:00:15] [LLM] 关键词生成失败: Empty result
+[2026-07-21 20:00:15] [关键词] LLM关键词不足，自动补足: surprising AI generated story
+[2026-07-21 20:00:15] [关键词] LLM关键词不足，自动补足: AI romance drama short video
+[2026-07-21 20:00:15] [关键词] LLM关键词不足，自动补足: artificial intelligence story drama
+[2026-07-21 20:00:15] [关键词] 共8个: ['AI story short film emotional', 'AI generated narrative drama', 'artificial intelligence fiction', 'AI cinematic story viral', 'machine learning short movie']...
+[2026-07-21 20:00:15] [搜索] YouTube关键词: AI story short film emotional
+[2026-07-21 20:02:15]   [搜索] ytsearch 'AI story short film emotional' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:04:20]   [搜索] ytsearch 'AI story short film emotional' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:06:25]   [搜索] ytsearch 'AI story short film emotional' 超时120s * 3次，退出
+[2026-07-21 20:06:25]   找到 0 个视频
+[2026-07-21 20:06:27] [搜索] YouTube关键词: AI generated narrative drama
+[2026-07-21 20:08:27]   [搜索] ytsearch 'AI generated narrative drama' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:10:32]   [搜索] ytsearch 'AI generated narrative drama' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:12:37]   [搜索] ytsearch 'AI generated narrative drama' 超时120s * 3次，退出
+[2026-07-21 20:12:37]   找到 0 个视频
+[2026-07-21 20:12:40] [搜索] YouTube关键词: artificial intelligence fiction
+[2026-07-21 20:14:40]   [搜索] ytsearch 'artificial intelligence fiction' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:16:45]   [搜索] ytsearch 'artificial intelligence fiction' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:18:50]   [搜索] ytsearch 'artificial intelligence fiction' 超时120s * 3次，退出
+[2026-07-21 20:18:50]   找到 0 个视频
+[2026-07-21 20:18:52] [搜索] YouTube关键词: AI cinematic story viral
+[2026-07-21 20:20:52]   [搜索] ytsearch 'AI cinematic story viral' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:22:57]   [搜索] ytsearch 'AI cinematic story viral' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:25:02]   [搜索] ytsearch 'AI cinematic story viral' 超时120s * 3次，退出
+[2026-07-21 20:25:02]   找到 0 个视频
+[2026-07-21 20:25:04] [搜索] YouTube关键词: machine learning short movie
+[2026-07-21 20:27:04]   [搜索] ytsearch 'machine learning short movie' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:29:09]   [搜索] ytsearch 'machine learning short movie' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:31:14]   [搜索] ytsearch 'machine learning short movie' 超时120s * 3次，退出
+[2026-07-21 20:31:14]   找到 0 个视频
+[2026-07-21 20:31:17] [搜索] YouTube关键词: surprising AI generated story
+[2026-07-21 20:33:17]   [搜索] ytsearch 'surprising AI generated story' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:35:22]   [搜索] ytsearch 'surprising AI generated story' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:37:27]   [搜索] ytsearch 'surprising AI generated story' 超时120s * 3次，退出
+[2026-07-21 20:37:27]   找到 0 个视频
+[2026-07-21 20:37:29] [搜索] YouTube关键词: AI romance drama short video
+[2026-07-21 20:39:29]   [搜索] ytsearch 'AI romance drama short video' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:41:34]   [搜索] ytsearch 'AI romance drama short video' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:43:39]   [搜索] ytsearch 'AI romance drama short video' 超时120s * 3次，退出
+[2026-07-21 20:43:39]   找到 0 个视频
+[2026-07-21 20:43:41] [搜索] YouTube关键词: artificial intelligence story drama
+[2026-07-21 20:45:41]   [搜索] ytsearch 'artificial intelligence story drama' 超时120s(尝试1/3)，重试...
+[2026-07-21 20:47:46]   [搜索] ytsearch 'artificial intelligence story drama' 超时120s(尝试2/3)，重试...
+[2026-07-21 20:49:51]   [搜索] ytsearch 'artificial intelligence story drama' 超时120s * 3次，退出
+[2026-07-21 20:49:51]   找到 0 个视频
+[2026-07-21 20:49:54] [搜索] 共找到 0 个视频
+[2026-07-21 20:49:54] [搜索] 失败，退出

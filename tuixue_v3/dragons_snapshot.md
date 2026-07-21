@@ -1,0 +1,550 @@
+- generic [active] [ref=f1e1]:
+  - link "跳到主内容" [ref=f1e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - complementary "主导航" [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - generic [ref=f1e5]: TUIXUE · 操作台
+      - generic [ref=f1e6]: 退学v3
+    - generic [ref=f1e7]: 工作台
+    - button "首页 01" [ref=f1e8] [cursor=pointer]:
+      - generic [ref=f1e15]: 首页
+      - generic [ref=f1e16]: "01"
+    - button "全 A 风向 02" [ref=f1e17] [cursor=pointer]:
+      - generic [ref=f1e23]: 全 A 风向
+      - generic [ref=f1e24]: "02"
+    - button "龙头 03" [ref=f1e25] [cursor=pointer]:
+      - generic [ref=f1e29]: 龙头
+      - generic [ref=f1e30]: "03"
+    - button "个股 04" [ref=f1e31] [cursor=pointer]:
+      - generic [ref=f1e37]: 个股
+      - generic [ref=f1e38]: "04"
+    - button "自选 05" [ref=f1e39] [cursor=pointer]:
+      - generic [ref=f1e43]: 自选
+      - generic [ref=f1e44]: "05"
+    - button "尾盘战法 09" [ref=f1e45] [cursor=pointer]:
+      - generic [ref=f1e51]: 尾盘战法
+      - generic [ref=f1e52]: "09"
+    - generic [ref=f1e53]: 系统
+    - button "调优 06" [ref=f1e54] [cursor=pointer]:
+      - generic [ref=f1e59]: 调优
+      - generic [ref=f1e60]: "06"
+    - button "心法 07" [ref=f1e61] [cursor=pointer]:
+      - generic [ref=f1e66]: 心法
+      - generic [ref=f1e67]: "07"
+    - button "周线擒牛 08" [ref=f1e68] [cursor=pointer]:
+      - generic [ref=f1e72]: 周线擒牛
+      - generic [ref=f1e73]: "08"
+    - button "策略选股 09" [ref=f1e74] [cursor=pointer]:
+      - generic [ref=f1e79]: 策略选股
+      - generic [ref=f1e80]: "09"
+    - button "复盘 08" [ref=f1e81] [cursor=pointer]:
+      - generic [ref=f1e86]: 复盘
+      - generic [ref=f1e87]: "08"
+    - generic [ref=f1e88]: 系统在线
+  - banner [ref=f1e92]:
+    - generic [ref=f1e93]:
+      - generic [ref=f1e94]:
+        - generic [ref=f1e95]: 退学
+        - generic [ref=f1e96]: v3
+        - generic [ref=f1e97]: TUIXUE · 操作台
+      - generic "连接正常 · 25s 心跳保活" [ref=f1e217]: 在线
+      - generic [ref=f1e171]: 已刷新 21:21:05
+      - button "切换主题" [ref=f1e101] [cursor=pointer]
+      - button "刷新" [ref=f1e105] [cursor=pointer]
+    - generic [ref=f1e108]:
+      - button "上证指数 3,764.15 -3.05%" [ref=f1e218] [cursor=pointer]:
+        - generic [ref=f1e219]: 上证指数
+        - generic [ref=f1e220]: 3,764.15
+        - generic [ref=f1e221]: "-3.05%"
+      - button "深证成指 13,706.88 -5.40%" [ref=f1e222] [cursor=pointer]:
+        - generic [ref=f1e223]: 深证成指
+        - generic [ref=f1e224]: 13,706.88
+        - generic [ref=f1e225]: "-5.40%"
+      - button "创业板指 3,428.63 -7.15%" [ref=f1e226] [cursor=pointer]:
+        - generic [ref=f1e227]: 创业板指
+        - generic [ref=f1e228]: 3,428.63
+        - generic [ref=f1e229]: "-7.15%"
+      - button "沪深300 4,529.10 -3.60%" [ref=f1e230] [cursor=pointer]:
+        - generic [ref=f1e231]: 沪深300
+        - generic [ref=f1e232]: 4,529.10
+        - generic [ref=f1e233]: "-3.60%"
+      - button "科创50 1,715.40 -7.12%" [ref=f1e234] [cursor=pointer]:
+        - generic [ref=f1e235]: 科创50
+        - generic [ref=f1e236]: 1,715.40
+        - generic [ref=f1e237]: "-7.12%"
+      - button "中证500 7,513.76 -5.55%" [ref=f1e238] [cursor=pointer]:
+        - generic [ref=f1e239]: 中证500
+        - generic [ref=f1e240]: 7,513.76
+        - generic [ref=f1e241]: "-5.55%"
+      - generic [ref=f1e242]:
+        - generic [ref=f1e243]: 涨停
+        - generic [ref=f1e244]: "33"
+  - main [ref=f1e110]:
+    - generic [ref=f1e245]:
+      - generic [ref=f1e246]:
+        - paragraph [ref=f1e247]: 龙头 · 03
+        - heading "龙头战法" [level=1] [ref=f1e248]
+        - paragraph [ref=f1e249]: 四步流水线 · 情绪 → 主线 → 龙头 → 决策 · 8 维评分 (含周线擒牛 + 回升位)
+        - generic [ref=f1e250]:
+          - generic [ref=f1e251]: "20260719"
+          - generic [ref=f1e252]: 耗时 27.1s · 评分 33只 · 龙虎榜 20/33 · 技术面 32/33
+          - button "手动刷新 ↻" [ref=f1e253] [cursor=pointer]:
+            - generic [ref=f1e254]: 手动刷新
+            - generic [ref=f1e255]: ↻
+      - article [ref=f1e256]:
+        - generic [ref=f1e257]: STEP 1 · 整体情绪
+        - generic [ref=f1e258]:
+          - generic [ref=f1e259]:
+            - text: 一般 · 小仓低吸 · 有5板(极高)
+            - generic [ref=f1e282]: "操作: 小仓"
+          - generic [ref=f1e260]:
+            - generic [ref=f1e261]: 涨停 33
+            - generic [ref=f1e262]: 最高连板 5板
+            - generic [ref=f1e263]: 连板梯队 5板×1 · 4板×1 · 3板×3 · 2板×4 · 1板×24
+      - article [ref=f1e264]:
+        - generic [ref=f1e265]: STEP 2 · 今日主线 Top 5
+        - generic [ref=f1e266]:
+          - generic [ref=f1e283] [cursor=pointer]:
+            - link "元件" [ref=f1e284]:
+              - /url: "#"
+            - generic [ref=f1e285]: "-8.76% 净流入 76.43亿"
+            - generic [ref=f1e286]:
+              - text: 流#1
+              - generic [ref=f1e287]: 大科技
+          - generic [ref=f1e288] [cursor=pointer]:
+            - link "电力" [ref=f1e289]:
+              - /url: "#"
+            - generic [ref=f1e290]: +1.25% 净流入 45.11亿
+            - generic [ref=f1e291]:
+              - text: 流#3幅#1
+              - generic [ref=f1e292]: 大科技
+          - generic [ref=f1e293] [cursor=pointer]:
+            - link "银行" [ref=f1e294]:
+              - /url: "#"
+            - generic [ref=f1e295]: +0.40% 净流入 74.22亿
+            - generic [ref=f1e296]:
+              - text: 流#2幅#2
+              - generic [ref=f1e297]: 金融
+          - generic [ref=f1e298] [cursor=pointer]:
+            - link "港口航运" [ref=f1e299]:
+              - /url: "#"
+            - generic [ref=f1e300]: "-0.41% 净流入 2.28亿"
+            - generic [ref=f1e301]:
+              - text: 流#14幅#3
+              - generic [ref=f1e302]: 周期资源
+          - generic [ref=f1e303] [cursor=pointer]:
+            - link "通信设备" [ref=f1e304]:
+              - /url: "#"
+            - generic [ref=f1e305]: "-7.19% 净流入 17.54亿"
+            - generic [ref=f1e306]:
+              - text: 流#4
+              - generic [ref=f1e307]: 大科技
+      - article [ref=f1e268]:
+        - generic [ref=f1e269]: STEP 3 · 龙头候选 Top 10
+        - paragraph [ref=f1e270]: 6 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 (满分 128, 封单降级时 108)
+        - generic [ref=f1e271]:
+          - generic [ref=f1e308] [cursor=pointer]:
+            - generic [ref=f1e309]:
+              - generic [ref=f1e310]: "#1"
+              - generic [ref=f1e311]: "001258"
+              - generic [ref=f1e312]: 立新能源
+              - generic [ref=f1e313]: "55.4"
+              - generic "上一轮低点 A=6.37 (2026-07-14), 高点 B=8.27 (2026-07-17), 涨幅 +29.83%。1/3 回升位 (A + (B-A)" [ref=f1e314]: 1/3位=7.003
+            - generic [ref=f1e315]:
+              - generic [ref=f1e316]: 电力
+              - generic [ref=f1e317]: 主线
+              - generic [ref=f1e318]: · 2板 · 市值77.2亿 · 换手6.1% · 封成17.5%
+            - generic [ref=f1e319]:
+              - generic [ref=f1e320]:
+                - generic [ref=f1e321]: 连板强度
+                - generic [ref=f1e324]: 15/30
+              - generic [ref=f1e325]:
+                - generic [ref=f1e326]: 资金认可
+                - generic [ref=f1e328]: 0/30
+              - generic [ref=f1e329]:
+                - generic [ref=f1e330]: 封成比
+                - generic [ref=f1e333]: 14/20
+              - generic [ref=f1e334]:
+                - generic [ref=f1e335]: 市值匹配
+                - generic [ref=f1e338]: 15/15
+              - generic [ref=f1e339]:
+                - generic [ref=f1e340]: 技术形态
+                - generic [ref=f1e343]: 18/18
+              - generic [ref=f1e344]:
+                - generic [ref=f1e345]: 题材纯度
+                - generic [ref=f1e348]: 15/15
+              - generic [ref=f1e349]:
+                - generic [ref=f1e350]: 周线擒牛
+                - generic [ref=f1e352]: 0/12
+              - generic [ref=f1e353]:
+                - generic [ref=f1e354]: 回升位
+                - generic [ref=f1e357]: 5/8
+            - generic [ref=f1e358]: 「北向深」「炒股养家」
+          - generic [ref=f1e359] [cursor=pointer]:
+            - generic [ref=f1e360]:
+              - generic [ref=f1e361]: "#2"
+              - generic [ref=f1e362]: "603580"
+              - generic [ref=f1e363]: 艾艾精工
+              - generic [ref=f1e364]: "50.7"
+              - generic [ref=f1e365]: 周线 1/5
+              - generic "上一轮低点 A=13.48 (2026-02-05), 高点 B=44.92 (2026-07-17), 涨幅 +233.23%。1/3 回升位 (A + (B" [ref=f1e366]: 1/3位=23.96
+            - generic [ref=f1e367]:
+              - generic [ref=f1e368]: 塑料
+              - generic [ref=f1e369]: · 4板 · 市值58.7亿 · 换手0.2% · 封成1559.0%
+            - generic "周收 44.92 突破前 5 周高点 30.13" [ref=f1e371]: 突破震荡平台
+            - generic [ref=f1e372]:
+              - generic [ref=f1e373]:
+                - generic [ref=f1e374]: 连板强度
+                - generic [ref=f1e377]: 25/30
+              - generic [ref=f1e378]:
+                - generic [ref=f1e379]: 资金认可
+                - generic [ref=f1e381]: 0/30
+              - generic [ref=f1e382]:
+                - generic [ref=f1e383]: 封成比
+                - generic [ref=f1e386]: 20/20
+              - generic [ref=f1e387]:
+                - generic [ref=f1e388]: 市值匹配
+                - generic [ref=f1e391]: 15/15
+              - generic [ref=f1e392]:
+                - generic [ref=f1e393]: 技术形态
+                - generic [ref=f1e396]: 8/18
+              - generic [ref=f1e397]:
+                - generic [ref=f1e398]: 题材纯度
+                - generic [ref=f1e400]: 0/15
+              - generic [ref=f1e401]:
+                - generic [ref=f1e402]: 周线擒牛
+                - generic [ref=f1e405]: 2/12
+              - generic [ref=f1e406]:
+                - generic [ref=f1e407]: 回升位
+                - generic [ref=f1e410]: 5/8
+            - generic [ref=f1e411]: 「拉萨天团」
+          - generic [ref=f1e412] [cursor=pointer]:
+            - generic [ref=f1e413]:
+              - generic [ref=f1e414]: "#3"
+              - generic [ref=f1e415]: "002677"
+              - generic [ref=f1e416]: 浙江美大
+              - generic [ref=f1e417]: "47.3"
+              - generic [ref=f1e418]: 周线 1/5
+              - generic "上一轮低点 A=5.41 (2026-06-29), 高点 B=7.95 (2026-07-17), 涨幅 +46.95%。1/3 回升位 (A + (B-A)" [ref=f1e419]: 1/3位=6.257
+            - generic [ref=f1e420]:
+              - generic [ref=f1e421]: 厨卫电器
+              - generic [ref=f1e422]: · 3板 · 市值43.8亿 · 换手1.2% · 封成166.2%
+            - generic "放量阳线收 7.23, 站上 5W 均线 6.41, 不再创新低" [ref=f1e424]: 站稳5周线
+            - generic [ref=f1e425]:
+              - generic [ref=f1e426]:
+                - generic [ref=f1e427]: 连板强度
+                - generic [ref=f1e430]: 20/30
+              - generic [ref=f1e431]:
+                - generic [ref=f1e432]: 资金认可
+                - generic [ref=f1e434]: 0/30
+              - generic [ref=f1e435]:
+                - generic [ref=f1e436]: 封成比
+                - generic [ref=f1e439]: 20/20
+              - generic [ref=f1e440]:
+                - generic [ref=f1e441]: 市值匹配
+                - generic [ref=f1e444]: 15/15
+              - generic [ref=f1e445]:
+                - generic [ref=f1e446]: 技术形态
+                - generic [ref=f1e449]: 8/18
+              - generic [ref=f1e450]:
+                - generic [ref=f1e451]: 题材纯度
+                - generic [ref=f1e453]: 0/15
+              - generic [ref=f1e454]:
+                - generic [ref=f1e455]: 周线擒牛
+                - generic [ref=f1e458]: 2/12
+              - generic [ref=f1e459]:
+                - generic [ref=f1e460]: 回升位
+                - generic [ref=f1e463]: 5/8
+            - generic [ref=f1e464]: 「北向深」「机构席位」
+          - generic [ref=f1e465] [cursor=pointer]:
+            - generic [ref=f1e466]:
+              - generic [ref=f1e467]: "#4"
+              - generic [ref=f1e468]: "000899"
+              - generic [ref=f1e469]: 赣能股份
+              - generic [ref=f1e470]: "46.6"
+              - generic "上一轮低点 A=9.35 (2026-07-09), 高点 B=10.7 (2026-07-17), 涨幅 +14.44%。1/3 回升位 (A + (B-A)" [ref=f1e471]: 1/3位=9.8
+            - generic [ref=f1e472]:
+              - generic [ref=f1e473]: 电力
+              - generic [ref=f1e474]: 主线
+              - generic [ref=f1e475]: · 1板 · 市值104.4亿 · 换手3.9% · 封成19.5%
+            - generic [ref=f1e476]:
+              - generic [ref=f1e477]:
+                - generic [ref=f1e478]: 连板强度
+                - generic [ref=f1e481]: 5/30
+              - generic [ref=f1e482]:
+                - generic [ref=f1e483]: 资金认可
+                - generic [ref=f1e485]: 0/30
+              - generic [ref=f1e486]:
+                - generic [ref=f1e487]: 封成比
+                - generic [ref=f1e490]: 14/20
+              - generic [ref=f1e491]:
+                - generic [ref=f1e492]: 市值匹配
+                - generic [ref=f1e495]: 12/15
+              - generic [ref=f1e496]:
+                - generic [ref=f1e497]: 技术形态
+                - generic [ref=f1e500]: 18/18
+              - generic [ref=f1e501]:
+                - generic [ref=f1e502]: 题材纯度
+                - generic [ref=f1e505]: 15/15
+              - generic [ref=f1e506]:
+                - generic [ref=f1e507]: 周线擒牛
+                - generic [ref=f1e509]: 0/12
+              - generic [ref=f1e510]:
+                - generic [ref=f1e511]: 回升位
+                - generic [ref=f1e514]: 5/8
+          - generic [ref=f1e515] [cursor=pointer]:
+            - generic [ref=f1e516]:
+              - generic [ref=f1e517]: "#5"
+              - generic [ref=f1e518]: "600644"
+              - generic [ref=f1e519]: 乐山电力
+              - generic [ref=f1e520]: "41.9"
+              - generic "上一轮低点 A=7.51 (2026-07-09), 高点 B=9.01 (2026-07-17), 涨幅 +19.97%。1/3 回升位 (A + (B-A)" [ref=f1e521]: 1/3位=8.01
+            - generic [ref=f1e522]:
+              - generic [ref=f1e523]: 电力
+              - generic [ref=f1e524]: 主线
+              - generic [ref=f1e525]: · 1板 · 市值52.1亿 · 换手7.6% · 封成16.4%
+            - generic [ref=f1e526]:
+              - generic [ref=f1e527]:
+                - generic [ref=f1e528]: 连板强度
+                - generic [ref=f1e531]: 5/30
+              - generic [ref=f1e532]:
+                - generic [ref=f1e533]: 资金认可
+                - generic [ref=f1e535]: 0/30
+              - generic [ref=f1e536]:
+                - generic [ref=f1e537]: 封成比
+                - generic [ref=f1e540]: 14/20
+              - generic [ref=f1e541]:
+                - generic [ref=f1e542]: 市值匹配
+                - generic [ref=f1e545]: 15/15
+              - generic [ref=f1e546]:
+                - generic [ref=f1e547]: 技术形态
+                - generic [ref=f1e550]: 8/18
+              - generic [ref=f1e551]:
+                - generic [ref=f1e552]: 题材纯度
+                - generic [ref=f1e555]: 15/15
+              - generic [ref=f1e556]:
+                - generic [ref=f1e557]: 周线擒牛
+                - generic [ref=f1e559]: 0/12
+              - generic [ref=f1e560]:
+                - generic [ref=f1e561]: 回升位
+                - generic [ref=f1e564]: 5/8
+          - generic [ref=f1e565] [cursor=pointer]:
+            - generic [ref=f1e566]:
+              - generic [ref=f1e567]: "#6"
+              - generic [ref=f1e568]: "000037"
+              - generic [ref=f1e569]: 深南电A
+              - generic [ref=f1e570]: "41.9"
+              - generic "上一轮低点 A=7.88 (2026-07-09), 高点 B=9.2 (2026-07-17), 涨幅 +16.75%。1/3 回升位 (A + (B-A)/" [ref=f1e571]: 1/3位=8.32
+            - generic [ref=f1e572]:
+              - generic [ref=f1e573]: 电力
+              - generic [ref=f1e574]: 主线
+              - generic [ref=f1e575]: · 1板 · 市值31.2亿 · 换手10.7% · 封成10.2%
+            - generic [ref=f1e576]:
+              - generic [ref=f1e577]:
+                - generic [ref=f1e578]: 连板强度
+                - generic [ref=f1e581]: 5/30
+              - generic [ref=f1e582]:
+                - generic [ref=f1e583]: 资金认可
+                - generic [ref=f1e585]: 0/30
+              - generic [ref=f1e586]:
+                - generic [ref=f1e587]: 封成比
+                - generic [ref=f1e590]: 14/20
+              - generic [ref=f1e591]:
+                - generic [ref=f1e592]: 市值匹配
+                - generic [ref=f1e595]: 15/15
+              - generic [ref=f1e596]:
+                - generic [ref=f1e597]: 技术形态
+                - generic [ref=f1e600]: 8/18
+              - generic [ref=f1e601]:
+                - generic [ref=f1e602]: 题材纯度
+                - generic [ref=f1e605]: 15/15
+              - generic [ref=f1e606]:
+                - generic [ref=f1e607]: 周线擒牛
+                - generic [ref=f1e609]: 0/12
+              - generic [ref=f1e610]:
+                - generic [ref=f1e611]: 回升位
+                - generic [ref=f1e614]: 5/8
+            - generic [ref=f1e615]: 换手10.7%>10%极度活跃,警惕出货
+          - generic [ref=f1e616] [cursor=pointer]:
+            - generic [ref=f1e617]:
+              - generic [ref=f1e618]: "#7"
+              - generic [ref=f1e619]: "600744"
+              - generic [ref=f1e620]: 华银电力
+              - generic [ref=f1e621]: "41.2"
+              - generic "上一轮低点 A=5.22 (2026-07-14), 高点 B=5.96 (2026-07-17), 涨幅 +14.18%。1/3 回升位 (A + (B-A)" [ref=f1e622]: 1/3位=5.467
+            - generic [ref=f1e623]:
+              - generic [ref=f1e624]: 电力
+              - generic [ref=f1e625]: 主线
+              - generic [ref=f1e626]: · 1板 · 市值121.1亿 · 换手4.2% · 封成35.9%
+            - generic [ref=f1e627]:
+              - generic [ref=f1e628]:
+                - generic [ref=f1e629]: 连板强度
+                - generic [ref=f1e632]: 5/30
+              - generic [ref=f1e633]:
+                - generic [ref=f1e634]: 资金认可
+                - generic [ref=f1e636]: 0/30
+              - generic [ref=f1e637]:
+                - generic [ref=f1e638]: 封成比
+                - generic [ref=f1e641]: 20/20
+              - generic [ref=f1e642]:
+                - generic [ref=f1e643]: 市值匹配
+                - generic [ref=f1e646]: 8/15
+              - generic [ref=f1e647]:
+                - generic [ref=f1e648]: 技术形态
+                - generic [ref=f1e651]: 8/18
+              - generic [ref=f1e652]:
+                - generic [ref=f1e653]: 题材纯度
+                - generic [ref=f1e656]: 15/15
+              - generic [ref=f1e657]:
+                - generic [ref=f1e658]: 周线擒牛
+                - generic [ref=f1e660]: 0/12
+              - generic [ref=f1e661]:
+                - generic [ref=f1e662]: 回升位
+                - generic [ref=f1e665]: 5/8
+          - generic [ref=f1e666] [cursor=pointer]:
+            - generic [ref=f1e667]:
+              - generic [ref=f1e668]: "#8"
+              - generic [ref=f1e669]: "600982"
+              - generic [ref=f1e670]: 宁波能源
+              - generic [ref=f1e671]: "39.9"
+              - generic [ref=f1e672]: 周线 1/5
+              - generic "上一轮低点 A=4.34 (2026-01-16), 高点 B=7.5 (2026-05-14), 涨幅 +72.81%。1/3 回升位 (A + (B-A)/" [ref=f1e673]: 1/3位=5.393
+            - generic [ref=f1e674]:
+              - generic [ref=f1e675]: 电力
+              - generic [ref=f1e676]: 主线
+              - generic [ref=f1e677]: · 1板 · 市值56.9亿 · 换手8.4% · 封成13.7%
+            - generic "放量阳线收 5.09, 站上 5W 均线 4.93, 不再创新低" [ref=f1e679]: 站稳5周线
+            - generic [ref=f1e680]:
+              - generic [ref=f1e681]:
+                - generic [ref=f1e682]: 连板强度
+                - generic [ref=f1e685]: 5/30
+              - generic [ref=f1e686]:
+                - generic [ref=f1e687]: 资金认可
+                - generic [ref=f1e689]: 0/30
+              - generic [ref=f1e690]:
+                - generic [ref=f1e691]: 封成比
+                - generic [ref=f1e694]: 14/20
+              - generic [ref=f1e695]:
+                - generic [ref=f1e696]: 市值匹配
+                - generic [ref=f1e699]: 15/15
+              - generic [ref=f1e700]:
+                - generic [ref=f1e701]: 技术形态
+                - generic [ref=f1e704]: 8/18
+              - generic [ref=f1e705]:
+                - generic [ref=f1e706]: 题材纯度
+                - generic [ref=f1e709]: 15/15
+              - generic [ref=f1e710]:
+                - generic [ref=f1e711]: 周线擒牛
+                - generic [ref=f1e714]: 2/12
+              - generic [ref=f1e715]:
+                - generic [ref=f1e716]: 回升位
+                - generic [ref=f1e718]: 0/8
+          - generic [ref=f1e719] [cursor=pointer]:
+            - generic [ref=f1e720]:
+              - generic [ref=f1e721]: "#9"
+              - generic [ref=f1e722]: "920305"
+              - generic [ref=f1e723]: 云创退
+              - generic [ref=f1e724]: "37.8"
+            - generic [ref=f1e725]:
+              - generic [ref=f1e726]: IT服务Ⅱ
+              - generic [ref=f1e727]: · 5板 · 市值1.6亿 · 换手20.8% · 封成18.0%
+            - generic [ref=f1e728]:
+              - generic [ref=f1e729]:
+                - generic [ref=f1e730]: 连板强度
+                - generic [ref=f1e733]: 30/30
+              - generic [ref=f1e734]:
+                - generic [ref=f1e735]: 资金认可
+                - generic [ref=f1e737]: 0/30
+              - generic [ref=f1e738]:
+                - generic [ref=f1e739]: 封成比
+                - generic [ref=f1e742]: 14/20
+              - generic [ref=f1e743]:
+                - generic [ref=f1e744]: 市值匹配
+                - generic [ref=f1e747]: 12/15
+              - generic [ref=f1e748]:
+                - generic [ref=f1e749]: 技术形态
+                - generic [ref=f1e751]: 0/18
+              - generic [ref=f1e752]:
+                - generic [ref=f1e753]: 题材纯度
+                - generic [ref=f1e755]: 0/15
+              - generic [ref=f1e756]:
+                - generic [ref=f1e757]: 周线擒牛
+                - generic [ref=f1e759]: 0/12
+              - generic [ref=f1e760]:
+                - generic [ref=f1e761]: 回升位
+                - generic [ref=f1e763]: 0/8
+            - generic [ref=f1e764]: 「机构席位」「拉萨天团」
+            - generic [ref=f1e765]: 换手20.8%>10%极度活跃,警惕出货 · 炸板4次(烂板)
+          - generic [ref=f1e766] [cursor=pointer]:
+            - generic [ref=f1e767]:
+              - generic [ref=f1e768]: "#10"
+              - generic [ref=f1e769]: "605011"
+              - generic [ref=f1e770]: 杭州热电
+              - generic [ref=f1e771]: "37.2"
+              - generic "上一轮低点 A=15.11 (2026-06-29), 高点 B=18.48 (2026-07-17), 涨幅 +22.3%。1/3 回升位 (A + (B-A" [ref=f1e772]: 1/3位=16.233
+            - generic [ref=f1e773]:
+              - generic [ref=f1e774]: 电力
+              - generic [ref=f1e775]: 主线
+              - generic [ref=f1e776]: · 1板 · 市值73.9亿 · 换手3.6% · 封成9.4%
+            - generic [ref=f1e777]:
+              - generic [ref=f1e778]:
+                - generic [ref=f1e779]: 连板强度
+                - generic [ref=f1e782]: 5/30
+              - generic [ref=f1e783]:
+                - generic [ref=f1e784]: 资金认可
+                - generic [ref=f1e786]: 0/30
+              - generic [ref=f1e787]:
+                - generic [ref=f1e788]: 封成比
+                - generic [ref=f1e791]: 7/20
+              - generic [ref=f1e792]:
+                - generic [ref=f1e793]: 市值匹配
+                - generic [ref=f1e796]: 15/15
+              - generic [ref=f1e797]:
+                - generic [ref=f1e798]: 技术形态
+                - generic [ref=f1e801]: 8/18
+              - generic [ref=f1e802]:
+                - generic [ref=f1e803]: 题材纯度
+                - generic [ref=f1e806]: 15/15
+              - generic [ref=f1e807]:
+                - generic [ref=f1e808]: 周线擒牛
+                - generic [ref=f1e810]: 0/12
+              - generic [ref=f1e811]:
+                - generic [ref=f1e812]: 回升位
+                - generic [ref=f1e815]: 5/8
+      - article [ref=f1e273]:
+        - generic [ref=f1e274]: STEP 4 · 决策建议
+        - generic [ref=f1e275]:
+          - paragraph [ref=f1e816]: 💡 情绪一般,小仓低吸主线,不追高
+          - generic [ref=f1e817]:
+            - generic [ref=f1e818]:
+              - generic [ref=f1e819]: 🎯 尾盘打板 (1)
+              - generic [ref=f1e820]:
+                - link "艾艾精工 603580" [ref=f1e821] [cursor=pointer]:
+                  - /url: "#"
+                - text: · 塑料 · 评分50.7
+                - generic [ref=f1e822]: 封成1559%强 · 评分50.7 · 换手0.2%未出货
+            - generic [ref=f1e823]:
+              - generic [ref=f1e824]: 次日低吸 (2)
+              - generic [ref=f1e825]:
+                - link "立新能源 001258" [ref=f1e826] [cursor=pointer]:
+                  - /url: "#"
+                - text: · 电力 · 2板 · 评分55.4
+                - generic [ref=f1e827]: 电力主线股 · 2板 · 评分55.4 · 次日低吸
+              - generic [ref=f1e828]:
+                - link "赣能股份 000899" [ref=f1e829] [cursor=pointer]:
+                  - /url: "#"
+                - text: · 电力 · 1板 · 评分46.6
+                - generic [ref=f1e830]: 电力主线股 · 1板 · 评分46.6 · 次日低吸
+            - generic [ref=f1e831]:
+              - generic [ref=f1e832]: 回避 (1)
+              - generic [ref=f1e833]:
+                - link "云创退 920305" [ref=f1e834] [cursor=pointer]:
+                  - /url: "#"
+                - text: · IT服务Ⅱ · 评分37.8
+                - generic [ref=f1e835]: 换手20.8%>10%极度活跃,警惕出货; 炸板4次(烂板)
+      - article [ref=f1e277]:
+        - generic [ref=f1e278] [cursor=pointer]:
+          - generic [ref=f1e279]: STEP 4 · 全部涨停 (33)
+          - generic [ref=f1e280]: ▶
+      - paragraph [ref=f1e281]: 已更新 21:21:11
+    - text: 律 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段 —非交易时段

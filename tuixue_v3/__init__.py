@@ -10,7 +10,6 @@ tuixue_v3 - 退学炒股 4 层递进式选股系统
 __all__ = [
     "run_stock_screen",
     "run_backtest",
-    "run_optimize",
     "push_to_telegram",
     "push_backtest_report",
 ]
@@ -21,9 +20,6 @@ def __getattr__(name):
     if name in ("run_stock_screen", "run_backtest"):
         from . import screen
         return getattr(screen, name)
-    if name == "run_optimize":
-        from . import optimizer
-        return optimizer.run_optimize
     if name in ("push_to_telegram", "push_backtest_report"):
         from . import telegram_push
         return getattr(telegram_push, name)

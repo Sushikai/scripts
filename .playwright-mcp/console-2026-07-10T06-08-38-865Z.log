@@ -1,0 +1,3 @@
+[      48ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:7799/?fresh=10000:0
+[  150157ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:7799/api/health:0
+[  872530ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:7799/api/health:0

@@ -509,7 +509,7 @@ async function _renderHist() {
 })();
 
 // 初始化 + 清空按钮
-document.addEventListener('DOMContentLoaded', () => {
+_onDomReady(() => {
   _renderHist();
   $('#sh-clear')?.addEventListener('click', () => {
     if (confirm('清空查询历史?')) _clearHist();
@@ -1304,6 +1304,26 @@ function renderStockDetail(code, data) {
   // 分时图辅助上下文（昨收 + 涨停价），供 drawIntraDayChart 参考线
   // 涨停价规则: ST 5% / 主板 10% / 创业板(300/301)+科创(688) 20% / 北交所 30%
   const isST = (name || '').startsWith('ST');
+
+  // R2: 全局降级标志 — backend 返回 _degraded / _partial 时展示
+  const _degraded = data._degraded || data._partial;
+  const _degradedFields = data._degraded_fields || [];
+  if (_degraded) {
+    const dgEl = $('#stock-degraded-badge') || (() => {
+      const el = document.createElement('div');
+      el.id = 'stock-degraded-badge';
+      el.className = 'stock-degraded-badge';
+      const hero = $('#stock-hero');
+      if (hero) hero.parentNode.insertBefore(el, hero.nextSibling);
+      return el;
+    })();
+    const fields = _degradedFields.length ? ` (${_degradedFields.join(', ')})` : '';
+    dgEl.textContent = `⚠ 部分数据暂不可达${fields}`;
+    dgEl.style.display = '';
+  } else {
+    const dgEl = $('#stock-degraded-badge');
+    if (dgEl) dgEl.style.display = 'none';
+  }
   const isKJ = /^(300|301|688)/.test(code);
   const isBJ = /^(8|4)/.test(code);  // 北交所 8/4 开头 30%
   const limitPct = isST ? 0.05 : isKJ ? 0.20 : isBJ ? 0.30 : 0.10;
@@ -1326,9 +1346,9 @@ function renderStockDetail(code, data) {
       const returnView = _ctx.from === 'sp' ? 'strategy_picker' : 'weekly_bull';
       const chips = _ctx.strategies.split(',').filter(Boolean).map(k => {
         const l = labels[k] || k;
-        return `<span class="chip" style="font-size:10px;background:#d4b87a22;border-color:#d4b87a;color:#d4b87a">${l}</span>`;
+        return `<span class="chip" style="font-size:10px;background:var(--warn)22;border-color:var(--warn);color:var(--warn)">${l}</span>`;
       }).join('');
-      _ctxEl.innerHTML = `<span class="dim" style="font-size:10.5px;margin-right:4px">来自${fromLabel}</span>${chips} <a href="#${returnView}" style="font-size:10px;color:#888;margin-left:6px;text-decoration:none">← 返回</a>`;
+      _ctxEl.innerHTML = `<span class="dim" style="font-size:10.5px;margin-right:4px">来自${fromLabel}</span>${chips} <a href="#${returnView}" style="font-size:10px;color:var(--ink-4);margin-left:6px;text-decoration:none">← 返回</a>`;
       _ctxEl.style.display = 'block';
     } else {
       _ctxEl.style.display = 'none';
@@ -2143,7 +2163,7 @@ function renderStreak10d(kline) {
       if (c >= 9.5) tag = '🔥';
     } else if (c > -0.5) {
       // 灰 (近 0): 平稳日
-      return { bg: 'hsl(0, 0%, 62%)', fg: '#fff', tag: '' };
+      return { bg: 'hsl(0, 0%, 62%)', fg: 'var(--bg-1)', tag: '' };
     } else {
       // 绿: 强度 t = |c|/10 ∈ [0.05, 1], sat 35→80, light 75→32
       const t = -c / 10;
@@ -2151,7 +2171,7 @@ function renderStreak10d(kline) {
       if (c <= -9.5) tag = '💀';
     }
     // 浅底配黑字,深底配白字 (light > 60% 黑字)
-    const fg = light > 60 ? '#000' : '#fff';
+    const fg = light > 60 ? 'var(--ink-inverse)' : 'var(--bg-1)';
     return { bg: `hsl(${hue}, ${Math.round(sat)}%, ${Math.round(light)}%)`, fg, tag };
   };
 
@@ -2396,10 +2416,10 @@ async function drawFlowChart(history) {
     dataZoom: [{ type: 'inside', start: 60, end: 100 }, { type: 'slider', height: 18, bottom: 8, textStyle: { color: INK2 } }],
     series: [
       { name: '主力',     type: 'bar', stack: 'm', data: history.map(h => h.main_net),  itemStyle: { color: ACCENT } },
-      { name: '超大单',   type: 'bar', data: history.map(h => h.super_net), itemStyle: { color: '#a78bcf' } },
-      { name: '大单',     type: 'bar', data: history.map(h => h.big_net),   itemStyle: { color: '#7b9bd1' } },
-      { name: '中单',     type: 'bar', data: history.map(h => h.mid_net),   itemStyle: { color: '#7a8088' } },
-      { name: '小单',     type: 'bar', data: history.map(h => h.small_net), itemStyle: { color: '#54565b' } },
+      { name: '超大单',   type: 'bar', data: history.map(h => h.super_net), itemStyle: { color: 'var(--accent-3)' } },
+      { name: '大单',     type: 'bar', data: history.map(h => h.big_net),   itemStyle: { color: 'var(--accent-2)' } },
+      { name: '中单',     type: 'bar', data: history.map(h => h.mid_net),   itemStyle: { color: 'var(--ink-3)' } },
+      { name: '小单',     type: 'bar', data: history.map(h => h.small_net), itemStyle: { color: 'var(--ink-4)' } },
     ],
   });
   chart.resize();
@@ -2694,7 +2714,7 @@ async function drawKlineChart() {
             show: true, position: 'end',
             // 只显示涨跌百分比,不再重复价格 (右轴刻度已经显示价格)
             formatter: `${(lastPct >= 0 ? '+' : '') + lastPct.toFixed(2)}%`,
-            color: '#fff', fontSize: 10, fontWeight: 700,
+            color: 'var(--bg-1)', fontSize: 10, fontWeight: 700,
             backgroundColor: lastColor, padding: [2, 6], borderRadius: 3,
             distance: 4,
           },
@@ -2705,18 +2725,18 @@ async function drawKlineChart() {
   // MA 叠加（主图）— 2026-07-17: 加 endLabel 把 MA10/20/60 名直接打在每条线的右端,不占顶部空间
   if (ind.ma) {
     const lastIdx = ma10.length - 1;
-    series.push({ name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { color: '#7b9bd1', width: 1 }, symbol: 'none', connectNulls: true,
-      endLabel: { show: true, formatter: 'MA10', color: '#7b9bd1', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
+    series.push({ name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { color: 'var(--accent-2)', width: 1 }, symbol: 'none', connectNulls: true,
+      endLabel: { show: true, formatter: 'MA10', color: 'var(--accent-2)', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
     series.push({ name: 'MA20', type: 'line', data: ma20, smooth: true, lineStyle: { color: ACCENT,  width: 1.2 }, symbol: 'none', connectNulls: true,
       endLabel: { show: true, formatter: 'MA20', color: ACCENT, fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
-    series.push({ name: 'MA60', type: 'line', data: ma60, smooth: true, lineStyle: { color: '#a78bcf', width: 1.2 }, symbol: 'none', connectNulls: true,
-      endLabel: { show: true, formatter: 'MA60', color: '#a78bcf', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
+    series.push({ name: 'MA60', type: 'line', data: ma60, smooth: true, lineStyle: { color: 'var(--accent-3)', width: 1.2 }, symbol: 'none', connectNulls: true,
+      endLabel: { show: true, formatter: 'MA60', color: 'var(--accent-3)', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
   }
   // BOLL 叠加（主图）
   if (boll) {
-    series.push({ name: 'BOLL上', type: 'line', data: boll.upper, smooth: true, lineStyle: { color: '#5b8def', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
-    series.push({ name: 'BOLL中', type: 'line', data: boll.mid,   smooth: true, lineStyle: { color: '#5b8def', width: 0.8, opacity: 0.7 }, symbol: 'none', connectNulls: true });
-    series.push({ name: 'BOLL下', type: 'line', data: boll.lower, smooth: true, lineStyle: { color: '#5b8def', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'BOLL上', type: 'line', data: boll.upper, smooth: true, lineStyle: { color: 'var(--accent)', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'BOLL中', type: 'line', data: boll.mid,   smooth: true, lineStyle: { color: 'var(--accent)', width: 0.8, opacity: 0.7 }, symbol: 'none', connectNulls: true });
+    series.push({ name: 'BOLL下', type: 'line', data: boll.lower, smooth: true, lineStyle: { color: 'var(--accent)', width: 0.8, opacity: 0.7, type: 'dashed' }, symbol: 'none', connectNulls: true });
   }
   // 量（grid 1）
   series.push({
@@ -2728,9 +2748,9 @@ async function drawKlineChart() {
   // MACD 副图（grid 2）
   if (subIndicator === 'macd' && macdData) {
     series.push({ name: 'DIF', type: 'line', data: macdData.dif, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#5b8def', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--accent)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'DEA', type: 'line', data: macdData.dea, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#f0c075', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--warn)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'MACD', type: 'bar', data: macdData.hist.map(v => v == null ? 0 : v), xAxisIndex: 2, yAxisIndex: 2,
       barWidth: '50%',
       itemStyle: { color: p => (p.value >= 0 ? UP : DOWN) } });
@@ -2738,18 +2758,18 @@ async function drawKlineChart() {
   // KDJ 副图（grid 2）
   if (subIndicator === 'kdj' && kdjData) {
     series.push({ name: 'K', type: 'line', data: kdjData.k, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#5b8def', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--accent)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'D', type: 'line', data: kdjData.d, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#f0c075', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--warn)', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'J', type: 'line', data: kdjData.j, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
-      lineStyle: { color: '#a78bcf', width: 1 }, symbol: 'none', connectNulls: true });
+      lineStyle: { color: 'var(--accent-3)', width: 1 }, symbol: 'none', connectNulls: true });
     // KDJ 80/20 参考线 (放在 series 上而非 yAxis — markLine 不支持 yAxis 级)
     series.push({ name: 'KDJ_REF', type: 'line', data: [], xAxisIndex: 2, yAxisIndex: 2,
       markLine: {
         silent: true, symbol: 'none',
         data: [
-          { yAxis: 80, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
-          { yAxis: 20, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
+          { yAxis: 80, label: { show: false }, lineStyle: { color: 'var(--ink-4)', type: 'dotted', width: 0.8 } },
+          { yAxis: 20, label: { show: false }, lineStyle: { color: 'var(--ink-4)', type: 'dotted', width: 0.8 } },
         ],
       },
     });
@@ -3492,7 +3512,7 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
   const dividerIndex = dividerTimes.map(rt => times.findIndex(t => t && t.startsWith(rt))).filter(i => i >= 0);
   const timeMarkers = dividerIndex.map(i => ({
     xAxis: i,
-    lineStyle: { color: '#3a3735', type: 'dashed', width: 1, opacity: 0.5 },
+    lineStyle: { color: 'var(--line-strong)', type: 'dashed', width: 1, opacity: 0.5 },
     label: { show: true, formatter: times[i].slice(0, 5), position: 'start', color: INK3, fontSize: mkFs }
   }));
 
@@ -3514,8 +3534,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
     if (l13 != null && l13 >= yMin && l13 <= yMax) {
       refLines.push({
         yAxis: +l13.toFixed(3),
-        lineStyle: { color: '#9a8cff', type: 'dashed', width: 1.2, opacity: 0.85 },
-        label: { formatter: `1/3位 ${(+l13).toFixed(2)}`, color: '#9a8cff', fontSize: mkFs,
+        lineStyle: { color: 'var(--accent-3)', type: 'dashed', width: 1.2, opacity: 0.85 },
+        label: { formatter: `1/3位 ${(+l13).toFixed(2)}`, color: 'var(--accent-3)', fontSize: mkFs,
                  position: 'insideEndBottom', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3, fontWeight: 600 },
       });
@@ -3525,8 +3545,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
     if (a != null && a >= yMin && a <= yMax) {
       refLines.push({
         yAxis: +a.toFixed(3),
-        lineStyle: { color: '#52c85a', type: 'dotted', width: 1, opacity: 0.7 },
-        label: { formatter: `A=${(+a).toFixed(2)}`, color: '#52c85a', fontSize: mkFs,
+        lineStyle: { color: 'var(--down-strong)', type: 'dotted', width: 1, opacity: 0.7 },
+        label: { formatter: `A=${(+a).toFixed(2)}`, color: 'var(--down-strong)', fontSize: mkFs,
                  position: 'insideEndBottom', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3 },
       });
@@ -3536,8 +3556,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
     if (b != null && b >= yMin && b <= yMax) {
       refLines.push({
         yAxis: +b.toFixed(3),
-        lineStyle: { color: '#ff4d4f', type: 'dotted', width: 1, opacity: 0.7 },
-        label: { formatter: `B=${(+b).toFixed(2)}`, color: '#ff4d4f', fontSize: mkFs,
+        lineStyle: { color: 'var(--up)', type: 'dotted', width: 1, opacity: 0.7 },
+        label: { formatter: `B=${(+b).toFixed(2)}`, color: 'var(--up)', fontSize: mkFs,
                  position: 'insideEndTop', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3 },
       });
@@ -3548,8 +3568,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
       if (lastMa5 != null && lastMa5 >= yMin && lastMa5 <= yMax) {
         refLines.push({
           yAxis: +lastMa5.toFixed(3),
-          lineStyle: { color: '#ff9f43', type: 'dashed', width: 1.4, opacity: 0.9 },
-          label: { formatter: `MA5 ${lastMa5.toFixed(2)}`, color: '#ff9f43', fontSize: axFs,
+          lineStyle: { color: 'var(--warn)', type: 'dashed', width: 1.4, opacity: 0.9 },
+          label: { formatter: `MA5 ${lastMa5.toFixed(2)}`, color: 'var(--warn)', fontSize: axFs,
                    position: 'insideEndTop', distance: mkDist, backgroundColor: _labelBg,
                    padding: [1, 4], borderRadius: 3, fontWeight: 700 },
         });
@@ -3572,9 +3592,9 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
       .sort((a, b) => (a.date < b.date ? -1 : 1));
     const closesUpTo = bars.map(k => +k.close);
     const maSpecs = [
-      [5,  '#ff9f43', 1.6],
-      [10, '#7fc8c9', 1.1],
-      [20, '#9a8cff', 1.1],
+      [5,  'var(--warn)', 1.6],
+      [10, 'var(--accent-2)', 1.1],
+      [20, 'var(--accent-3)', 1.1],
     ];
     for (const [n, color, w] of maSpecs) {
       if (closesUpTo.length < n) continue;
@@ -3622,7 +3642,7 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
         }
         if (pMap['均价'] != null) {
           const avgPct = refVal ? ((+pMap['均价'] - refVal) / refVal * 100) : 0;
-          s += `<div>均价 <b style="color:#ff9f43">${(+pMap['均价']).toFixed(3)}</b> <span style="color:${avgPct >= 0 ? UP : DOWN}">${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></div>`;
+          s += `<div>均价 <b style="color:var(--warn)">${(+pMap['均价']).toFixed(3)}</b> <span style="color:${avgPct >= 0 ? UP : DOWN}">${avgPct >= 0 ? '+' : ''}${avgPct.toFixed(2)}%</span></div>`;
         }
         s += `<div style="color:${INK3}">昨收 ${refVal.toFixed(2)}</div>`;
         if (limitUp && price != null) {
@@ -3678,7 +3698,7 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
           // interval: 0 强制显示所有刻度 (echarts 默认 'auto' 会因空间不足漏掉中间 label)
           { type: 'value', gridIndex: 0, position: 'left',
             min: alignedMin, max: alignedMax, interval: stepPrice,
-            splitLine: { lineStyle: { color: GRID } },
+            splitLine: { lineStyle: { color: GRID, width: 0.5, type: 'dashed' } },
             axisLabel: { color: INK2, fontSize: axFs, interval: 0, formatter: v => v.toFixed(2) } },
           // 右轴:涨跌幅 % — 同一区间,formatter 把 v 换算成 pct
           { type: 'value', gridIndex: 0, position: 'right',
@@ -3695,8 +3715,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
           },
         ];
       })(),
-      // 成交量轴
-      { gridIndex: 1, splitLine: { lineStyle: { color: GRID } },
+      // 成交量轴 — 同步变细
+      { gridIndex: 1, splitLine: { lineStyle: { color: GRID, width: 0.5, type: 'dashed' } },
         axisLabel: { color: INK2, fontSize: _narrow ? 8 : 9 } },
     ],
     dataZoom: _narrow ? [] : [
@@ -3751,7 +3771,7 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
                 formatter: _lastPrice != null && refVal > 0
                   ? `${((_lastPrice - refVal) / refVal * 100 >= 0 ? '+' : '') + ((_lastPrice - refVal) / refVal * 100).toFixed(2)}%`
                   : '',
-                color: '#fff', fontSize: axFs, fontWeight: 700,
+                color: 'var(--bg-1)', fontSize: axFs, fontWeight: 700,
                 backgroundColor: _lastColor, padding: [2, 6], borderRadius: 3,
                 distance: _lastPriceNearTop ? (_narrow ? 4 : 6) : (_narrow ? 2 : 4),
               },
@@ -3761,11 +3781,11 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
         z: 5 },
       // 均价线（橙色）
       { name: '均价', type: 'line', data: avgLine, showSymbol: false,
-        lineStyle: { color: '#ff9f43', width: 1.6, type: 'solid' },
-        itemStyle: { color: '#ff9f43' }, z: 4 },
+        lineStyle: { color: 'var(--warn)', width: 1.6, type: 'solid' },
+        itemStyle: { color: 'var(--warn)' }, z: 4 },
       // 昨收参考线（灰色虚线）
       { name: '昨收', type: 'line', data: refLine, showSymbol: false,
-        lineStyle: { color: '#6b6660', type: 'dashed', width: 1 }, z: 2 },
+        lineStyle: { color: 'var(--ink-4)', type: 'dashed', width: 1 }, z: 2 },
       ...(limitUpLine ? [limitUpLine] : []),
       // 成交量柱（红涨绿跌）
       { name: '成交量', type: 'bar', data: volBars, xAxisIndex: 1, yAxisIndex: 2, barWidth: '70%' },
@@ -4027,12 +4047,12 @@ async function _loadStockRole(code) {
     const d = env.data || {};
     const role = d.role || '未分类';
     const roleColors = {
-      '龙头':  '#e84545',
-      '中军':  '#5b8def',
-      '杂毛':  '#888',
-      '未分类': '#666',
+      '龙头':  'var(--up)',
+      '中军':  'var(--accent)',
+      '杂毛':  'var(--ink-4)',
+      '未分类': 'var(--ink-4)',
     };
-    const color = roleColors[role] || '#666';
+    const color = roleColors[role] || 'var(--ink-4)';
     const tip = `${d.reason || ''} · ${d.explanation || ''}`.slice(0, 120);
     host.innerHTML = `<span class="stock-role-badge" style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:600;border-radius:12px;background:${color}22;color:${color};border:1px solid ${color}55;margin-left:8px;vertical-align:middle" title="${escapeHtml(tip)}">${escapeHtml(role)}</span>`;
   } catch (e) {
@@ -4043,9 +4063,9 @@ async function _loadStockRole(code) {
 // 2026-07-19: 加载个股周线擒牛卡 (5 大信号)
 // 2026-07-19: 个股策略匹配度卡 — 数据源自策略选股器 (strategy_match),同时填充 3 明细卡
 const _SM_STRATEGY = {
-  wb:  { label: '周线擒牛', color: '#f4d384', max: 40 },
-  rl:  { label: '1/3 回升位', color: '#84f4a8', max: 30 },
-  ma5: { label: '5日线放量', color: '#c084f4', max: 30 },
+  wb:  { label: '周线擒牛', color: 'var(--warn)', max: 40 },
+  rl:  { label: '1/3 回升位', color: 'var(--down-strong)', max: 30 },
+  ma5: { label: '5日线放量', color: 'var(--accent-3)', max: 30 },
 };
 async function _loadStrategyMatchCard(code) {
   const card = $('#q-strategy-match-card');
@@ -4066,7 +4086,7 @@ async function _loadStrategyMatchCard(code) {
     const total = sc.total || 0;
     const max = sc.max || 100;
     const pct = Math.min(total / max * 100, 100);
-    const barColor = total >= 70 ? '#84f4a8' : total >= 45 ? '#f4d384' : total >= 25 ? '#f0a860' : '#fca5a5';
+    const barColor = total >= 70 ? 'var(--down-strong)' : total >= 45 ? 'var(--warn)' : total >= 25 ? 'var(--warn)' : 'var(--up-soft)';
     const matchedKeys = d.matched_keys || [];
     const showNoMatch = !matchedKeys.length;
 
@@ -4084,11 +4104,11 @@ async function _loadStrategyMatchCard(code) {
       } else if (key === 'rl' && m.level_1_3 != null) {
         const near = m.near_support ? ' <span class="tag-good caption">强支撑</span>' : '';
         const dist = m.distance_to_level_1_3_pct != null
-          ? `<span class="caption" style="color:${Math.abs(m.distance_to_level_1_3_pct) < 3 ? '#84f4a8' : 'var(--ink-2)'}">距 1/3 位 ${(m.distance_to_level_1_3_pct >= 0 ? '+' : '') + Number(m.distance_to_level_1_3_pct).toFixed(2) + '%'}</span>`
+          ? `<span class="caption" style="color:${Math.abs(m.distance_to_level_1_3_pct) < 3 ? 'var(--down-strong)' : 'var(--ink-2)'}">距 1/3 位 ${(m.distance_to_level_1_3_pct >= 0 ? '+' : '') + Number(m.distance_to_level_1_3_pct).toFixed(2) + '%'}</span>`
           : '';
         extra = '<span class="caption">1/3=' + (m.level_1_3 ?? '—') + '</span> ' + dist + near;
       } else if (key === 'ma5' && m.ok) {
-        extra = '<span class="caption" style="color:#c084f4">' + escapeHtml((m.reason || '').slice(0, 60)) + '</span>';
+        extra = '<span class="caption" style="color:var(--accent-3)">' + escapeHtml((m.reason || '').slice(0, 60)) + '</span>';
       }
 
       return `<div class="sm-row">
@@ -4103,7 +4123,7 @@ async function _loadStrategyMatchCard(code) {
 
     // 总分区
     const quality = total >= 70 ? '优' : total >= 45 ? '良' : total >= 25 ? '中' : total >= 1 ? '差' : '—';
-    const qualityColor = total >= 70 ? '#84f4a8' : total >= 45 ? '#f4d384' : total >= 25 ? '#f0a860' : '#666';
+    const qualityColor = total >= 70 ? 'var(--down-strong)' : total >= 45 ? 'var(--warn)' : total >= 25 ? 'var(--warn)' : 'var(--ink-4)';
 
     const breakdownHtml = showNoMatch ? ''
       : `<div class="sm-breakdown">${(sc.breakdown || []).map(b => `<span class="caption dim">${escapeHtml(b)}</span>`).join(' <span style="color:var(--ink-3);font-size:10px">·</span> ')}</div>`;
@@ -4173,21 +4193,21 @@ function _renderMa5CardFromSM(mp) {
   const p3 = mp.principle_3_active;
   const p4 = mp.principle_4_active;
   const p5 = mp.principle_5_active;
-  const devColor = deviation > 8 ? '#f0a860' : deviation < -8 ? '#84f4a8' : Math.abs(deviation) < 3 ? '#84f4a8' : 'var(--ink-2)';
+  const devColor = deviation > 8 ? 'var(--warn)' : deviation < -8 ? 'var(--down-strong)' : Math.abs(deviation) < 3 ? 'var(--down-strong)' : 'var(--ink-2)';
   const devSymbol = deviation > 8 ? '↑' : deviation < -8 ? '↓' : '•';
   const devText = devSymbol + (deviation >= 0 ? '+' : '') + deviation.toFixed(2) + '%';
   const allRules = [
-    { n:1, label:'不放量大阳线坚决不碰', active:true, status:'—', note:'等待放量大阳线触发', color:'#888', hide:false },
-    { n:2, label:'放量后回踩 5 日线不破 = 重点观察', active:true, status:'—', note:'等待回踩验证', color:'#888', hide:false },
-    { n:3, label:'明显偏离 5 日线 → 兑现部分利润', active:p3, status:p3?'⚠ 偏离 '+deviation.toFixed(1)+'%':'✓ 正常', note:p3?'偏离 > 8%,注意止盈':'价格在合理范围内', color:p3?'#f0a860':'#84f4a8', hide:false },
-    { n:4, label:'收盘跌破 5 日线不硬抗 → 先降仓位', active:p4, status:p4?'⚠ 已跌破 '+belowDays+' 日':'✓ 站回均线', note:p4?'当前收盘在 5 日线下':'已站回 5 日线', color:p4?'#fca5a5':'#84f4a8', hide:belowDays===0 },
-    { n:5, label:'连续 3 日站不回 → 直接离场', active:p5, status:p5?'⬇ '+belowDays+' 日站不回':'✓', note:p5?'趋势已变,留住本金!':'', color:p5?'#fca5a5':'#84f4a8', hide:belowDays<3 },
+    { n:1, label:'不放量大阳线坚决不碰', active:true, status:'—', note:'等待放量大阳线触发', color:'var(--ink-4)', hide:false },
+    { n:2, label:'放量后回踩 5 日线不破 = 重点观察', active:true, status:'—', note:'等待回踩验证', color:'var(--ink-4)', hide:false },
+    { n:3, label:'明显偏离 5 日线 → 兑现部分利润', active:p3, status:p3?'⚠ 偏离 '+deviation.toFixed(1)+'%':'✓ 正常', note:p3?'偏离 > 8%,注意止盈':'价格在合理范围内', color:p3?'var(--warn)':'var(--down-strong)', hide:false },
+    { n:4, label:'收盘跌破 5 日线不硬抗 → 先降仓位', active:p4, status:p4?'⚠ 已跌破 '+belowDays+' 日':'✓ 站回均线', note:p4?'当前收盘在 5 日线下':'已站回 5 日线', color:p4?'var(--up-soft)':'var(--down-strong)', hide:belowDays===0 },
+    { n:5, label:'连续 3 日站不回 → 直接离场', active:p5, status:p5?'⬇ '+belowDays+' 日站不回':'✓', note:p5?'趋势已变,留住本金!':'', color:p5?'var(--up-soft)':'var(--down-strong)', hide:belowDays<3 },
   ];
   const ma5Price = mp.deviation_pct != null ? '当前价偏离 5 日线 <b style="color:'+devColor+'">'+devText+'</b>' : '';
   body.innerHTML = '<div style="margin-bottom:8px;font-size:12px;color:var(--ink-2)">'+ma5Price+'</div><div style="display:flex;flex-direction:column;gap:4px">'+
-    allRules.map(r => '<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;background:'+(r.active?'var(--bg-2, #1a1612)':'transparent')+';font-size:11.5px'+(r.hide?';display:none':'')+'">'+
-      '<span style="flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:'+(r.active?r.color+'33':'#333')+';color:'+(r.active?r.color:'#666')+';font-size:10px;font-weight:700">'+r.n+'</span>'+
-      '<span style="flex:1;min-width:0"><span style="color:'+(r.active?'#e8e1d4':'#666')+'">'+r.label+'</span>'+
+    allRules.map(r => '<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;background:'+(r.active?'var(--bg-2, var(--bg-1))':'transparent')+';font-size:11.5px'+(r.hide?';display:none':'')+'">'+
+      '<span style="flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:'+(r.active?r.color+'33':'var(--bg-3)')+';color:'+(r.active?r.color:'var(--ink-4)')+';font-size:10px;font-weight:700">'+r.n+'</span>'+
+      '<span style="flex:1;min-width:0"><span style="color:'+(r.active?'var(--ink-1)':'var(--ink-4)')+'">'+r.label+'</span>'+
         '<span style="margin-left:4px;font-size:10px;color:'+r.color+'">'+r.status+'</span></span>'+
       (r.note?'<span class="caption" style="flex-shrink:0;color:'+r.color+'">'+r.note+'</span>':'')+
     '</div>').join('')+'</div>';
@@ -4221,10 +4241,10 @@ async function loadStockSector(code) {
       <div class="kv-row"><span>涨跌幅</span><b>±${b.pct_limit || '—'}%</b></div>
       <div class="kv-row"><span>门槛</span><b>${b.capital_floor_wan ? b.capital_floor_wan + ' 万' : '无'}</b></div>`;
     const inds = [
-      ['申万',  sec.sw,    '#a78bcf'],
-      ['证监会', sec.csrc, '#7fb6c9'],
-      ['中证',  sec.cics,  '#d4a056'],
-      ['GICS',  sec.gics,  '#4fb074'],
+      ['申万',  sec.sw,    'var(--accent-3)'],
+      ['证监会', sec.csrc, 'var(--accent-2)'],
+      ['中证',  sec.cics,  'var(--warn)'],
+      ['GICS',  sec.gics,  'var(--down-strong)'],
     ];
     const stdChips = inds.filter(([,v]) => v).map(([k,v,c]) =>
       `<span class="chip" style="border-color:${c};color:${c}">${k}·${escapeHtml(v)}</span>`
@@ -4232,13 +4252,13 @@ async function loadStockSector(code) {
     // AI 概念标（机器人/AI 各子赛道）
     const aiTags = sec.ai_tags || {labels: [], is_main_field: false};
     const aiColors = {
-      '机器人本体': '#ff5722', '机器人零部件': '#ff7043', '机器视觉': '#ff8a65',
-      'AI 算力': '#9c27b0', 'AI 芯片': '#7b1fa2', 'AI 软件': '#ba68c8',
-      '智能驾驶': '#03a9f4', '半导体': '#00bcd4', '新能源车': '#4caf50',
-      '传统行业': '#9e9e9e', '未分类': '#bdbdbd'
+      '机器人本体': 'var(--warn)', '机器人零部件': 'var(--warn)', '机器视觉': 'var(--warn)',
+      'AI 算力': 'var(--accent-3)', 'AI 芯片': 'var(--accent-3)', 'AI 软件': 'var(--accent-3)',
+      '智能驾驶': 'var(--accent)', '半导体': 'var(--accent-2)', '新能源车': 'var(--down-strong)',
+      '传统行业': 'var(--ink-4)', '未分类': 'var(--ink-4)'
     };
     const aiChips = aiTags.labels.map(l => {
-      const c = aiColors[l] || '#9e9e9e';
+      const c = aiColors[l] || 'var(--ink-4)';
       const warn = (l === '传统行业' || l === '未分类') ? ' ⚠️非主战场' : '';
       return `<span class="chip" style="border-color:${c};color:${c};font-weight:bold">${escapeHtml(l)}${warn}</span>`;
     }).join('');
@@ -4342,8 +4362,8 @@ async function loadStockLimitUp(code, sectorName) {
           : `/api/stock/${code}/limit_up_context`) || {};
       }
     }
-    if (res.error && res.error.includes('超时')) {
-      host.innerHTML = `<p class="caption down">${escapeHtml(res.error)}</p>`;
+    if (res._degraded) {
+      host.innerHTML = `<p class="caption dim">⚠ 连板数据暂不可达 (${escapeHtml(res._degraded)})</p>`;
       return;
     }
     const today = res.today;
@@ -4357,10 +4377,10 @@ async function loadStockLimitUp(code, sectorName) {
     // ─── 顶部 hero: 股性 + 龙头 + 概念 chips ───
     const natureTier = nature.tier || '—';
     const natureColors = {
-      '妖股':  { bg: '#d32f2f', fg: '#fff' },
-      '活跃':  { bg: '#f57c00', fg: '#fff' },
-      '一般':  { bg: '#9e9e9e', fg: '#fff' },
-      '死股':  { bg: '#424242', fg: '#bbb' },
+      '妖股':  { bg: 'var(--up)', fg: 'var(--bg-1)' },
+      '活跃':  { bg: 'var(--warn)', fg: 'var(--bg-1)' },
+      '一般':  { bg: 'var(--ink-4)', fg: 'var(--bg-1)' },
+      '死股':  { bg: 'var(--bg-3)', fg: 'var(--ink-2)' },
     };
     const nc = natureColors[natureTier] || natureColors['死股'];
     const natureBadge = `
@@ -4372,14 +4392,14 @@ async function loadStockLimitUp(code, sectorName) {
     `;
     const leaderBadge = leader.role && leader.role !== '—' ? `
       <span class="chip"
-            style="background:${leader.streak >= 5 ? '#b71c1c' : leader.streak >= 3 ? '#d32f2f' : leader.streak >= 2 ? '#f57c00' : '#7b1fa2'};color:#fff;padding:.25rem .55rem;font-weight:700;border:none"
+            style="background:${leader.streak >= 5 ? 'var(--up-strong)' : leader.streak >= 3 ? 'var(--up)' : leader.streak >= 2 ? 'var(--warn)' : 'var(--accent-3)'};color:var(--bg-1);padding:.25rem .55rem;font-weight:700;border:none"
             title="${escapeHtml(leader.reason || '')}">
         ${leader.role}${leader.is_top_in_sector ? ' · 板块最高' : ''}
       </span>
     ` : '';
     const conceptChips = (nature.concepts || []).map(c => `
       <span class="chip"
-            style="border:1px solid ${c.level === 'L4' ? ACCENT : c.level === 'L3' ? '#7b9bd1' : INK2};color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? '#7b9bd1' : INK2};font-size:.78rem"
+            style="border:1px solid ${c.level === 'L4' ? ACCENT : c.level === 'L3' ? 'var(--accent-2)' : INK2};color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? 'var(--accent-2)' : INK2};font-size:.78rem"
             title="${c.level} · ${c.role || ''}">
         <span class="cap" style="font-size:.65rem">${c.level}</span>
         <b>${escapeHtml(c.name)}</b>
@@ -4391,7 +4411,7 @@ async function loadStockLimitUp(code, sectorName) {
     const sectorLeaderHtml = sl ? `
       <div class="kv-row" style="font-size:.85rem;cursor:pointer" data-action="open-stock:${escapeHtml(sl.code)}" title="点击查看 ${escapeHtml(sl.name)}">
         <span>板块龙头股</span>
-        <b style="color:#b71c1c">
+        <b style="color:var(--up-strong)">
           👑 ${escapeHtml(sl.name)} <span class="caption dim">${escapeHtml(sl.code)}</span>
           · ${sl.streak} 连板
           ${sl.封单金额 ? ' · 封单 ' + (sl.封单金额 / 1e8).toFixed(2) + '亿' : ''}
@@ -4537,7 +4557,7 @@ function renderSectorRows(rows, code) {
         const isMe = String(s.代码).padStart(6, '0') === String(code).padStart(6, '0');
         const isMax = (s.连板数 || 0) === maxLb && (s.连板数 || 0) >= 2;
         const tagIcon = isMe ? '👑' : (isMax ? '★' : '');
-        const tagColor = isMe ? '#b71c1c' : (isMax ? '#d32f2f' : INK2);
+        const tagColor = isMe ? 'var(--up-strong)' : (isMax ? 'var(--up)' : INK2);
         let conceptHtml = '<span class="caption dim">—</span>';
         try {
           // 2026-07-17: 改为直接从 s.taxonomy 读 (后端 _enrich_sector_zt_taxonomy 已补),
@@ -4551,7 +4571,7 @@ function renderSectorRows(rows, code) {
           }
           if (sConcepts.length) {
             conceptHtml = sConcepts.slice(0, 2).map(c =>
-              `<span class="chip" style="font-size:.7rem;padding:1px 5px;color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? '#7b9bd1' : INK2};border:1px solid currentColor">${escapeHtml(c.name)}</span>`
+              `<span class="chip" style="font-size:.7rem;padding:1px 5px;color:${c.level === 'L4' ? ACCENT : c.level === 'L3' ? 'var(--accent-2)' : INK2};border:1px solid currentColor">${escapeHtml(c.name)}</span>`
             ).join('');
           }
         } catch (e) {}
@@ -4586,7 +4606,7 @@ function renderDragonRows(rows, code) {
         const isMe = codeS === String(code).padStart(6, '0');
         const isMax = (s.streak || 0) === maxLb && (s.streak || 0) >= 2;
         const tagIcon = isMe ? '👑' : (isMax ? '★' : '');
-        const tagColor = isMe ? '#b71c1c' : (isMax ? '#d32f2f' : INK2);
+        const tagColor = isMe ? 'var(--up-strong)' : (isMax ? 'var(--up)' : INK2);
         const secLabel = s.taxonomy?.l1 || s.sector || '—';
         const secColor = s.taxonomy?.l1_color || INK2;
         return `
@@ -4673,12 +4693,12 @@ function renderStreakPanel(today, recent5, leader, nature, relatedStrong, allStr
     if (today && (today.连板数 || 0) >= 1) {
       const lb = today.连板数;
       const fire = lb >= 2 ? '🔥' : '✓';
-      const fg = lb >= 5 ? '#b71c1c' : lb >= 3 ? '#d32f2f' : lb >= 2 ? '#f57c00' : 'var(--accent)';
+      const fg = lb >= 5 ? 'var(--up-strong)' : lb >= 3 ? 'var(--up)' : lb >= 2 ? 'var(--warn)' : 'var(--accent)';
       const tm = today.首次封板时间 ? String(today.首次封板时间).replace(/^(\d{2})(\d{2})\d{2}$/, '$1:$2') : '—';
       const seal = today.封单金额 ? (today.封单金额 / 1e8).toFixed(2) + ' 亿' : '—';
       const burst = today.炸板次数 ? ` · 炸板 ${today.炸板次数}` : '';
       const ztj = today.涨停统计 ? ` · 涨停统计 ${today.涨停统计}` : '';
-      return `<span class="chip" style="background:${fg};color:#fff;border:none;font-weight:700">${fire} 今日 ${lb} 板 · 封单 ${seal} · 首封 ${tm}${burst}${ztj}</span>`;
+      return `<span class="chip" style="background:${fg};color:var(--bg-1);border:none;font-weight:700">${fire} 今日 ${lb} 板 · 封单 ${seal} · 首封 ${tm}${burst}${ztj}</span>`;
     }
     return `<span class="chip" style="background:rgba(255,255,255,.06);color:var(--ink-2)">今日未涨停</span>`;
   })();
@@ -4687,11 +4707,11 @@ function renderStreakPanel(today, recent5, leader, nature, relatedStrong, allStr
     if (!leader || !leader.role || leader.role === '—') return '';
     const sl = leader.sector_leader;
     const slHtml = sl
-      ? `<span class="chip" style="background:#fff8e1;border-color:#f57c00;color:#b71c1c;cursor:pointer" data-action="open-stock:${escapeHtml(sl.code)}" title="点击查看 ${escapeHtml(sl.name)}">👑 板块龙头 ${escapeHtml(sl.name)} · ${sl.streak} 板${sl.封单金额 ? ' · 封单 ' + (sl.封单金额 / 1e8).toFixed(2) + ' 亿' : ''}</span>`
+      ? `<span class="chip" style="background:var(--bg-1)8e1;border-color:var(--warn);color:var(--up-strong);cursor:pointer" data-action="open-stock:${escapeHtml(sl.code)}" title="点击查看 ${escapeHtml(sl.name)}">👑 板块龙头 ${escapeHtml(sl.name)} · ${sl.streak} 板${sl.封单金额 ? ' · 封单 ' + (sl.封单金额 / 1e8).toFixed(2) + ' 亿' : ''}</span>`
       : '';
-    const streakColor = leader.streak >= 5 ? '#b71c1c' : leader.streak >= 3 ? '#d32f2f' : leader.streak >= 2 ? '#f57c00' : '#7b1fa2';
+    const streakColor = leader.streak >= 5 ? 'var(--up-strong)' : leader.streak >= 3 ? 'var(--up)' : leader.streak >= 2 ? 'var(--warn)' : 'var(--accent-3)';
     const roleChip = leader.role !== '—'
-      ? `<span class="chip" style="background:${streakColor};color:#fff;border:none;font-weight:700" title="${escapeHtml(leader.reason || '')}">${escapeHtml(leader.role)}${leader.is_top_in_sector ? ' · 板块最高' : ''}</span>`
+      ? `<span class="chip" style="background:${streakColor};color:var(--bg-1);border:none;font-weight:700" title="${escapeHtml(leader.reason || '')}">${escapeHtml(leader.role)}${leader.is_top_in_sector ? ' · 板块最高' : ''}</span>`
       : '';
     return roleChip + slHtml;
   })();
@@ -4704,7 +4724,7 @@ function renderStreakPanel(today, recent5, leader, nature, relatedStrong, allStr
         const md = date.length >= 8 ? `${date.slice(4,6)}/${date.slice(6,8)}` : date;
         const lb = r.连板数 || 1;
         const fire = lb >= 2 ? '🔥' : '✓';
-        const fg = lb >= 5 ? '#b71c1c' : lb >= 3 ? '#d32f2f' : lb >= 2 ? '#f57c00' : 'var(--accent)';
+        const fg = lb >= 5 ? 'var(--up-strong)' : lb >= 3 ? 'var(--up)' : lb >= 2 ? 'var(--warn)' : 'var(--accent)';
         const burst = r.炸板次数 ? ` · 炸${r.炸板次数}` : '';
         // 用 data-streak-jump 自定义属性 (不依赖 data-action,因为 open-stock 会切个股)
         return `<span class="chip streak-jump" style="background:${fg}1a;color:${fg};border:1px solid ${fg};cursor:pointer" data-streak-jump="${escapeHtml(date)}" title="${escapeHtml(date)} · 连板 ${lb}${burst} · ${escapeHtml(r.所属行业 || '')} · ${escapeHtml(r.涨停统计 || '')} · 点击切到分时">${fire} ${md} · ${lb} 板${burst}</span>`;
@@ -4716,7 +4736,7 @@ function renderStreakPanel(today, recent5, leader, nature, relatedStrong, allStr
     <div style="display:flex;flex-wrap:wrap;gap:.3rem">
       ${relatedStrong.map(s => {
         const fire = s.change_pct >= 9.95 ? '🔥' : (s.is_new_high ? '⚡' : '');
-        const fg = s.change_pct >= 9.95 ? '#b71c1c' : s.change_pct >= 5 ? '#d32f2f' : s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
+        const fg = s.change_pct >= 9.95 ? 'var(--up-strong)' : s.change_pct >= 5 ? 'var(--up)' : s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
         const burst = s.zt_stats && s.zt_stats !== '0/0' ? ` ${s.zt_stats}` : '';
         const reasonIcon = s.is_new_high && /近期多次涨停/.test(s.reason || '') ? '⚡🔥'
                           : s.is_new_high ? '⚡新高'
@@ -4753,7 +4773,7 @@ document.addEventListener('click', (e) => {
 });
 
 // 按钮绑定
-document.addEventListener('DOMContentLoaded', () => {
+_onDomReady(() => {
   const nr = $('#news-refresh-btn');      if (nr) nr.addEventListener('click', () => loadNewsList(true));
   const sr = $('#sectors-refresh-btn');  if (sr) sr.addEventListener('click', () => loadSectorsList(true));
 });
@@ -4820,3 +4840,5 @@ function _prefetchAdjacentStocks(currentCode) {
     }
   }, 1200);
 }
+
+window.__tx3StockLoadStockDetail = loadStockDetail;

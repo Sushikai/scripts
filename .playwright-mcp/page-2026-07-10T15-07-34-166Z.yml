@@ -1,0 +1,80 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e5]: 退学
+        - generic [ref=f1e6]: v3
+        - generic [ref=f1e7]: TUIXUE · 操作台
+      - button "切换主题" [ref=f1e8] [cursor=pointer]:
+        - img [ref=f1e9]
+      - button "刷新" [ref=f1e11] [cursor=pointer]:
+        - img [ref=f1e12]
+    - generic [ref=f1e15]: 加载市场概览 …
+  - main [ref=f1e16]:
+    - generic [ref=f1e17]:
+      - generic [ref=f1e18]:
+        - paragraph [ref=f1e19]: CONTROL DECK · 01
+        - heading "把模型交给纪律， 把判断留给人。" [level=1] [ref=f1e20]:
+          - text: 把模型交给纪律，
+          - text: 把判断留给人。
+        - paragraph [ref=f1e21]: 退学炒股四层流水线 · 远程触发 · 实时出结论
+      - generic [ref=f1e22]:
+        - article [ref=f1e23]:
+          - generic [ref=f1e24]: DRAGONS · 实时龙头股
+          - heading "查看龙头" [level=2] [ref=f1e25]
+          - paragraph [ref=f1e26]: 已迁移到「龙头」页 — 当日 Top 30 主线个股 + 板块联动 + 席位精补。
+          - button "查看龙头 ↗" [ref=f1e27] [cursor=pointer]:
+            - generic [ref=f1e28]: 查看龙头
+            - generic [ref=f1e29]: ↗
+        - article [ref=f1e30]:
+          - generic [ref=f1e31]: ACCESS · 外网访问
+          - heading "扫码访问" [level=2] [ref=f1e32]
+          - paragraph [ref=f1e33]: 启动 Cloudflare Quick Tunnel,把本机操作台暴露到公网。
+          - generic [ref=f1e34]:
+            - generic [ref=f1e37]: 局域网 http://192.168.101.3:7799
+            - button "启动隧道" [ref=f1e38] [cursor=pointer]:
+              - generic [ref=f1e39]: 启动隧道
+          - generic [ref=f1e40]:
+            - generic [ref=f1e41]: —
+            - button "QR" [ref=f1e42] [cursor=pointer]
+          - generic [ref=f1e43]:
+            - img "QR Code" [ref=f1e44]
+            - paragraph [ref=f1e45]: 手机扫码 · 临时 URL · 重启会变
+          - group [ref=f1e46]:
+            - generic "如何换永久 URL？" [ref=f1e47] [cursor=pointer]
+      - generic [ref=f1e48]:
+        - article [ref=f1e49]:
+          - generic [ref=f1e50]: SECTOR · 板块快照
+          - heading "涨停池" [level=3] [ref=f1e51]
+          - generic [ref=f1e52]:
+            - generic [ref=f1e53]: —
+            - generic [ref=f1e54]: 只
+          - paragraph [ref=f1e55]: 今日连板家数 · 实时
+        - article [ref=f1e56]:
+          - generic [ref=f1e57]: SECTOR · 板块快照
+          - heading "沪深成交" [level=3] [ref=f1e58]
+          - generic [ref=f1e59]:
+            - generic [ref=f1e60]: —
+            - generic [ref=f1e61]: 亿
+          - paragraph [ref=f1e62]: 今日两市成交额（实时）
+        - article [ref=f1e63]:
+          - generic [ref=f1e64]: SECTOR · 系统状态
+          - heading "缓存命中" [level=3] [ref=f1e65]
+          - generic [ref=f1e66]:
+            - generic [ref=f1e67]: —
+            - generic [ref=f1e68]: "%"
+          - paragraph [ref=f1e69]: 最近一次扫描命中率
+      - article [ref=f1e70]:
+        - generic [ref=f1e71]: QUICK · 快捷入口
+        - heading "个股深查" [level=3] [ref=f1e72]
+        - generic [ref=f1e73]:
+          - textbox "输入股票代码或名称（如 600519 / 茅台）" [ref=f1e74]
+          - button "查询 →" [ref=f1e75] [cursor=pointer]
+    - text: 律
+  - navigation [ref=f1e76]:
+    - button "01 · 首页" [ref=f1e77] [cursor=pointer]
+    - button "03 · 龙头" [ref=f1e78] [cursor=pointer]
+    - button "04 · 个股" [ref=f1e79] [cursor=pointer]
+    - button "06 · 调优" [ref=f1e80] [cursor=pointer]
+    - button "07 · 心法" [ref=f1e81] [cursor=pointer]
+    - button "08 · 复盘" [ref=f1e82] [cursor=pointer]

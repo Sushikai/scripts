@@ -1,0 +1,145 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: 退学
+        - generic [ref=e6]: v3
+        - generic [ref=e7]: TUIXUE · 操作台
+      - generic [ref=e83]: 已刷新 22:53:06
+      - button "切换主题" [ref=e8] [cursor=pointer]:
+        - img [ref=e9]
+      - button "刷新" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+    - generic [ref=e14]:
+      - generic [ref=e679]: 上证指数 0.00 0.00%
+      - generic [ref=e680]: 深证成指 0.00 0.00%
+      - generic [ref=e681]: 创业板指 0.00 0.00%
+      - generic [ref=e682]: 沪深300 0.00 0.00%
+      - generic [ref=e683]: 科创50 0.00 0.00%
+      - generic [ref=e684]: 中证500 0.00 0.00%
+      - generic [ref=e685]: 涨停0
+  - main [ref=e16]:
+    - generic [ref=e559]:
+      - generic [ref=e560]:
+        - paragraph [ref=e561]: DETAIL · 04
+        - heading "个股·—" [level=1] [ref=e562]
+        - paragraph [ref=e563]: 搜索 → 一只股票开始
+      - article [ref=e564]:
+        - generic [ref=e565]:
+          - textbox "代码 / 名称（如 600519 / 平安）" [active] [ref=e566]: "600519"
+          - button "查询 ↗" [ref=e567] [cursor=pointer]
+        - generic [ref=e687]: 无匹配
+      - generic [ref=e568]:
+        - article [ref=e569]:
+          - generic [ref=e570]: QUOTE · 实时价
+          - generic [ref=e571]:
+            - generic [ref=e572]: —
+            - generic [ref=e573]: 元
+          - paragraph [ref=e574]: —
+        - article [ref=e575]:
+          - generic [ref=e576]: FLOW · 主力净流
+          - generic [ref=e577]:
+            - generic [ref=e578]: —
+            - generic [ref=e579]: 万
+          - paragraph [ref=e580]: 今日 · 4 单合计
+        - article [ref=e581]:
+          - generic [ref=e582]: 换手 · 量比
+          - generic [ref=e583]:
+            - generic [ref=e584]: —
+            - generic [ref=e585]: "%"
+          - paragraph [ref=e586]: 量比 —
+        - article [ref=e587]:
+          - generic [ref=e588]: 振幅 · 5日涨跌
+          - generic [ref=e589]:
+            - generic [ref=e590]: —
+            - generic [ref=e591]: "%"
+          - paragraph [ref=e592]: 5日 —
+        - article [ref=e593]:
+          - generic [ref=e594]: 市值 · 流通
+          - generic [ref=e595]:
+            - generic [ref=e596]: —
+            - generic [ref=e597]: 亿
+          - paragraph [ref=e598]: 流通 —
+        - article [ref=e599]:
+          - generic [ref=e600]: 市盈率 · PE
+          - generic [ref=e601]:
+            - generic [ref=e602]: —
+            - generic [ref=e603]: ×
+          - paragraph [ref=e604]: 动 · 当前
+        - article [ref=e605]:
+          - generic [ref=e606]: 当日 · 高/低
+          - generic [ref=e608]: —
+          - paragraph [ref=e609]: 开 / 昨收
+        - article [ref=e610]:
+          - generic [ref=e611]: SEATS · 游资
+          - generic [ref=e612]:
+            - generic [ref=e613]: "0"
+            - generic [ref=e614]: 条
+          - paragraph [ref=e615]: 近 10 日龙虎
+      - article [ref=e616]:
+        - generic [ref=e617]: 🔥 LIMIT-UP · 连板梯队 + 板块联动
+        - paragraph [ref=e619]: 查询股票后将显示连板 / 5 日涨停 / 板块涨停清单
+      - generic [ref=e620]:
+        - article [ref=e621]:
+          - generic [ref=e622]: TODAY · 当日明细
+          - generic [ref=e623]:
+            - generic [ref=e624]:
+              - generic [ref=e625]: 开盘
+              - generic [ref=e626]: —
+            - generic [ref=e627]:
+              - generic [ref=e628]: 昨收
+              - generic [ref=e629]: —
+            - generic [ref=e630]:
+              - generic [ref=e631]: 最高
+              - generic [ref=e632]: —
+            - generic [ref=e633]:
+              - generic [ref=e634]: 最低
+              - generic [ref=e635]: —
+            - generic [ref=e636]:
+              - generic [ref=e637]: 涨停价
+              - generic [ref=e638]: —
+            - generic [ref=e639]:
+              - generic [ref=e640]: 跌停价
+              - generic [ref=e641]: —
+            - generic [ref=e642]:
+              - generic [ref=e643]: 成交量
+              - generic [ref=e644]: —
+            - generic [ref=e645]:
+              - generic [ref=e646]: 成交额
+              - generic [ref=e647]: —
+            - generic [ref=e648]:
+              - generic [ref=e649]: 20日涨跌
+              - generic [ref=e650]: —
+            - generic [ref=e651]:
+              - generic [ref=e652]: 5日均量
+              - generic [ref=e653]: —
+        - article [ref=e654]:
+          - generic [ref=e655]: STREAK · 近期涨停 / 连板
+          - paragraph [ref=e657]: 无近 10 日涨停记录
+      - generic [ref=e658]:
+        - article [ref=e659]:
+          - generic [ref=e660]: SECTOR · 所属板块 / 行业
+          - paragraph
+        - article [ref=e662]:
+          - generic [ref=e663]: SECTOR SENTIMENT · 板块情绪 + 相关新闻
+          - separator [ref=e664]
+      - generic [ref=e665]:
+        - button "资金流向" [ref=e666] [cursor=pointer]
+        - button "K 线" [ref=e667] [cursor=pointer]
+        - button "5 日分时" [ref=e668] [cursor=pointer]
+        - button "游资席位" [ref=e669] [cursor=pointer]
+        - button "📰 新闻" [ref=e670] [cursor=pointer]
+        - button "📊 板块" [ref=e671] [cursor=pointer]
+        - button "👥 散户/主力" [ref=e672] [cursor=pointer]
+        - button "AI 复盘 · 铁律" [ref=e673] [cursor=pointer]
+      - article [ref=e674]:
+        - generic [ref=e675]: 资本动向
+        - paragraph [ref=e677]: 请先在上方搜索一只股票
+    - text: 律
+  - navigation [ref=e76]:
+    - button "01 · 首页" [ref=e77] [cursor=pointer]
+    - button "03 · 龙头" [ref=e78] [cursor=pointer]
+    - button "04 · 个股" [ref=e79] [cursor=pointer]
+    - button "06 · 调优" [ref=e80] [cursor=pointer]
+    - button "07 · 心法" [ref=e81] [cursor=pointer]
+    - button "08 · 复盘" [ref=e82] [cursor=pointer]

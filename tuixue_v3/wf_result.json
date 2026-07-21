@@ -1,0 +1,177 @@
+{
+  "baseline_cum": 175.03,
+  "train_results": [
+    {
+      "params": {
+        "sample": 500,
+        "top_n": 1,
+        "hold_days": 3,
+        "breadth_min": 0,
+        "breadth_min_soft": 0,
+        "sector_hot_topn": 0,
+        "sector_inflow_topn": 0,
+        "late_high_discount": 1.0
+      },
+      "label": "500_1_3",
+      "score": 0.5512,
+      "cum": 228.68,
+      "wr": 69.3,
+      "pf": 1.98,
+      "dd": 15.77,
+      "trades": 114,
+      "elapsed": 10.2
+    },
+    {
+      "params": {
+        "top_n": 4,
+        "hold_days": 2,
+        "breadth_min": 1500,
+        "breadth_min_soft": 3500,
+        "sector_hot_topn": 3,
+        "sector_inflow_topn": 3,
+        "late_high_discount": 0.7,
+        "sample": 500
+      },
+      "label": "500_4_2_h1500_s3500_top3_inf3_lhd0.7",
+      "score": 0.841,
+      "cum": 317.44,
+      "wr": 74.1,
+      "pf": 2.6,
+      "dd": 15.87,
+      "trades": 139,
+      "elapsed": 12.2
+    },
+    {
+      "params": {
+        "top_n": 3,
+        "hold_days": 2,
+        "breadth_min": 1500,
+        "breadth_min_soft": 3000,
+        "sector_hot_topn": 5,
+        "sector_inflow_topn": 0,
+        "late_high_discount": 1.0,
+        "sample": 500
+      },
+      "label": "500_3_2_h1500_s3000_top5",
+      "score": 0.8997,
+      "cum": 599.85,
+      "wr": 73.47,
+      "pf": 2.48,
+      "dd": 25.07,
+      "trades": 245,
+      "elapsed": 12.3
+    },
+    {
+      "params": {
+        "top_n": 4,
+        "hold_days": 3,
+        "breadth_min": 2000,
+        "breadth_min_soft": 3000,
+        "sector_hot_topn": 3,
+        "sector_inflow_topn": 3,
+        "late_high_discount": 1.0,
+        "sample": 500
+      },
+      "label": "500_4_3_h2000_s3000_top3_inf3",
+      "score": 1.2935,
+      "cum": 402.01,
+      "wr": 73.05,
+      "pf": 2.87,
+      "dd": 13.02,
+      "trades": 141,
+      "elapsed": 13.3
+    }
+  ],
+  "test_results": [
+    {
+      "params": {
+        "sample": 500,
+        "top_n": 1,
+        "hold_days": 3,
+        "breadth_min": 0,
+        "breadth_min_soft": 0,
+        "sector_hot_topn": 0,
+        "sector_inflow_topn": 0,
+        "late_high_discount": 1.0
+      },
+      "label": "500_1_3",
+      "score": 0.1866,
+      "cum": 175.03,
+      "wr": 72.65,
+      "pf": 1.73,
+      "dd": 38.23,
+      "trades": 117,
+      "elapsed": 10.3
+    },
+    {
+      "params": {
+        "top_n": 4,
+        "hold_days": 2,
+        "breadth_min": 1500,
+        "breadth_min_soft": 3500,
+        "sector_hot_topn": 3,
+        "sector_inflow_topn": 3,
+        "late_high_discount": 0.7,
+        "sample": 500
+      },
+      "label": "500_4_2_h1500_s3500_top3_inf3_lhd0.7",
+      "score": 3.4196,
+      "cum": 511.65,
+      "wr": 77.34,
+      "pf": 2.88,
+      "dd": 4.94,
+      "trades": 203,
+      "elapsed": 12.8
+    },
+    {
+      "params": {
+        "top_n": 3,
+        "hold_days": 2,
+        "breadth_min": 1500,
+        "breadth_min_soft": 3000,
+        "sector_hot_topn": 5,
+        "sector_inflow_topn": 0,
+        "late_high_discount": 1.0,
+        "sample": 500
+      },
+      "label": "500_3_2_h1500_s3000_top5",
+      "score": 2.7518,
+      "cum": 646.58,
+      "wr": 75.92,
+      "pf": 2.59,
+      "dd": 7.74,
+      "trades": 245,
+      "elapsed": 12.7
+    },
+    {
+      "params": {
+        "top_n": 4,
+        "hold_days": 3,
+        "breadth_min": 2000,
+        "breadth_min_soft": 3000,
+        "sector_hot_topn": 3,
+        "sector_inflow_topn": 3,
+        "late_high_discount": 1.0,
+        "sample": 500
+      },
+      "label": "500_4_3_h2000_s3000_top3_inf3",
+      "score": 2.7225,
+      "cum": 532.41,
+      "wr": 74.87,
+      "pf": 2.84,
+      "dd": 6.92,
+      "trades": 191,
+      "elapsed": 12.8
+    }
+  ],
+  "train_dates": {
+    "start": "20250102",
+    "end": "20251013",
+    "count": 186
+  },
+  "test_dates": {
+    "start": "20251014",
+    "end": "20260717",
+    "count": 186
+  }
+}

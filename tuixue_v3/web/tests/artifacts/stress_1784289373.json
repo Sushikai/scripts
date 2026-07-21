@@ -1,0 +1,24 @@
+[
+  {
+    "name": "normal",
+    "done": true,
+    "kpis_filled": true,
+    "scenarios9_filled": true,
+    "monthly_filled": true,
+    "equity_filled": true,
+    "exit_filled": true,
+    "sector_filled": true,
+    "windows_filled": true
+  },
+  {
+    "name": "zero_trades",
+    "kpis_has_banner": true,
+    "exit_has_placeholder": true
+  },
+  {
+    "name": "view_leave",
+    "left_view_ok": true,
+    "bt_run_enabled_after_return": true,
+    "before_in_screener": true
+  }
+]

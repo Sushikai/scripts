@@ -123,7 +123,16 @@ try_ngrok() {
     # 先杀可能残留的 ngrok agent
     pkill -f "ngrok start" 2>/dev/null || true
     sleep 1
-    ngrok http "$PORT" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+    # 2026-07-16: 加 --traffic-policy-file 在 on_http_response 阶段自动注入
+    # abuse_interstitial cookie (30天有效),后续访问 bypass ngrok 6024 警告页 —
+    # 用户首次点 Visit Site 后,policy 每响应再 Set-Cookie 续期
+    local policy_file="$ROOT/../tuixue_v3/web/.tunnels/ngrok_policy.yml"
+    [ -f "$ROOT/tuixue_v3/web/.tunnels/ngrok_policy.yml" ] && policy_file="$ROOT/tuixue_v3/web/.tunnels/ngrok_policy.yml"
+    if [ -f "$policy_file" ]; then
+        ngrok http "$PORT" --traffic-policy-file="$policy_file" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+    else
+        ngrok http "$PORT" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+    fi
     TUNNEL_PID=$!
     for i in $(seq 1 25); do
         sleep 1

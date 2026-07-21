@@ -165,6 +165,9 @@ def fetch_daily(code: str, days: int = 120, force: bool = False) -> pd.DataFrame
             cached = cache_db.daily().get(code, days)
             if cached is not None and len(cached) >= days * 0.7:
                 return cached
+            # 缓存完全没有数据 → 不触发网络请求
+            if cached is None:
+                return None
         except Exception as e:
             log.debug(f"cache_db.daily 读失败 {code}: {e}")
 

@@ -1,0 +1,194 @@
+{
+  "ts": 1784283721.9899971,
+  "total": 26,
+  "counts": {
+    "PASS": 13,
+    "FAIL": 0,
+    "ERROR": 13,
+    "SKIP": 0
+  },
+  "results": [
+    {
+      "name": "api /api/dashboard/signal",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 8223.9
+    },
+    {
+      "name": "api /api/dashboard/hot_sectors",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 8203.1
+    },
+    {
+      "name": "api /api/all_stocks/board",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 7800.7
+    },
+    {
+      "name": "api /api/screener/backtest (无 run_id)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 4.9
+    },
+    {
+      "name": "api /api/screener/backtest POST 非法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 6.0
+    },
+    {
+      "name": "api /api/screener/backtest POST 合法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 5.4
+    },
+    {
+      "name": "api /api/review/portfolio",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1171.0
+    },
+    {
+      "name": "api /api/review/portfolio positions",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 4.4
+    },
+    {
+      "name": "api /api/stock/999999/intraday 404",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 8137.8
+    },
+    {
+      "name": "api /api/global/sentiment",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 4124.7
+    },
+    {
+      "name": "api /api/nonexistent/foo 404",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "TimeoutError: timed out",
+      "elapsed_ms": 5003.8
+    },
+    {
+      "name": "api GET / (index.html)",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "ConnectionResetError: [Errno 54] Connection reset by peer",
+      "elapsed_ms": 3908.7
+    },
+    {
+      "name": "static /static/app.js",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.9
+    },
+    {
+      "name": "static /static/style.css",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.8
+    },
+    {
+      "name": "XSS /api/stock/<script>...</script>",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.5
+    },
+    {
+      "name": "XSS /api/screener/backtest payload",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 1.1
+    },
+    {
+      "name": "RCE /api/capital_flow 白名单拦截",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 2.1
+    },
+    {
+      "name": "/api/stock/{code}/* 6位数字校验",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.6
+    },
+    {
+      "name": "perf dashboard signal < 3s",
+      "group": "Perf",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 2.3
+    },
+    {
+      "name": "perf all_stocks board < 2s",
+      "group": "Perf",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 1.7
+    },
+    {
+      "name": "perf index.html < 500ms",
+      "group": "Perf",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 2.0
+    },
+    {
+      "name": "unit escapeHtml(null) === ''",
+      "group": "Perf",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.0
+    },
+    {
+      "name": "static app.js 含全部修复",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 2.8
+    },
+    {
+      "name": "static view-other.js 含全部修复",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "server env.sh argv 安全",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.3
+    },
+    {
+      "name": "server ai_chat cache LRU",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.1
+    }
+  ]
+}

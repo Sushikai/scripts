@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+venv/
+.env
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# 数据
+backend/data/
+backend/app/web/static/
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store
+
+# 日志
+*.log
+
+# Playwright
+.playwright-mcp/

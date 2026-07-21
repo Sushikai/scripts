@@ -1,0 +1,194 @@
+{
+  "ts": 1784397496.665629,
+  "total": 26,
+  "counts": {
+    "PASS": 26,
+    "FAIL": 0,
+    "ERROR": 0,
+    "SKIP": 0
+  },
+  "results": [
+    {
+      "name": "api /api/dashboard/signal",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 8133.8
+    },
+    {
+      "name": "api /api/dashboard/hot_sectors",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 5247.1
+    },
+    {
+      "name": "api /api/all_stocks/board",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.8
+    },
+    {
+      "name": "api /api/screener/backtest (无 run_id)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.9
+    },
+    {
+      "name": "api /api/screener/backtest POST 非法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.5
+    },
+    {
+      "name": "api /api/screener/backtest POST 合法入参",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 7.4
+    },
+    {
+      "name": "api /api/review/portfolio",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 136.3
+    },
+    {
+      "name": "api /api/review/portfolio positions",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 537.0
+    },
+    {
+      "name": "api /api/stock/999999/intraday 404",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 8146.3
+    },
+    {
+      "name": "api /api/global/sentiment",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 4005.0
+    },
+    {
+      "name": "api /api/nonexistent/foo 404",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.9
+    },
+    {
+      "name": "api GET / (index.html)",
+      "group": "API",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.7
+    },
+    {
+      "name": "static /static/app.js",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 6.3
+    },
+    {
+      "name": "static /static/style.css",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.9
+    },
+    {
+      "name": "XSS /api/stock/<script>...</script>",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.1
+    },
+    {
+      "name": "XSS /api/screener/backtest payload",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 5.1
+    },
+    {
+      "name": "RCE /api/capital_flow 白名单拦截",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1170.1
+    },
+    {
+      "name": "/api/stock/{code}/* 6位数字校验",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 550.3
+    },
+    {
+      "name": "perf dashboard signal < 3s",
+      "group": "Perf",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 7.2
+    },
+    {
+      "name": "perf all_stocks board < 2s",
+      "group": "Perf",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2576.8
+    },
+    {
+      "name": "perf index.html < 500ms",
+      "group": "Perf",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 11.6
+    },
+    {
+      "name": "unit escapeHtml(null) === ''",
+      "group": "Perf",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.0
+    },
+    {
+      "name": "static app.js 含全部修复",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 3.0
+    },
+    {
+      "name": "static view-other.js 含全部修复",
+      "group": "Static",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.3
+    },
+    {
+      "name": "server env.sh argv 安全",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 1.1
+    },
+    {
+      "name": "server ai_chat cache LRU",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.3
+    }
+  ]
+}

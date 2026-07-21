@@ -22,7 +22,7 @@ from urllib.request import urlopen, Request
 log = logging.getLogger("tuixue_v3.web.global_markets")
 
 # 多源 fetcher 用独立线程池,避免占满 server 主池(8 worker 足够)
-_EXEC = ThreadPoolExecutor(max_workers=16, thread_name_prefix="gm")
+_EXEC = ThreadPoolExecutor(max_workers=32, thread_name_prefix="gm")
 
 
 # ═══════════════════════════════════════════════════
@@ -319,18 +319,121 @@ def _fetch_yahoo(code: str, market: str) -> dict | None:
         return None
 
 
+def _fetch_yfinance(code: str, market: str) -> dict | None:
+    """yfinance (2026-07-16 新增) — Yahoo Finance Python 封装。
+    pip install yfinance。底层也是 Yahoo API,在沙箱/被限频时与 _fetch_yahoo
+    同样会失败,但因为 UA/请求格式不同,有时会绕过 Yahoo 限流。
+    仅在 yahoo 直连返 None 时启用 (作为 chain 的最后兜底)。
+    threading + join(timeout=6) 防止 sandbox hang。
+    """
+    import threading as _th
+    sym_map = {
+        # 复用 yahoo 的 sym_map, 无需重复定义
+        "DJI": "^DJI", "us.DJI": "^DJI", "int_dji": "^DJI",
+        "IXIC": "^IXIC", "us.IXIC": "^IXIC", "int_nasdaq": "^IXIC",
+        "INX": "^INX", "us.INX": "^INX", "int_sp500": "^GSPC",
+        "KS11": "^KS11", "KQ11": "^KQ11",
+    }
+    box = {"data": None}
+    def _run():
+        try:
+            import yfinance as yf
+            if market == "kr":
+                if code in sym_map:
+                    sym = sym_map[code]
+                elif code.isdigit() and len(code) == 6:
+                    sym = f"{code}.KS"
+                else:
+                    sym = code
+            else:
+                sym = sym_map.get(code, code)
+            t = yf.Ticker(sym)
+            # fast_info 比 info 快很多,且更稳
+            try:
+                fi = t.fast_info
+                price = float(getattr(fi, "last_price", 0) or 0)
+                prev = float(getattr(fi, "previous_close", 0) or 0)
+            except Exception:
+                # 退回 history
+                h = t.history(period="5d")
+                if h is None or h.empty:
+                    return
+                price = float(h["Close"].iloc[-1])
+                prev = float(h["Close"].iloc[-2]) if len(h) > 1 else price
+            if not price or not prev:
+                return
+            chg = price - prev
+            pct = chg / prev * 100.0
+            box["data"] = {"price": price, "prev": prev,
+                           "change": round(chg, 4), "change_pct": round(pct, 2),
+                           "source": "yfinance"}
+        except Exception as e:
+            log.debug(f"yfinance {code} fail: {e}")
+    t = _th.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=6)
+    return box["data"]
+
+
+# Naver KR 指数值 TTL 缓存 — 沙箱网络下 naver 单次 ~5s,超出 fetch_global_sentiment
+# 的 4s as_completed 窗口会被丢弃,且 dashboard signal 会重复拉。缓存后除冷启动外均命中。
+_NAVER_CACHE: dict[str, tuple[float, dict]] = {}
+_NAVER_TTL = 120.0
+
+
+def _fetch_naver(code: str, market: str) -> dict | None:
+    """Naver Finance mobile API (KR 主源 2026-07-14)
+    Yahoo + Eastmoney push2 + Sina 全部断 (push2 周末限频/yahoo 沙箱劫持),
+    Naver m.stock.naver.com 不限频、JSON 干净。
+    URL: https://m.stock.naver.com/api/index/{KOSPI|KOSDAQ}/basic
+    响应: { closePrice, compareToPreviousClosePrice, fluctuationsRatio, ... }
+    120s TTL 缓存 — naver 沙箱下单次 ~5s,不缓存会拖垮 dashboard signal。
+    """
+    if market != "kr":
+        return None
+    idx_map = {"KS11": "KOSPI", "KQ11": "KOSDAQ"}
+    sym = idx_map.get(code, code)
+    cached = _NAVER_CACHE.get(code)
+    if cached and (time.time() - cached[0]) < _NAVER_TTL:
+        return cached[1]
+    url = f"https://m.stock.naver.com/api/index/{sym}/basic"
+    try:
+        req = Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://m.stock.naver.com/",
+        })
+        with urlopen(req, timeout=8) as r:
+            j = json.loads(r.read().decode())
+        price_str = (j.get("closePrice") or "").replace(",", "")
+        chg_str   = (j.get("compareToPreviousClosePrice") or "").replace(",", "")
+        pct_str   = j.get("fluctuationsRatio") or ""
+        if not price_str or not chg_str:
+            return None
+        price = float(price_str)
+        chg   = float(chg_str)
+        pct   = float(pct_str)
+        result = {"price": price, "prev": price - chg, "change": chg,
+                  "change_pct": round(pct, 2), "source": "naver"}
+        _NAVER_CACHE[code] = (time.time(), result)
+        return result
+    except Exception as e:
+        log.debug(f"naver {sym} fail: {e}")
+        return None
+
+
 def _fetch_one(code: str, market: str) -> dict | None:
     """按优先级多源兜底抓一只股票/指数
-    US: sina 主 (gb_xxx/int_xxx) → yahoo 兜底
-    KR: yahoo 主 (^KS11) → eastmoney 兜底
+    US: sina 主 (gb_xxx/int_xxx) → yahoo → yfinance → eastmoney
+    KR: naver 主 (KOSPI/KOSDAQ) → yahoo → yfinance → eastmoney
+    (2026-07-16 加 yfinance, 沙箱 Yahoo 限频时偶尔能绕过;threading 6s 硬超时)
     """
     if market == "us":
-        for fetcher in (_fetch_sina, _fetch_yahoo, _fetch_eastmoney):
+        for fetcher in (_fetch_sina, _fetch_yahoo, _fetch_yfinance, _fetch_eastmoney):
             d = fetcher(code, market)
             if d:
                 return d
     elif market == "kr":
-        for fetcher in (_fetch_yahoo, _fetch_eastmoney):
+        for fetcher in (_fetch_naver, _fetch_yahoo, _fetch_yfinance, _fetch_eastmoney):
             d = fetcher(code, market)
             if d:
                 return d
@@ -379,35 +482,46 @@ def fetch_global_sentiment(top_n_leaders: int = 8) -> dict:
     us_out:      list[dict] = []
     kr_out:      list[dict] = []
 
-    for fut, meta in futures.items():
-        kind, code, name, market, weight = meta
-        try:
-            d = fut.result(timeout=4.5)
-        except Exception:
-            d = None
-        if not d:
-            continue
-        item = {"code": code, "name": name, "price": d["price"],
-                "prev": d["prev"], "change_pct": d["change_pct"],
-                "source": d.get("source", "")}
-        if kind == "idx":
-            item["weight"] = weight
-            indices_out.append(item)
-        elif kind == "us_stock":
-            mapping = US_TO_A_STOCK_SECTOR.get(code) or {}
-            item.update({
-                "sectors":   mapping.get("sectors", []),
-                "direction": mapping.get("direction", "+"),
-                "note":      mapping.get("note", ""),
-            })
-            us_out.append(item)
-        elif kind == "kr_stock":
-            mapping = KR_TO_A_STOCK_SECTOR.get(code) or {}
-            item.update({
-                "sectors": mapping.get("sectors", []),
-                "note":    mapping.get("note", ""),
-            })
-            kr_out.append(item)
+    from concurrent.futures import as_completed
+    # as_completed 让快完成先取,不阻塞在 insert-order 慢 future 上 — 避免 worst-case
+    # 60 task × 4.5s timeout 在 16 worker 下迭代顺序等待串成 9s+。改 as_completed 总耗时≈ max batch 耗时。
+    _pending = list(futures.keys())
+    try:
+        for fut in as_completed(_pending, timeout=4.0):
+            meta = futures.pop(fut, None)
+            if meta is None:
+                continue
+            kind, code, name, market, weight = meta
+            try:
+                d = fut.result(timeout=0)  # 已完成,不再二次等待
+            except Exception:
+                d = None
+            if not d:
+                continue
+            item = {"code": code, "name": name, "price": d["price"],
+                    "prev": d["prev"], "change_pct": d["change_pct"],
+                    "source": d.get("source", "")}
+            if kind == "idx":
+                item["weight"] = weight
+                indices_out.append(item)
+            elif kind == "us_stock":
+                mapping = US_TO_A_STOCK_SECTOR.get(code) or {}
+                item.update({
+                    "sectors":   mapping.get("sectors", []),
+                    "direction": mapping.get("direction", "+"),
+                    "note":      mapping.get("note", ""),
+                })
+                us_out.append(item)
+            elif kind == "kr_stock":
+                mapping = KR_TO_A_STOCK_SECTOR.get(code) or {}
+                item.update({
+                    "sectors": mapping.get("sectors", []),
+                    "note":    mapping.get("note", ""),
+                })
+                kr_out.append(item)
+    except Exception:
+        # as_completed 累计超时 (4.0s);剩余 futures 仍然在 executor 后台跑 — 我们不再等了
+        pass
 
     # ── 派生: sector impact 加权得分 ──
     sector_scores: dict[str, dict] = {}

@@ -1,0 +1,64 @@
+- generic [active] [ref=f9e1]:
+  - banner [ref=f9e2]:
+    - generic [ref=f9e3]:
+      - generic [ref=f9e4]:
+        - generic [ref=f9e5]: 退学
+        - generic [ref=f9e6]: v3
+        - generic [ref=f9e7]: TUIXUE · 操作台
+      - button "切换主题" [ref=f9e8] [cursor=pointer]:
+        - img [ref=f9e9]
+      - button "刷新" [ref=f9e11] [cursor=pointer]:
+        - img [ref=f9e12]
+    - generic [ref=f9e15]: 加载市场概览 …
+  - main [ref=f9e16]:
+    - generic [ref=f9e17]:
+      - generic [ref=f9e18]:
+        - paragraph [ref=f9e19]: CONTROL DECK · 01
+        - heading "把模型交给纪律， 把判断留给人。" [level=1] [ref=f9e20]:
+          - text: 把模型交给纪律，
+          - text: 把判断留给人。
+        - paragraph [ref=f9e21]: 退学炒股四层流水线 · 远程触发 · 实时出结论
+      - article [ref=f9e23]:
+        - generic [ref=f9e24]: SCREEN · 实时龙头股
+        - heading "一键扫描" [level=2] [ref=f9e25]
+        - paragraph [ref=f9e26]: 跑完 L1 风控 → L2 周期闸门 → L3 形态 → L4 分时，按 L4→L1 优先级返回当日候选。
+        - button "立即扫描 ↗" [ref=f9e27] [cursor=pointer]:
+          - generic [ref=f9e28]: 立即扫描
+          - generic [ref=f9e29]: ↗
+      - generic [ref=f9e30]:
+        - article [ref=f9e31]:
+          - generic [ref=f9e32]: SECTOR · 板块快照
+          - heading "涨停池" [level=3] [ref=f9e33]
+          - generic [ref=f9e34]:
+            - generic [ref=f9e35]: —
+            - generic [ref=f9e36]: 只
+          - paragraph [ref=f9e37]: 今日连板家数 · 实时
+        - article [ref=f9e38]:
+          - generic [ref=f9e39]: SECTOR · 板块快照
+          - heading "沪深成交" [level=3] [ref=f9e40]
+          - generic [ref=f9e41]:
+            - generic [ref=f9e42]: —
+            - generic [ref=f9e43]: 亿
+          - paragraph [ref=f9e44]: 今日两市成交额（实时）
+        - article [ref=f9e45]:
+          - generic [ref=f9e46]: SECTOR · 系统状态
+          - heading "缓存命中" [level=3] [ref=f9e47]
+          - generic [ref=f9e48]:
+            - generic [ref=f9e49]: —
+            - generic [ref=f9e50]: "%"
+          - paragraph [ref=f9e51]: 最近一次扫描命中率
+      - article [ref=f9e52]:
+        - generic [ref=f9e53]: QUICK · 快捷入口
+        - heading "个股深查" [level=3] [ref=f9e54]
+        - generic [ref=f9e55]:
+          - textbox "输入股票代码或名称（如 600519 / 茅台）" [ref=f9e56]
+          - button "查询 →" [ref=f9e57] [cursor=pointer]
+    - text: 律
+  - navigation [ref=f9e58]:
+    - button "01 · 首页" [ref=f9e59] [cursor=pointer]
+    - button "02 · 扫描" [ref=f9e60] [cursor=pointer]
+    - button "03 · 龙头" [ref=f9e61] [cursor=pointer]
+    - button "04 · 个股" [ref=f9e62] [cursor=pointer]
+    - button "06 · 调优" [ref=f9e63] [cursor=pointer]
+    - button "07 · 心法" [ref=f9e64] [cursor=pointer]
+    - button "08 · 复盘" [ref=f9e65] [cursor=pointer]

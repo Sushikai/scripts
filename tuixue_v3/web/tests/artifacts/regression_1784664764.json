@@ -1,0 +1,194 @@
+{
+  "ts": 1784664764.510165,
+  "total": 26,
+  "counts": {
+    "PASS": 3,
+    "FAIL": 0,
+    "ERROR": 23,
+    "SKIP": 0
+  },
+  "results": [
+    {
+      "name": "api /api/dashboard/signal",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 4.6
+    },
+    {
+      "name": "api /api/dashboard/hot_sectors",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.5
+    },
+    {
+      "name": "api /api/all_stocks/board",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api /api/screener/backtest (无 run_id)",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.5
+    },
+    {
+      "name": "api /api/screener/backtest POST 非法入参",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api /api/screener/backtest POST 合法入参",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api /api/review/portfolio",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api /api/review/portfolio positions",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.5
+    },
+    {
+      "name": "api /api/stock/999999/intraday 404",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api /api/global/sentiment",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api /api/nonexistent/foo 404",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "api GET / (index.html)",
+      "group": "API",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "static /static/app.js",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "static /static/style.css",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.3
+    },
+    {
+      "name": "XSS /api/stock/<script>...</script>",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "XSS /api/screener/backtest payload",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "RCE /api/capital_flow 白名单拦截",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.3
+    },
+    {
+      "name": "/api/stock/{code}/* 6位数字校验",
+      "group": "Security",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.3
+    },
+    {
+      "name": "perf dashboard signal < 3s",
+      "group": "Perf",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.7
+    },
+    {
+      "name": "perf all_stocks board < 2s",
+      "group": "Perf",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.6
+    },
+    {
+      "name": "perf index.html < 500ms",
+      "group": "Perf",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.4
+    },
+    {
+      "name": "unit escapeHtml(null) === ''",
+      "group": "Perf",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.0
+    },
+    {
+      "name": "static app.js 含全部修复",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.3
+    },
+    {
+      "name": "static view-other.js 含全部修复",
+      "group": "Static",
+      "status": "ERROR",
+      "msg": "URLError: <urlopen error [Errno 61] Connection refused>",
+      "elapsed_ms": 0.3
+    },
+    {
+      "name": "server env.sh argv 安全",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 2.0
+    },
+    {
+      "name": "server ai_chat cache LRU",
+      "group": "Security",
+      "status": "PASS",
+      "msg": "",
+      "elapsed_ms": 0.4
+    }
+  ]
+}

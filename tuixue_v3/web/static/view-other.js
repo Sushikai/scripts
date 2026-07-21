@@ -219,11 +219,12 @@ function _renderAIAnalysisCards(bd, s) {
 
 // 周线擒牛 pattern label 表 (前端展示用)
 const _WB_LABELS = {
-  sanxing_taodi:     '三星探底',
-  zhanwen_5w:        '站稳5周线',
-  tupo_pingtai:      '突破震荡平台',
-  junxian_fangxiang: '均线方向',
-  zhouxian_duiliang: '周线堆量',
+  sanxing_taodi:              '三星探底',
+  zhanwen_5w:                 '站稳5周线',
+  tupo_pingtai:               '突破震荡平台',
+  tupo_pingtai_aggressive:    '突破3周(激进)',
+  junxian_fangxiang:          '均线方向',
+  zhouxian_duiliang:          '周线堆量',
 };
 
 function renderDragons(data) {
@@ -337,7 +338,7 @@ function renderDragons(data) {
           <div class="dragon-meta">
             ${(() => {
               const tx = s.taxonomy || {};
-              const color = tx.l1_color || '#888';
+              const color = tx.l1_color || 'var(--ink-4)';
               return `<span class="dragon-sector-chip" style="display:inline-block;padding:0 7px;font-size:10px;line-height:18px;border-radius:4px;background:${color}22;color:${color};border:1px solid ${color}44;">${escapeHtml(s.sector || '—')}</span>`;
             })()} ${mainlineBadge}
             <span class="dim"> · ${escapeHtml(String(s.streak))}板 · 市值${escapeHtml(String(s.market_cap_yi))}亿 · 换手${escapeHtml(String(s.turnover_pct))}% · 封成${escapeHtml(sealTxt)}</span>
@@ -547,7 +548,7 @@ document.addEventListener('click', e => {
 });
 
 $('#refresh-ticker')?.addEventListener('click', () => {
-  refreshTicker();
+  refreshTicker(true);
   toast('已刷新');
 });
 
@@ -1304,7 +1305,7 @@ async function _inlineEditName(span) {
   inp.value = orig;
   inp.className = 'np-name-input';
   inp.maxLength = 32;
-  inp.style.cssText = 'width:11em;font:inherit;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:#fff;color:var(--ink-1)';
+  inp.style.cssText = 'width:11em;font:inherit;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--bg-1);color:var(--ink-1)';
   span.textContent = '';
   span.appendChild(inp);
   inp.focus();
@@ -1564,6 +1565,7 @@ var _aiReviewState = {
   trade: null,
   review: null,
   running: false,
+  _es: null,  // EventSource 引用,用于离开时关闭
 };
 
 function openAiReview(tradeId) {
@@ -1726,6 +1728,7 @@ function _airvRunViaSSE(tid) {
     _aiReviewState.running = true;
     const hint = $('#airv-status');
     const es = new EventSource(`/api/stream/review/${tid}`);
+    _aiReviewState._es = es;
     let settled = false;
     const finish = () => {
       if (settled) return;
@@ -1874,7 +1877,7 @@ function showToast(msg, type) {
   }
   // 兜底 (toast 未定义时): 保留老 inline 行为
   if (window.__toastBox) window.__toastBox.remove();
-  const colors = { info: '#d4a056', success: '#4fb074', error: '#d97a6c' };
+  const colors = { info: 'var(--warn)', success: 'var(--down-strong)', error: 'var(--up-strong)' };
   const box = document.createElement('div');
   box.textContent = msg;
   box.style.cssText = `
@@ -2275,7 +2278,7 @@ function _reviewBindScreenshot() {
     const total = _snapState.trades.length;
     if (!total) {
       setStatus('✗ 没识别出任何有效交易,请手填或换 OCR', 'err');
-      if (tag) { tag.textContent = '失败'; tag.style.color = '#f87171'; }
+      if (tag) { tag.textContent = '失败'; tag.style.color = 'var(--up-strong)'; }
       return;
     }
     const ai  = _snapState.trades.filter(t => t.source === 'ai').length;
@@ -2286,7 +2289,7 @@ function _reviewBindScreenshot() {
     );
     if (tag) {
       tag.textContent = ai ? `🤖 AI ${ai}` : (ocr ? '🔤 OCR' : '已就绪');
-      tag.style.color = ai ? '#4ade80' : '#d4a056';
+      tag.style.color = ai ? 'var(--down-strong)' : 'var(--warn)';
     }
     // 缩略图保留(显示计数);若有单笔且表单为空,可自动填
     if (total === 1 && !$('#rf-code').value) {
@@ -2706,7 +2709,7 @@ function _reviewBindForm() {
       items.slice(0, 10).forEach(item => {
         const row = document.createElement('div');
         row.style.cssText = 'padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid rgba(232,227,216,0.05);';
-        row.innerHTML = `<code style="color:#d4a056">${escapeHtml(item.code)}</code> <span style="color:#e8e3d8">${escapeHtml(item.name || '')}</span>`;
+        row.innerHTML = `<code style="color:var(--warn)">${escapeHtml(item.code)}</code> <span style="color:var(--ink-1)">${escapeHtml(item.name || '')}</span>`;
         row.addEventListener('mouseenter', () => row.style.background = 'rgba(212,160,86,0.15)');
         row.addEventListener('mouseleave', () => row.style.background = '');
         row.addEventListener('click', () => {
@@ -2834,6 +2837,15 @@ function _stockOnViewLeave() {
   }
 }
 _registerViewLeave('stock', _stockOnViewLeave);
+
+function _airvOnViewLeave() {
+  if (_aiReviewState._es) {
+    try { _aiReviewState._es.close(); } catch {}
+    _aiReviewState._es = null;
+  }
+  _aiReviewState.running = false;
+}
+_registerViewLeave('ai-review', _airvOnViewLeave);
 
 // R15: 自动复盘调度 — 状态机
 var _reviewAuto = { running: false, queue: [], done: 0, total: 0, startedTs: 0, stop: false };
@@ -3178,9 +3190,17 @@ function _watchlistRowHtml(it) {
   const turnover = snap.turnover != null ? `${snap.turnover.toFixed(2)}%` : '—';
   const mainPct = snap.main_pct;
   const retailPct = snap.retail_pct;
-  const mainPctHtml = mainPct != null
-    ? `<span class="${mainPct >= 30 ? 'cell-up' : mainPct < 20 ? 'cell-down' : 'cell-flat'}">${mainPct.toFixed(1)}%</span>`
-    : '—';
+  // 主+散户单行 (R1: 紧凑化)
+  let mainPctHtml;
+  if (mainPct != null) {
+    const cls = mainPct >= 30 ? 'cell-up' : mainPct < 20 ? 'cell-down' : 'cell-flat';
+    const retailHtml = retailPct != null
+      ? `<span class="dim" title="散户占比">散${retailPct.toFixed(0)}</span>`
+      : '';
+    mainPctHtml = `<span class="wl-main-pct"><span class="${cls}">${mainPct.toFixed(1)}</span>${retailHtml}</span>`;
+  } else {
+    mainPctHtml = '—';
+  }
   const pct5 = snap.pct_5d;
   const pct10 = snap.pct_10d;
   const pct5Html = pct5 != null
@@ -3189,43 +3209,44 @@ function _watchlistRowHtml(it) {
   const pct10Html = pct10 != null
     ? `<span class="${pct10 >= 0 ? 'cell-up' : 'cell-down'}">${(pct10 >= 0 ? '+' : '') + pct10.toFixed(1)}%</span>`
     : '<span class="dim">—</span>';
+  // 板块联动:nowrap
   const secZt = snap.sector_zt;
   const secLink = secZt != null
-    ? `⚡${secZt}只 <span class="dim">/ ${snap.streak || 0}连板</span>`
+    ? `<span class="wl-sector-link">⚡<b>${secZt}</b>只<span class="dim">/ ${snap.streak || 0}连</span></span>`
     : '<span class="dim">—</span>';
 
-  // AI cell
+  // AI cell — 全部 inline pill + button; 摘要进 title hover
   let aiCellHtml;
   if (!ai) {
-    aiCellHtml = `<button class="btn btn-mini wl-btn-add" data-wl-ai="${escapeHtml(code)}">+ 添加分析</button>`;
+    aiCellHtml = `<button class="btn btn-tiny wl-btn-add" data-wl-ai="${escapeHtml(code)}">+ AI</button>`;
   } else {
     const v = ai.verdict || '-';
     const vCls = ({ '买': 'buy', '观望': 'wait', '回避': 'avoid' })[v] || 'na';
     const conv = ai.conviction ?? 0;
-    const stale = ai.is_stale ? '<span class="wl-stale-tag" title="跨日判定">昨日</span>' : '';
+    const stale = ai.is_stale ? '<span class="wl-stale-tag" title="跨日判定">昨</span>' : '';
+    const sumTitle = ai.summary ? escapeHtml(ai.summary) : `${v} · 信心 ${conv}`;
     aiCellHtml = `
-      <div class="wl-ai-cell">
-        <span class="verdict-pill v-${vCls}">${escapeHtml(v)} <b>${conv}</b></span>
+      <div class="wl-ai-cell" title="${sumTitle}">
+        <span class="verdict-pill v-${vCls}">${escapeHtml(v)}<b>${conv}</b></span>
         ${stale}
-        ${ai.summary ? `<p class="wl-ai-summary" title="${escapeHtml(ai.summary)}">${escapeHtml(ai.summary.slice(0, 40))}${ai.summary.length > 40 ? '…' : ''}</p>` : ''}
         <button class="btn btn-tiny wl-btn-reai" data-wl-ai="${escapeHtml(code)}" title="重新 AI">↻</button>
       </div>
     `;
   }
 
-  // 时间窗口 cell
+  // 时间窗口 cell — pill + 入场/止损 inline 一行
   let windowHtml;
   if (ai && ai.suggested_window) {
     const winCls = ai.suggested_window === '暂观望' ? 'wl-win-wait' :
                    ai.suggested_window === '今早竞价' ? 'wl-win-fast' :
                    ai.suggested_window === '14:00 后' ? 'wl-win-late' : '';
-    windowHtml = `<span class="wl-window ${winCls}">${escapeHtml(ai.suggested_window)}</span>`;
-    if (ai.entry_price_range) {
-      windowHtml += `<div class="wl-entry">入 ${escapeHtml(ai.entry_price_range)}</div>`;
-    }
-    if (ai.stop_loss) {
-      windowHtml += `<div class="wl-stop">止 ${escapeHtml(ai.stop_loss)}</div>`;
-    }
+    const entry = ai.entry_price_range ? `<span class="wl-price-pair" title="入场价">入${escapeHtml(ai.entry_price_range)}</span>` : '';
+    const stop  = ai.stop_loss ? `<span class="wl-price-pair wl-stop-inline" title="止损">止${escapeHtml(ai.stop_loss)}</span>` : '';
+    const pricePair = (entry || stop) ? `<span class="wl-price-pair-sep">·</span>` : '';
+    windowHtml = `<span class="wl-window-block">
+        <span class="wl-window ${winCls}">${escapeHtml(ai.suggested_window)}</span>
+        ${pricePair}${entry}${stop}
+      </span>`;
   } else {
     windowHtml = '<span class="dim">—</span>';
   }
@@ -3237,7 +3258,7 @@ function _watchlistRowHtml(it) {
       <td>${price}</td>
       <td>${chgHtml}</td>
       <td>${turnover}</td>
-      <td>${mainPctHtml}${retailPct != null ? `<div class="dim" style="font-size:.7rem">散户 ${retailPct.toFixed(0)}%</div>` : ''}</td>
+      <td>${mainPctHtml}</td>
       <td>${pct5Html}</td>
       <td>${pct10Html}</td>
       <td>${secLink}</td>
@@ -3358,7 +3379,7 @@ function _initTableOverflowHints() {
 }
 
 // 初始绑定 (DOMContentLoaded 时执行一次)
-document.addEventListener('DOMContentLoaded', () => {
+_onDomReady(() => {
   // 批量 AI 按钮
   const batchBtn = $('#wl-batch-ai');
   if (batchBtn && !batchBtn._bound) {
@@ -3378,7 +3399,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // 初始绑定(用户直接打开 review 时)
-document.addEventListener('DOMContentLoaded', () => {
+_onDomReady(() => {
   setTimeout(_reviewOnViewEnter, 200);
   // 资金占比轮询由 _reviewOnViewEnter 内的 capTimer 全权负责,这里不再重复 setInterval
   // (之前重复导致每 5s 一次拉取)

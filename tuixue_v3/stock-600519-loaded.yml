@@ -1,0 +1,205 @@
+- generic [active] [ref=f9e1]:
+  - link "跳到主内容" [ref=f9e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - complementary "主导航" [ref=f9e3]:
+    - generic [ref=f9e4]:
+      - generic [ref=f9e5]: TUIXUE · 操作台
+      - generic [ref=f9e6]: 退学v3
+    - generic [ref=f9e7]: 工作台
+    - button "首页 01" [ref=f9e8] [cursor=pointer]:
+      - generic [ref=f9e15]: 首页
+      - generic [ref=f9e16]: "01"
+    - button "全 A 风向 02" [ref=f9e17] [cursor=pointer]:
+      - generic [ref=f9e23]: 全 A 风向
+      - generic [ref=f9e24]: "02"
+    - button "龙头 03" [ref=f9e25] [cursor=pointer]:
+      - generic [ref=f9e29]: 龙头
+      - generic [ref=f9e30]: "03"
+    - button "个股 04" [ref=f9e31] [cursor=pointer]:
+      - generic [ref=f9e37]: 个股
+      - generic [ref=f9e38]: "04"
+    - button "自选 05" [ref=f9e39] [cursor=pointer]:
+      - generic [ref=f9e43]: 自选
+      - generic [ref=f9e44]: "05"
+    - button "尾盘战法 09" [ref=f9e45] [cursor=pointer]:
+      - generic [ref=f9e51]: 尾盘战法
+      - generic [ref=f9e52]: "09"
+    - generic [ref=f9e53]: 系统
+    - button "调优 06" [ref=f9e54] [cursor=pointer]:
+      - generic [ref=f9e59]: 调优
+      - generic [ref=f9e60]: "06"
+    - button "心法 07" [ref=f9e61] [cursor=pointer]:
+      - generic [ref=f9e66]: 心法
+      - generic [ref=f9e67]: "07"
+    - button "周线擒牛 08" [ref=f9e68] [cursor=pointer]:
+      - generic [ref=f9e72]: 周线擒牛
+      - generic [ref=f9e73]: "08"
+    - button "策略选股 09" [ref=f9e74] [cursor=pointer]:
+      - generic [ref=f9e79]: 策略选股
+      - generic [ref=f9e80]: "09"
+    - button "复盘 08" [ref=f9e81] [cursor=pointer]:
+      - generic [ref=f9e86]: 复盘
+      - generic [ref=f9e87]: "08"
+    - generic [ref=f9e88]: 系统在线
+  - banner [ref=f9e92]:
+    - generic [ref=f9e93]:
+      - button "打开菜单" [ref=f9e94] [cursor=pointer]
+      - generic [ref=f9e96]:
+        - generic [ref=f9e97]: 退学
+        - generic [ref=f9e98]: v3
+      - generic [ref=f9e99]: 在线
+      - button "切换主题" [ref=f9e102] [cursor=pointer]
+      - button "刷新" [ref=f9e105] [cursor=pointer]
+    - generic [ref=f9e108]: 市场数据暂不可达 · Failed to fetch
+  - main [ref=f9e110]:
+    - generic [ref=f9e111]:
+      - generic [ref=f9e112]:
+        - paragraph [ref=f9e113]: 个股 · 04
+        - heading "个股·—" [level=1] [ref=f9e114]
+        - paragraph [ref=f9e115]: 搜索 → 一只股票开始
+      - article [ref=f9e117]:
+        - generic [ref=f9e118]:
+          - textbox "股票代码或名称" [ref=f9e119]:
+            - /placeholder: 代码 / 名称（如 600519 / 平安）
+          - button "查询 ↗" [ref=f9e120] [cursor=pointer]
+      - article [ref=f9e121]:
+        - generic [ref=f9e122]:
+          - generic [ref=f9e123]
+          - button "📝 一键复盘" [disabled] [ref=f9e130] [cursor=pointer]
+          - button "⭐ 一键自选" [disabled] [ref=f9e131] [cursor=pointer]
+          - button "↗ 锁定" [disabled] [ref=f9e132] [cursor=pointer]
+      - generic [ref=f9e133]:
+        - generic [ref=f9e134]:
+          - generic [ref=f9e135]
+          - generic [ref=f9e138]: 数据源
+        - generic [ref=f9e140]:
+          - generic [ref=f9e141]: —
+          - generic [ref=f9e142]
+          - generic [ref=f9e145]: —
+      - article [ref=f9e146]:
+        - generic [ref=f9e147]: 涨停 · 连板梯队 + 板块联动
+        - paragraph [ref=f9e149]: 查询股票后将显示连板 / 5 日涨停 / 板块涨停清单
+      - generic [ref=f9e150]:
+        - generic [ref=f9e151]:
+          - generic [ref=f9e153]: 资
+          - generic [ref=f9e154]: 主力净流入 · 万
+          - generic [ref=f9e155]: —
+        - generic [ref=f9e156]:
+          - generic [ref=f9e157]: 换
+          - generic [ref=f9e158]: 换手率
+          - generic [ref=f9e159]: —
+        - generic [ref=f9e160]:
+          - generic [ref=f9e161]: 量
+          - generic [ref=f9e162]: 量比
+          - generic [ref=f9e163]: —
+          - generic [ref=f9e164]: vs 5 日均量
+        - generic [ref=f9e165]:
+          - generic [ref=f9e166]: 波
+          - generic [ref=f9e167]: 振幅
+          - generic [ref=f9e168]: —
+          - generic [ref=f9e169]: 日内波动
+        - generic [ref=f9e170]:
+          - generic [ref=f9e171]: +
+          - generic [ref=f9e172]: 涨停价
+          - generic [ref=f9e173]: —
+          - generic [ref=f9e174]: 今日 +10%
+        - generic [ref=f9e175]:
+          - generic [ref=f9e176]: −
+          - generic [ref=f9e177]: 跌停价
+          - generic [ref=f9e178]: —
+          - generic [ref=f9e179]: 今日 -10%
+        - generic [ref=f9e180]:
+          - generic [ref=f9e181]: 5d
+          - generic [ref=f9e182]: 5 日涨跌
+          - generic [ref=f9e183]: —
+          - generic [ref=f9e184]: 短期趋势
+        - generic [ref=f9e185]:
+          - generic [ref=f9e186]: 20d
+          - generic [ref=f9e187]: 20 日涨跌
+          - generic [ref=f9e188]: —
+          - generic [ref=f9e189]: 中期趋势
+        - generic [ref=f9e190]:
+          - generic [ref=f9e191]: 值
+          - generic [ref=f9e192]: 总市值
+          - generic [ref=f9e193]: —
+        - generic [ref=f9e194]:
+          - generic [ref=f9e195]: PE
+          - generic [ref=f9e196]: 市盈率 · PE
+          - generic [ref=f9e197]: —
+        - generic [ref=f9e198]:
+          - generic [ref=f9e199]: PB
+          - generic [ref=f9e200]: 市净率 · PB
+          - generic [ref=f9e201]: —
+          - generic [ref=f9e202]: 净资产倍数
+        - generic [ref=f9e203]:
+          - generic [ref=f9e204]: ⤧
+          - generic [ref=f9e205]: 当日 高 / 低
+          - generic [ref=f9e206]: —
+        - generic [ref=f9e207]:
+          - generic [ref=f9e208]: 成
+          - generic [ref=f9e209]: 成交量
+          - generic [ref=f9e210]: —
+          - generic [ref=f9e211]: 成交额 —
+        - generic [ref=f9e212]:
+          - generic [ref=f9e213]: 席
+          - generic [ref=f9e214]: 龙虎席位
+          - generic [ref=f9e215]: —
+      - article [ref=f9e216]:
+        - generic [ref=f9e217]: 连板 · 近期涨停 / 强势股
+        - paragraph [ref=f9e219]: 查询股票后显示近 10 日涨跌
+      - article [ref=f9e220]:
+        - generic [ref=f9e221]:
+          - generic [ref=f9e222]: 买点 3 · 5 日均线 · 短线 5 原则
+          - generic [ref=f9e223]: 心法页 →
+        - paragraph [ref=f9e224]: 盘面只留一根 5 日均线 · 5 句话覆盖短线全流程 · 老前辈 20 年心得
+        - list [ref=f9e225]:
+          - listitem [ref=f9e226]: 不放量大阳线坚决不碰 — 连一根有力度的大阳线都没有 → 资金没有真正发力 → 直接划走
+          - listitem [ref=f9e227]: 放量后回踩 5 日均线不破 = 重点观察 — 主力借回踩完成洗盘,均线不失守就耐心找买点 (放量看方向,回踩找位置)
+          - listitem [ref=f9e228]: 明显偏离 5 日线先兑现一部分利润 — 不要幻想继续大涨;若回踩 5 日线再把仓位接回来,长期账户曲线稳
+          - listitem [ref=f9e229]: 收盘跌破 5 日线不硬抗 — 临近收盘没站回去就先降仓位;真正高手先控风险再想赚钱
+          - listitem [ref=f9e230]: 跌破 5 日线连续 3 日站不回去 → 直接离场 — 强势票不会长时间趴 5 日线下;3 天收不回来说明趋势已变,留住本金
+        - paragraph [ref=f9e231]: 心法 · 均线向上只做多,均线拐头向下宁愿空仓 — 盘面只留一根均线,把简单方法反复做到位
+      - generic [ref=f9e232]:
+        - generic [ref=f9e233]:
+          - tab "分时" [ref=f9e234] [cursor=pointer]
+          - tab "K 线" [ref=f9e235] [cursor=pointer]
+          - tab "资金流向" [ref=f9e237] [cursor=pointer]
+          - tab "游资席位" [ref=f9e238] [cursor=pointer]
+          - tab "散户/主力" [ref=f9e239] [cursor=pointer]
+          - tab "砸盘风险" [ref=f9e241] [cursor=pointer]
+          - tab "AI 铁律" [ref=f9e242] [cursor=pointer]
+          - tab "新闻" [ref=f9e244] [cursor=pointer]
+          - tab "板块" [ref=f9e245] [cursor=pointer]
+          - tab "相关个股" [ref=f9e246] [cursor=pointer]
+        - article [ref=f9e248]:
+          - generic [ref=f9e249]
+          - paragraph
+      - article [ref=f9e258]:
+        - generic [ref=f9e259]: 近 10 日涨跌 · 每日格子 (close-to-close)
+        - paragraph [ref=f9e261]: 查询股票后显示近 10 日涨跌
+    - text: 律
+  - navigation [ref=f9e262]:
+    - button "◎ 首页" [ref=f9e263] [cursor=pointer]:
+      - generic [ref=f9e264]: ◎
+      - generic [ref=f9e265]: 首页
+    - button "★ 龙头" [ref=f9e266] [cursor=pointer]:
+      - generic [ref=f9e267]: ★
+      - generic [ref=f9e268]: 龙头
+    - button "◇ 个股" [ref=f9e269] [cursor=pointer]:
+      - generic [ref=f9e270]: ◇
+      - generic [ref=f9e271]: 个股
+    - button "☆ 自选" [ref=f9e272] [cursor=pointer]:
+      - generic [ref=f9e273]: ☆
+      - generic [ref=f9e274]: 自选
+    - button "⊞ 全A" [ref=f9e275] [cursor=pointer]:
+      - generic [ref=f9e276]: ⊞
+      - generic [ref=f9e277]: 全A
+    - button "⊕ 尾盘战法" [ref=f9e278] [cursor=pointer]:
+      - generic [ref=f9e279]: ⊕
+      - generic [ref=f9e280]: 尾盘战法
+    - button "§ 心法" [ref=f9e281] [cursor=pointer]:
+      - generic [ref=f9e282]: §
+      - generic [ref=f9e283]: 心法
+    - button "⤓ 复盘" [ref=f9e284] [cursor=pointer]:
+      - generic [ref=f9e285]: ⤓
+      - generic [ref=f9e286]: 复盘

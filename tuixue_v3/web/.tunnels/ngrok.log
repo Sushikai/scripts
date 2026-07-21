@@ -1,0 +1,161 @@
+t=2026-07-16T18:50:46+0800 lvl=info msg="command usage" msg="Flag --basic-auth has been deprecated, use traffic policy instead"
+t=2026-07-16T18:50:46+0800 lvl=info msg="no configuration paths supplied"
+t=2026-07-16T18:50:46+0800 lvl=info msg="using configuration at default config path" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml"
+t=2026-07-16T18:50:46+0800 lvl=info msg="open config file" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-07-16T18:50:46+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-07-16T18:50:46+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-07-16T18:50:48+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T18:50:48+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T18:50:48+0800 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:7799 url=https://nondepreciative-florentino-mimically.ngrok-free.dev
+t=2026-07-16T18:50:48+0800 lvl=info msg="update available" obj=updater
+t=2026-07-16T18:50:51+0800 lvl=info msg=start pg=/api/tunnels id=fda7c4efdae0226c
+t=2026-07-16T18:50:51+0800 lvl=info msg=end pg=/api/tunnels id=fda7c4efdae0226c status=200 dur=205.583µs
+t=2026-07-16T18:50:58+0800 lvl=info msg="join connections" obj=join id=d16696eaf7cf l=127.0.0.1:7799 r=183.131.109.33:58333
+t=2026-07-16T18:51:49+0800 lvl=info msg="received stop request" obj=app stopReq="{err:<nil> restart:false}"
+t=2026-07-16T18:51:49+0800 lvl=info msg="session closing" obj=tunnels.session err=nil
+t=2026-07-16T18:51:49+0800 lvl=info msg="accept failed" obj=tunnels.session obj=csess id=52e3629b2d19 err="reconnecting session closed"
+t=2026-07-16T18:51:52+0800 lvl=info msg="no configuration paths supplied"
+t=2026-07-16T18:51:52+0800 lvl=info msg="using configuration at default config path" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml"
+t=2026-07-16T18:51:52+0800 lvl=info msg="open config file" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-07-16T18:51:52+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-07-16T18:51:52+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-07-16T18:51:53+0800 lvl=info msg="update available" obj=updater
+t=2026-07-16T18:51:53+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T18:51:53+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T18:51:54+0800 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:7799 url=https://nondepreciative-florentino-mimically.ngrok-free.dev
+t=2026-07-16T18:51:57+0800 lvl=info msg=start pg=/api/tunnels id=a5bdcb498507420e
+t=2026-07-16T18:51:57+0800 lvl=info msg=end pg=/api/tunnels id=a5bdcb498507420e status=200 dur=125.708µs
+t=2026-07-16T18:53:35+0800 lvl=info msg="join connections" obj=join id=f0368d14c5f5 l=127.0.0.1:7799 r=183.134.43.89:49712
+t=2026-07-16T18:56:39+0800 lvl=info msg=start pg=/api/tunnels id=a44872cbd00eefa6
+t=2026-07-16T18:56:39+0800 lvl=info msg=end pg=/api/tunnels id=a44872cbd00eefa6 status=200 dur=133.625µs
+t=2026-07-16T18:57:50+0800 lvl=info msg="join connections" obj=join id=42780fdccd21 l=127.0.0.1:7799 r=183.134.43.89:49157
+t=2026-07-16T18:57:52+0800 lvl=info msg="join connections" obj=join id=b8698973a2d4 l=127.0.0.1:7799 r=183.131.109.33:49293
+t=2026-07-16T18:58:28+0800 lvl=info msg="join connections" obj=join id=e682f2f480fa l=127.0.0.1:7799 r=36.155.101.185:53950
+t=2026-07-16T18:58:53+0800 lvl=info msg="join connections" obj=join id=c32c8ca32118 l=127.0.0.1:7799 r=183.134.43.89:57342
+t=2026-07-16T18:59:27+0800 lvl=info msg="received stop request" obj=app stopReq="{err:<nil> restart:false}"
+t=2026-07-16T18:59:27+0800 lvl=info msg="session closing" obj=tunnels.session err=nil
+t=2026-07-16T18:59:27+0800 lvl=info msg="accept failed" obj=tunnels.session obj=csess id=79fbfa719977 err="reconnecting session closed"
+t=2026-07-16T18:59:30+0800 lvl=info msg="no configuration paths supplied"
+t=2026-07-16T18:59:30+0800 lvl=info msg="using configuration at default config path" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml"
+t=2026-07-16T18:59:30+0800 lvl=info msg="open config file" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-07-16T18:59:30+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-07-16T18:59:30+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-07-16T18:59:32+0800 lvl=info msg="update available" obj=updater
+t=2026-07-16T18:59:35+0800 lvl=info msg=start pg=/api/tunnels id=32f90638b4f58256
+t=2026-07-16T18:59:35+0800 lvl=info msg=end pg=/api/tunnels id=32f90638b4f58256 status=200 dur=301.792µs
+t=2026-07-16T18:59:38+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T18:59:38+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T18:59:38+0800 lvl=eror msg="session closing" obj=tunnels.session err="failed to start tunnel: Failed to parse the configuration for policy action type 'add-headers'.\n:1:2 unknown field \"response\", expected one of [headers]\n   1 | {\"response\":{\"add\":{\"Set-Cookie\":\"abuse_interstitial=nondepreciative-florentino-mimically.ngrok-free.dev; Path=/; Max-Age=2592000; Secure; SameSite=None\"}}}\n   1 | .^\n\r\n\r\nERR_NGROK_2203\r\n"
+t=2026-07-16T18:59:38+0800 lvl=info msg="accept failed" obj=tunnels.session obj=csess id=ed2322f0b026 err="reconnecting session closed"
+t=2026-07-16T18:59:38+0800 lvl=info msg="no more state changes" obj=tunnels.session
+t=2026-07-16T18:59:38+0800 lvl=info msg="received stop request" obj=app stopReq="{err:{Inner:{Inner:0x1400060a7b0}} restart:false}"
+t=2026-07-16T18:59:38+0800 lvl=eror msg="terminating with error" obj=app err="failed to start tunnel: Failed to parse the configuration for policy action type 'add-headers'.\n:1:2 unknown field \"response\", expected one of [headers]\n   1 | {\"response\":{\"add\":{\"Set-Cookie\":\"abuse_interstitial=nondepreciative-florentino-mimically.ngrok-free.dev; Path=/; Max-Age=2592000; Secure; SameSite=None\"}}}\n   1 | .^\n\r\n\r\nERR_NGROK_2203\r\n"
+t=2026-07-16T18:59:38+0800 lvl=crit msg="command failed" err="failed to start tunnel: Failed to parse the configuration for policy action type 'add-headers'.\n:1:2 unknown field \"response\", expected one of [headers]\n   1 | {\"response\":{\"add\":{\"Set-Cookie\":\"abuse_interstitial=nondepreciative-florentino-mimically.ngrok-free.dev; Path=/; Max-Age=2592000; Secure; SameSite=None\"}}}\n   1 | .^\n\r\n\r\nERR_NGROK_2203\r\n"
+t=2026-07-16T18:59:58+0800 lvl=info msg="no configuration paths supplied"
+t=2026-07-16T18:59:58+0800 lvl=info msg="using configuration at default config path" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml"
+t=2026-07-16T18:59:58+0800 lvl=info msg="open config file" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-07-16T18:59:58+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-07-16T18:59:58+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-07-16T18:59:59+0800 lvl=info msg="update available" obj=updater
+t=2026-07-16T19:00:00+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T19:00:00+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T19:00:00+0800 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:7799 url=https://nondepreciative-florentino-mimically.ngrok-free.dev
+t=2026-07-16T19:00:04+0800 lvl=info msg=start pg=/api/tunnels id=d22b141895c7980d
+t=2026-07-16T19:00:04+0800 lvl=info msg=end pg=/api/tunnels id=d22b141895c7980d status=200 dur=129.083µs
+t=2026-07-16T19:00:04+0800 lvl=info msg="join connections" obj=join id=20659f83bd74 l=127.0.0.1:7799 r=183.131.109.33:65260
+t=2026-07-16T19:00:12+0800 lvl=info msg="join connections" obj=join id=0a0917d69232 l=127.0.0.1:7799 r=183.131.109.33:50524
+t=2026-07-16T19:00:19+0800 lvl=info msg="join connections" obj=join id=a021409af5df l=127.0.0.1:7799 r=183.247.169.25:51145
+t=2026-07-16T19:00:19+0800 lvl=info msg="join connections" obj=join id=c2e75abe1f14 l=127.0.0.1:7799 r=183.247.169.25:51145
+t=2026-07-16T19:00:52+0800 lvl=info msg="join connections" obj=join id=8d0b4529a8f2 l=127.0.0.1:7799 r=183.131.109.33:55359
+t=2026-07-16T19:00:52+0800 lvl=info msg="join connections" obj=join id=2162be0f363a l=127.0.0.1:7799 r=183.131.109.33:55359
+t=2026-07-16T19:01:15+0800 lvl=eror msg="heartbeat timeout, terminating session" obj=tunnels.session obj=csess id=bbc31fa08390 clientid=978aecfdd4de2af1e6b95ca53d98795f
+t=2026-07-16T19:01:15+0800 lvl=eror msg="session closed, starting reconnect loop" obj=tunnels.session obj=csess id=8455c5731359 err="session closed"
+t=2026-07-16T19:01:16+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T19:01:16+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T19:01:34+0800 lvl=info msg="join connections" obj=join id=c599e0fbb567 l=127.0.0.1:7799 r=183.131.109.33:59370
+t=2026-07-16T19:01:35+0800 lvl=info msg="join connections" obj=join id=59ce4e7e22c4 l=127.0.0.1:7799 r=183.131.109.33:59370
+t=2026-07-16T19:01:40+0800 lvl=info msg="no configuration paths supplied"
+t=2026-07-16T19:01:40+0800 lvl=info msg="using configuration at default config path" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml"
+t=2026-07-16T19:01:40+0800 lvl=info msg="open config file" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-07-16T19:01:40+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-07-16T19:01:40+0800 lvl=warn msg="can't bind default web address, trying alternatives" obj=web addr=127.0.0.1:4040
+t=2026-07-16T19:01:40+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4041 allow_hosts=[]
+t=2026-07-16T19:01:41+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T19:01:41+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T19:01:42+0800 lvl=eror msg="session closing" obj=tunnels.session err="failed to start tunnel: The endpoint 'https://nondepreciative-florentino-mimically.ngrok-free.dev' is already online. Either\n1. stop your existing endpoint first, or\n2. start both endpoints with `--pooling-enabled` to load balance between them.\r\n\r\nERR_NGROK_334\r\n"
+t=2026-07-16T19:01:42+0800 lvl=info msg="accept failed" obj=tunnels.session obj=csess id=eadea870c2de err="reconnecting session closed"
+t=2026-07-16T19:01:42+0800 lvl=info msg="received stop request" obj=app stopReq="{err:{Inner:{Inner:0x140005fa140}} restart:false}"
+t=2026-07-16T19:01:42+0800 lvl=eror msg="terminating with error" obj=app err="failed to start tunnel: The endpoint 'https://nondepreciative-florentino-mimically.ngrok-free.dev' is already online. Either\n1. stop your existing endpoint first, or\n2. start both endpoints with `--pooling-enabled` to load balance between them.\r\n\r\nERR_NGROK_334\r\n"
+t=2026-07-16T19:01:42+0800 lvl=info msg="no more state changes" obj=tunnels.session
+t=2026-07-16T19:01:42+0800 lvl=crit msg="command failed" err="failed to start tunnel: The endpoint 'https://nondepreciative-florentino-mimically.ngrok-free.dev' is already online. Either\n1. stop your existing endpoint first, or\n2. start both endpoints with `--pooling-enabled` to load balance between them.\r\n\r\nERR_NGROK_334\r\n"
+t=2026-07-16T19:01:42+0800 lvl=warn msg="failed to check for update" obj=updater err="Post \"https://update.ngrok-agent.com/check\": context canceled"
+t=2026-07-16T19:01:46+0800 lvl=info msg=start pg=/api/tunnels id=263a163078d0a2a1
+t=2026-07-16T19:01:46+0800 lvl=info msg=end pg=/api/tunnels id=263a163078d0a2a1 status=200 dur=199.583µs
+t=2026-07-16T19:01:47+0800 lvl=info msg="join connections" obj=join id=4aec979d4ba9 l=127.0.0.1:7799 r=183.131.109.33:62042
+t=2026-07-16T19:01:56+0800 lvl=info msg="join connections" obj=join id=a45334a51136 l=127.0.0.1:7799 r=183.131.109.33:62334
+t=2026-07-16T19:02:19+0800 lvl=info msg=start pg=/api/tunnels id=7bc4162eb09821e5
+t=2026-07-16T19:02:19+0800 lvl=info msg=end pg=/api/tunnels id=7bc4162eb09821e5 status=200 dur=120.833µs
+t=2026-07-16T19:02:24+0800 lvl=info msg="no configuration paths supplied"
+t=2026-07-16T19:02:24+0800 lvl=info msg="using configuration at default config path" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml"
+t=2026-07-16T19:02:24+0800 lvl=info msg="open config file" path="/Users/kaikai/Library/Application Support/ngrok/ngrok.yml" err=nil
+t=2026-07-16T19:02:24+0800 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-07-16T19:02:24+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-07-16T19:02:25+0800 lvl=info msg="update available" obj=updater
+t=2026-07-16T19:02:31+0800 lvl=info msg=start pg=/api/tunnels id=72091a1682b56a7a
+t=2026-07-16T19:02:31+0800 lvl=info msg=end pg=/api/tunnels id=72091a1682b56a7a status=200 dur=118.375µs
+t=2026-07-16T19:02:37+0800 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: EOF"
+t=2026-07-16T19:02:40+0800 lvl=info msg="client session established" obj=tunnels.session
+t=2026-07-16T19:02:40+0800 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-07-16T19:02:40+0800 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:7799 url=https://nondepreciative-florentino-mimically.ngrok-free.dev
+t=2026-07-16T19:02:44+0800 lvl=info msg=start pg=/api/tunnels id=f4fa39e22b03473f
+t=2026-07-16T19:02:44+0800 lvl=info msg=end pg=/api/tunnels id=f4fa39e22b03473f status=200 dur=98.583µs
+t=2026-07-16T19:02:50+0800 lvl=info msg="join connections" obj=join id=48408ca6231b l=127.0.0.1:7799 r=183.131.109.33:53142
+t=2026-07-16T19:02:51+0800 lvl=info msg="join connections" obj=join id=9218906df604 l=127.0.0.1:7799 r=183.131.109.33:53161
+t=2026-07-16T19:02:56+0800 lvl=info msg="join connections" obj=join id=0dd4d39e0bc1 l=127.0.0.1:7799 r=183.247.169.25:53227
+t=2026-07-16T19:02:56+0800 lvl=info msg="join connections" obj=join id=403e8bee63cf l=127.0.0.1:7799 r=183.247.169.25:53227
+t=2026-07-16T19:03:02+0800 lvl=info msg="join connections" obj=join id=0a246583d3c5 l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:03:02+0800 lvl=info msg="join connections" obj=join id=c81877a4050f l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:03:04+0800 lvl=info msg="join connections" obj=join id=d71fd2bf2dad l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:03:14+0800 lvl=info msg="join connections" obj=join id=1d87ff99153b l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:03:14+0800 lvl=info msg="join connections" obj=join id=90ce1f0cdd03 l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:03:35+0800 lvl=info msg="join connections" obj=join id=61daa3109ee9 l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:03:39+0800 lvl=info msg="join connections" obj=join id=196461454c64 l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:04:04+0800 lvl=info msg="join connections" obj=join id=5516c5c5ed6d l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:04:34+0800 lvl=info msg="join connections" obj=join id=4aa42d08cbbe l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:04:34+0800 lvl=info msg="join connections" obj=join id=64b385bbe19b l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:35+0800 lvl=info msg="join connections" obj=join id=d8d9f5f66265 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:35+0800 lvl=info msg="join connections" obj=join id=229e331fc2cb l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:35+0800 lvl=info msg="join connections" obj=join id=1afc97c3c804 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:35+0800 lvl=info msg="join connections" obj=join id=4e61e3171e8e l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:35+0800 lvl=info msg="join connections" obj=join id=bc5cc3d2dc02 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:36+0800 lvl=info msg="join connections" obj=join id=ab2498ed74f9 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:36+0800 lvl=info msg="join connections" obj=join id=a5f83d6107a2 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:37+0800 lvl=info msg="join connections" obj=join id=c5ff7dd0263b l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:38+0800 lvl=info msg="join connections" obj=join id=ec58000d4021 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:38+0800 lvl=info msg="join connections" obj=join id=aa098e24b4af l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:38+0800 lvl=info msg="join connections" obj=join id=6761b6f88d07 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:39+0800 lvl=info msg="join connections" obj=join id=55d6b2d89fa7 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:41+0800 lvl=info msg="join connections" obj=join id=d66e6084b573 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:41+0800 lvl=info msg="join connections" obj=join id=cae502c33fb1 l=127.0.0.1:7799 r=183.131.109.33:63875
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=47705ae4cb6e l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=dc42a7f339a3 l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=0e64c066b66c l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=81d3f244759b l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=ee363ef2bb70 l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=4131f3c140a4 l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:42+0800 lvl=info msg="join connections" obj=join id=6d53cfcc127e l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:44+0800 lvl=info msg="join connections" obj=join id=5770fdf35cbb l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:04:44+0800 lvl=info msg="join connections" obj=join id=9c01f9f89c3a l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:04:45+0800 lvl=info msg="join connections" obj=join id=e46a1b2eb91f l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:45+0800 lvl=info msg="join connections" obj=join id=2fe4793c6c2e l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:45+0800 lvl=info msg="join connections" obj=join id=8499922bce4d l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:45+0800 lvl=info msg="join connections" obj=join id=207896cb2c6c l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:45+0800 lvl=info msg="join connections" obj=join id=adea7a501c8f l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:04:45+0800 lvl=info msg="join connections" obj=join id=e201ee2b5a0e l=127.0.0.1:7799 r=183.134.43.89:65502
+t=2026-07-16T19:05:04+0800 lvl=info msg="join connections" obj=join id=036e603b7bf6 l=127.0.0.1:7799 r=183.247.169.25:53281
+t=2026-07-16T19:06:09+0800 lvl=info msg=start pg=/api/tunnels id=0b27ca73050b60ca
+t=2026-07-16T19:06:09+0800 lvl=info msg=end pg=/api/tunnels id=0b27ca73050b60ca status=200 dur=123.084µs
+t=2026-07-16T19:06:36+0800 lvl=info msg="join connections" obj=join id=d031b398474b l=127.0.0.1:7799 r=183.131.109.33:61925
+t=2026-07-16T19:21:27+0800 lvl=info msg="received stop request" obj=app stopReq="{err:<nil> restart:false}"
+t=2026-07-16T19:21:27+0800 lvl=info msg="session closing" obj=tunnels.session err=nil
+t=2026-07-16T19:21:27+0800 lvl=info msg="accept failed" obj=tunnels.session obj=csess id=ebc96df26b3b err="reconnecting session closed"

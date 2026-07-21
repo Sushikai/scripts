@@ -1,0 +1,71 @@
+- generic [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - generic [ref=f2e3]:
+      - generic [ref=f2e4]:
+        - generic [ref=f2e5]: 退学
+        - generic [ref=f2e6]: v3
+        - generic [ref=f2e7]: TUIXUE · 操作台
+      - generic [ref=f2e84]: 已刷新 23:20:49
+      - button "切换主题" [ref=f2e8] [cursor=pointer]:
+        - img [ref=f2e9]
+      - button "刷新" [ref=f2e11] [cursor=pointer]:
+        - img [ref=f2e12]
+    - generic [ref=f2e14]:
+      - generic [ref=f2e145]: 上证指数 0.00 0.00%
+      - generic [ref=f2e146]: 深证成指 0.00 0.00%
+      - generic [ref=f2e147]: 创业板指 0.00 0.00%
+      - generic [ref=f2e148]: 沪深300 0.00 0.00%
+      - generic [ref=f2e149]: 科创50 0.00 0.00%
+      - generic [ref=f2e150]: 中证500 0.00 0.00%
+      - generic [ref=f2e151]: 涨停0
+  - main [ref=f2e16]:
+    - generic [ref=f2e92]:
+      - generic [ref=f2e93]:
+        - paragraph [ref=f2e94]: SCREEN · 02
+        - heading "实时龙头股" [level=1] [ref=f2e95]
+        - paragraph [ref=f2e96]: L1 风控 → L2 周期闸门 → L3 形态 → L4 分时 · 规则 + AI 评分
+      - generic [ref=f2e97]:
+        - article [ref=f2e98]:
+          - generic [ref=f2e99]: RUN · 触发
+          - generic [ref=f2e100]:
+            - textbox "YYYYMMDD（留空=今日）" [ref=f2e101]
+            - button "扫描中… ↗" [disabled] [ref=f2e142] [cursor=pointer]:
+              - generic [ref=f2e103]: 扫描中…
+              - generic [ref=f2e104]: ↗
+          - paragraph [ref=f2e105]: SSE 流式 · 规则过完进入 AI 阶段 · 命中缓存秒返
+        - article [ref=f2e106]:
+          - generic [ref=f2e107]: GLOBAL · 美/韩 → A 股
+          - generic [ref=f2e108]:
+            - generic [ref=f2e109]: —
+            - generic [ref=f2e110]: /100
+          - generic [ref=f2e111]: 加载中 …
+          - paragraph [ref=f2e113]: 拉取失败:全球情绪拉取超时
+      - article [ref=f2e114]:
+        - generic [ref=f2e115]:
+          - generic [ref=f2e116]: CANDIDATES · 候选池 · …
+          - generic [ref=f2e117]: 开始扫描 (L1-L4 规则) …
+        - table [ref=f2e119]:
+          - rowgroup [ref=f2e120]:
+            - row "代码 名称 板块 RR 换手 涨幅 流通 角色 AI 详情" [ref=f2e121]:
+              - columnheader "代码" [ref=f2e122]
+              - columnheader "名称" [ref=f2e123]
+              - columnheader "板块" [ref=f2e124]
+              - columnheader "RR" [ref=f2e125]
+              - columnheader "换手" [ref=f2e126]
+              - columnheader "涨幅" [ref=f2e127]
+              - columnheader "流通" [ref=f2e128]
+              - columnheader "角色" [ref=f2e129]
+              - columnheader "AI" [ref=f2e130]
+              - columnheader "详情" [ref=f2e131]
+          - rowgroup [ref=f2e132]:
+            - row "扫描中 …" [ref=f2e143]:
+              - cell "扫描中 …" [ref=f2e144]
+    - text: 律
+  - navigation [ref=f2e76]:
+    - button "01 · 首页" [ref=f2e77] [cursor=pointer]
+    - button "02 · 扫描" [active] [ref=f2e78] [cursor=pointer]
+    - button "03 · 龙头" [ref=f2e79] [cursor=pointer]
+    - button "04 · 个股" [ref=f2e80] [cursor=pointer]
+    - button "06 · 调优" [ref=f2e81] [cursor=pointer]
+    - button "07 · 心法" [ref=f2e82] [cursor=pointer]
+    - button "08 · 复盘" [ref=f2e83] [cursor=pointer]

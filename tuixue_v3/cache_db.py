@@ -35,6 +35,7 @@ import pandas as pd
 log = logging.getLogger("tuixue_v3.cache_db")
 
 _DB_PATH = Path(__file__).resolve().parent / "data" / "cache.db"
+_BT_HISTORY_DB_PATH = Path(__file__).resolve().parent / "data" / "backtest_history.db"
 
 _init_lock = threading.Lock()
 _init_done = False
@@ -192,6 +193,23 @@ def _init_db(conn: sqlite3.Connection) -> None:
             last_query_ts   REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_stock_history_recent ON stock_history(last_query_ts DESC);
+
+        -- 尾盘回测元数据 (R-ship-2026-07-19) — 历史回测列表
+        -- result 仍走 cache_store (1h TTL), 此表只存 meta (小字段, 永久保留)
+        CREATE TABLE IF NOT EXISTS bt_runs (
+            run_id         TEXT PRIMARY KEY,
+            ts_started     REAL NOT NULL,
+            ts_finished    REAL NOT NULL,
+            strategy_id    TEXT NOT NULL,
+            periods_json   TEXT NOT NULL,
+            params_json    TEXT NOT NULL,
+            trades_count   INTEGER DEFAULT 0,
+            took_sec       REAL DEFAULT 0,
+            engine_version TEXT,
+            summary_json   TEXT,
+            status         TEXT DEFAULT 'done'
+        );
+        CREATE INDEX IF NOT EXISTS idx_bt_runs_recent ON bt_runs(ts_started DESC);
         """)
     # 老库兼容:补 role 列(2026-07-09 加)
     cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_verdict)").fetchall()}
@@ -281,6 +299,39 @@ def _thread_conn() -> sqlite3.Connection:
         c = get_conn()
         _tls.conn = c
     return c
+
+
+# 2026-07-17: 通用 SQLite 写保护 — 解决 "database is locked" 累积错
+# 根因: _thread_conn() 复用的连接在某次 execute() 抛 OperationalError 后,
+#       隐式事务没回滚,下次同线程 execute() 立即 database is locked,busy_timeout 救不了
+#       (busy_timeout 只对「别人的事务」生效,自己的事务自己必须 rollback)
+# 行为: 每次写前先 rollback 清 stale 事务,失败按 200/400/800/1600ms 指数退避,最多 4 次
+# 用法:
+#   def my_write(...):
+#       def _do(conn):
+#           conn.execute(...)
+#           conn.commit()
+#           return result
+#       return safe_write(_do)
+def safe_write(fn, *, retries: int = 4):
+    """对一个写操作函数做 retry + 每次先 rollback 清理 stale 事务。"""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            conn = _thread_conn()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return fn(conn)
+        except sqlite3.OperationalError as e:
+            last_err = e
+            # 200/400/800/1600ms — WAL writer 在跨进程/跨线程锁时通常 <1s 释放
+            systime.sleep(0.2 * (2 ** attempt))
+            continue
+        except Exception:
+            raise
+    raise last_err or RuntimeError("sqlite write failed after retries")
 
 
 # ═══════════════════════════════════════════════════
@@ -422,9 +473,23 @@ class DailyCache:
         except Exception as e:
             log.debug(f"daily 双写 SQLite 失败 {code}: {e}")
 
+    # ── P-perf: 预计算K线(含MA5/10/20/60+量比) ──
+    def get_kline_pre(self, code: str, days: int) -> list[dict] | None:
+        """读取预计算的K线数据(含MA)。"""
+        k = K.KLINE_PRE.format(code=code, days=days)
+        return self._store.get(k)
+
+    def set_kline_pre(self, code: str, days: int, rows: list[dict]) -> None:
+        """存储预计算的K线数据(含MA)。"""
+        k = K.KLINE_PRE.format(code=code, days=days)
+        self._store.set(k, rows, ttl=4 * 3600)
+
     def invalidate(self, code: str) -> None:
         # Redis
         self._store.delete(K.DAILY.format(code=code))
+        # 清预计算K线
+        for d in (120, 250, 400):
+            self._store.delete(K.KLINE_PRE.format(code=code, days=d))
         # SQLite
         try:
             conn = _thread_conn()
@@ -645,8 +710,8 @@ def record_stock_query(code: str, name: str | None = None) -> None:
         return
     name = (name or "").strip() or code
     now = systime.time()
-    try:
-        conn = _thread_conn()
+
+    def _do(conn):
         conn.execute(
             """
             INSERT INTO stock_history (code, name, hit_count, first_query_ts, last_query_ts)
@@ -659,6 +724,9 @@ def record_stock_query(code: str, name: str | None = None) -> None:
             (code, name[:32], now, now),
         )
         conn.commit()
+
+    try:
+        safe_write(_do)
     except Exception as e:
         log.debug(f"record_stock_query {code} 失败: {e}")
 
@@ -692,11 +760,14 @@ def remove_stock_history(code: str) -> bool:
     code = (code or "").strip().zfill(6)
     if not code.isdigit() or len(code) != 6:
         return False
-    try:
-        conn = _thread_conn()
+
+    def _do(conn):
         cur = conn.execute("DELETE FROM stock_history WHERE code=?", (code,))
         conn.commit()
         return cur.rowcount > 0
+
+    try:
+        return safe_write(_do)
     except Exception as e:
         log.debug(f"remove_stock_history {code} 失败: {e}")
         return False
@@ -704,14 +775,209 @@ def remove_stock_history(code: str) -> bool:
 
 def clear_stock_history() -> int:
     """清空全部。返回删除的行数。"""
-    try:
-        conn = _thread_conn()
+
+    def _do(conn):
         cur = conn.execute("DELETE FROM stock_history")
         conn.commit()
         return cur.rowcount
+
+    try:
+        return safe_write(_do)
     except Exception as e:
         log.debug(f"clear_stock_history 失败: {e}")
         return 0
+
+
+# ═════════════════════════════════════════════════════════════════
+# 尾盘回测元数据 (R-ship-2026-07-19)
+# result 走 cache_store (1h TTL), 此表只存 meta (永久保留)
+# 独立 DB 避免日线并发写锁阻塞低频回测元数据。
+# ═════════════════════════════════════════════════════════════════
+def _bt_history_conn() -> sqlite3.Connection:
+    conn = getattr(_tls, "bt_history_conn", None)
+    if conn is not None:
+        return conn
+    _BT_HISTORY_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_BT_HISTORY_DB_PATH), check_same_thread=False, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS bt_runs (
+            run_id         TEXT PRIMARY KEY,
+            ts_started     REAL NOT NULL,
+            ts_finished    REAL NOT NULL,
+            strategy_id    TEXT NOT NULL,
+            periods_json   TEXT NOT NULL,
+            params_json    TEXT NOT NULL,
+            trades_count   INTEGER DEFAULT 0,
+            took_sec       REAL DEFAULT 0,
+            engine_version TEXT,
+            summary_json   TEXT,
+            status         TEXT DEFAULT 'done'
+        );
+        CREATE INDEX IF NOT EXISTS idx_bt_runs_recent ON bt_runs(ts_started DESC);
+    """)
+    _tls.bt_history_conn = conn
+    return conn
+
+
+def _bt_history_write(fn, *, retries: int = 4):
+    last_err = None
+    for attempt in range(retries):
+        try:
+            conn = _bt_history_conn()
+            conn.rollback()
+            return fn(conn)
+        except sqlite3.OperationalError as e:
+            last_err = e
+            systime.sleep(0.2 * (2 ** attempt))
+    raise last_err or RuntimeError("backtest history write failed")
+
+
+def upsert_bt_run(run_id: str, *, ts_started: float, ts_finished: float,
+                  strategy_id: str, periods: list[str], params: dict,
+                  trades_count: int, took_sec: float, engine_version: str,
+                  summary: dict, status: str = "done") -> bool:
+    """写入/更新一条回测元数据。"""
+    if not run_id:
+        return False
+
+    def _do(conn):
+        conn.execute(
+            """
+            INSERT INTO bt_runs (
+                run_id, ts_started, ts_finished, strategy_id,
+                periods_json, params_json, trades_count, took_sec,
+                engine_version, summary_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(run_id) DO UPDATE SET
+                ts_finished=excluded.ts_finished,
+                trades_count=excluded.trades_count,
+                took_sec=excluded.took_sec,
+                summary_json=excluded.summary_json,
+                status=excluded.status
+            """,
+            (
+                run_id, float(ts_started or 0), float(ts_finished or 0),
+                str(strategy_id or "baseline"),
+                json.dumps(periods or [], ensure_ascii=False),
+                json.dumps(params or {}, ensure_ascii=False, default=str),
+                int(trades_count or 0),
+                float(took_sec or 0),
+                str(engine_version or ""),
+                json.dumps(summary or {}, ensure_ascii=False, default=str),
+                str(status or "done"),
+            ),
+        )
+        conn.commit()
+
+    try:
+        _bt_history_write(_do)
+        return True
+    except Exception as e:
+        log.warning(f"upsert_bt_run {run_id} 失败: {e}")
+        return False
+
+
+def list_bt_runs(limit: int = 20) -> list[dict]:
+    """返最近 N 条回测 (新→旧)."""
+    rows: list[tuple] = []
+    try:
+        conn = _bt_history_conn()
+        cur = conn.execute(
+            "SELECT run_id, ts_started, ts_finished, strategy_id, periods_json, "
+            "params_json, trades_count, took_sec, engine_version, summary_json, status "
+            "FROM bt_runs ORDER BY ts_started DESC LIMIT ?",
+            (max(1, min(limit, 100)),),
+        )
+        rows = cur.fetchall()
+    except Exception as e:
+        log.warning(f"list_bt_runs 失败: {e}")
+        return []
+    out: list[dict] = []
+    for r in rows:
+        try:
+            periods = json.loads(r[4]) if r[4] else []
+        except Exception:
+            periods = []
+        try:
+            params = json.loads(r[5]) if r[5] else {}
+        except Exception:
+            params = {}
+        try:
+            summary = json.loads(r[9]) if r[9] else {}
+        except Exception:
+            summary = {}
+        out.append({
+            "run_id":         r[0],
+            "ts_started":     r[1],
+            "ts_finished":    r[2],
+            "strategy_id":    r[3],
+            "periods":        periods,
+            "params":         params,
+            "trades_count":   r[6],
+            "took_sec":       r[7],
+            "engine_version": r[8],
+            "summary":        summary,
+            "status":         r[10],
+        })
+    return out
+
+
+def get_bt_meta(run_id: str) -> dict | None:
+    """查单条 meta (用于历史重看 — 检查 result 是否还在 cache_store TTL 内)."""
+    if not run_id:
+        return None
+    try:
+        conn = _bt_history_conn()
+        r = conn.execute(
+            "SELECT run_id, ts_started, ts_finished, strategy_id, periods_json, "
+            "params_json, trades_count, took_sec, engine_version, summary_json, status "
+            "FROM bt_runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+    except Exception as e:
+        log.debug(f"get_bt_meta {run_id} 失败: {e}")
+        return None
+    if not r:
+        return None
+    try:
+        periods = json.loads(r[4]) if r[4] else []
+        params  = json.loads(r[5]) if r[5] else {}
+        summary = json.loads(r[9]) if r[9] else {}
+    except Exception:
+        periods, params, summary = [], {}, {}
+    return {
+        "run_id":         r[0],
+        "ts_started":     r[1],
+        "ts_finished":    r[2],
+        "strategy_id":    r[3],
+        "periods":        periods,
+        "params":         params,
+        "trades_count":   r[6],
+        "took_sec":       r[7],
+        "engine_version": r[8],
+        "summary":        summary,
+        "status":         r[10],
+    }
+
+
+def delete_bt_run(run_id: str) -> bool:
+    """删除一条历史 meta."""
+    if not run_id:
+        return False
+
+    def _do(conn):
+        cur = conn.execute("DELETE FROM bt_runs WHERE run_id=?", (run_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+    try:
+        return _bt_history_write(_do)
+    except Exception as e:
+        log.warning(f"delete_bt_run {run_id} 失败: {e}")
+        return False
 
 
 # ════════════════════════════════════════════════════════════

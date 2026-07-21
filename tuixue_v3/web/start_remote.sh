@@ -1,36 +1,29 @@
 #!/usr/bin/env bash
-# start_remote.sh — 启动 FastAPI + 多路逃生隧道自检 + 推送 URL 到 TG
+# start_remote.sh — 启动 FastAPI + 多路隧道自检 + 推送 URL 到 TG + 自动 rotate
 #
-# 流程：清理旧进程 → 启动 server → 多路隧道顺序自检（每路 curl 验通）→
-#       第一个自检通过的 URL 推 TG → 等待 SIGINT
+# 用法:  bash web/start_remote.sh
+# 退出:  Ctrl+C
 #
-# 18 路逃生（全部免费，按优先级插入；前 8 路是 2026-07-12 新增的"反劫持"逃生机
-# 制，每条都走不同的网络出口，避开 DNS 劫持到 198.18.x + 任意 IP TLS 阻断）：
+# 隧道优先级 (2026-07-16 重排):
+#   1) ngrok              — 用户实测可用,放第一位
+#   2) localtunnel (lt)   — 沙箱里 200 OK,简单可靠
+#   3) cloudflared        — 大厂,稳定,只是 URL 提取要避坑
+#   4) localhost.run      — SSH,无注册
+#   5) serveo.net         — SSH,无注册
+#   6) pinggy.io          — SSH,5 区域
+#   7) loca.lt            — SSH
+#   8) tunnel.pyjam.as    — SSH
 #
-#   TIER A · Overlay / 主机之间私有网络（LAN 之外，survive sandbox）
-#   A1) Tailscale serve (controlplane + DERP relay)
-#   A2) ZeroTier (planet root on 443)
-#   A3) Trystero (BitTorrent trackers / MQTT signaling，纯浏览器 P2P)
+# 之前 18 路里的 TIER A/B/C (Tailscale/ZeroTier/CF-Worker/Paas/Trystero/
+# Telegram/NTFY/MQTT) 需要账号/PaaS 部署/只能局域网访问,留 README + 配置位。
 #
-#   TIER B · 云平台 relay（Mac 出站连到 free PaaS 的 WebSocket 中转）
-#   B1) Cloudflare Worker + Durable Object (workers.dev)
-#   B2) Koyeb / Render / Fly.io / HF Spaces (一次性 docker deploy)
+# 关键修复 (2026-07-16):
+#   • ngrok config 自愈: 检测 stale v2 字段 (connect_addr) 并提示用户
+#   • watchdog subshell 变量隔离 bug: 改读 URL_FILE 而非共享变量
+#   • cloudflared URL 提取: 排除 api.trycloudflare.com 这种 "假 URL"
+#   • self_check 超时收紧: 15s/路 → 9s/路,8 路总上限 ~72s
 #
-#   TIER C · 消息平台 / 推送作为代理（API 域名被白名单）
-#   C1) Telegram bot 双向桥 (api.telegram.org)  ← 关键，沙箱只放行这个
-#   C2) NTFY pipe (ntfy.sh)
-#   C3) MQTT-over-TLS public broker (broker.hivemq.com)
-#
-#   TIER D · 已有隧道（保留作为最后兜底，网络宽松时会工作）
-#   D1) ngrok
-#   D2) cloudflared QUIC / HTTP2 / IPv4 (3 路)
-#   D3) localhost.run / serveo.net / pinggy (5 regions)
-#   D4) loca.lt / tunnel.pyjam.as / localtunnel
-#
-#   终极兜底：LAN IP + QR code + TG 推送（Telegram 必发，11 路全挂也能上 LAN）
-#
-# 用法:  bash start_remote.sh
-# 退出:  Ctrl+C（同时结束 server 和当前 tunnel）
+set -o pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$(pwd)"
 PORT="${PORT:-7799}"
@@ -38,7 +31,7 @@ LOG="/tmp/tuixue_start.log"
 TUNNELS_DIR="/tmp/tuixue_tunnels"
 mkdir -p "$TUNNELS_DIR"
 
-# 共享 helpers (URL IO / 健康检查 / TG 推送 / 进程管理)
+# 共享 helpers
 # shellcheck disable=SC1091
 source "$ROOT/tuixue_v3/web/tunnel_lib.sh" 2>/dev/null || \
 source "$(dirname "$0")/tunnel_lib.sh"
@@ -47,42 +40,70 @@ source "$(dirname "$0")/tunnel_lib.sh"
 [ -f "$HOME/.hermes/env.sh" ] && source "$HOME/.hermes/env.sh"
 
 # ─── API key 守门 ───
-# 缺 key 时 UI 上 AI 模块会全部降级 (server.py:2798, 1905 等),
-# 在此显式告警,避免用户卡在 "AI 未配置" 找不到原因。
-# 真要硬阻断请把 exit 1 取消注释。
 if [ -z "${MINIMAX_API_KEY:-}" ]; then
     echo ""
     echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  ⚠  MINIMAX_API_KEY 未配置"
     echo "     • server 会启动, 但 AI 复盘/选股/对话 全程降级"
-    echo "     • 修复:  把 key 写入 ~/.hermes/env.sh  (参考 .env.example)"
-    echo "            或 export MINIMAX_API_KEY=sk-cp-...  后再 bash $0"
-    echo "     • ⚠ 如果之前把 key 明文写进了代码,先在 MiniMax 控制台 revoke 重发"
+    echo "     • 修复:  把 key 写入 ~/.hermes/env.sh"
+    echo "     • 详细: web/server.py:2798 / web/ai_client.py"
     echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    # exit 1   # 取消注释可硬阻断启动
 fi
 
 # ─── 工具 ───
 note()  { echo -e "  $*"; }
 ok()    { echo -e "  ✓ $*"; }
 fail()  { echo -e "  ✗ $*"; }
-LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "0.0.0.0")
+# LAN_IP: 优先 en0 (WiFi), 否则扫所有活跃接口挑第一个 IPv4
+# (en0 不通时 Mac 会用 en1 有线,旧版硬 en0 拿到 0.0.0.0)
+LAN_IP=$(ipconfig getifaddr en0 2>/dev/null)
+if [ -z "$LAN_IP" ]; then
+    LAN_IP=$(ifconfig | awk '/^[a-z]/ {iface=$1} /inet / && $2 !~ /^127/ {print $2; exit}' | sed 's/^[^0-9]*//')
+fi
+[ -z "$LAN_IP" ] && LAN_IP="0.0.0.0"
 TS()    { date '+%Y-%m-%d %H:%M:%S'; }
 
 send_tg() {
     python3 -c "from tuixue_v3.lib_common import send_telegram; send_telegram('''$1''', parse_mode='', silent=True)" 2>/dev/null
 }
 
-# ─── 清理旧进程 ───
+# ════════════════════════════════════════════════════════════════════════
+# ngrok config 自愈 — 检测 v2 残留字段,提示用户
+# ════════════════════════════════════════════════════════════════════════
+fix_ngrok_config() {
+    local cfg="$HOME/Library/Application Support/ngrok/ngrok.yml"
+    [ -f "$cfg" ] || return 0
+    if grep -qE "^[[:space:]]+connect_addr:" "$cfg" 2>/dev/null; then
+        fail "ngrok 配置含 v2 残留字段 'connect_addr' — v3 不识别,会卡在 'started tunnel' 之前"
+        note "  路径: $cfg"
+        note "  修复 (任选其一):"
+        note "    1) 手动删除 connect_addr 行 (推荐)"
+        note "    2) 一键清理:  sed -i.bak '/connect_addr:/d' \"$cfg\""
+        note "  备份:  cp \"$cfg\" \"$cfg.bak.$(date +%Y%m%d_%H%M%S)\""
+        echo ""
+    fi
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# 清理旧进程
+# ════════════════════════════════════════════════════════════════════════
 echo "→ 清理旧进程 …"
 lsof -ti ":$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
-pkill -f "cloudflared tunnel --url" 2>/dev/null || true
-pkill -f "ssh -tt -R 80:localhost:$PORT" 2>/dev/null || true
-pkill -f "ngrok http $PORT" 2>/dev/null || true
+# 杀掉所有可能残留的隧道进程 (避免端口/资源冲突)
+pkill -f "cloudflared tunnel --url"            2>/dev/null || true
+pkill -f "ssh -tt.*-R.*localhost:$PORT"        2>/dev/null || true
+pkill -f "ngrok http $PORT"                    2>/dev/null || true
+pkill -f "ngrok http --config /tmp/ngrok"      2>/dev/null || true
+pkill -f "lt --port $PORT"                     2>/dev/null || true
 sleep 1
 
-# ─── 启动 FastAPI ───
+# ngrok config 自愈检查 (在启动 server 前提示,避免用户跑完 18 路才发现)
+fix_ngrok_config
+
+# ════════════════════════════════════════════════════════════════════════
+# 启动 FastAPI
+# ════════════════════════════════════════════════════════════════════════
 echo "→ 启动 FastAPI（端口 $PORT）…"
 cd "$ROOT"
 PYTHON_BIN="/Users/kaikai/.hermes/hermes-agent/venv/bin/python3"
@@ -91,7 +112,6 @@ PYTHONPATH="$ROOT" "$PYTHON_BIN" -m tuixue_v3.web.server --host 0.0.0.0 --port "
     > /tmp/tuixue_server.log 2>&1 &
 SERVER_PID=$!
 
-# 健康检查
 for i in $(seq 1 10); do
     sleep 1
     if curl -s --max-time 2 "http://localhost:$PORT/api/health" > /dev/null 2>&1; then
@@ -106,50 +126,56 @@ for i in $(seq 1 10); do
     fi
 done
 
-# ─── 6 路隧道自检 ───
-TUNNEL_URL=""
-TUNNEL_METHOD=""
-TUNNEL_PID=""
-
+# ════════════════════════════════════════════════════════════════════════
+# 4 路自检 — 确认隧道真能服务 HTML/SSE,不是只通 /api/health
+# ════════════════════════════════════════════════════════════════════════
 self_check() {
     local url="$1"
-    # 隧道自检：3 路全验通才算通过
-    #   1) /api/health           — 控制面入口 (200 + ok=true)
-    #   2) /static/app.js        — 大资源能完整传 (200 + content-encoding=gzip 或 ok 大小)
-    #   3) HEAD /api/stream/backtest?start=... — SSE 长连接握手能开 (响应 ≤ 5s 内,server 会被预热拉过缓存)
-    # 全部满足 → 真可用,过。否则失败切下一路。
-    local ok_health=0 ok_static=0 ok_sse=0
+    local UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+    # bypass-tunnel-reminder: loca.lt 默认拦所有"标准 UA + 第一次访问"返 511
+    # 提示页告知: 加这个 header 或用"非标准 UA"都能绕。
+    # 对其他隧道来说这个 header 是 no-op,无害。
+    local HDR=( -H "bypass-tunnel-reminder: 1" )
+    local ok_health=0 ok_static=0 ok_html=0 ok_sse=0
 
-    for w in $(seq 1 15); do
-        sleep 2
+    # 最多 9s (3 轮 × 3s)
+    for w in 1 2 3; do
+        sleep 3
 
         # 1) health 200 + ok=true
         if [ "$ok_health" = "0" ]; then
             local body code
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url/api/health" 2>&1)
-            body=$(curl -s --max-time 5 "$url/api/health" 2>/dev/null)
-            if [ "$code" = "200" ] && echo "$body" | grep -qE '"ok":\s*true|"status":\s*"ok"|"code":\s*"ok"'; then
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 -A "$UA" "${HDR[@]}" "$url/api/health" 2>&1)
+            body=$(curl -s --max-time 4 -A "$UA" "${HDR[@]}" "$url/api/health" 2>/dev/null)
+            if [ "$code" = "200" ] && echo "$body" | grep -qE '"ok":\s*true|"status":\s*"ok"'; then
                 ok_health=1
             fi
         fi
 
-        # 2) /static/app.js 验 gzip: 必须用 GET,不能 curl -sI —— hypercorn 对 HEAD 一律 405
-        #    (app.js 54KB,丢弃 body 用 -o /dev/null,只留 -D - 的响应头;tunnel 加 ms 可忽略)
+        # 2) /static/app.js — 200 + gzip
         if [ "$ok_static" = "0" ]; then
             local hdr
-            hdr=$(curl -s -o /dev/null -D - --max-time 6 -H "Accept-Encoding: gzip" \
+            hdr=$(curl -s -o /dev/null -D - --max-time 5 -A "$UA" "${HDR[@]}" -H "Accept-Encoding: gzip" \
                 "$url/static/app.js" 2>/dev/null)
-            if echo "$hdr" | grep -qiE "^HTTP/[0-9.]+ 200" && echo "$hdr" | grep -qiE "content-encoding:.*gzip"; then
+            if echo "$hdr" | grep -qiE "^HTTP/[0-9.]+ 200" \
+               && echo "$hdr" | grep -qiE "content-encoding:.*gzip"; then
                 ok_static=1
             fi
         fi
 
-        # 3) SSE 握手 /api/stream/review/0: 这是 GET 单 path param,无 body。
-        #    原 /api/stream/backtest 用 -X GET --data-urlencode 把 body 塞进 GET,FastAPI 422,握手永远过不去。
-        #    SSE 端点立刻返 200 + text/event-stream 并开始流;max-time 4s 截断时已读到握手头。
+        # 3) GET / — 200 + 含 app.js script tag
+        if [ "$ok_html" = "0" ]; then
+            local html_code
+            html_code=$(curl -s -o /tmp/tuixue_sc.html -w "%{http_code}" --max-time 4 -A "$UA" "${HDR[@]}" "$url/" 2>/dev/null)
+            if [ "$html_code" = "200" ] && grep -q "app.js" /tmp/tuixue_sc.html 2>/dev/null; then
+                ok_html=1
+            fi
+        fi
+
+        # 4) SSE 握手 /api/stream/review/0
         if [ "$ok_sse" = "0" ]; then
             local sse_hdr
-            sse_hdr=$(curl -s --max-time 4 -D - -o /dev/null \
+            sse_hdr=$(curl -s --max-time 3 -D - -o /dev/null -A "$UA" "${HDR[@]}" \
                 "$url/api/stream/review/0" 2>/dev/null)
             if echo "$sse_hdr" | grep -qiE "^HTTP/[0-9.]+ 200" \
                && echo "$sse_hdr" | grep -qiE "content-type:.*event-stream"; then
@@ -157,392 +183,208 @@ self_check() {
             fi
         fi
 
-        if [ "$ok_health" = "1" ] && [ "$ok_static" = "1" ] && [ "$ok_sse" = "1" ]; then
-            note "  self_check: health ✓ static ✓ sse-handshake ✓"
+        if [ "$ok_health" = "1" ] && [ "$ok_static" = "1" ] \
+            && [ "$ok_html" = "1" ] && [ "$ok_sse" = "1" ]; then
+            note "    self_check: health ✓ static ✓ html ✓ sse ✓"
             return 0
         fi
-        note "  self_check round $w: health=$ok_health static=$ok_static sse=$ok_sse"
-    done
-    note "  self_check failed: health=$ok_health static=$ok_static sse=$ok_sse"
-    return 1
-}
 
-# =======================================================================
-# TIER A — Overlay / P2P
-# =======================================================================
-
-# A1) Tailscale — `tailscale serve --bg 7799` exposes port via MagicDNS hostname
-#     or via Funnel for a real public https://<host>.ts.net URL.
-#     Most reliable: NAT-traversing, free, official iOS app.
-try_tailscale() {
-    if ! command -v tailscale > /dev/null; then return 1; fi
-    if ! tailscale status --json >/dev/null 2>&1; then return 1; fi
-    local logfile="$TUNNELS_DIR/tailscale.log"
-    : > "$logfile"
-    # tailscale serve exposes port to tailnet. Funnel adds public HTTPS ingress.
-    if tailscale serve --bg --https=443 http://localhost:"$PORT" >>"$logfile" 2>&1; then :; \
-    else tailscale serve --bg tcp:"$PORT" http://localhost:"$PORT" >>"$logfile" 2>&1; fi
-    sleep 1
-    # Try funnel for a public URL (free public ingress on *.ts.net)
-    if tailscale funnel --bg --https=443 http://localhost:"$PORT" >>"$logfile" 2>&1; then
-        url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.ts\.net' "$logfile" | head -1)
-    fi
-    # Fallback: MagicDNS hostname in tailnet (works for iPhone iOS app)
-    if [[ -z "$url" ]]; then
-        hostname=$(tailscale status --json 2>/dev/null | \
-            python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('Self',{}).get('HostName','')+'.'+d.get('MagicDNSSuffix',''))" 2>/dev/null | sed 's/^\.*//')
-        if [[ -n "$hostname" ]]; then
-            url="http://$hostname"
+        # ngrok 免费套餐特殊豁免:返回 ERR_NGROK_6024 interstitial 页 (HTML 含
+        # "ERR_NGROK_6024" + "ngrok-error-code" header),说明 URL 有效,只是
+        # ngrok 强制第一次访问点 "Visit Site" 才放行。脚本认这个状态为"URL alive"
+        # 并直接通过,iPhone 浏览器侧点 Visit Site 即可进入真实 app。
+        # 注意:这只能信 1 次,后续 round 失败才生效,避免脚本被骗永久跳过
+        if [ "$w" = "2" ] && [ "$ok_health" = "0" ] && [ "$ok_html" = "0" ]; then
+            local probe
+            probe=$(curl -s --max-time 4 -A "$UA" "${HDR[@]}" "$url/" 2>/dev/null)
+            if echo "$probe" | grep -qiE "ERR_NGROK_6024|ngrok-error-code"; then
+                note "    self_check: ngrok free-tier interstitial detected → URL alive,iPhone 点 Visit Site 即过"
+                return 0
+            fi
         fi
-    fi
-    if [[ -n "$url" ]]; then
-        TUNNEL_PID=$(pgrep -f "tailscaled" | head -1 || echo $$)
-        return 0
-    fi
-    return 1
-}
 
-# A2) ZeroTier — different control plane, fallback if Tailscale fails.
-#     Free for ≤ 25 nodes. Mac joins a network, phone joins same.
-try_zerotier() {
-    if ! command -v zerotier-cli > /dev/null; then return 1; fi
-    local nwid status
-    nwid=$(grep -oE '[0-9a-f]{16}' "$TUNNELS_DIR/.zerotier-nwid" 2>/dev/null || true)
-    if [[ -z "$nwid" ]]; then return 1; fi
-    status=$(zerotier-cli status 2>/dev/null)
-    if ! grep -q "ONLINE" <<<"$status"; then return 1; fi
-    local ip
-    ip=$(zerotier-cli getnetworkinfo "$nwid" 2>/dev/null | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)
-    if [[ -z "$ip" ]]; then
-        ip=$(zerotier-cli listnetworks 2>/dev/null | awk -v n="$nwid" '$3==n {print $NF}')
-    fi
-    if [[ -n "$ip" ]]; then
-        echo "$ip" > "$TUNNELS_DIR/.zerotier-ip"
-        TUNNEL_PID=$(pgrep -f "zerotier-one" | head -1 || echo $$)
-        return 0
-    fi
-    return 1
-}
-
-# A3) Trystero — WebRTC over BitTorrent trackers / public MQTT brokers.
-#     Zero install server-side. Browser-only on both Mac + phone.
-#     The relay isn't on the Mac; start_trystero.py opens an aiohttp static
-#     page that contains the rendezvous room URL.
-try_trystero() {
-    local logfile="$TUNNELS_DIR/trystero.log"
-    : > "$logfile"
-    python3 "$ROOT/tuixue_v3/web/relay/trystero_host.py" --port "$PORT" >>"$logfile" 2>&1 &
-    TUNNEL_PID=$!
-    for i in $(seq 1 10); do
-        sleep 1
-        local url
-        url=$(grep -oE 'http://localhost:[0-9]+/trystero' "$logfile" | head -1)
-        if [[ -n "$url" ]]; then
-            return 0
-        fi
-        if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then return 1; fi
+        note "    self_check round $w: health=$ok_health static=$ok_static html=$ok_html sse=$ok_sse"
     done
-    kill -9 "$TUNNEL_PID" 2>/dev/null
+    note "    self_check failed: health=$ok_health static=$ok_static html=$ok_html sse=$ok_sse"
     return 1
 }
 
-# =======================================================================
-# TIER B — Free PaaS WebSocket relays (Mac opens outbound WSS)
-# =======================================================================
+# ════════════════════════════════════════════════════════════════════════
+# 各隧道实现 (按优先级顺序)
+# 每个 try_<name> 在 TUNNELS_DIR/<name>.log 写日志,
+# 成功时把 URL 写到全局 TUNNEL_URL + TUNNEL_PID (供 supervisor rotate 用)
+# ════════════════════════════════════════════════════════════════════════
 
-# B1) Cloudflare Worker + Durable Object.
-#     Reads URL from ~/.config/tuixue/relays.json (set by one-time wrangler deploy).
-try_cf_worker() {
-    local cfg="$HOME/.config/tuixue/relays.json"
-    [[ -f "$cfg" ]] || return 1
-    local url
-    url=$(python3 -c "import json;d=json.load(open('$cfg'));print(d.get('cf_worker',''))" 2>/dev/null)
-    [[ -n "$url" && "$url" != "None" ]] || return 1
-    # Probe reachable in ≤ 6s (sandbox test)
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${url%/}/" 2>/dev/null)
-    [[ "$code" =~ ^[23] ]] || return 1
-    # Mac-side client lives in tun_cf_client.py — opens WSS and pipes localhost:7799
-    python3 "$ROOT/tuixue_v3/web/relay/tun_cf_client.py" \
-        --wss "$url" --session "${CF_SESSION:-tuixue-$(hostname -s)}" --port "$PORT" \
-        >>"$TUNNELS_DIR/cf_client.log" 2>&1 &
-    TUNNEL_PID=$!
-    sleep 2
-    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then return 1; fi
-    return 0
-}
-
-# B2) Generic PaaS container (Koyeb / Render / Fly / HF) — same relay image.
-try_paas_relay() {
-    local cfg="$HOME/.config/tuixue/relays.json"
-    [[ -f "$cfg" ]] || return 1
-    local wss
-    wss=$(python3 -c "import json;d=json.load(open('$cfg'));print(d.get('paas_relay_wss',''))" 2>/dev/null)
-    [[ -n "$wss" && "$wss" != "None" ]] || return 1
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 6 "${wss%/}/" 2>/dev/null)
-    [[ "$code" =~ ^[23] ]] || return 1
-    python3 "$ROOT/tuixue_v3/web/relay/tun_paas_client.py" \
-        --wss "$wss" --port "$PORT" \
-        >>"$TUNNELS_DIR/paas_client.log" 2>&1 &
-    TUNNEL_PID=$!
-    sleep 2
-    kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
-    return 0
-}
-
-# =======================================================================
-# TIER C — Messaging / Push bridges (different domain surface)
-# =======================================================================
-
-# C1) Telegram bot bidirectional bridge.
-#     `api.telegram.org` is the canonical whitelist. Mac-side is a Python
-#     long-poller that converts user messages → HTTP requests → response.
-#     Phone doesn't need a URL — it just sends messages to @<bot>.
-try_telegram_bot() {
-    if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]] && [[ ! -f "$HOME/.hermes/env.sh" ]]; then
+# ── 1) ngrok ────────────────────────────────────────────────────────────
+# 用本地 API 4040 拿 public_url,比 log 更可靠 (log 里有多条 https URL 时易抓错)
+try_ngrok() {
+    if ! command -v ngrok > /dev/null; then
+        note "    ngrok 未安装 (brew install ngrok/ngrok/ngrok)"
         return 1
     fi
-    local logfile="$TUNNELS_DIR/telegram_bridge.log"
+    local logfile="$TUNNELS_DIR/ngrok.log"
     : > "$logfile"
-    python3 "$ROOT/tuixue_v3/web/relay/telegram_bridge.py" --port "$PORT" >>"$logfile" 2>&1 &
-    TUNNEL_PID=$!
-    # Wait for sentinel or up to 8s — fast-fail if no TG bot token
-    for i in $(seq 1 8); do
+    # 2026-07-16: 用 traffic-policy-file 在 on_http_response 阶段自动注入
+    # abuse_interstitial cookie (30天有效),后续访问 bypass ngrok 6024 警告页 —
+    # 用户首次点 Visit Site 后,policy 每响应再 Set-Cookie 续期
+    local policy_file="$ROOT/tuixue_v3/web/.tunnels/ngrok_policy.yml"
+    if [ -f "$policy_file" ]; then
+        ngrok http "$PORT" --traffic-policy-file="$policy_file" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+    else
+        ngrok http "$PORT" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+    fi
+    local pid=$!
+    TUNNEL_PID="$pid"
+
+    for i in $(seq 1 25); do
         sleep 1
-        if grep -q "tg-bridge\] running" "$logfile" 2>/dev/null; then
-            write_sentinel "telegram-bot" "Send messages to your TG bot; replies are server responses."
+        # API 4040 优先,fallback log grep
+        local url
+        url=$(curl -s --max-time 2 http://127.0.0.1:4040/api/tunnels 2>/dev/null \
+            | python3 -c "import json,sys;d=json.load(sys.stdin);t=d.get('tunnels',[]);print(t[0]['public_url'] if t else '')" 2>/dev/null)
+        if [ -z "$url" ]; then
+            url=$(grep -oE "https://[a-z0-9-]+\.ngrok-free\.app|https://[a-z0-9-]+\.ngrok\.io" "$logfile" 2>/dev/null | head -1)
+        fi
+        if [ -n "$url" ] && [[ "$url" == https://* ]]; then
+            TUNNEL_URL="$url"
             return 0
         fi
-        if grep -qE "TELEGRAM_BOT_TOKEN missing|Exception|Traceback" "$logfile" 2>/dev/null; then
-            kill -9 "$TUNNEL_PID" 2>/dev/null
+        if ! kill -0 "$pid" 2>/dev/null; then
+            # 进程挂了:可能是 config 错 (看 stderr)
+            local err
+            err=$(grep -oE "Error reading configuration|field .* not found|YAML parsing error" "$logfile" 2>/dev/null | head -1)
+            if [ -n "$err" ]; then
+                fail "    ngrok config 错: $err"
+                note "    → 跑 start_remote.sh 前先看提示修 config"
+            fi
             return 1
         fi
-        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
     done
-    kill -9 "$TUNNEL_PID" 2>/dev/null
+    kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# C2) NTFY bidirectional pipe.
-#     Mac subscribes to https://ntfy.sh/<topic>, phone publishes to same
-#     topic. URL is real — can be opened in any browser, no auth required.
-try_ntfy() {
-    # Quick connectivity test on ntfy.sh
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://ntfy.sh/ 2>/dev/null)
-    [[ "$code" =~ ^[23] ]] || return 1
-    local logfile="$TUNNELS_DIR/ntfy_pipe.log"
+# ── 2) localtunnel (`lt`) ───────────────────────────────────────────────
+# npm 一次,`lt --port N` → URL 立刻打到 stdout
+try_localtunnel() {
+    if ! command -v lt > /dev/null; then
+        note "    lt 未安装 (npm i -g localtunnel)"
+        return 1
+    fi
+    local logfile="$TUNNELS_DIR/lt.log"
     : > "$logfile"
-    python3 "$ROOT/tuixue_v3/web/relay/ntfy_pipe.py" --port "$PORT" >>"$logfile" 2>&1 &
-    TUNNEL_PID=$!
-    for i in $(seq 1 10); do
+    lt --port "$PORT" >> "$logfile" 2>&1 &
+    local pid=$!
+    TUNNEL_PID="$pid"
+    for i in $(seq 1 15); do
         sleep 1
         local url
-        url=$(grep -oE 'https://ntfy\.sh/[a-zA-Z0-9-]+' "$logfile" | head -1)
-        if [[ -n "$url" ]]; then return 0; fi
-        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
-    done
-    kill -9 "$TUNNEL_PID" 2>/dev/null
-    return 1
-}
-
-# C3) MQTT-over-TLS public broker.
-#     Different protocol entirely. Different egress (broker.hivemq.com:8883).
-#     Phone uses free MQTT iOS app.
-try_mqtt() {
-    # Probe broker.hivemq.com reachable in ≤ 5s
-    local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://broker.hivemq.com/ 2>/dev/null)
-    [[ "$code" =~ ^[23] ]] || return 1
-    # Probe Python 'aiomqtt' module installed (was asyncio-mqtt, renamed)
-    python3 -c "import aiomqtt" 2>/dev/null || return 1
-    local logfile="$TUNNELS_DIR/mqtt_bridge.log"
-    : > "$logfile"
-    python3 "$ROOT/tuixue_v3/web/relay/mqtt_bridge.py" --port "$PORT" >>"$logfile" 2>&1 &
-    TUNNEL_PID=$!
-    for i in $(seq 1 8); do
-        sleep 1
-        if grep -q "mqtt-bridge\] session=" "$logfile" 2>/dev/null; then
-            write_sentinel "mqtt" "Use any free MQTT iOS app pointed at broker.hivemq.com:8883; subscribe tuixue/<session>/resp, publish to tuixue/<session>/req."
+        url=$(grep -oE "https?://[a-z0-9-]+\.loca\.lt" "$logfile" 2>/dev/null | head -1)
+        if [ -n "$url" ]; then
+            TUNNEL_URL="$url"
             return 0
         fi
-        kill -0 "$TUNNEL_PID" 2>/dev/null || return 1
+        if ! kill -0 "$pid" 2>/dev/null; then return 1; fi
     done
-    kill -9 "$TUNNEL_PID" 2>/dev/null
+    kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# =======================================================================
-# TIER D — Existing tunnels (kept as final backstop)
-# =======================================================================
-
-# 1) cloudflared (QUIC)
-try_cloudflared_quic() {
-    local logfile="$TUNNELS_DIR/cf_quic.log"
+# ── 3) cloudflared (trycloudflare.com quick tunnel) ─────────────────────
+# 修复: 排除 api.trycloudflare.com (cloudflared log 里有这串作 hint,被
+# 原 regex 误捕)。只保留 <32+ 字符 随机>.trycloudflare.com
+try_cloudflared() {
+    if ! command -v cloudflared > /dev/null; then
+        note "    cloudflared 未安装 (brew install cloudflared)"
+        return 1
+    fi
+    local logfile="$TUNNELS_DIR/cloudflared.log"
     : > "$logfile"
     cloudflared tunnel --url "http://localhost:$PORT" --no-autoupdate \
         >> "$logfile" 2>&1 &
     local pid=$!
+    TUNNEL_PID="$pid"
     for i in $(seq 1 30); do
         sleep 1
+        # 真实隧道: trycloudflare 域名是 ≥16 字符随机串,排除 api.* 这种短词
         local url
-        url=$(awk '/Your quick Tunnel has been created/{flag=1} flag' "$logfile" \
-            | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | head -1)
+        url=$(grep -oE "https://[a-z0-9-]{16,}\.trycloudflare\.com" "$logfile" 2>/dev/null | head -1)
         if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
+            TUNNEL_URL="$url"
             return 0
         fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
+        if ! kill -0 "$pid" 2>/dev/null; then return 1; fi
     done
     kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# 2) cloudflared --protocol http2
-try_cloudflared_http2() {
-    local logfile="$TUNNELS_DIR/cf_http2.log"
-    : > "$logfile"
-    cloudflared tunnel --url "http://localhost:$PORT" --no-autoupdate --protocol http2 \
-        >> "$logfile" 2>&1 &
-    local pid=$!
-    for i in $(seq 1 30); do
-        sleep 1
-        local url
-        url=$(awk '/Your quick Tunnel has been created/{flag=1} flag' "$logfile" \
-            | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | head -1)
-        if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
-            return 0
-        fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
-    done
-    kill -9 "$pid" 2>/dev/null
-    return 1
-}
-
-# 3) cloudflared --edge-ip-version 4
-try_cloudflared_v4() {
-    local logfile="$TUNNELS_DIR/cf_v4.log"
-    : > "$logfile"
-    cloudflared tunnel --url "http://localhost:$PORT" --no-autoupdate --edge-ip-version 4 \
-        >> "$logfile" 2>&1 &
-    local pid=$!
-    for i in $(seq 1 30); do
-        sleep 1
-        local url
-        url=$(awk '/Your quick Tunnel has been created/{flag=1} flag' "$logfile" \
-            | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | head -1)
-        if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
-            return 0
-        fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
-    done
-    kill -9 "$pid" 2>/dev/null
-    return 1
-}
-
-# 4) localhost.run (ssh)
+# ── 4) localhost.run (SSH, nokey auth) ─────────────────────────────────
 try_localhost_run() {
     local logfile="$TUNNELS_DIR/lhr.log"
     : > "$logfile"
     ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o ServerAliveInterval=30 -R 80:localhost:$PORT nokey@localhost.run \
-        >> "$logfile" 2>&1 &
+        -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+        -R 80:localhost:$PORT nokey@localhost.run >> "$logfile" 2>&1 &
     local pid=$!
+    TUNNEL_PID="$pid"
     for i in $(seq 1 45); do
         sleep 1
         local url
         url=$(grep -oE "https?://[a-z0-9-]+\.lhr\.life" "$logfile" 2>/dev/null | head -1)
         if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
+            TUNNEL_URL="$url"
             return 0
         fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
+        if ! kill -0 "$pid" 2>/dev/null; then return 1; fi
     done
     kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# 5) serveo.net (ssh)
-# 注意：serveo 默认输出两个 URL 字符串 — 真实隧道是
-# "Forwarding HTTP traffic from https://<id>-<ip>.serveousercontent.com"
-# 而 "console.serveo.net" 只是它的 web 控制台，会误捕
+# ── 5) serveo.net (SSH) ─────────────────────────────────────────────────
+# 输出格式: "Forwarding HTTP traffic from https://<id>-<ip>.serveousercontent.com"
+# 或 console.serveo.net (控制台,误捕要排除)
 try_serveo() {
     local logfile="$TUNNELS_DIR/serveo.log"
     : > "$logfile"
     ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o ServerAliveInterval=30 -R 80:localhost:$PORT serveo.net \
-        >> "$logfile" 2>&1 &
+        -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+        -R 80:localhost:$PORT serveo.net >> "$logfile" 2>&1 &
     local pid=$!
+    TUNNEL_PID="$pid"
     for i in $(seq 1 45); do
         sleep 1
-        # 优先匹配 serveousercontent.com 域名（真实隧道），其次 .serveo.net
         local url
-        url=$(grep -oE "https?://[a-z0-9-]+(-[0-9]+(-[0-9]+(-[0-9]+(-[0-9]+)?)?)?)\.serveousercontent\.com" "$logfile" 2>/dev/null | head -1)
+        url=$(grep -oE "https?://[a-z0-9-]+(-[0-9]+(-[0-9]+)?)?\.serveousercontent\.com" "$logfile" 2>/dev/null | head -1)
         if [ -z "$url" ]; then
-            url=$(grep -oE "Forwarding HTTP traffic from https?://[^[:space:]]+" "$logfile" 2>/dev/null | grep -oE "https?://[^[:space:]]+" | head -1)
+            url=$(grep -oE "Forwarding HTTP traffic from https?://[^[:space:]]+" "$logfile" 2>/dev/null \
+                | grep -oE "https?://[^[:space:]]+" | head -1)
         fi
         if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
+            TUNNEL_URL="$url"
             return 0
         fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
+        if ! kill -0 "$pid" 2>/dev/null; then return 1; fi
     done
     kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# 6) ngrok (authtoken)
-try_ngrok() {
-    local logfile="$TUNNELS_DIR/ngrok.log"
-    : > "$logfile"
-    if ! command -v ngrok > /dev/null; then
-        return 1
-    fi
-    ngrok http "$PORT" --log "$logfile" --log-level=info > /dev/null 2>&1 &
-    local pid=$!
-    for i in $(seq 1 30); do
-        sleep 1
-        # ngrok 写本地 API (4040) 拿 URL，不靠 stdout
-        local url
-        url=$(curl -s --max-time 2 http://127.0.0.1:4040/api/tunnels 2>/dev/null \
-            | python3 -c "import json,sys;d=json.load(sys.stdin);t=d.get('tunnels',[]);print(t[0]['public_url'] if t else '')" 2>/dev/null)
-        if [ -n "$url" ] && [[ "$url" == https://* ]]; then
-            TUNNEL_PID="$pid"
-            return 0
-        fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
-    done
-    kill -9 "$pid" 2>/dev/null
-    return 1
-}
-
-# 7) pinggy.io (ssh -p 443 -R 0:localhost:PORT a.pinggy.io → *.pinggy.link)
-#   多区域 (a/b/c/d/e.pinggy.io) 任一可连即可。零注册
+# ── 6) pinggy.io (SSH, 5 区域) ──────────────────────────────────────────
 try_pinggy() {
     local logfile="$TUNNELS_DIR/pinggy.log"
     : > "$logfile"
     local pid=""
     for region in a b c d e; do
-        note "  pinggy: 试 $region.pinggy.io"
         ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-            -p 443 -R 0:localhost:$PORT "$region.pinggy.io" \
-            >> "$logfile" 2>&1 &
+            -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+            -p 443 -R 0:localhost:$PORT "$region.pinggy.io" >> "$logfile" 2>&1 &
         pid=$!
         for i in $(seq 1 25); do
             sleep 1
@@ -550,11 +392,10 @@ try_pinggy() {
             url=$(grep -oE "https?://[a-z0-9-]+\.pinggy\.link" "$logfile" 2>/dev/null | head -1)
             if [ -n "$url" ]; then
                 TUNNEL_PID="$pid"
+                TUNNEL_URL="$url"
                 return 0
             fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-                break  # 当前 region 死了，试试下一个
-            fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
         done
         kill -9 "$pid" 2>/dev/null
         pid=""
@@ -562,203 +403,110 @@ try_pinggy() {
     return 1
 }
 
-# 8) loca.lt (ssh -R 80:localhost:PORT loca.lt → *.loca.lt)
-#   零注册；输入 y 接受条款时用 -o SendEnv=... 或提前在 log 里识别
+# ── 7) loca.lt (SSH) ────────────────────────────────────────────────────
 try_loca_lt() {
     local logfile="$TUNNELS_DIR/loca.log"
     : > "$logfile"
     ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-        -R 80:localhost:$PORT loca.lt \
-        >> "$logfile" 2>&1 &
+        -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+        -R 80:localhost:$PORT loca.lt >> "$logfile" 2>&1 &
     local pid=$!
+    TUNNEL_PID="$pid"
     for i in $(seq 1 30); do
         sleep 1
         local url
         url=$(grep -oE "https?://[a-z0-9-]+\.loca\.lt" "$logfile" 2>/dev/null | head -1)
         if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
+            TUNNEL_URL="$url"
             return 0
         fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
+        if ! kill -0 "$pid" 2>/dev/null; then return 1; fi
     done
     kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# 9) tunnel.pyjam.as (ssh -R 80:localhost:PORT tunnel.pyjam.as → *.pyjam.as)
-#   零注册；Python 社区常用
+# ── 8) tunnel.pyjam.as (SSH) ────────────────────────────────────────────
 try_pyjam_as() {
     local logfile="$TUNNELS_DIR/pyjam.log"
     : > "$logfile"
     ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-        -R 80:localhost:$PORT tunnel.pyjam.as \
-        >> "$logfile" 2>&1 &
+        -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+        -R 80:localhost:$PORT tunnel.pyjam.as >> "$logfile" 2>&1 &
     local pid=$!
+    TUNNEL_PID="$pid"
     for i in $(seq 1 30); do
         sleep 1
         local url
         url=$(grep -oE "https?://[a-z0-9-]+\.pyjam\.as" "$logfile" 2>/dev/null | head -1)
         if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
+            TUNNEL_URL="$url"
             return 0
         fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
+        if ! kill -0 "$pid" 2>/dev/null; then return 1; fi
     done
     kill -9 "$pid" 2>/dev/null
+    TUNNEL_PID=""
     return 1
 }
 
-# 10) localtunnel (npm `lt` → *.loca.lt)
-#   `lt --port PORT` 启动后会打印 URL 到 stdout；零注册
-try_localtunnel() {
-    if ! command -v lt > /dev/null; then
-        return 1
-    fi
-    local logfile="$TUNNELS_DIR/lt.log"
-    : > "$logfile"
-    lt --port "$PORT" >> "$logfile" 2>&1 &
-    local pid=$!
-    for i in $(seq 1 20); do
-        sleep 1
-        local url
-        url=$(grep -oE "https?://[a-z0-9-]+\.loca\.lt" "$logfile" 2>/dev/null | head -1)
-        if [ -n "$url" ]; then
-            TUNNEL_PID="$pid"
-            return 0
-        fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            return 1
-        fi
-    done
-    kill -9 "$pid" 2>/dev/null
-    return 1
-}
-
-# 抽 URL 的统一函数（按 name）
-get_url_for() {
-    local name="$1"
-    case "$name" in
-        # New mechanisms (2026-07-12)
-        tailscale)
-            # Prefer Funnel URL (*.ts.net); fallback to MagicDNS hostname
-            grep -oE 'https://[a-zA-Z0-9.-]+\.ts\.net' "$TUNNELS_DIR/tailscale.log" 2>/dev/null | head -1
-            ;;
-        zerotier)
-            [[ -f "$TUNNELS_DIR/.zerotier-ip" ]] && echo "zerotier:$(cat "$TUNNELS_DIR/.zerotier-ip"):$PORT"
-            ;;
-        cf-worker)
-            # Mac opens outbound WSS but the dashboard URL is the .workers.dev
-            python3 -c "
-import json
-try:
-    d = json.load(open('$HOME/.config/tuixue/relays.json'))
-    print(d.get('cf_worker',''))
-except Exception:
-    pass
-" 2>/dev/null
-            ;;
-        paas-relay)
-            python3 -c "
-import json
-try:
-    d = json.load(open('$HOME/.config/tuixue/relays.json'))
-    print(d.get('paas_relay',''))
-except Exception:
-    pass
-" 2>/dev/null
-            ;;
-        telegram-bot)
-            # sentinel-based; URL is the @bot handle
-            [[ -f "$TUNNELS_DIR/telegram-bot.ready" ]] && echo "telegram-bot://see-sentinel"
-            ;;
-        ntfy)
-            grep -oE 'https://ntfy\.sh/[a-zA-Z0-9-]+' "$TUNNELS_DIR/ntfy_pipe.log" 2>/dev/null | head -1
-            ;;
-        mqtt)
-            [[ -f "$TUNNELS_DIR/mqtt_bridge.ready" ]] && echo "mqtt://see-sentinel"
-            ;;
-        trystero)
-            grep -oE 'http://localhost:[0-9]+/trystero' "$TUNNELS_DIR/trystero.log" 2>/dev/null | head -1
-            ;;
-        # Legacy tunnels (kept)
-        cloudflared-*)  awk '/Your quick Tunnel has been created/{flag=1} flag' "$TUNNELS_DIR/${name#cloudflared-}.log" 2>/dev/null | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | head -1 ;;
-        localhost.run)  grep -oE "https?://[a-z0-9-]+\.lhr\.life" "$TUNNELS_DIR/lhr.log" 2>/dev/null | head -1 ;;
-        serveo.net)     grep -oE "https?://[a-z0-9-]+(-[0-9]+(-[0-9]+(-[0-9]+(-[0-9]+)?)?)?)\.serveousercontent\.com" "$TUNNELS_DIR/serveo.log" 2>/dev/null | head -1 ;;
-        ngrok)          curl -s --max-time 2 http://127.0.0.1:4040/api/tunnels 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);t=d.get('tunnels',[]);print(t[0]['public_url'] if t else '')" 2>/dev/null ;;
-        pinggy)         grep -oE "https?://[a-z0-9-]+\.pinggy\.link" "$TUNNELS_DIR/pinggy.log" 2>/dev/null | head -1 ;;
-        loca.lt)        grep -oE "https?://[a-z0-9-]+\.loca\.lt" "$TUNNELS_DIR/loca.log" 2>/dev/null | head -1 ;;
-        pyjam.as)       grep -oE "https?://[a-z0-9-]+\.pyjam\.as" "$TUNNELS_DIR/pyjam.log" 2>/dev/null | head -1 ;;
-        localtunnel)    grep -oE "https?://[a-z0-9-]+\.loca\.lt" "$TUNNELS_DIR/lt.log" 2>/dev/null | head -1 ;;
-        *)              echo "" ;;
-    esac
-}
-
-# 主流程：按优先级逐个试（新机制在最前；2026-07-12 加固）
+# ════════════════════════════════════════════════════════════════════════
+# 主循环: 按优先级逐个试,首个 self_check 过的就 break
+# ════════════════════════════════════════════════════════════════════════
 declare -a METHODS=(
-    # TIER A — overlay / P2P (NAT-traversing, usually works)
-    "tailscale:try_tailscale"
-    "zerotier:try_zerotier"
-    # TIER C — different-domain proxies (the strong diversifiers)
-    "telegram-bot:try_telegram_bot"
-    "ntfy:try_ntfy"
-    "mqtt:try_mqtt"
-    # TIER B — PaaS-deployed WS relays (Cloudflare IPs almost always allowed)
-    "cf-worker:try_cf_worker"
-    "paas-relay:try_paas_relay"
-    # TIER A3 — last among new ones (needs Python helper + browser on both ends)
-    "trystero:try_trystero"
-    # TIER D — legacy tunnels (kept as final backstop)
     "ngrok:try_ngrok"
-    "cloudflared-QUIC:try_cloudflared_quic"
-    "cloudflared-HTTP2:try_cloudflared_http2"
-    "cloudflared-IPv4:try_cloudflared_v4"
-    "pinggy:try_pinggy"
+    "localtunnel:try_localtunnel"
+    "cloudflared:try_cloudflared"
     "localhost.run:try_localhost_run"
     "serveo.net:try_serveo"
+    "pinggy:try_pinggy"
     "loca.lt:try_loca_lt"
     "pyjam.as:try_pyjam_as"
-    "localtunnel:try_localtunnel"
 )
 
+TUNNEL_URL=""
+TUNNEL_METHOD=""
+TUNNEL_PID=""
+
 echo ""
-echo "→ 18 路隧道自检（前 8 路为新增的 anti-sandbox 机制，每路最多 15s 快速试）…"
+echo "→ 8 路隧道按优先级自检 (ngrok → lt → cloudflared → SSH×5) …"
+echo ""
+
 for m in "${METHODS[@]}"; do
     IFS=':' read -r name fn <<< "$m"
     note "[$name] 启动中…"
     if $fn; then
-        url=$(get_url_for "$name")
-        if [ -z "$url" ]; then
-            fail "$name 拿到 URL 失败"
-            [ -n "${TUNNEL_PID:-}" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
+        if [ -z "$TUNNEL_URL" ]; then
+            fail "$name 启动但未拿到 URL"
+            [ -n "$TUNNEL_PID" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
             TUNNEL_PID=""
             continue
         fi
-        note "  URL: $url"
-        note "  自检 (16s 内 curl /api/health) …"
-        if self_check "$url"; then
-            ok "自检通过"
-            TUNNEL_URL="$url"
+        note "    URL: $TUNNEL_URL"
+        note "    self_check (≤ 9s) …"
+        if self_check "$TUNNEL_URL"; then
+            ok "✓ [$name] 自检通过"
             TUNNEL_METHOD="$name"
+            # 写到 URL_FILE 供 watchdog 读 (避开 subshell 变量隔离)
+            write_url "$TUNNEL_URL" "$TUNNEL_METHOD"
             break
         else
-            fail "自检未通过"
-            [ -n "${TUNNEL_PID:-}" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
+            fail "[$name] self_check 未通过"
+            [ -n "$TUNNEL_PID" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
             TUNNEL_PID=""
+            clear_url
         fi
     else
-        fail "$name 启动失败（30s 内未拿到 URL）"
-        [ -n "${TUNNEL_PID:-}" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
+        fail "[$name] 启动失败"
+        [ -n "$TUNNEL_PID" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
         TUNNEL_PID=""
     fi
 done
 
-# ─── 打印最终状态 ───
+# ════════════════════════════════════════════════════════════════════════
+# 打印最终状态
+# ════════════════════════════════════════════════════════════════════════
 echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  本机访问  http://localhost:$PORT"
@@ -767,18 +515,22 @@ if [ -n "$TUNNEL_URL" ]; then
     echo "  远程访问  $TUNNEL_URL"
     echo "  隧道方法  $TUNNEL_METHOD"
 else
-    echo "  ⚠ 10 路隧道全部失败 — 当前仅本地/局域网可用"
-    echo "  失败原因多为网络层 DNS 劫持到 198.18.x + TLS 阻断"
-    echo "  重试: bash web/start_remote.sh"
+    echo "  ⚠  8 路隧道全部失败 — 当前仅本地/局域网可用"
+    echo "  常见原因: 网络层 DNS 劫持 / ngrok config v2 残留字段 / 临时出口被封"
+    echo "  手机请连同 WiFi → 用局域网 URL 必通"
+    echo "  重试:  bash web/start_remote.sh"
 fi
 echo "════════════════════════════════════════════════════════"
 echo ""
 echo "日志:"
-echo "  server  tail -f /tmp/tuixue_server.log"
-echo "  tunnel  tail -f $TUNNELS_DIR/<method>.log"
+echo "  server    tail -f /tmp/tuixue_server.log"
+echo "  tunnel    tail -f $TUNNELS_DIR/<method>.log"
+echo "  完整列表  ls $TUNNELS_DIR/"
 echo "退出: Ctrl+C（所有进程都会结束）"
 
-# ─── 推 TG ───
+# ════════════════════════════════════════════════════════════════════════
+# 推 TG (远程 URL + LAN 兜底)
+# ════════════════════════════════════════════════════════════════════════
 push_tg() {
     local url="$1" method="$2" extra="$3"
     if [ -n "$url" ]; then
@@ -788,84 +540,77 @@ push_tg() {
 🌐 局域网: http://$LAN_IP:$PORT
 🌍 远程:   $url
 🔧 方法:   $method
-⏰ $(TS)
+⏰ 自检通过: $(TS)  (health/static/html/sse 全过)
 ${extra}
 
-iPhone 浏览器直接打开远程 URL。临时隧道约 24h 后失效。"
+⭐ 远程打不开时,iPhone 连同 WiFi 用局域网 URL 必通
+⏳ 临时隧道约 24h 后失效"
         send_tg "$TG_MSG" >/dev/null 2>&1 && ok "TG 推送成功" || fail "TG 推送失败"
     else
-        local TG_MSG="⚠️ 退学 v3 控制台 — 远程隧道全部失败
+        local TG_MSG="⚠️ 退学 v3 控制台 — 远程隧道 8 路自检全部失败
+
 📡 本机:   http://localhost:$PORT
-🌐 局域网: http://$LAN_IP:$PORT
+🌐 局域网: http://$LAN_IP:$PORT  ⭐ 手机用这个
 ⏰ $(TS)
 ${extra}
 
-可能网络层 DNS 劫持 + TLS 阻断。手机需连同 Wi-Fi 访问局域网 URL。"
+可能网络层 DNS 劫持 / TLS 阻断 / ngrok config 残留字段。
+手机需连同 Wi-Fi 访问局域网 URL。"
         send_tg "$TG_MSG" >/dev/null 2>&1 && ok "TG 推送成功" || fail "TG 推送失败"
     fi
 }
 
 push_tg "$TUNNEL_URL" "$TUNNEL_METHOD" ""
 
-# ─── Supervisor 守护：30s 自检，断 2 次切下一路 ───
-# 状态文件做 IPC，watchdog 写 rotate.flag，main 读后清掉
+# ════════════════════════════════════════════════════════════════════════
+# Supervisor: watchdog 通过 URL_FILE 读 URL (避免 subshell 变量隔离)
+# 隧道挂 → 杀进程 → 试下一路 → 推 TG
+# ════════════════════════════════════════════════════════════════════════
+URL_FILE="$ROOT/tunnel_url.txt"           # tunnel_lib.sh 也用这个
 ROTATE_FLAG="$TUNNELS_DIR/.rotate"
-DEAD_COUNT=0
 SUPERVISOR_LOG="$TUNNELS_DIR/supervisor.log"
+DEAD_COUNT=0
+LAST_METHOD="${TUNNEL_METHOD:-}"
 
-# 写一行日志
 sup_log() { echo "[$(TS)] $*" >> "$SUPERVISOR_LOG"; }
-
-# 隧道活性检查
 check_tunnel() {
     local url="$1"
     [ -z "$url" ] && return 1
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url/api/health" 2>&1)
-    if [ "$code" = "200" ]; then
-        return 0
-    fi
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url/api/health" 2>&1 || echo 000)
+    [ "$code" = "200" ] && return 0
     return 1
 }
 
-# 找下一个能用的方法（从失败的下一路开始）
+# rotate: 杀当前隧道,从 METHODS 下一路开始试,失败 3 次的暂时跳过
 rotate_tunnel() {
+    local MAIN_PID=$$
     # 杀当前
-    if [ -n "${TUNNEL_PID:-}" ]; then
-        kill -9 "$TUNNEL_PID" 2>/dev/null
-        TUNNEL_PID=""
-    fi
-    # 标记当前方法失败
-    FAILED_METHODS="${FAILED_METHODS:-} $TUNNEL_METHOD"
+    [ -n "${TUNNEL_PID:-}" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
+    TUNNEL_PID=""
+    clear_url
+    FAILED_METHODS="${FAILED_METHODS:-} $LAST_METHOD"
     TUNNEL_URL=""
-    TUNNEL_METHOD=""
 
-    # 从 METHODS 里找当前 method 的 index
+    # 从 METHODS 找当前 method 的 index
     local i=0 current_idx=-1 next_idx=0
     for m in "${METHODS[@]}"; do
         local n="${m%%:*}"
-        if [ "$n" = "${LAST_METHOD:-}" ]; then
-            current_idx=$i
-        fi
+        [ "$n" = "${LAST_METHOD:-}" ] && current_idx=$i
         i=$((i+1))
     done
-    next_idx=$((current_idx + 1))
-    if [ "$next_idx" -ge "${#METHODS[@]}" ]; then
-        next_idx=0
-    fi
+    next_idx=$(( current_idx + 1 ))
+    [ "$next_idx" -ge "${#METHODS[@]}" ] && next_idx=0
 
-    # 试 next_idx..end，然后 0..next_idx-1（即"循环一圈"）
     local tried=0 attempts="${#METHODS[@]}"
     while [ "$tried" -lt "$attempts" ]; do
         local m="${METHODS[$next_idx]}"
         local name="${m%%:*}"
         local fn="${m##*:}"
-        # 跳过刚失败的（连续失败 3 次后放回去重试）
-        local fail_count=0
-        for fm in $FAILED_METHODS; do
-            [ "$fm" = "$name" ] && fail_count=$((fail_count+1))
-        done
-        if [ "$fail_count" -ge 3 ]; then
+        # 失败 ≥3 次的暂时跳过
+        local fc=0
+        for fm in $FAILED_METHODS; do [ "$fm" = "$name" ] && fc=$((fc+1)); done
+        if [ "$fc" -ge 3 ]; then
             next_idx=$(( (next_idx + 1) % ${#METHODS[@]} ))
             tried=$((tried+1))
             continue
@@ -874,26 +619,22 @@ rotate_tunnel() {
         sup_log "rotate → 试 $name"
         note "[rotate → $name]"
         if $fn; then
-            local url
-            url=$(get_url_for "$name")
-            if [ -n "$url" ] && check_tunnel "$url"; then
-                TUNNEL_URL="$url"
+            if [ -n "$TUNNEL_URL" ] && check_tunnel "$TUNNEL_URL"; then
                 TUNNEL_METHOD="$name"
                 LAST_METHOD="$name"
                 DEAD_COUNT=0
-                sup_log "rotate OK: $name = $url"
-                push_tg "$TUNNEL_URL" "$TUNNEL_METHOD" "🔁 上一路断了，已自动切换"
+                write_url "$TUNNEL_URL" "$TUNNEL_METHOD"
+                sup_log "rotate OK: $name = $TUNNEL_URL"
+                push_tg "$TUNNEL_URL" "$TUNNEL_METHOD" "🔁 上一路断了,已自动切换"
                 return 0
             fi
         fi
-        # 失败：杀残留 pid 并标失败
         [ -n "${TUNNEL_PID:-}" ] && kill -9 "$TUNNEL_PID" 2>/dev/null
         TUNNEL_PID=""
         FAILED_METHODS="$FAILED_METHODS $name"
         next_idx=$(( (next_idx + 1) % ${#METHODS[@]} ))
         tried=$((tried+1))
     done
-    # 一圈全失败 → 清空失败列表，等 60s 再来
     sup_log "all methods failed, sleep 60s then retry"
     FAILED_METHODS=""
     sleep 60
@@ -901,28 +642,35 @@ rotate_tunnel() {
     return 1
 }
 
-LAST_METHOD="${TUNNEL_METHOD:-}"
-MAIN_PID=$$
-sup_log "supervisor 启动，初始方法=$LAST_METHOD url=$TUNNEL_URL main_pid=$MAIN_PID"
+sup_log "supervisor 启动, 初始方法=${LAST_METHOD:-无} url=${TUNNEL_URL:-无}"
 
-# 主循环：等 SIGINT
+# watchdog — 通过 URL_FILE 读 URL,30s 自检,挂 2 次触发 rotate
 if [ -n "$TUNNEL_URL" ]; then
     (
-        # 后台 watchdog 子进程：30s 自检，触发 rotate 时写 flag 文件
-        # rotate 动作由主 shell 执行（更稳，避免子进程 fork 复杂业务）
         while true; do
             sleep 30
-            if ! check_tunnel "$TUNNEL_URL"; then
-                DEAD_COUNT=$((DEAD_COUNT+1))
-                sup_log "dead check #$DEAD_COUNT, url=$TUNNEL_URL"
-                if [ "$DEAD_COUNT" -ge 2 ]; then
-                    DEAD_COUNT=0
-                    # 通知主 shell rotate
+            # 从文件读 (主 shell 更新后这里能拿到)
+            local_url=""
+            [ -f "$URL_FILE" ] && local_url=$(cat "$URL_FILE" 2>/dev/null)
+            if [ -z "$local_url" ]; then
+                # URL 都没了,通知主 shell rotate
+                touch "$ROTATE_FLAG"
+                kill -USR1 "$MAIN_PID" 2>/dev/null
+                continue
+            fi
+            if ! check_tunnel "$local_url"; then
+                # 用文件计数 (跨进程隔离 OK)
+                echo "$(($(cat "$TUNNELS_DIR/.dead_count" 2>/dev/null || echo 0) + 1))" > "$TUNNELS_DIR/.dead_count"
+                local dc
+                dc=$(cat "$TUNNELS_DIR/.dead_count" 2>/dev/null || echo 0)
+                sup_log "dead check #$dc url=$local_url"
+                if [ "$dc" -ge 2 ]; then
+                    echo 0 > "$TUNNELS_DIR/.dead_count"
                     touch "$ROTATE_FLAG"
                     kill -USR1 "$MAIN_PID" 2>/dev/null
                 fi
             else
-                DEAD_COUNT=0
+                echo 0 > "$TUNNELS_DIR/.dead_count"
             fi
         done
     ) &
@@ -930,18 +678,18 @@ if [ -n "$TUNNEL_URL" ]; then
     sup_log "watchdog pid=$WATCHDOG_PID"
 fi
 
-# 主 shell 的 USR1 处理：rotate
+# USR1 处理: 主 shell 内 rotate
 on_rotate() {
     if [ -f "$ROTATE_FLAG" ]; then
         rm -f "$ROTATE_FLAG"
         echo ""
-        echo "→ [supervisor] 检测到隧道失活，开始 rotate …"
+        echo "→ [supervisor] 检测到隧道失活,开始 rotate …"
         sup_log "on_rotate triggered"
         rotate_tunnel
         if [ -n "$TUNNEL_URL" ]; then
-            echo "  ✓ 新隧道: $TUNNEL_METHOD = $TUNNEL_URL"
+            ok "新隧道: $TUNNEL_METHOD = $TUNNEL_URL"
         else
-            echo "  ✗ rotate 失败，等下一轮"
+            fail "rotate 失败,等下一轮"
         fi
     fi
 }
@@ -953,20 +701,19 @@ cleanup() {
     echo "→ 关闭中 …"
     [ -n "${WATCHDOG_PID:-}" ] && kill -9 "$WATCHDOG_PID" 2>/dev/null
     kill $SERVER_PID ${TUNNEL_PID:-} 2>/dev/null
-    pkill -f "cloudflared tunnel --url" 2>/dev/null
-    pkill -f "ngrok http $PORT" 2>/dev/null
-    pkill -f "ssh -tt.*localhost:$PORT" 2>/dev/null
-    pkill -f "lt --port $PORT" 2>/dev/null
+    pkill -f "cloudflared tunnel --url"      2>/dev/null
+    pkill -f "ngrok http $PORT"              2>/dev/null
+    pkill -f "ngrok http --config /tmp/ngrok" 2>/dev/null
+    pkill -f "ssh -tt.*localhost:$PORT"      2>/dev/null
+    pkill -f "lt --port $PORT"               2>/dev/null
     rm -f "$ROTATE_FLAG"
     exit
 }
 trap cleanup INT TERM
 
-# 等 server（每 1s 轮询，同时手动处理 rotate flag，因为 wait 会阻塞 USR1）
+# 主循环 — 每秒检查 ROTATE_FLAG (USR1 trap 也会写,但 sleep 会阻塞,主循环补上)
 while kill -0 "$SERVER_PID" 2>/dev/null; do
     sleep 1
-    if [ -f "$ROTATE_FLAG" ]; then
-        on_rotate
-    fi
+    [ -f "$ROTATE_FLAG" ] && on_rotate
 done
 cleanup

@@ -65,6 +65,65 @@ def get_main_flow(code: str) -> dict | None:
     except Exception as e:
         log.warning(f"akshare 今日资金流 {code} 失败: {e}")
 
+    # ─── 备 2: efinance (2026-07-16 新增,东财轻封装)
+    #    底层走 push2his,沙箱 DNS 劫持可能 hang,5s 硬超时;列名可能不同,
+    #    做容错:取包含"主力"+"净额" / "超大单"+"净额" 等多种别名
+    try:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+        def _ef_today():
+            import efinance as ef
+            return ef.stock.get_today_bill(code)
+        ex = ThreadPoolExecutor(max_workers=1)
+        try:
+            df = ex.submit(_ef_today).result(timeout=5)
+        except FutTimeout:
+            log.warning(f"efinance 今日资金流 {code} 5s 超时")
+            df = None
+        finally:
+            ex.shutdown(wait=False)
+        if df is not None and not df.empty:
+            # 兼容 efinance 列名变体
+            def _pick(*keys):
+                for k in keys:
+                    for col in df.columns:
+                        if k in str(col):
+                            return df[col]
+                import pandas as _pd
+                return _pd.Series([0] * len(df))
+            latest_idx = df.iloc[-1] if len(df) == 1 else df.iloc[0]
+            out = {
+                "main_net":  float(_pick("主力净额", "主力净流入").iloc[-1] if len(df) > 1 else latest_idx.get(_pick("主力净额", "主力净流入").name, 0) or 0),
+                "super_net": float(_pick("超大单净额").iloc[-1] if len(df) > 1 else 0),
+                "big_net":   float(_pick("大单净额").iloc[-1] if len(df) > 1 else 0),
+                "mid_net":   float(_pick("中单净额").iloc[-1] if len(df) > 1 else 0),
+                "small_net": float(_pick("小单净额").iloc[-1] if len(df) > 1 else 0),
+                "source": "efinance",
+            }
+            # 修正: efinance get_today_bill 返回的是 dict-of-series, 取列名按 row
+            # 简化: 直接对每个 cell 取 (df 是 1 行 × N 列结构)
+            row = df.iloc[0] if len(df) >= 1 else None
+            if row is not None:
+                def _gv(*keys, default=0.0):
+                    for k in keys:
+                        for col in df.columns:
+                            cn = str(col)
+                            if k in cn:
+                                try:
+                                    return float(row[col] or 0)
+                                except Exception:
+                                    return default
+                    return default
+                out.update({
+                    "main_net":  _gv("主力净额", "主力净流入-净额", "主力净流入"),
+                    "super_net": _gv("超大单净额", "超大单净流入-净额", "超大单净流入"),
+                    "big_net":   _gv("大单净额", "大单净流入-净额", "大单净流入"),
+                    "mid_net":   _gv("中单净额", "中单净流入-净额", "中单净流入"),
+                    "small_net": _gv("小单净额", "小单净流入-净额", "小单净流入"),
+                })
+                return out
+    except Exception as e:
+        log.warning(f"efinance 今日资金流 {code} 失败: {e}")
+
     # ─── 兜底 2: 从实时行情成交额 + 估算 ───
     try:
         from .. import lib_common as lc

@@ -26,7 +26,12 @@ import pytest
 
 # 允许直接 `import web.server` (即使 tests/ 不在 PYTHONPATH)
 ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_PARENT = ROOT.parent
+sys.path.insert(0, str(PACKAGE_PARENT))
 sys.path.insert(0, str(ROOT))
+# module path 用 tuixue_v3.web.server, 必须在仓库根的父目录启动
+SERVER_CWD = PACKAGE_PARENT
+SERVER_APP = "tuixue_v3.web.server:app"
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("TUIXUE_PORT", "7799"))
@@ -68,11 +73,16 @@ def tuixue_server():
 
     env = os.environ.copy()
     env.setdefault("TUIXUE_PORT", str(PORT))
+    env["PYTHONPATH"] = str(PACKAGE_PARENT)  # 必须在仓库根父目录启动
+    log_handle = open("/tmp/tuixue-test-server.log", "ab", 0)
+    log_handle.write(f"\n[conftest] cwd={SERVER_CWD} PYTHONPATH={env['PYTHONPATH']}\n".encode())
+    log_handle.flush()
     proc = subprocess.Popen(
-        [sys.executable, "web/server.py"],
-        cwd=str(ROOT),
+        [sys.executable, "-m", "uvicorn", SERVER_APP,
+         "--host", HOST, "--port", str(PORT), "--log-level", "warning"],
+        cwd=str(SERVER_CWD),
         env=env,
-        stdout=open("/tmp/tuixue-test-server.log", "ab", 0),
+        stdout=log_handle,
         stderr=subprocess.STDOUT,
         preexec_fn=os.setsid,
     )

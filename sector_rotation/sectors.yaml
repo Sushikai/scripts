@@ -1,0 +1,72 @@
+# 板块轮动复盘系统 - 板块配置
+# 注意：本系统**改用行业板块**（更稳定，与涨停池"所属行业"直接匹配）
+# 四大科技赛道
+
+sectors:
+  - name: AI算力硬件
+    code_alias: ai_compute
+    industry_keywords:
+      - 通信设备
+      - 通信服务
+      - 计算机设备
+      - IT服务
+      - 光学光电子
+    description: AI 算力基础设施，含光模块/液冷/IDC/GPU 服务器
+
+  - name: 半导体产业链
+    code_alias: semi
+    industry_keywords:
+      - 半导体
+      - 电子元件
+      - 消费电子
+      - 元件
+      - 集成电路
+    description: 半导体设计/制造/封测/设备/材料全链
+
+  - name: 人形机器人智能制造
+    code_alias: robot
+    industry_keywords:
+      - 自动化设备
+      - 通用设备
+      - 专用设备
+      - 电机
+      - 仪器仪表
+      - 机械
+    description: 人形机器人本体及核心零部件（自动化/精密设备）
+
+  - name: 数字软件通信
+    code_alias: digital
+    industry_keywords:
+      - 软件开发
+      - IT服务
+      - 互联网服务
+      - 通信服务
+      - 计算机
+    description: 信创/数字经济/通信运营商
+
+# 评分权重（固定）
+scoring_weights:
+  fund_flow: 0.40
+  limit_up_count: 0.25
+  limit_chain: 0.20
+  relative_strength: 0.15
+
+# 主线硬性认定阈值
+mainline_thresholds:
+  single_day_inflow_min: 5.0
+  five_day_inflow_min: 20.0
+  limit_up_count_min: 5
+  min_consecutive_boards: 2
+
+# 龙头/中军/杂毛筛选阈值
+leader_filters:
+  sentiment_leader:
+    consecutive_boards_min: 2
+    seal_ratio_min: 0.5          # 封单/成交 ≥ 0.5（实际很少能到 0.7）
+    turnover_min: 5.0            # 换手率 ≥ 5%（12% 太严）
+    turnover_max: 35.0
+  trend_leader:
+    market_cap_min: 200.0
+    sector_top_n: 5
+  junk_filter:
+    exclude_late_pump: true

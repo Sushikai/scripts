@@ -383,15 +383,17 @@ def get_sector(code: str, force_refresh: bool = False) -> dict:
       taxonomy: {level1_cluster, level2_sw, level3_chain, level4_subconcept, role, source, ...}  ← 新
       source, fresh
     }
+
+    注意: HTTP 调用在锁外, 避免慢请求阻塞其它线程。
     """
     code = code.strip().zfill(6)
     board = detect_board(code)
 
+    # 1. 快速检查缓存 (锁内, 纯 dict 操作)
     with _lock:
         cache = _load_cache()
         stocks = cache.setdefault("stocks", {})
         hit = stocks.get(code)
-
         if not force_refresh and hit and (time.time() - (cache.get("_meta", {}).get("built_at") or 0) < CACHE_TTL):
             sw = hit.get("sw")
             sw_raw = hit.get("sw_raw") or ""
@@ -399,25 +401,29 @@ def get_sector(code: str, force_refresh: bool = False) -> dict:
             return _format_sector(code, board, sw, hit.get("source") or "cache",
                                  fresh=False, sw_raw=sw_raw, csrc_raw=csrc_raw)
 
-        # 主：eastmoney f10（沙箱可达）；兜底 akshare
-        sw = None
-        source = "unknown"
-        raw_sw = ""
-        raw_csrc = ""
-        em = _fetch_industry_em(code)
-        if em:
-            raw_sw = em.get("sw_raw", "")
-            raw_csrc = em.get("csrc_raw", "")
-            sw = normalize_to_sw(raw_sw)
-            source = "eastmoney"
-        if not sw:
-            ak_raw = _fetch_industry_akshare(code)
-            if ak_raw:
-                sw = normalize_to_sw(ak_raw)
-                if sw:
-                    raw_sw = ak_raw
-                    source = "akshare"
+    # 2. 未命中 / 强制刷新 → 网络请求 (锁外)
+    sw = None
+    source = "unknown"
+    raw_sw = ""
+    raw_csrc = ""
+    em = _fetch_industry_em(code)
+    if em:
+        raw_sw = em.get("sw_raw", "")
+        raw_csrc = em.get("csrc_raw", "")
+        sw = normalize_to_sw(raw_sw)
+        source = "eastmoney"
+    if not sw:
+        ak_raw = _fetch_industry_akshare(code)
+        if ak_raw:
+            sw = normalize_to_sw(ak_raw)
+            if sw:
+                raw_sw = ak_raw
+                source = "akshare"
 
+    # 3. 写回缓存 (锁内)
+    with _lock:
+        cache = _load_cache()
+        stocks = cache.setdefault("stocks", {})
         stocks[code] = {
             "sw_raw":   raw_sw,
             "csrc_raw": raw_csrc,

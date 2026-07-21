@@ -22,6 +22,15 @@ import time as systime
 from datetime import datetime, timedelta
 from typing import Any
 
+
+# 2026-07-17: 自选删除偶发 "database is locked" — 用 cache_db.safe_write 统一兜底
+# (cache_db.py:284-310) — 重试 + 先 ROLLBACK stale txn。DELETE 是 destructive 端点,
+# 即便调用失败也要给前端 ok=false + 明确 error,不要静默成功。
+def _safe_write(fn, *, retries: int = 4):
+    """薄包装,只是模块本地命名以便 watchlist 调用点代码一致。"""
+    from .. import cache_db
+    return cache_db.safe_write(fn, retries=retries)
+
 log = logging.getLogger("tuixue_v3.web.watchlist")
 
 
@@ -49,25 +58,31 @@ def add(code: str, name: str = "", tag: str = "自选", note: str = "") -> dict:
             pass
     name = name or code
     now = systime.time()
-    conn = _conn()
-    # 拿最大 sort_order 放末尾
-    max_row = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM watchlist").fetchone()
-    next_sort = (max_row[0] or 0) + 1
-    conn.execute(
-        "INSERT OR REPLACE INTO watchlist (code, name, tag, sort_order, added_at, note) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (code, name, tag or "自选", next_sort, now, note or ""),
-    )
-    conn.commit()
-    return get(code) or {"code": code, "name": name, "tag": tag, "sort_order": next_sort, "note": note}
+
+    def _do(conn):
+        # 拿最大 sort_order 放末尾
+        max_row = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM watchlist").fetchone()
+        next_sort = (max_row[0] or 0) + 1
+        conn.execute(
+            "INSERT OR REPLACE INTO watchlist (code, name, tag, sort_order, added_at, note) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (code, name, tag or "自选", next_sort, now, note or ""),
+        )
+        conn.commit()
+        return get(code) or {"code": code, "name": name, "tag": tag, "sort_order": next_sort, "note": note}
+
+    return _safe_write(_do)
 
 
 def remove(code: str) -> bool:
     code = str(code).strip().zfill(6)
-    conn = _conn()
-    cur = conn.execute("DELETE FROM watchlist WHERE code=?", (code,))
-    conn.commit()
-    return cur.rowcount > 0
+
+    def _do(conn):
+        cur = conn.execute("DELETE FROM watchlist WHERE code=?", (code,))
+        conn.commit()
+        return cur.rowcount > 0
+
+    return _safe_write(_do)
 
 
 def update(code: str, *, tag: str | None = None, note: str | None = None, sort_order: int | None = None) -> bool:
@@ -82,10 +97,13 @@ def update(code: str, *, tag: str | None = None, note: str | None = None, sort_o
     if not fields:
         return False
     vals.append(code)
-    conn = _conn()
-    cur = conn.execute(f"UPDATE watchlist SET {','.join(fields)} WHERE code=?", vals)
-    conn.commit()
-    return cur.rowcount > 0
+
+    def _do(conn):
+        cur = conn.execute(f"UPDATE watchlist SET {','.join(fields)} WHERE code=?", vals)
+        conn.commit()
+        return cur.rowcount > 0
+
+    return _safe_write(_do)
 
 
 def get(code: str) -> dict | None:
@@ -276,12 +294,30 @@ def list_with_ai_snapshot() -> list[dict]:
 
 def _batch_quote(codes: list[str]) -> dict[str, dict]:
     """批量拉实时行情(走 lib_common.fetch_realtime)。
-    失败单只不影响其他; 总闸 12s。
+    R1 (2026-07-21): 优先读 server._cache_quote (TTLCache,realtime poller 已预热),
+    命中率通常 ~99%,完全免掉上层 akshare 调用,消除 watchlist 切页 4-24s 阻塞。
+    仅对 cache miss 的 stock 才走 lib_common.fetch_realtime (per-stock 3s)。
     """
     import asyncio
     from .. import lib_common as lc
     out: dict[str, dict] = {}
 
+    # 1) 读 server._cache_quote — 走 fastapi 进程内 worker memory,sub-ms
+    try:
+        from .server import _cache_quote
+        for c in codes:
+            hit = _cache_quote.get(("quote", c))
+            if isinstance(hit, dict) and hit:
+                out[c] = hit
+    except Exception:
+        pass  # server 未导入 / 启动顺序异常时走下层兜底
+
+    miss_codes = [c for c in codes if c not in out]
+    if not miss_codes:
+        return out
+    log.debug(f"_batch_quote cache miss {len(miss_codes)}/{len(codes)}: {miss_codes[:5]}…")
+
+    # 2) miss 的走 lib_common.fetch_realtime (跟原逻辑等价,超时 4s/c)
     async def _one(c: str):
         try:
             loop = asyncio.get_event_loop()
@@ -290,24 +326,29 @@ def _batch_quote(codes: list[str]) -> dict[str, dict]:
             return None
 
     async def _all():
-        return await asyncio.gather(*[_one(c) for c in codes], return_exceptions=True)
+        return await asyncio.gather(*[_one(c) for c in miss_codes], return_exceptions=True)
 
     try:
         results = asyncio.run(_all())
     except RuntimeError:
-        # 已有 loop → 退化成线程池串行
         results = []
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(8, len(codes))) as ex:
-            futures = [ex.submit(lc.fetch_realtime, c) for c in codes]
-            for f, c in zip(futures, codes):
+        with ThreadPoolExecutor(max_workers=min(8, len(miss_codes))) as ex:
+            futures = [ex.submit(lc.fetch_realtime, c) for c in miss_codes]
+            for f, c in zip(futures, miss_codes):
                 try:
                     results.append(f.result(timeout=6))
                 except Exception:
                     results.append(None)
-    for c, r in zip(codes, results):
+    for c, r in zip(miss_codes, results):
         if isinstance(r, dict) and r:
             out[c] = r
+            # 顺便写回 cache, 下次命中
+            try:
+                from .server import _cache_quote as _cq
+                _cq.set(("quote", c), r)
+            except Exception:
+                pass
     return out
 
 

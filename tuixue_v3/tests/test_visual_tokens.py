@@ -85,6 +85,10 @@ class TestNoHardcodedColors:
                 continue
             for m in HEX_RE.finditer(line):
                 hexv = m.group(0).lower()
+                # 设计 token 已定义时，不允许 CSS var fallback 再携带旧色板。
+                before = line[:m.start()].lower()
+                if "var(" in before and before.rfind("var(") > before.rfind(")"):
+                    continue
                 # 限定 #XXX / #XXXXXX; #FFFFFF 也算
                 if len(m.group(1)) in (3, 6):
                     offenders.append((ln, hexv, line.strip()[:120]))

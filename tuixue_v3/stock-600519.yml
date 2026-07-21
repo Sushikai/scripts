@@ -1,0 +1,124 @@
+- generic [active] [ref=f8e1]:
+  - link "跳到主内容" [ref=f8e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - complementary "主导航" [ref=f8e3]:
+    - generic [ref=f8e4]:
+      - generic [ref=f8e5]: TUIXUE · 操作台
+      - generic [ref=f8e6]: 退学v3
+    - generic [ref=f8e7]: 工作台
+    - button "首页 01" [ref=f8e8] [cursor=pointer]:
+      - generic [ref=f8e15]: 首页
+      - generic [ref=f8e16]: "01"
+    - button "全 A 风向 02" [ref=f8e17] [cursor=pointer]:
+      - generic [ref=f8e23]: 全 A 风向
+      - generic [ref=f8e24]: "02"
+    - button "龙头 03" [ref=f8e25] [cursor=pointer]:
+      - generic [ref=f8e29]: 龙头
+      - generic [ref=f8e30]: "03"
+    - button "个股 04" [ref=f8e31] [cursor=pointer]:
+      - generic [ref=f8e37]: 个股
+      - generic [ref=f8e38]: "04"
+    - button "自选 05" [ref=f8e39] [cursor=pointer]:
+      - generic [ref=f8e43]: 自选
+      - generic [ref=f8e44]: "05"
+    - button "尾盘战法 09" [ref=f8e45] [cursor=pointer]:
+      - generic [ref=f8e51]: 尾盘战法
+      - generic [ref=f8e52]: "09"
+    - generic [ref=f8e53]: 系统
+    - button "调优 06" [ref=f8e54] [cursor=pointer]:
+      - generic [ref=f8e59]: 调优
+      - generic [ref=f8e60]: "06"
+    - button "心法 07" [ref=f8e61] [cursor=pointer]:
+      - generic [ref=f8e66]: 心法
+      - generic [ref=f8e67]: "07"
+    - button "周线擒牛 08" [ref=f8e68] [cursor=pointer]:
+      - generic [ref=f8e72]: 周线擒牛
+      - generic [ref=f8e73]: "08"
+    - button "策略选股 09" [ref=f8e74] [cursor=pointer]:
+      - generic [ref=f8e79]: 策略选股
+      - generic [ref=f8e80]: "09"
+    - button "复盘 08" [ref=f8e81] [cursor=pointer]:
+      - generic [ref=f8e86]: 复盘
+      - generic [ref=f8e87]: "08"
+    - generic [ref=f8e88]: 系统在线
+  - banner [ref=f8e92]:
+    - generic [ref=f8e93]:
+      - button "打开菜单" [ref=f8e94] [cursor=pointer]
+      - generic [ref=f8e96]:
+        - generic [ref=f8e97]: 退学
+        - generic [ref=f8e98]: v3
+      - generic "连接正常 · 25s 心跳保活" [ref=f8e288]: 在线
+      - button "切换主题" [ref=f8e102] [cursor=pointer]
+      - button "刷新" [ref=f8e105] [cursor=pointer]
+    - generic [ref=f8e108]: 市场数据暂不可达 · Failed to fetch
+  - main [ref=f8e110]:
+    - generic [ref=f8e111]:
+      - generic [ref=f8e112]:
+        - paragraph [ref=f8e113]: 个股 · 04
+        - heading "个股·—" [level=1] [ref=f8e114]
+        - paragraph [ref=f8e115]: 搜索 → 一只股票开始
+      - article [ref=f8e117]:
+        - generic [ref=f8e118]
+      - article [ref=f8e121]:
+        - generic [ref=f8e122]
+      - generic [ref=f8e133]:
+        - generic [ref=f8e134]
+        - generic [ref=f8e140]
+      - article [ref=f8e146]:
+        - generic [ref=f8e147]: 涨停 · 连板梯队 + 板块联动
+        - paragraph [ref=f8e149]: 查询股票后将显示连板 / 5 日涨停 / 板块涨停清单
+      - generic [ref=f8e150]:
+        - generic [ref=f8e151]
+        - generic [ref=f8e156]
+        - generic [ref=f8e160]
+        - generic [ref=f8e165]
+        - generic [ref=f8e170]
+        - generic [ref=f8e175]
+        - generic [ref=f8e180]
+        - generic [ref=f8e185]
+        - generic [ref=f8e190]
+        - generic [ref=f8e194]
+        - generic [ref=f8e198]
+        - generic [ref=f8e203]
+        - generic [ref=f8e207]
+        - generic [ref=f8e212]
+      - article [ref=f8e216]:
+        - generic [ref=f8e217]: 连板 · 近期涨停 / 强势股
+        - paragraph [ref=f8e219]: 查询股票后显示近 10 日涨跌
+      - article [ref=f8e220]:
+        - generic [ref=f8e221]
+        - paragraph [ref=f8e224]: 盘面只留一根 5 日均线 · 5 句话覆盖短线全流程 · 老前辈 20 年心得
+        - list [ref=f8e225]
+        - paragraph [ref=f8e231]: 心法 · 均线向上只做多,均线拐头向下宁愿空仓 — 盘面只留一根均线,把简单方法反复做到位
+      - generic [ref=f8e232]:
+        - generic [ref=f8e233]
+        - article [ref=f8e248]
+      - article [ref=f8e258]:
+        - generic [ref=f8e259]: 近 10 日涨跌 · 每日格子 (close-to-close)
+        - paragraph [ref=f8e261]: 查询股票后显示近 10 日涨跌
+    - text: 律
+  - navigation [ref=f8e262]:
+    - button "◎ 首页" [ref=f8e263] [cursor=pointer]:
+      - generic [ref=f8e264]: ◎
+      - generic [ref=f8e265]: 首页
+    - button "★ 龙头" [ref=f8e266] [cursor=pointer]:
+      - generic [ref=f8e267]: ★
+      - generic [ref=f8e268]: 龙头
+    - button "◇ 个股" [ref=f8e269] [cursor=pointer]:
+      - generic [ref=f8e270]: ◇
+      - generic [ref=f8e271]: 个股
+    - button "☆ 自选" [ref=f8e272] [cursor=pointer]:
+      - generic [ref=f8e273]: ☆
+      - generic [ref=f8e274]: 自选
+    - button "⊞ 全A" [ref=f8e275] [cursor=pointer]:
+      - generic [ref=f8e276]: ⊞
+      - generic [ref=f8e277]: 全A
+    - button "⊕ 尾盘战法" [ref=f8e278] [cursor=pointer]:
+      - generic [ref=f8e279]: ⊕
+      - generic [ref=f8e280]: 尾盘战法
+    - button "§ 心法" [ref=f8e281] [cursor=pointer]:
+      - generic [ref=f8e282]: §
+      - generic [ref=f8e283]: 心法
+    - button "⤓ 复盘" [ref=f8e284] [cursor=pointer]:
+      - generic [ref=f8e285]: ⤓
+      - generic [ref=f8e286]: 复盘

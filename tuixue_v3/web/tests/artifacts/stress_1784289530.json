@@ -1,0 +1,22 @@
+[
+  {
+    "name": "normal",
+    "done": true,
+    "kpis_filled": true,
+    "scenarios9_filled": true,
+    "monthly_filled": true,
+    "equity_filled": true,
+    "exit_filled": true,
+    "sector_filled": true,
+    "windows_filled": true
+  },
+  {
+    "name": "zero_trades",
+    "kpis_has_banner": true,
+    "exit_has_placeholder": true
+  },
+  {
+    "name": "view_leave",
+    "error": "Page.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"[data-jump=\\\"dash\\\"]\")\n    - locator resolved to 3 elements. Proceeding with the first one: <div tabindex=\"0\" role=\"button\" data-jump=\"dash\" class=\"sidebar-item\">…</div>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if needed\n      - done scrolling\n      - element is outside of the viewport\n    - retrying click action\n      - waiting 100ms\n    57 × waiting for element to be visible, enabled and stable\n       - element is visible, enabled and stable\n       - scrolling into view if needed\n       - done scrolling\n       - element is outside of the viewport\n     - retrying click action\n       - waiting 500ms\n"
+  }
+]

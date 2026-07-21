@@ -1,0 +1,8 @@
+[      33ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:7799/?fresh=9999:0
+[   12440ms] [ERROR] renderStockDetail failed: ReferenceError: INK1 is not defined
+    at renderHolders (http://localhost:7799/static/app.js:1589:60)
+    at renderStockDetail (http://localhost:7799/static/app.js:971:3)
+    at loadStockDetail (http://localhost:7799/static/app.js:865:11)
+    at async eval (eval at <anonymous> (eval at evaluate (:303:30)), <anonymous>:3:3)
+    at async eval (eval at evaluate (:303:30), <anonymous>:4:30)
+    at async <anonymous>:329:30 @ http://localhost:7799/static/app.js:865

@@ -452,56 +452,157 @@ def crop_to_80(input_file: Path, output_file: Path) -> Path | None:
 # ═══════════════════════════════════════════════════════
 # LLM生成简介和引流评论
 # ═══════════════════════════════════════════════════════
+def _corpus_raw(title: str) -> dict | None:
+    """返回话语库命中的完整字段(raw/quoted/source/score),供 LLM 参考"""
+    try:
+        import json
+        import subprocess
+        r = subprocess.run(
+            ["/Users/kaikai/.hermes/hermes-agent/venv/bin/python3",
+             "/Users/kaikai/.hermes/scripts/fengge_reply_search.py", title],
+            capture_output=True, text=True, timeout=20,
+        )
+        if r.returncode != 0:
+            return None
+        data = json.loads(r.stdout)
+        if data.get("hit"):
+            log(f"  [话语库] 命中 score={data.get('score', 0):.2f}: 「{data.get('raw', '')}」")
+            return data
+        log(f"  [话语库] 未命中 best_score={data.get('score', 0):.2f}")
+        return None
+    except Exception as e:
+        log(f"  [话语库 raw] 异常: {e}")
+        return None
+
+
 def generate_desc_and_comment(title: str) -> tuple[str, str]:
-    """用LLM根据标题生成简介和引流评论"""
+    """先查话语库:
+    - 命中: 把话语库原话 + 来源作为参考喂给 LLM,LLM 围绕原话写 1-2 句自然衔接的引流评论,
+            原话用「」保留嵌入;简介用同一段 LLM 输出。
+    - 未命中: LLM 自由写简介+评论。
+    杜绝牛头不对马嘴、杜绝过度发挥的尴尬语气词。
+    """
+    corpus = _corpus_raw(title)
+    corpus_text = ""
+    if corpus:
+        corpus_text = (
+            f'\n\n话语库命中参考 (score={corpus["score"]:.2f}):\n'
+            f'  原话:「{corpus["raw"]}」\n'
+            f'  来源:{corpus.get("source", "")}\n'
+            f'  相关原问:{corpus.get("instruction", "")}\n'
+            f'请把上面这条原话作为本次评论的"核心金句",用「」嵌入到评论里,'
+            f'并围绕视频标题写 1 句自然过渡(不要生硬衔接,不要"哈哈/笑死/绝了"等刻意语气词)。'
+        )
+
     try:
         import urllib.request
         import json
+        import os
+
+        api_key = os.environ.get("MINIMAX_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("MINIMAX_API_KEY 未设置")
+
+        base_url = os.environ.get("MINIMAX_BASE_URL",
+                                  "https://api.minimaxi.com/v1/text/chatcompletion_v2")
+        model = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
 
         payload = {
-            "model": "qwen2.5:32b-instruct",
+            "model": model,
             "messages": [{
                 "role": "user",
-                "content": f'''根据这个视频标题，生成一段B站视频简介和一条引流评论。
+                "content": f'''为 B 站视频写"简介"+"引流评论"各 1 段。
 
-标题: {title}
+标题: {title}{corpus_text}
 
-要求：
-1. 简介：2-3句话，概括视频精彩内容，吸引观众点赞投币关注
-2. 评论：1条简短的引流评论，要自然，不能像广告
+要求:
+- 简介:2 句话概括视频,口语,贴合标题
+- 评论:1-2 句,自然衔接标题与核心金句,金句用「」原样嵌入,不要"哈哈/笑死/绝了"
+- 严禁答非所问,严禁强行关联
 
-直接输出，格式如下，不要其他内容：
-简介：[简介内容]
-引流评论：[评论内容]'''
+输出 2 行:
+简介:<正文>
+评论:<正文>'''
             }],
-            "stream": False,
-            "options": {"temperature": 0.7, "num_predict": 200}
+            "temperature": 0.7,
+            "max_tokens": 2000,
         }
 
         req = urllib.request.Request(
-            "http://localhost:11434/api/chat",
+            base_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST"
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode("utf-8"))
 
-        text = result["message"]["content"].strip()
-        log(f"  [LLM] 原始输出:\n{text[:300]}")
+        msg = result["choices"][0]["message"]
+        text = (msg.get("content") or "").strip()
+        if not text:
+            reasoning = (msg.get("reasoning_content") or "").strip()
+            log(f"  [LLM] content 空,reasoning={reasoning[:200]}")
+            # reasoning model 把答案藏在 reasoning 里 — 找最后一对 简介:/评论:
+            if reasoning:
+                import re as _re
+                # 优先: 直接在 reasoning 里找 简介:... 评论:... 模式
+                m = _re.search(r"简介[:：]\s*(.+?)(?:\n|$)", reasoning)
+                if m:
+                    text = "简介:" + m.group(1).strip()
+                if "评论" in reasoning:
+                    m2 = _re.search(r"评论[:：]\s*(.+?)(?:\n|$)", reasoning)
+                    if m2:
+                        text = (text + "\n" if text else "") + "评论:" + m2.group(1).strip()
+                if not text:
+                    # 兜底: 取最后 5 行
+                    tail = "\n".join(reasoning.split("\n")[-5:])
+                    text = tail
+        finish = result["choices"][0].get("finish_reason", "")
+        if finish == "length":
+            log(f"  [LLM] 输出被截断 (max_tokens 不足)")
+        log(f"  [LLM] 原始输出:\n{text[:400]}")
 
-        desc = ""
-        comment = ""
-        for line in text.split("\n"):
-            line = line.strip()
-            if line.startswith("简介："):
-                desc = line[3:].strip()
-            elif line.startswith("引流评论："):
-                comment = line[5:].strip()
+        desc, comment = "", ""
+        import re as _re_parse
+        # 先尝试匹配整段中的 简介:... 评论:... 模式 (跨行)
+        m_desc = _re_parse.search(r"简介[:：]\s*(.+?)(?=\n\s*评论[:：]|\Z)", text, _re_parse.DOTALL)
+        m_comm = _re_parse.search(r"评论[:：]\s*(.+?)$", text, _re_parse.DOTALL)
+        if m_desc:
+            desc = m_desc.group(1).strip()
+        if m_comm:
+            comment = m_comm.group(1).strip()
+        # 兜底: 按行解析 (兼容 reasoning 模型残留)
+        if not desc or not comment:
+            for line in text.split("\n"):
+                line = line.strip()
+                if line.startswith(("简介：", "简介:")):
+                    if not desc:
+                        desc = line.split(":", 1)[1].strip("：").strip()
+                elif line.startswith(("评论：", "评论:")):
+                    if not comment:
+                        comment = line.split(":", 1)[1].strip("：").strip()
+                # 去掉 reasoning 模型残留的 ":2 sentences, casual, fitting the title." 行
+                if line.startswith(":") and len(line) < 200:
+                    continue
 
+        if not desc and not comment:
+            # fallback: 整段当简介,评论空
+            desc = text
+        if not comment and corpus:
+            # LLM 没出评论,直接用话语库完整 reply 兜底(带「」+ 来源)
+            comment = corpus.get("reply", "")
+            log("  [兜底] LLM 未出评论,使用话语库完整 reply")
+
+        log(f"  简介: {desc[:120]}")
+        log(f"  评论: {comment[:120]}")
         return desc, comment
     except Exception as e:
         log(f"  [LLM] 生成失败: {e}")
+        if corpus:
+            return "", corpus.get("reply", "")
         return "", ""
 
 
@@ -622,7 +723,9 @@ def biliup_upload(video_path: str, title: str, desc: str, tid: int = 21, cover_u
             return result["bvid"]
         return True
     except Exception as e:
-        log(f"  [上传] 失败: {e}")
+        import traceback
+        log(f"  [上传] 失败: {type(e).__name__}: {e}")
+        log(f"  [上传] 堆栈:\n{traceback.format_exc()}")
         return None
 
 
@@ -669,6 +772,8 @@ def run_pipeline():
 
     log("=" * 60)
     log("峰哥视频流水线启动")
+    log(f"[ENV] python={sys.executable} version={sys.version.split()[0]} pid={os.getpid()}")
+    log(f"[ENV] PATH[:3]={':'.join(os.environ.get('PATH','').split(':')[:3])}")
 
     if not acquire_lock():
         log("另一个进程正在运行，退出")

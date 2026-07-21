@@ -44,6 +44,12 @@ def _conn() -> sqlite3.Connection:
     return cache_db._thread_conn()
 
 
+def _safe_write(fn, *, retries: int = 4):
+    """薄包装,统一走 cache_db.safe_write(rollback stale txn + retry)。"""
+    from .. import cache_db
+    return cache_db.safe_write(fn, retries=retries)
+
+
 # ═══════════════════════════════════════════════════
 # 交易记录 CRUD
 # ═══════════════════════════════════════════════════
@@ -84,16 +90,19 @@ def record_trade(
         except Exception:
             pass
     name = name or code
-    conn = _conn()
-    cur = conn.execute(
-        "INSERT INTO trades (code, name, direction, price, shares, occurred_at, trade_date, mode, memo, tags, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (code, name, direction, float(price), int(shares),
-         occurred_at, trade_date, mode, memo, json.dumps(tags or [], ensure_ascii=False),
-         systime.time()),
-    )
-    conn.commit()
-    return cur.lastrowid
+
+    def _do(conn):
+        cur = conn.execute(
+            "INSERT INTO trades (code, name, direction, price, shares, occurred_at, trade_date, mode, memo, tags, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (code, name, direction, float(price), int(shares),
+             occurred_at, trade_date, mode, memo, json.dumps(tags or [], ensure_ascii=False),
+             systime.time()),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    return _safe_write(_do)
 
 
 def find_duplicate_trade(
@@ -293,33 +302,39 @@ def update_trade(trade_id: int, **fields) -> bool:
     if not sets:
         return False
     vals.append(trade_id)
-    conn = _conn()
-    cur = conn.execute(f"UPDATE trades SET {', '.join(sets)} WHERE id=?", vals)
-    conn.commit()
-    return cur.rowcount > 0
+
+    def _do(conn):
+        cur = conn.execute(f"UPDATE trades SET {', '.join(sets)} WHERE id=?", vals)
+        conn.commit()
+        return cur.rowcount > 0
+
+    return _safe_write(_do)
 
 
 def delete_trade(trade_id: int) -> bool:
-    conn = _conn()
-    cur = conn.execute("DELETE FROM trades WHERE id=?", (trade_id,))
-    conn.execute("DELETE FROM trade_reviews WHERE trade_id=?", (trade_id,))
-    conn.commit()
-    return cur.rowcount > 0
+    def _do(conn):
+        cur = conn.execute("DELETE FROM trades WHERE id=?", (trade_id,))
+        conn.execute("DELETE FROM trade_reviews WHERE trade_id=?", (trade_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    return _safe_write(_do)
 
 
 def delete_trades_by_code(code: str) -> int:
     """删除某只股票的全部交易 + 复盘记录。返回删除的 trades 行数。"""
     code = str(code).strip().zfill(6)
-    conn = _conn()
-    ids = [r[0] for r in conn.execute("SELECT id FROM trades WHERE code=?", (code,)).fetchall()]
-    if not ids:
-        return 0
-    cur = conn.execute("DELETE FROM trades WHERE code=?", (code,))
-    # 删 reviews (按 trade_id in ...)
-    placeholders = ",".join("?" for _ in ids)
-    conn.execute(f"DELETE FROM trade_reviews WHERE trade_id IN ({placeholders})", ids)
-    conn.commit()
-    return cur.rowcount
+
+    def _do(conn):
+        ids = [r[0] for r in conn.execute("SELECT id FROM trades WHERE code=?", (code,)).fetchall()]
+        if not ids:
+            return 0
+        cur = conn.execute("DELETE FROM trades WHERE code=?", (code,))
+        # 删 reviews (按 trade_id in ...)
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM trade_reviews WHERE trade_id IN ({placeholders})", ids)
+        conn.commit()
+        return cur.rowcount
+    return _safe_write(_do)
 
 
 # ═══════════════════════════════════════════════════
@@ -920,30 +935,34 @@ def review_trade(trade_id: int, *, force: bool = False) -> dict:
     ai["is_mainline"] = is_mainline
     ai["verdict"] = verdict
     ai["score"] = score
-    conn.execute(
-        # R-cfg-009: 改 INSERT OR REPLACE 配合 idx_reviews_unique_trade_model
-        # 防止 force=True 一次次堆重复行
-        "INSERT OR REPLACE INTO trade_reviews "
-        "(trade_id, model, verdict, score, summary_md, rules_passed_json, rules_failed_json, "
-        " mistake_pattern, improvement, key_risks_json, context_json, ts_created) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (trade_id, "MiniMax-M3",
-         verdict, score,
-         summary_md,
-         json.dumps(ai.get("rules_passed", []) or [], ensure_ascii=False, default=str),
-         json.dumps(ai.get("rules_failed", []) or [], ensure_ascii=False, default=str),
-         mistake,
-         improvement,
-         json.dumps(ai.get("key_risks", []) or [], ensure_ascii=False, default=str),
-         json.dumps({"ctx_size": len(json.dumps(ctx, default=str)),
-                     "ts_review": now, "ai_advice": advice,
-                     "limit_up_recap": limit_up_recap,
-                     "main_mistake": main_mistake,
-                     "taxonomy_role": taxonomy_role,
-                     "is_mainline": is_mainline}, ensure_ascii=False),
-         now),
-    )
-    conn.commit()
+
+    def _do_write(conn):
+        conn.execute(
+            # R-cfg-009: 改 INSERT OR REPLACE 配合 idx_reviews_unique_trade_model
+            # 防止 force=True 一次次堆重复行
+            "INSERT OR REPLACE INTO trade_reviews "
+            "(trade_id, model, verdict, score, summary_md, rules_passed_json, rules_failed_json, "
+            " mistake_pattern, improvement, key_risks_json, context_json, ts_created) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (trade_id, "MiniMax-M3",
+             verdict, score,
+             summary_md,
+             json.dumps(ai.get("rules_passed", []) or [], ensure_ascii=False, default=str),
+             json.dumps(ai.get("rules_failed", []) or [], ensure_ascii=False, default=str),
+             mistake,
+             improvement,
+             json.dumps(ai.get("key_risks", []) or [], ensure_ascii=False, default=str),
+             json.dumps({"ctx_size": len(json.dumps(ctx, default=str)),
+                         "ts_review": now, "ai_advice": advice,
+                         "limit_up_recap": limit_up_recap,
+                         "main_mistake": main_mistake,
+                         "taxonomy_role": taxonomy_role,
+                         "is_mainline": is_mainline}, ensure_ascii=False),
+             now),
+        )
+        conn.commit()
+
+    _safe_write(_do_write)
     return ai
 
 
@@ -1206,28 +1225,53 @@ def summary_stats(since_days: int = 90) -> dict:
     }
 
 
-def next_day_picks() -> dict:
+def next_day_picks(relax: int = 0) -> dict:
     """次日选股:
     1) 拉 screen 候选 (live)
     2) 结合用户历史常见错模式 → 标注风险
     3) 返 [{code, name, sector, ai_verdict, risk_warnings[]}]
+
+    R-relax-2026-07-14:
+      relax=0 (默认):5 只
+      relax=1 (放宽):15 只 — 解决"条件太严苛筛选不出来"
+      relax=2 (极宽松):50 只 — 几乎全 A 通过基础流动性门槛
     """
     from .. import screen as scr_mod
     from . import holder_lookup
     # 1) 拉候选 — 沙箱里 run_stock_screen 可能 hang 在 eastmoney/akshare (DNS 劫持见 feedback_network_dns_hijack),
     #    所以用线程 + 超时保护,失败回退空 picks (用户至少能看到 user_patterns 提示)
     picks: list[dict] = []
+    # 放宽档位 → 候选上限
+    cap_map = {0: 5, 1: 15, 2: 50}
+    cap = cap_map.get(int(relax or 0), 5)
     try:
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTE
-        with ThreadPoolExecutor(max_workers=1) as ex:
+        # 关键 (2026-07-14): 不能用 `with ThreadPoolExecutor(...)` — __exit__ 会
+        # shutdown(wait=True),死等 hang 住的 run_stock_screen 线程(沙箱里永不返回),
+        # 白白把整个 next_picks 拖过 20s+。改手动 ex + finally shutdown(wait=False)。
+        ex = ThreadPoolExecutor(max_workers=1)
+        try:
             fut = ex.submit(scr_mod.run_stock_screen, None, "live")
             try:
                 result = fut.result(timeout=8)
-                picks = (result.get("candidates") or [])[:5]
+                # 放宽模式:即使 screen 返回空 candidates,也尝试用 raw 全 A 排序兜底
+                cands = result.get("candidates") or []
+                if not cands and relax >= 1:
+                    log.info(f"next_picks relax={relax} 但 screen 返回空 → 走全 A 兜底")
+                    cands = _relaxed_fallback_universe(limit=cap)
+                picks = cands[:cap]
             except _FutTE:
                 log.warning("次日选股 超时(8s) → 空 picks(数据源可能在沙箱里 hang)")
+                if relax >= 1:
+                    picks = _relaxed_fallback_universe(limit=cap)
+                    log.info(f"next_picks relax={relax} 兜底命中 {len(picks)} 只")
             except Exception as e:
                 log.warning(f"次日选股 失败: {e}")
+                if relax >= 1:
+                    picks = _relaxed_fallback_universe(limit=cap)
+                    log.info(f"next_picks relax={relax} 异常兜底命中 {len(picks)} 只")
+        finally:
+            ex.shutdown(wait=False)   # 不等 hang 线程,立即放行
     except Exception as e:
         log.warning(f"次日选股 executor 失败: {e}")
     # 2) 常见错模式
@@ -1267,6 +1311,52 @@ def next_day_picks() -> dict:
     }
 
 
+def _relaxed_fallback_universe(limit: int = 50) -> list[dict]:
+    """R-relax-2026-07-14: next_picks 放宽档兜底 — screen 拉不到时用全 A 报价兜底。
+
+    走 data_layer.fetch_stock_list_all (Redis 缓存 24h) 取代码列表,
+    再 _batch_quotes 拉实时价,按 (成交活跃度近似) 排序取前 limit。
+    失败 → 返回空 list (不影响前端已有 user_patterns 提示)。
+    """
+    try:
+        from .. import data_layer as dl
+        stocks = dl.fetch_stock_list_all() or []
+    except Exception as e:
+        log.warning(f"relaxed fallback fetch_stock_list_all 失败: {e}")
+        return []
+    if not stocks:
+        return []
+    # 取前 200 个代码 (避免 5s qt.gtimg 超时;200 一次 qt.gtimg 大约 1.5-2s)
+    sample = stocks[:200]
+    codes = [c for c, _ in sample]
+    try:
+        quotes = _batch_quotes(codes)
+    except Exception as e:
+        log.warning(f"relaxed fallback _batch_quotes 失败: {e}")
+        return []
+    if not quotes:
+        return []
+    # 排序:有报价的优先,按 价格 不为 0 / 名称非空过滤
+    rows = []
+    for code, name in sample:
+        q = quotes.get(code)
+        if not q:
+            continue
+        price = q.get("price")
+        if not price or price <= 0:
+            continue
+        rows.append({
+            "code":   code,
+            "name":   name or q.get("name") or "—",
+            "sector": "",
+            "price":  price,
+            "ai":     {"verdict": "候选(放宽)", "conviction": 60},
+        })
+    # 按价格降序当占位 (放宽档用活跃度近似;真正的资金/技术面打分留给 screen)
+    rows.sort(key=lambda r: r.get("price", 0), reverse=True)
+    return rows[:limit]
+
+
 # ═══════════════════════════════════════════════════
 # 设置 (meta 表) — 总资金等
 # ═══════════════════════════════════════════════════
@@ -1277,58 +1367,117 @@ def get_setting(key: str, default=None):
 
 
 def set_setting(key: str, value) -> None:
-    conn = _conn()
-    conn.execute(
-        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-        (f"review.{key}", str(value)),
-    )
-    conn.commit()
+    def _do(conn):
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            (f"review.{key}", str(value)),
+        )
+        conn.commit()
+    _safe_write(_do)
 
 
 # ═══════════════════════════════════════════════════
 # 实时报价 (curl → 腾讯 qt.gtimg,一次拿多只) + FIFO 账本
 # ═══════════════════════════════════════════════════
+_QUOTE_CACHE: dict[str, tuple[float, dict]] = {}
+_QUOTE_CACHE_TTL = 5.0  # 5s 缓存 — 报价实时性要求不高 (秒级刷新足够)
+_QUOTE_INFLIGHT: set[str] = set()  # singleflight: 同一 (sorted) miss-codes-key 只打一次网络
+
 def _batch_quotes(codes: list[str]) -> dict:
     """批量实时报价。返回 {code: {"price", "prev_close", "name"}}。
     走 curl 子进程打腾讯 qt.gtimg(与资金流同一稳定通道,绕开 server 进程网络栈)。
+
+    R50-SPEED:
+      - 5s TTL 内存缓存:portfolio/live_trades/positions 反复被前端拉,
+        同一 1s 间隔内 N 次调用只打 1 次 qt.gtimg。
+      - singleflight 模式:多线程并发 miss 时只 1 个真去打 qt.gtimg,其他线程等结果;
+        避免雪崩 (10 个并发请求都各跑一遍 curl 4s)。
     """
     out: dict[str, dict] = {}
     codes = [str(c).strip().zfill(6) for c in codes if str(c).strip()]
     if not codes:
         return out
-    # 腾讯支持一次多只:q=sh600519,sz000001
-    qs = ",".join(
-        (("sh" if c.startswith(("6", "9")) else ("sh" if c.startswith("5") else "sz")) + c)
-        for c in codes
-    )
+    now = systime.time()
+
+    # 1) 命中缓存的部分直接返,未命中的去网络
+    miss_codes = []
+    for c in codes:
+        cached = _QUOTE_CACHE.get(c)
+        if cached and (now - cached[0]) < _QUOTE_CACHE_TTL:
+            out[c] = cached[1]
+        else:
+            miss_codes.append(c)
+    if not miss_codes:
+        return out
+
+    # 2) singleflight 防并发雪崩 — 用 sorted miss-codes 当 key
+    key = ",".join(sorted(miss_codes))
+    if key in _QUOTE_INFLIGHT:
+        # 别人已经在打,等服务方把结果写回 _QUOTE_CACHE 后短暂自旋重试 (最多 3s)
+        deadline = now + 3.0
+        while systime.time() < deadline:
+            ok = True
+            for c in miss_codes:
+                cached = _QUOTE_CACHE.get(c)
+                if not cached or (systime.time() - cached[0]) >= _QUOTE_CACHE_TTL:
+                    ok = False
+                    break
+            if ok:
+                for c in miss_codes:
+                    out[c] = _QUOTE_CACHE[c][1]
+                return out
+            systime.sleep(0.05)
+        # 等不到就降级返回旧缓存
+        for c in miss_codes:
+            cached = _QUOTE_CACHE.get(c)
+            if cached and c not in out:
+                out[c] = cached[1]
+        return out
+    _QUOTE_INFLIGHT.add(key)
+
     try:
-        import subprocess as _sp
-        r = _sp.run(
-            ["curl", "-s", "--max-time", "8",
-             "-H", "User-Agent: Mozilla/5.0",
-             "-H", "Referer: https://gu.qq.com/",
-             f"https://qt.gtimg.cn/q={qs}"],
-            capture_output=True, timeout=10,
+        # 3) 一次拉所有 miss 的 (qt.gtimg 一次多只支持)
+        qs = ",".join(
+            (("sh" if c.startswith(("6", "9")) else ("sh" if c.startswith("5") else "sz")) + c)
+            for c in miss_codes
         )
-        text = (r.stdout or b"").decode("gbk", errors="ignore")
-        for line in text.splitlines():
-            if '="' not in line:
-                continue
-            body = line.split('="', 1)[1].rstrip().rstrip(";").rstrip('"')
-            fs = body.split("~")
-            if len(fs) < 5:
-                continue
-            code = fs[2].strip().zfill(6)
-            try:
-                price = float(fs[3] or 0)
-                prev = float(fs[4] or 0)
-            except Exception:
-                continue
-            if price <= 0:
-                continue
-            out[code] = {"name": fs[1], "price": price, "prev_close": prev}
-    except Exception as e:
-        log.warning(f"批量报价失败: {e}")
+        try:
+            import subprocess as _sp
+            r = _sp.run(
+                ["curl", "-s", "--max-time", "3",
+                 "-H", "User-Agent: Mozilla/5.0",
+                 "-H", "Referer: https://gu.qq.com/",
+                 f"https://qt.gtimg.cn/q={qs}"],
+                capture_output=True, timeout=4,
+            )
+            text = (r.stdout or b"").decode("gbk", errors="ignore")
+            for line in text.splitlines():
+                if '="' not in line:
+                    continue
+                body = line.split('="', 1)[1].rstrip().rstrip(";").rstrip('"')
+                fs = body.split("~")
+                if len(fs) < 5:
+                    continue
+                code = fs[2].strip().zfill(6)
+                try:
+                    price = float(fs[3] or 0)
+                    prev = float(fs[4] or 0)
+                except Exception:
+                    continue
+                if price <= 0:
+                    continue
+                d = {"name": fs[1], "price": price, "prev_close": prev}
+                _QUOTE_CACHE[code] = (now, d)
+        except Exception as e:
+            log.warning(f"批量报价失败: {e}")
+    finally:
+        _QUOTE_INFLIGHT.discard(key)
+
+    # 4) 用更新后的缓存填充返回值 (自己或被别人写的)
+    for c in miss_codes:
+        cached = _QUOTE_CACHE.get(c)
+        if cached and c not in out:
+            out[c] = cached[1]
     return out
 
 
@@ -1490,8 +1639,21 @@ def _fifo_book(trades_asc: list[dict], quotes: dict, today_str: str):
     return per, positions
 
 
+_PORTFOLIO_CACHE: dict[str, tuple[float, dict]] = {}
+_PORTFOLIO_CACHE_TTL = 8.0  # 8s 缓存 — portfolio 跟 positions 共用底层 quote 计算,TTL 内复用
+_LIVE_TRADES_CACHE: dict[str, tuple[float, list]] = {}
+_LIVE_TRADES_CACHE_TTL = 8.0
+
 def portfolio_overview(total_capital: float | None = None) -> dict:
-    """顶部资金栏:总资金 / 仓位 / 今日盈亏 / 总盈亏 / 盈亏比 + 当前持仓明细。"""
+    """顶部资金栏:总资金 / 仓位 / 今日盈亏 / 总盈亏 / 盈亏比 + 当前持仓明细。
+
+    R50-SPEED: 8s TTL — 同一个 1s 内多个 integrity/portfolio 调用复用同一份计算结果,
+    避免 N 次 _all_trades_asc + N 次 _batch_quotes 重复跑。
+    """
+    key = f"total={total_capital or 0:.2f}"
+    cached = _PORTFOLIO_CACHE.get(key)
+    if cached and (systime.time() - cached[0]) < _PORTFOLIO_CACHE_TTL:
+        return cached[1]
     if total_capital is None:
         try:
             total_capital = float(get_setting("total_capital", 0) or 0)
@@ -1527,7 +1689,7 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
     position_ratio = round(position_value / available_capital * 100, 2) if available_capital > 0 else None
     # 剩余资金 = 剩余满仓资金 − 持仓市值
     cash = round(available_capital - position_value, 2) if available_capital > 0 else None
-    return {
+    result = {
         "total_capital": cap,
         "available_capital": available_capital,
         "position_value": position_value,
@@ -1547,10 +1709,23 @@ def portfolio_overview(total_capital: float | None = None) -> dict:
         "trade_count": len(trades),  # 总交易笔数 — 用于资金栏手续费估算 (用户口径每笔 5 元)
         "ts": systime.time(),
     }
+    _PORTFOLIO_CACHE[key] = (systime.time(), result)
+    return result
 
 
 def live_trades(limit: int = 80, code: str | None = None, since_days: int | None = 180) -> list[dict]:
-    """list_trades + 逐笔实时盈亏(今日盈亏 / 累计盈亏 / 累计盈亏比)。"""
+    """list_trades + 逐笔实时盈亏(今日盈亏 / 累计盈亏 / 累计盈亏比)。
+
+    R50-SPEED: 8s TTL 缓存 — integrity /review/trades 共用底层,
+    短时间多次调用复用同一份计算结果。
+    """
+    key = f"limit={limit};code={code or ''};since={since_days or 0}"
+    cached = _LIVE_TRADES_CACHE.get(key)
+    if cached and (systime.time() - cached[0]) < _LIVE_TRADES_CACHE_TTL:
+        return cached[1]
+    trades = list_trades(limit=limit, code=code, since_days=since_days)  # DESC + last_review
+    if not trades:
+        return trades
     trades = list_trades(limit=limit, code=code, since_days=since_days)  # DESC + last_review
     if not trades:
         return trades
@@ -1570,6 +1745,7 @@ def live_trades(limit: int = 80, code: str | None = None, since_days: int | None
             "status": m.get("status", "-"),
             "price_now": m.get("price_now") or q.get("price"),
         }
+    _LIVE_TRADES_CACHE[key] = (systime.time(), trades)
     return trades
 
 

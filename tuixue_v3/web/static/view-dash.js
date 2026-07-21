@@ -25,14 +25,14 @@ function _dashCacheLoad() {
   } catch (e) { return null; }
 }
 
-async function refreshTicker() {
+async function refreshTicker(loadDash) {
   const bar = $('#tickerbar');
   try {
     const data = await api('/api/market/overview');
     lastRefreshTs = data.ts || Date.now() / 1000;
     const indices = data.indices || [];
     const fragments = indices.map(i => {
-      const c = colorFor(i.change_pct);
+      const c = i.change_pct > 0 ? 'var(--up)' : i.change_pct < 0 ? 'var(--down)' : 'var(--ink-3)';
       return `<span class="tk-item tk-clickable" data-code="${escapeHtml(i.code || '')}" title="点击查看 ${escapeHtml(i.name)} 详情" role="button" tabindex="0">
         <span class="tk-name">${escapeHtml(i.name)}</span>
         <span class="tk-price">${fmtN(i.price, 2)}</span>
@@ -46,12 +46,11 @@ async function refreshTicker() {
       const d = new Date(lastRefreshTs * 1000);
       $('#ts-stamp').textContent = `已刷新 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
     }
-    // P-perf: 分阶段渲染 dashboard — 先刷缓存,再串行独立超时
-    _dashLoadPhased();
+    // P-perf: 分阶段渲染 dashboard — 仅当位于 dash 页面时加载
+    if (loadDash) _dashLoadPhased();
   } catch (e) {
     bar.innerHTML = '<div class="ticker-empty">市场数据暂不可达 · ' + e.message + '</div>';
-    // 即使 ticker 失败,也尝试渲染缓存数据
-    _dashLoadPhased();
+    if (loadDash) _dashLoadPhased();
   }
 }
 
@@ -131,8 +130,12 @@ function _paintHotSectors(d) {
     const flowCls = flow > 0 ? 'up' : flow < 0 ? 'down' : '';
     const ztN = Number(t.zt_count) || 0;
     const ztBadge = ztN > 0 ? `<span class="hs-tile-zt" title="该板块涨停数">⚡${ztN}</span>` : '';
+    const tx = t.taxonomy || {};
+    const l1Dot = tx.l1 && tx.l1_color
+      ? `<span class="hs-tile-l1" style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${escapeHtml(tx.l1_color)};margin-right:5px;vertical-align:middle;flex-shrink:0;" title="${escapeHtml(tx.l1)}"></span>`
+      : '';
     return `<div class="hs-tile" title="${escapeHtml(t.name)} · 涨停 ${ztN} · 资金净流入 ${flowStr}">
-      <span class="hs-tile-name">${escapeHtml(t.name)}</span>
+      <span class="hs-tile-name">${l1Dot}${escapeHtml(t.name)}</span>
       <span class="hs-tile-pct ${cls}">${(pct > 0 ? '+' : '') + pct.toFixed(2)}%</span>
       <span class="hs-tile-flow ${flowCls}">资金 ${flowStr}</span>
       ${ztBadge}
@@ -184,6 +187,32 @@ var _MARKET_OF_PREFIX = { a: 'a', kr: 'kr', us: 'us' };
 // P-perf: refreshDashboard 向后兼容 — 新实现走 _dashLoadPhased
 async function refreshDashboard() {
   _dashLoadPhased();
+}
+
+function _paintSignalCol(prefix, payload, animate) {
+  if (!payload) return;
+  const v = payload.verdict || 'cautious';
+  const degraded = payload._degraded;
+  const verdictEl = $(`#sig-${prefix}-verdict`);
+  if (verdictEl) {
+    const prev = verdictEl.className;
+    verdictEl.className = `signal-verdict signal-${v}${animate ? ' fresh' : ''}${degraded ? ' signal-degraded' : ''}`;
+    verdictEl.textContent = degraded ? '⚠' : (_VERDICT_LABEL[v] || '—');
+    if (degraded) verdictEl.title = '数据暂不可达，最后已知值';
+  }
+  const pctEl = $(`#sig-${prefix}-pct`);
+  if (pctEl) {
+    const cp = Number(payload.change_pct) || 0;
+    const sign = cp > 0 ? '+' : '';
+    pctEl.className = `sig-pct ${degraded ? 'flat' : (cp > 0 ? 'up' : cp < 0 ? 'down' : 'flat')}`;
+    pctEl.textContent = degraded ? '—' : `${sign}${cp.toFixed(2)}%`;
+  }
+  const headEl = $(`#sig-${prefix}-head`);
+  if (headEl) {
+    headEl.innerHTML = degraded
+      ? `<span class="stale-label">${escapeHtml(payload.headline || payload.head || '—')} · 陈旧数据</span>`
+      : (payload.headline || payload.head || '—');
+  }
 }
 
 function _paintSignalError(prefix, msg) {

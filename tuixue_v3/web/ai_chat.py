@@ -27,6 +27,7 @@ log = logging.getLogger("tuixue_v3.web.ai_chat")
 _CACHE: dict[str, tuple[float, str]] = {}
 _TTL = 1800  # 30min
 _MAX_HIST = 6  # 6 轮 = 12 条 messages
+_CACHE_MAX = 1024  # B-13: LRU 上限,防止长尾 key 永不访问导致内存单调增长
 
 
 def _cache_get(key: str) -> str | None:
@@ -38,6 +39,18 @@ def _cache_get(key: str) -> str | None:
 
 
 def _cache_set(key: str, val: str) -> None:
+    # B-13: 容量控制 — 超限先扫过期, 再扫最久未访问 (插入顺序)
+    if len(_CACHE) >= _CACHE_MAX:
+        # 1) 先清过期
+        now = systime.time()
+        expired = [k for k, (t, _) in _CACHE.items() if (now - t) > _TTL]
+        for k in expired:
+            _CACHE.pop(k, None)
+        # 2) 还超就按插入顺序淘汰最早 (Python 3.7+ dict 保序)
+        if len(_CACHE) >= _CACHE_MAX:
+            n_to_drop = len(_CACHE) - _CACHE_MAX + 1
+            for k in list(_CACHE)[:n_to_drop]:
+                _CACHE.pop(k, None)
     _CACHE[key] = (systime.time(), val)
 
 
@@ -145,7 +158,12 @@ def chat(message: str, code: str | None = None, history: list[dict] | None = Non
                          "content": ai_client.wrap_prompt("history", h["content"])})
     messages.append({"role": "user", "content": user_msg_wrapped})
 
-    cache_key = f"{code or '_'}:{message[:200]}:{len(history or [])}"
+    # R-cfg-010: 缓存 key 含全文 message hash + 历史的 hash, 不只看 message[:200]
+    # 之前只看 200,导致两个只在 200 字符后不同的 query 缓存命中 + 错误返回
+    import hashlib as _hl
+    hist_hash = _hl.md5(json.dumps(history or [], ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    msg_hash = _hl.md5((message or "").encode()).hexdigest()[:12]
+    cache_key = f"chat:{code or '_'}:{msg_hash}:{hist_hash}"
     cached = _cache_get(cache_key)
     if cached:
         return json.loads(cached)
