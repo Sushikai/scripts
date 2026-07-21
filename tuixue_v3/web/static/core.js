@@ -510,13 +510,18 @@ function _adminTokenHeader(path) {
 
 async function _fetchWithTimeout(path, opts = {}) {
   const timeout = opts.timeout != null ? opts.timeout : _timeoutFor(path);
-  // 注意:不传 opts.signal — 让重试自管 abort。用户主动 cancel 时,我们用 _aborted 标记
+  // 2026-07-21: 卡死修复 — 尊重调用方 opts.signal (桥接到内部 timeout ctrl)。
+  // 旧版直接覆盖 signal 导致切股/切页 abort 全 no-op → 连接池占满 → 频繁点击卡死。
+  const _ext = opts.signal;
   let attempt = 0;
   const maxRetries = opts.maxRetries != null ? opts.maxRetries : 2;
   let lastErr;
   while (attempt <= maxRetries) {
+    if (_ext && _ext.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
+    const _onExtAbort = () => { try { ctrl.abort(); } catch {} };
+    if (_ext) _ext.addEventListener('abort', _onExtAbort, { once: true });
     try {
       const resp = await fetch(path, {
         ...opts,
@@ -535,14 +540,18 @@ async function _fetchWithTimeout(path, opts = {}) {
       if (resp.status >= 500 && attempt < maxRetries) {
         try { await resp.body?.cancel?.(); } catch {}
         clearTimeout(timer);
+        if (_ext) _ext.removeEventListener('abort', _onExtAbort);
         attempt++;
         await new Promise(r => setTimeout(r, _backoffMs(attempt)));
         continue;
       }
       clearTimeout(timer);
+      if (_ext) _ext.removeEventListener('abort', _onExtAbort);
       return resp;
     } catch (e) {
       clearTimeout(timer);
+      if (_ext) _ext.removeEventListener('abort', _onExtAbort);
+      if (_ext && _ext.aborted) throw e;  // 外部主动 abort → 不重试
       lastErr = e;
       if (!_isRetryableError(e) || attempt >= maxRetries) throw e;
       attempt++;
@@ -685,6 +694,9 @@ async function api(path, opts) {
       txError(e, path);
     }
     if (e.name === 'AbortError') {
+      // 区分:外部 signal(切股/切页主动取消) → 原样抛 AbortError,不要包装成"请求超时"
+      // 否则 unhandledrejection 里 "请求超时 (Xs): path" 看起来像真超时,触发"系统异常" toast
+      if (opts.signal && opts.signal.aborted) throw e;
       const t = (opts.timeout || _timeoutFor(path)) / 1000;
       throw new Error(`请求超时 (${t}s): ${path}`);
     }

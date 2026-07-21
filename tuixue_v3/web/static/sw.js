@@ -40,7 +40,23 @@
 //                    → 改成监听 #scr-tbody-baseline + #scr-tbody-optimized 两个 tbody
 // v145 (2026-07-20): 自选页慢 — /api/watchlist 加 30s SW cache + _fetch_with_retry 退避 0.5/1/2 → 0.2/0.4
 //                    (自选 9 码 × 多源 fallback 偶尔挂 16s, 收紧后单源失败 ≤ 1s 切下一源)
-const CACHE = 'tuixue-v3-shell-v145';
+// v146 (2026-07-21): 个股实时数据卡昨天的 — /core + /full SW TTL 5min→15s/5s
+//                    (server /core=30s /full=5s,SW 锁 5min 会让 5min 内一直返昨日数据;
+//                     现压到 < server TTL,首次 cache miss 后 5-15s 自动 revalidate,
+//                     仍保留冷启动命中保护)
+// v147 (2026-07-21): stock-date 默认 today 时不再传 ?date=today 给 /full —
+//                    走纯实时路径,避免 SW URL 含日期导致跨日孤立缓存
+// v148 (2026-07-21): 频繁点击卡死修复 — _fetchWithTimeout 之前用 signal:ctrl.signal 覆盖了
+//                    调用方 opts.signal → 所有切股/切页 abort 全是 no-op,旧 core/full(各2s+重试2次)
+//                    跑到底占满 HTTP/1.1 6 连接池,新点击排队 → 整站卡死。
+//                    修:_fetchWithTimeout 桥接外部 signal(app.js+core.js);loadStockDetail 建共享
+//                    window._stockInflightAborter,切股开头 abort 上一份并把 signal 传给
+//                    core/full/kline/intraday/trade_dates/role/related_news/strategy_match/seat_breakdown;
+//                    _startStockPoll 首轮 10s 定时器补存句柄防泄漏。
+// v149 (2026-07-21): 修 abort 误报"系统异常" toast — api() 把所有 AbortError 包成 "请求超时 (Xs): path",
+//                    unhandledrejection 看到不带"abort"字样就触发 toast。修:外部 signal abort 原样抛,
+//                    全局 handler 抑制"请求超时"开头 (属用户操作结果,不是真异常)。
+const CACHE = 'tuixue-v3-shell-v149';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -70,13 +86,15 @@ const _CACHEABLE_API_PREFIXES = [
   // SW 30s 缓存保底,二次访问 < 5ms (第一次慢也只影响首屏)
   '/api/watchlist',
 ];
-// R1 (Batch 1): /api/stock/{code}/full 单独长缓存 5min — server-side Redis 5s 已是新鲜度门,
-// SW 这层只防冷启动穿透 (5s 之后重访直接走 SW, ~5ms 而非 ~20ms)
+// R1 (Batch 1) + v146 修正: /api/stock/{code}/full 单独长缓存 —
+// 原本 5min 锁死,导致 SW 返昨日数据 (server-side /full=5s, /core=30s,5min 内根本不刷新).
+// 现 /full SW TTL = server TTL = 5s, /core = 15s (< server 30s, 保 server 是新鲜度门)
 const _LONG_CACHE_API_PATTERNS = [
   /^\/api\/stock\/[^/]+\/full(\?.*)?$/,
   /^\/api\/stock\/[^/]+\/core(\?.*)?$/,
 ];
-const _LONG_CACHE_API_TTL_MS = 300_000;  // 5min
+const _LONG_CACHE_API_TTL_MS_CORE = 15_000;   // /core: 15s (< server 30s, 强制走 server refresh)
+const _LONG_CACHE_API_TTL_MS_FULL = 5_000;    // /full: 5s (= server 5s)
 // API 缓存新鲜度: 60s 内直接用 cache,超过则后台 revalidate
 const _API_CACHE_FRESH_MS = 60_000;
 
@@ -84,13 +102,15 @@ function _isCacheableApi(pathname) {
   return _CACHEABLE_API_PREFIXES.some(p => pathname.startsWith(p));
 }
 
-// R1: 匹配 /full 等长缓存端点, 返 5min 而非默认 60s
+// R1: 匹配 /full 等长缓存端点, 走更短 TTL (5s/15s) 而非默认 60s
 function _isLongCacheApi(pathname) {
   return _LONG_CACHE_API_PATTERNS.some(rx => rx.test(pathname));
 }
 
 function _freshnessMs(pathname) {
-  return _isLongCacheApi(pathname) ? _LONG_CACHE_API_TTL_MS : _API_CACHE_FRESH_MS;
+  if (_LONG_CACHE_API_PATTERNS[0].test(pathname)) return _LONG_CACHE_API_TTL_MS_FULL;  // /full
+  if (_LONG_CACHE_API_PATTERNS[1].test(pathname)) return _LONG_CACHE_API_TTL_MS_CORE;  // /core
+  return _API_CACHE_FRESH_MS;
 }
 
 self.addEventListener('install', (event) => {

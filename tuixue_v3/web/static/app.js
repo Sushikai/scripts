@@ -320,9 +320,17 @@ async function _fetchWithTimeout(path, opts = {}) {
   let attempt = 0;
   const maxRetries = opts.maxRetries != null ? opts.maxRetries : 2;
   let lastErr;
+  // 2026-07-21: 卡死修复 — 尊重调用方传入的 opts.signal。
+  // 之前 signal:ctrl.signal 直接覆盖了外部 signal,导致切股/切页 abort 全是 no-op:
+  // 旧请求(core/full 各 2s + 各重试 2 次)全跑到底,把 HTTP/1.1 6 连接池占满,
+  // 频繁点击时新请求排队 → 整个系统卡死。现在把外部 signal 桥接到内部 timeout ctrl。
+  const _ext = opts.signal;
   while (attempt <= maxRetries) {
+    if (_ext && _ext.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
+    const _onExtAbort = () => { try { ctrl.abort(); } catch {} };
+    if (_ext) _ext.addEventListener('abort', _onExtAbort, { once: true });
     try {
       const resp = await fetch(path, {
         ...opts,
@@ -337,14 +345,19 @@ async function _fetchWithTimeout(path, opts = {}) {
       if (resp.status >= 500 && attempt < maxRetries) {
         try { await resp.body?.cancel?.(); } catch {}
         clearTimeout(timer);
+        if (_ext) _ext.removeEventListener('abort', _onExtAbort);
         attempt++;
         await new Promise(r => setTimeout(r, _backoffMs(attempt)));
         continue;
       }
       clearTimeout(timer);
+      if (_ext) _ext.removeEventListener('abort', _onExtAbort);
       return resp;
     } catch (e) {
       clearTimeout(timer);
+      if (_ext) _ext.removeEventListener('abort', _onExtAbort);
+      // 外部主动 abort(切股/切页)→ 立即抛,不重试(重试会再占一个连接)
+      if (_ext && _ext.aborted) throw e;
       lastErr = e;
       if (!_isRetryableError(e) || attempt >= maxRetries) throw e;
       attempt++;
@@ -531,6 +544,9 @@ async function api(path, opts) {
   } catch (e) {
     clearTimeout(_bar); _hideTopProgress();
     if (e.name === 'AbortError') {
+      // 区分:外部 signal(切股/切页主动取消) → 原样抛 AbortError,不要包装成"请求超时"
+      // 否则 unhandledrejection 里 "请求超时 (Xs): path" 看起来像真超时,触发"系统异常" toast
+      if (opts.signal && opts.signal.aborted) throw e;
       const t = (opts.timeout || _timeoutFor(path)) / 1000;
       throw new Error(`请求超时 (${t}s): ${path}`);
     }
@@ -753,9 +769,17 @@ setInterval(_keepaliveTick, 25_000);
 
 // 全局 unhandled rejection / error — 避免白屏 toast 提示
 window.addEventListener('unhandledrejection', (e) => {
-  const msg = e.reason?.message || String(e.reason || '');
-  if (msg.includes('abort') || msg.includes('AbortError')) return;
-  console.error('[unhandled]', e.reason);
+  const reason = e.reason;
+  const msg = reason?.message || String(reason || '');
+  const name = reason?.name || '';
+  // 主动取消 / AbortError → 静默 (切股/切页常见)
+  if (name === 'AbortError' || msg.includes('abort') || msg.includes('AbortError')) return;
+  // api() 在外部 abort 时也会包成 "请求超时 (Xs): path" — 区分不出,但仍属用户操作结果,不弹"系统异常"
+  if (msg.startsWith('请求超时')) {
+    console.warn('[unhandled timeout]', reason);
+    return;
+  }
+  console.error('[unhandled]', reason);
   if (typeof toast === 'function') toast('系统异常: ' + msg.slice(0, 80), 'error', 4000);
 });
 window.addEventListener('error', (e) => {
@@ -2002,15 +2026,22 @@ function _startStockPoll(code) {
       _scheduleNext(_tradingIntervalMs());
     }, delay);
   }
-  setTimeout(() => { if (!document.hidden) _pollStockRealtime(code); }, 10_000);
+  // 2026-07-21: 首轮 10s 定时器之前没存句柄 → _stopStockPoll 清不掉,
+  // 每次切股都泄漏一个 10s 定时器(虽被 code guard 挡住但白白堆积)。存起来一起清。
+  _stockPollFirstTimer = setTimeout(() => { if (!document.hidden) _pollStockRealtime(code); }, 10_000);
   _scheduleNext(_tradingIntervalMs());
 }
+var _stockPollFirstTimer = null;
 function _stopStockPoll() {
   if (_stockPollTimer) { clearTimeout(_stockPollTimer); _stockPollTimer = null; }  // R62: 改成 setTimeout
+  if (_stockPollFirstTimer) { clearTimeout(_stockPollFirstTimer); _stockPollFirstTimer = null; }
   // R-fix-2026-07-18 B3: 切股时同时关 SSE 长连接 (避免无主 stream + 浪费 server 资源)
   if (typeof _closeStockStream === 'function') _closeStockStream();
   // R1: 切股立即取消正在飞行的 poll 请求
   _abortStockFetches();
+  // 注:不在此 abort window._stockInflightAborter — _startStockPoll 正常流程里也会调本函数,
+  // 会误杀当前这次加载的 core/full。共享 controller 只在 loadStockDetail 开头(新加载)
+  // 和 view-leave 时 abort。
 }
 async function _pollStockRealtime(code) {
   if (!code || code !== currentStockCode) return;          // 已经切到其他股
