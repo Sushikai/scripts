@@ -707,6 +707,14 @@ function _normDateParam(d) { return _normalizeStockDate(d); }
 const _cacheHits = { mem: 0, ss: 0, sw: 0, redis: 0, network: 0 };
 function _recordHit(layer) { _cacheHits[layer] = (_cacheHits[layer] || 0) + 1; }
 
+// 2026-07-21: 卡死修复 — 返回当前个股加载的共享 abort signal。
+// 切股/切页时 window._stockInflightAborter 被 abort,所有带此 signal 的请求立即取消,
+// 释放连接;无活动加载时返回 undefined(正常行为)。
+function _stockSignal() {
+  return (window._stockInflightAborter && !window._stockInflightAborter.signal.aborted)
+    ? window._stockInflightAborter.signal : undefined;
+}
+
 async function loadStockDetail(code, date) {
   code = code.trim().padStart(6, '0');
   currentStockCode = code;
@@ -718,6 +726,14 @@ async function loadStockDetail(code, date) {
   _stockDetailInflightKey = '';
   // 切股:停旧轮询,新轮询在首次 render 后启动,避免抢数据
   _stopStockPoll();
+  // 2026-07-21: 卡死修复 — 先 abort 上一次加载仍在飞行的请求 (core/full/kline/intraday...),
+  // 再建新的共享 AbortController。切股/切页时旧请求立即取消,释放 HTTP/1.1 连接。
+  // 频繁点击时旧请求本来就被 currentStockCode guard 丢弃,取消它们只赚不亏。
+  // (view-leave hook 也会 abort 这个 controller)
+  if (window._stockInflightAborter) { try { window._stockInflightAborter.abort(); } catch {} }
+  window._stockInflightAborter = new AbortController();
+  // 取消上一只股的相邻预取 (settle 未到就切走 → 一枪不发)
+  if (typeof _cancelAdjacentPrefetch === 'function') _cancelAdjacentPrefetch();
   // R12: 立即清掉 _stockAuxCache 旧股的 sector/lu_ctx 等,防止 race 期间子 loader 拿到旧 stock 数据
   if (_stockAuxCache.code !== code) {
     _stockAuxCache.code = code;
@@ -739,6 +755,13 @@ async function loadStockDetail(code, date) {
   // 日期参数优先级: 调用方传入 > 当前 stock-date input > 空(今日)
   const dateInput = $('#stock-date');
   let dateParam = _normDateParam(date || dateInput?.value || '');
+  // v147 (2026-07-21): 当 stock-date 默认是今天时,不要再走历史快照模式 —
+  // 服务端 is_historical 仅在 date < today 时为 True,date=today 实际是实时路径,
+  // 但 ?date=today 让 SW URL 变成 /full?fresh=1&date=2026-07-21,跨日访问旧缓存被孤立
+  // (例如:周一存 2026-07-21 缓存,周三再开 URL 仍是 2026-07-21 但已是历史,可能误判)
+  // 干净做法:dateParam === 今天时清空,走纯实时路径。
+  const _todayYmd = todayStr();
+  if (dateParam === _todayYmd) dateParam = '';
   // R-fix-2026-07-18 A3: 切到 /full 单端点 — 服务端已预聚合 quote/kline/flow/seats/sector/
   // lu_ctx/strong_stocks/seat_breakdown/related_news/ai_status/intraday 11 个字段,Redis 5s 缓存。
   // 不再传 _fresh (full 有 ?fresh=1 单独控制),不再 _prefetchStockAux (字段已在 data 里)
@@ -771,23 +794,39 @@ async function loadStockDetail(code, date) {
 
   // R21+R23 (Batch 3): 渐进渲染 — Phase 1 /core (200ms) 渲染首屏,
 //                      Phase 2 后台 /full 拿全部字段 patch
+  // R-opt-2026-07-19: /core + /full 同时发出,而非顺序
+  // R-opt-2026-07-19-v2: inline /core data (server inlines into HTML <head>)
+  const _inlineCore = window.__STOCK_CORE__;
+  window.__STOCK_CORE__ = null;  // consume once
+  if (_inlineCore && _inlineCore.code === code && _inlineCore.quote) {
+    try {
+      const _icr = { code, quote: _inlineCore.quote, kline: _inlineCore.kline || [], _core: true };
+      renderStockDetail(code, _icr);
+      _hideStockSkeleton();
+      window._stockRenderTime = performance.now();
+    } catch (e) { console.debug('[core-inline] render fail:', e.message); }
+  }
+  const _coreP = api(`/api/stock/${code}/core`, { signal: _stockSignal() });
+  const _fullP = api(`/api/stock/${code}/full${qs}`, { signal: _stockSignal() });
   const _promise = (async () => {
   try {
-    // Phase 1: /core (1.5s 强超时) — quote + name + 5 KPI + kline (短)
+    // Phase 1: /core — quote + name + 5 KPI + kline (短,sw cache reuse)
     try {
-      const coreData = await api(`/api/stock/${code}/core`);
+      const coreData = await _coreP;
       if (coreData && coreData.quote && currentStockCode === code) {
         const coreRender = { code, quote: coreData.quote, kline: coreData.kline || [], _core: true };
         renderStockDetail(code, coreRender);
         _recordHit('redis');
         _hideStockSkeleton();  // R-fix-B8: /core 拿到 quote 即可首屏,立即去 skeleton
+      window._stockRenderTime = performance.now();
       }
     } catch (e) {
       console.debug('[core] failed:', e.message);
     }
 
-    // Phase 2: /full — 后台拿全部数据, 完成 patch 进 DOM
-    const data = await api(`/api/stock/${code}/full${qs}`);
+    // R-opt-2026-07-19: /full 与 /core 同时发起,节省 ~1.2s 总时间
+    // (core promise 在上面 await 后才渲染首屏,full 此时已飞了)
+    const data = await _fullP;
     if (currentStockCode !== code) return;  // 切股了, 丢弃
     // R-fix-2026-07-18 A3: 把 /full 的子包填进 _stockAuxCache,让现有 loadStockSector /
     // loadStockLimitUp / _loadStockStreakPanel 共享,无需各自 fetch
@@ -807,6 +846,7 @@ async function loadStockDetail(code, date) {
     _recordHit('network');
     try { renderStockDetail(code, data); }
     catch (e) { console.error('renderStockDetail failed:', e); toast(`渲染失败:${e.message}`, 'error'); }
+    window._stockFullRenderTime = performance.now();
     _hideStockSkeleton();  // R72 (Batch 8): 首次成功 render 后移除 skeleton
     // 记录到历史
     const name = (data.quote && data.quote.name) || (data.name) || code;
@@ -826,6 +866,8 @@ async function loadStockDetail(code, date) {
 
     // B3: open SSE 长连接,推 quote_patch + ai_ready + intraday (1Hz quote / 2s ai scan)
     _openStockStream(code);
+    // ⭐ 2026-07-19: 后台预取相邻个股/core, 下次点击 < 5ms
+    _prefetchAdjacentStocks(code);
   } catch (e) {
     if (cached) {
       console.warn('[stock] 网络失败,使用缓存:', e.message);
@@ -1072,7 +1114,7 @@ async function _ensureTradeDates(minLimit = 60) {
   const wantLimit = Math.min(Math.max(minLimit, _tradeDatesLimit, 60), _TRADE_DATES_LIMIT_MAX);
   _tradeDatesLoading = (async () => {
     try {
-      const env = await api(`/api/trade_dates?limit=${wantLimit}`);
+      const env = await api(`/api/trade_dates?limit=${wantLimit}`, { signal: _stockSignal() });
       // 用 past_dates 保证不混入未来日期(避免 prev/next 误入未来)
       _tradeDates = env?.past_dates || env?.dates || [];
       _tradeDatesSet = new Set(_tradeDates);
@@ -1251,6 +1293,7 @@ function renderStockDetail(code, data) {
   const flow = data.fund_flow || {};
   const today = flow.today || {};
   const extras = data.extras || {};
+  const streakHost = $('#q-streak-host');
 
   const name = q.name || data.name || code;
   const price = parseFloat(q.price ?? q.最新价 ?? 0);
@@ -1271,6 +1314,26 @@ function renderStockDetail(code, data) {
   $('#stock-title').textContent = name;
   $('#stock-code').textContent = code;
   $('#stock-sub').textContent = `${name} · ${code} · ${q._source || ''} ${q._fetch_time || ''}`.trim();
+
+  // 跨模块上下文 banner (来自策略选股 / 周线擒牛)
+  const _ctx = window._navCtx || {};
+  const _ctxEl = document.getElementById('stock-nav-ctx');
+  if (_ctxEl) {
+    if (_ctx.from && _ctx.strategies) {
+      const labels = { wb: '周线擒牛', rl: '1/3回升位', ma5: '5日线放量',
+        sanxing_taodi: '三星探底', zhanwen_5w: '站稳5周线', tupo_pingtai: '突破平台', tupo_pingtai_aggressive: '突破3周(激进)', junxian_fangxiang: '均线方向', zhouxian_duiliang: '周线堆量' };
+      const fromLabel = _ctx.from === 'sp' ? '策略选股' : '周线擒牛';
+      const returnView = _ctx.from === 'sp' ? 'strategy_picker' : 'weekly_bull';
+      const chips = _ctx.strategies.split(',').filter(Boolean).map(k => {
+        const l = labels[k] || k;
+        return `<span class="chip" style="font-size:10px;background:#d4b87a22;border-color:#d4b87a;color:#d4b87a">${l}</span>`;
+      }).join('');
+      _ctxEl.innerHTML = `<span class="dim" style="font-size:10.5px;margin-right:4px">来自${fromLabel}</span>${chips} <a href="#${returnView}" style="font-size:10px;color:#888;margin-left:6px;text-decoration:none">← 返回</a>`;
+      _ctxEl.style.display = 'block';
+    } else {
+      _ctxEl.style.display = 'none';
+    }
+  }
 
   // 2026-07-19: 异步加载板块角色 (龙头/中军/杂毛) — 不阻塞首屏
   _loadStockRole(code);
@@ -1443,83 +1506,74 @@ function renderStockDetail(code, data) {
 
   // ─── 「连板 · 近期涨停 / 强势股」卡片 ───
   // 修复 (2026-07-17): 旧版用 kline close-to-close chg% 算 10 格涨跌,完全没用涨停池,名不副实。
-  // 新版分 3 段: ① 连板状态 (limit_up_context.today + leadership)
-  //                ② 近 5 日涨停明细 (limit_up_context.recent_5d)
-  //                ③ 板块强势股 (新 /api/stock/{code}/strong_stocks 按 L3/L4 industry 过滤)
-  // 顶部骨架 placeholder,真实数据由 _loadStockStreakPanel 异步填充
-  const streakHost = $('#q-streak-host');
-  if (streakHost) {
-    streakHost.innerHTML = `
-      <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
-        <span class="chip" style="background:rgba(255,255,255,.06);color:var(--ink-2)">⏳ 连板 / 涨停加载中…</span>
-      </div>
-      <p class="caption dim" style="margin:0">🔍 近 5 日涨停明细 + 同产业链强势股</p>`;
-    _loadStockStreakPanel(code, data);
-  }
+	// R6: Phase 1 (core) 仅渲染 hero,Phase 2 (full) 加载 side-panel 数据
+	if (data._core) {
+		if (streakHost) {
+			streakHost.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+				<span class="chip" style="background:rgba(255,255,255,.06);color:var(--ink-2)">连板 / 涨停加载中…</span>
+			</div><p class="caption dim" style="margin:0">近 5 日涨停明细 + 同产业链强势股</p>`;
+		}
+		klineState.data = data.kline || [];
+		klineState.period = 120;
+		renderKlineKpi(klineState.data);
+		renderHeroSparkline(data.kline || [], price);
+		renderHeroLimitBand(price, prev, lu, extras.limit_up_price, chg, extras.amplitude_pct);
+		renderHeroRisks(q, extras, chg);
+		return;
+	}
 
-  // 2026-07-19: 加载 3 个买点策略卡 (周线擒牛 + 回升位 + MA5 原则)
-  _loadWeeklyBullCard(code);
-  _loadRecoveryCard(code);
+	// Phase 2 (full): side-panel + 图表 + 表格
+	if (streakHost) {
+		streakHost.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+			<span class="chip" style="background:rgba(255,255,255,.06);color:var(--ink-2)">连板 / 涨停加载中…</span>
+		</div><p class="caption dim" style="margin:0">近 5 日涨停明细 + 同产业链强势股</p>`;
+		_loadStockStreakPanel(code, data);
+	}
+	_loadStrategyMatchCard(code);
 
-  // ─── 图表 / 表格 ───
-  const empty = $('#flow-empty');
-  if (empty) empty.style.display = 'none';
-  // 延迟绘制: 资金流 / K 线 chart 在对应 tab 首次激活时才初始化 ECharts
-  _pendingFlowData = flow.history || [];
-  klineState.data = data.kline || [];
-  klineState.period = 120;
-  if ((klineState.data.length || 0) < 120) {
-    loadKline(code, 120);
-  } else {
-    syncKlineToolbar();
-    // 不再立即 drawKlineChart() — 交由 tab 首次激活触发
-    _klineDataReady = true;
-  }
-  renderFlowKpi(flow.history || []);
-  renderKlineKpi(klineState.data);
-  renderStreak10d(klineState.data);
-  renderSeatsTable(seats.rows || [], seats);
-  renderHolders(data.holders || null);
+	const empty = $('#flow-empty');
+	if (empty) empty.style.display = 'none';
+	_pendingFlowData = flow.history || [];
+	klineState.data = data.kline || [];
+	klineState.period = 120;
+	if ((klineState.data.length || 0) < 120) {
+		loadKline(code, 120);
+	} else {
+		syncKlineToolbar();
+		_klineDataReady = true;
+	}
+	renderFlowKpi(flow.history || []);
+	renderKlineKpi(klineState.data);
+	renderStreak10d(klineState.data);
+	renderSeatsTable(seats.rows || [], seats);
+	renderHolders(data.holders || null);
+	renderHeroSparkline(data.kline || [], price);
+	renderHeroLimitBand(price, prev, lu, extras.limit_up_price, chg, extras.amplitude_pct);
+	renderHeroRisks(q, extras, chg);
+	loadStockSeatBreakdown(code);
 
-  // Hero · sparkline + 涨停距 + 风险标
-  renderHeroSparkline(data.kline || [], price);
-  renderHeroLimitBand(price, prev, lu, extras.limit_dn_price, chg, extras.amplitude_pct);
-  renderHeroRisks(q, extras, chg);
+	intraDayCache = new Map();
+	if (echartsCharts.intraDay)   { echartsCharts.intraDay.dispose();   echartsCharts.intraDay   = null; }
+	const pick = $('#intra-day-pick'); if (pick) pick.value = todayStr();
+	const lbl = $('#intra-day-label'); if (lbl) lbl.textContent = '';
+	const idn = $('#intra-day-note');  if (idn) idn.textContent = '';
+	const idk = $('#intra-day-kpi');   if (idk) idk.innerHTML = '';
+	if (typeof loadIntraDay === 'function') {
+		loadIntraDay(code, todayStr());
+	}
 
-  // 资金成分 (6 类席位 + 占比 + 风险) — 异步
-  loadStockSeatBreakdown(code);
+	$('#ai-panel').hidden = false;
+	$('#ai-status').textContent = 'AI 复盘中 …';
+	$('#ai-verdict').textContent = '…';
+	$('#ai-summary').textContent = '';
+	loadStockSector(code);
+	$('#ai-detail').innerHTML = '';
+	loadAIAnalysis(code);
+	loadStockMyTrades(code);
+	loadCrashRisk(code);
 
-  // 分时：清空缓存,重置到当日
-  intraDayCache = new Map();
-  if (echartsCharts.intraDay)   { echartsCharts.intraDay.dispose();   echartsCharts.intraDay   = null; }
-  const pick = $('#intra-day-pick'); if (pick) pick.value = todayStr();
-  const lbl = $('#intra-day-label'); if (lbl) lbl.textContent = '';
-  const idn = $('#intra-day-note');  if (idn) idn.textContent = '';
-  const idk = $('#intra-day-kpi');   if (idk) idk.innerHTML = '';
 
-  // 2026-07-15 修复分时图不显示: intraday tab 默认 active, tab click handler 不触发,
-  // 必须在这里主动 loadIntraDay 一次 (否则只有点 sparkline / 切 tab 才加载)
-  if (typeof loadIntraDay === 'function') {
-    loadIntraDay(code, todayStr());
-  }
-
-  // AI 分析面板
-  $('#ai-panel').hidden = false;
-  $('#ai-status').textContent = 'AI 复盘中 …';
-  $('#ai-verdict').textContent = '…';
-  $('#ai-summary').textContent = '';
-
-  // 板块情绪 + 相关新闻
-  loadStockSector(code);
-  $('#ai-detail').innerHTML = '';
-  loadAIAnalysis(code);
-
-  // 我的交易 (此股历史买/卖 + 复盘)
-  loadStockMyTrades(code);
-
-  // 砸盘风险 (cache 命中 < 0.1s,冷启动 30-60s;先 re-render panel 骨架)
-  loadCrashRisk(code);
-}
+	}
 
 // ─── Hero · sparkline (近 120 日 收 + MA5/MA20 + 现价竖线) ───
 function renderHeroSparkline(kline, lastPrice) {
@@ -1761,7 +1815,7 @@ async function loadStockSeatBreakdown(code) {
     tbody.innerHTML = `<tr><td colspan="8">${skeletonLines(2, 'lg')}</td></tr>`;
   }
   try {
-    const r = await api(`/api/stock/${code}/seat_breakdown`);
+    const r = await api(`/api/stock/${code}/seat_breakdown`, { signal: _stockSignal() });
     if (!r) { wrap.hidden = true; return; }
     wrap.hidden = false;
     renderSeatBreakdown(r);
@@ -2030,15 +2084,17 @@ function renderKlineKpi(kline) {
   const last = kline[kline.length - 1];
   const first = kline[0];
   const cumPct = ((last.close / first.close - 1) * 100);
-  const highPct = Math.max(...kline.map(k => (k.close / first.close - 1) * 100));
-  const lowPct = Math.min(...kline.map(k => (k.close / first.close - 1) * 100));
+  const highAbs = Math.max(...kline.map(k => k.high));
+  const lowAbs = Math.min(...kline.map(k => k.low));
+  const highPct = first.close > 0 ? ((highAbs / first.close - 1) * 100) : 0;
+  const lowPct = first.close > 0 ? ((lowAbs / first.close - 1) * 100) : 0;
   const upDays = kline.filter(k => (k.change_pct || 0) > 0).length;
   const luDays = kline.filter(k => (k.change_pct || 0) >= 9.5).length;
   const lastVr = last.vol_ratio_5d || 0;
   renderKpi($('#kline-kpi'), [
     [`${kline.length}日累`, (cumPct >= 0 ? '+' : '') + cumPct.toFixed(2) + '%', colorFor(cumPct)],
-    ['期高', '+' + highPct.toFixed(2) + '%', UP],
-    ['期低', lowPct.toFixed(2) + '%', DOWN],
+    ['期高', (highPct >= 0 ? '+' : '') + highPct.toFixed(2) + '%', highPct >= 0 ? UP : DOWN],
+    ['期低', (lowPct >= 0 ? '+' : '') + lowPct.toFixed(2) + '%', lowPct >= 0 ? UP : DOWN],
     ['阳线', upDays + ' 天', upDays / kline.length > 0.5 ? UP : INK2],
     ['涨停日', luDays + ' 天', luDays > 0 ? UP : INK2],
     ['最新量比', lastVr.toFixed(2), lastVr > 1.5 ? UP : (lastVr < 0.7 ? DOWN : INK)],
@@ -2367,6 +2423,8 @@ var klineState = {
     }
     if (p && p.indicators && typeof p.indicators === 'object') {
       Object.assign(klineState.indicators, p.indicators);
+      // 互斥保证: macd 和 kdj 不能同时 true
+      if (klineState.indicators.macd && klineState.indicators.kdj) klineState.indicators.kdj = false;
     }
   } catch (_) {}
 })();
@@ -2418,7 +2476,7 @@ function computeKDJ(highs, lows, closes, n = 9, m1 = 3, m2 = 3) {
       if (highs[p] > h9) h9 = highs[p];
       if (lows[p]  < l9) l9 = lows[p];
     }
-    const rsv = h9 > l9 ? ((closes[i] - l9) / (h9 - l9)) * 100 : 50;
+    const rsv = h9 > l9 ? ((closes[i] - l9) / (h9 - l9)) * 100 : (closes[i] >= h9 ? 100 : 0);
     const kNow = (m1 - 1) / m1 * prevK + 1 / m1 * rsv;
     const dNow = (m2 - 1) / m2 * prevD + 1 / m2 * kNow;
     const jNow = 3 * kNow - 2 * dNow;
@@ -2434,36 +2492,32 @@ function computeBOLL(closes, n = 20, k = 2) {
   const mid = ma(closes, n);
   const upper = [], lower = [];
   for (let i = 0; i < closes.length; i++) {
-    if (i < n - 1 || mid[i] === '-') { upper.push(null); lower.push(null); continue; }
+    if (i < n - 1 || mid[i] == null) { upper.push(null); lower.push(null); continue; }
     let sum = 0;
     for (let p = i - n + 1; p <= i; p++) sum += (closes[p] - mid[i]) ** 2;
     const std = Math.sqrt(sum / n);
     upper.push(+(mid[i] + k * std).toFixed(3));
     lower.push(+(mid[i] - k * std).toFixed(3));
   }
-  return { mid: mid.map(v => v === '-' ? null : v), upper, lower };
+  return { mid, upper, lower };
 }
 
 // 加载 K 线 (按周期)
-// R4: 多并发 dedup — 同一 (code,days) 同时被调用多次,只发 1 个请求,其余等同一个 Promise
-var _klineInflight = null;
-var _klineInflightKey = '';
+// R4: 多并发 dedup — 同一 (code,days) 同时被调用多次,只发 1 个请求
+var _klineInflight = {};
 async function loadKline(code, days) {
-  if (klineState.loading) return _klineInflight || Promise.resolve();
+  if (code !== window._currentStockCode) return Promise.resolve();
   const key = code + ':' + days;
-  if (_klineInflightKey === key && _klineInflight) return _klineInflight;
-  _klineInflightKey = key;
-  klineState.loading = true;
+  if (_klineInflight[key]) return _klineInflight[key];
   const dom = $('#kline-chart');
   if (dom) dom.dataset.loading = '1';
-  _klineInflight = (async () => {
+  const p = (async () => {
     try {
-      const data = await api(`/api/stock/${code}/kline?days=${days}`);
+      const data = await api(`/api/stock/${code}/kline?days=${days}`, { signal: _stockSignal() });
+      if (code !== window._currentStockCode) return;
       klineState.data = data.kline || [];
       klineState.period = days;
       syncKlineToolbar();
-      // K 线数据就绪标记 — 无论 tab 是否可见,先标记数据已到达,
-      // tab 激活时由 tab handler 触发绘制 (避免 race: tab 先点但数据后到)
       _klineDataReady = true;
       const klinePane = dom?.closest('[data-tab-pane]');
       if (klinePane && !klinePane.hidden && _klineDataReady) {
@@ -2471,26 +2525,19 @@ async function loadKline(code, days) {
       }
       renderKlineKpi(klineState.data);
       renderHeroSparkline(klineState.data, $('#q-price')?.textContent ? Number($('#q-price')?.textContent) : null);
-      // 2026-07-18 修: renderStockDetail 先调 renderStreak10d,此时 /full 的 kline 可能是空 cache;
-      // loadKline 后到时再补一次,避免 streak 格子永远停在 "数据不足"
       renderStreak10d(klineState.data);
     } catch (e) {
       toast(`K线加载失败：${e.message}`, 'error');
       klineState.data = [];
       _klineDataReady = true;
+      _klineChartDrawn = false;
     } finally {
-      klineState.loading = false;
       if (dom) delete dom.dataset.loading;
-      // R4: 完成后清掉 inflight key,但保留 promise 一小段时间给迟到 caller 复用
-      setTimeout(() => {
-        if (_klineInflightKey === key) {
-          _klineInflightKey = '';
-          _klineInflight = null;
-        }
-      }, 500);
+      setTimeout(() => { if (_klineInflight[key] === p) delete _klineInflight[key]; }, 500);
     }
   })();
-  return _klineInflight;
+  _klineInflight[key] = p;
+  return p;
 }
 
 async function drawKlineChart() {
@@ -2506,19 +2553,21 @@ async function drawKlineChart() {
   _klineChartDrawn = true;
   const kline = klineState.data;
   if (!kline || !kline.length) {
-    chart.setOption(emptyChartOption('暂无 K 线数据'));
-    chart.resize();
+    try { chart.setOption(emptyChartOption('暂无 K 线数据')); chart.resize(); } catch (e) {}
     return;
   }
   const ind = klineState.indicators;
   const dates = kline.map(k => k.date);
+  const _labelBg = document.documentElement.getAttribute("data-theme") === "light" ? "rgba(255,255,255,0.85)" : "rgba(10,9,8,0.6)";
   const ohlc = kline.map(k => [+k.open, +k.close, +k.low, +k.high]);
   const closes = kline.map(k => +k.close);
   const highs  = kline.map(k => +k.high);
   const lows   = kline.map(k => +k.low);
-  const ma5  = kline[0].ma5  != null ? kline.map(k => k.ma5)  : ma(closes, 5);
-  const ma10 = kline[0].ma10 != null ? kline.map(k => k.ma10) : ma(closes, 10);
-  const ma20 = kline[0].ma20 != null ? kline.map(k => k.ma20) : ma(closes, 20);
+  // 全量检查: 服务器返回的 ma5/10/20 可能只有部分条目有,缺值则客户端自行计算
+  const hasAll = (f) => kline.every(k => k[f] != null);
+  const ma5  = hasAll('ma5')  ? kline.map(k => k.ma5)  : ma(closes, 5);
+  const ma10 = hasAll('ma10') ? kline.map(k => k.ma10) : ma(closes, 10);
+  const ma20 = hasAll('ma20') ? kline.map(k => k.ma20) : ma(closes, 20);
   const ma60 = kline[0].ma60 != null ? kline.map(k => k.ma60) : ma(closes, 60);
   const barColors = kline.map(k => (k.close >= k.open) ? UP : DOWN);
   const vols = kline.map(k => k.volume || 0);
@@ -2599,7 +2648,7 @@ async function drawKlineChart() {
     { gridIndex: 1, scale: true, splitNumber: 2,
       min: 'dataMin', max: 'dataMax',
       position: 'right',
-      axisLabel: { color: INK3, fontSize: 9, formatter: v => (v/1e4).toFixed(0)+'万' },
+      axisLabel: { color: INK3, fontSize: 9, formatter: v => (v/1e4).toFixed(0)+'万手' },
       splitLine: { show: false },
       axisLine: { lineStyle: { color: CHART_LINE } } },
   ];
@@ -2657,11 +2706,11 @@ async function drawKlineChart() {
   if (ind.ma) {
     const lastIdx = ma10.length - 1;
     series.push({ name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { color: '#7b9bd1', width: 1 }, symbol: 'none', connectNulls: true,
-      endLabel: { show: true, formatter: 'MA10', color: '#7b9bd1', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: 'rgba(10,9,8,0.6)' } });
+      endLabel: { show: true, formatter: 'MA10', color: '#7b9bd1', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
     series.push({ name: 'MA20', type: 'line', data: ma20, smooth: true, lineStyle: { color: ACCENT,  width: 1.2 }, symbol: 'none', connectNulls: true,
-      endLabel: { show: true, formatter: 'MA20', color: ACCENT, fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: 'rgba(10,9,8,0.6)' } });
+      endLabel: { show: true, formatter: 'MA20', color: ACCENT, fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
     series.push({ name: 'MA60', type: 'line', data: ma60, smooth: true, lineStyle: { color: '#a78bcf', width: 1.2 }, symbol: 'none', connectNulls: true,
-      endLabel: { show: true, formatter: 'MA60', color: '#a78bcf', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: 'rgba(10,9,8,0.6)' } });
+      endLabel: { show: true, formatter: 'MA60', color: '#a78bcf', fontSize: 10, fontWeight: 600, padding: [0, 0, 0, 4], backgroundColor: _labelBg } });
   }
   // BOLL 叠加（主图）
   if (boll) {
@@ -2694,13 +2743,19 @@ async function drawKlineChart() {
       lineStyle: { color: '#f0c075', width: 1 }, symbol: 'none', connectNulls: true });
     series.push({ name: 'J', type: 'line', data: kdjData.j, smooth: true, xAxisIndex: 2, yAxisIndex: 2,
       lineStyle: { color: '#a78bcf', width: 1 }, symbol: 'none', connectNulls: true });
+    // KDJ 80/20 参考线 (放在 series 上而非 yAxis — markLine 不支持 yAxis 级)
+    series.push({ name: 'KDJ_REF', type: 'line', data: [], xAxisIndex: 2, yAxisIndex: 2,
+      markLine: {
+        silent: true, symbol: 'none',
+        data: [
+          { yAxis: 80, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
+          { yAxis: 20, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
+        ],
+      },
+    });
   }
 
   // ── Tooltip ── THS 风格精确读数
-  const allNames = ['K线', 'MA10','MA20','MA60', ...(boll ? ['BOLL上','BOLL中','BOLL下'] : []), '量'];
-  if (subIndicator === 'macd') allNames.push('DIF','DEA','MACD');
-  if (subIndicator === 'kdj')  allNames.push('K','D','J');
-
   const option = {
     backgroundColor: 'transparent',
     animation: false,  // R14: K线图重画时无动画,SSE/poll 直接切到新值
@@ -2790,27 +2845,11 @@ async function drawKlineChart() {
     ],
     series,
   };
-  chart.setOption(option);
-  // 确保尺寸正确 (容器在 tab 激活后才可见,但 ECharts init 可能读到 0 宽高)
-  chart.resize();
-
-  // KDJ 参考线 (80/20)
-  if (subIndicator === 'kdj') {
-    chart.setOption({
-      yAxis: yAxes.map((y, i) => i === 2 ? {
-        ...y,
-        markLine: {
-          silent: true, symbol: 'none',
-          data: [
-            { yAxis: 80, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
-            { yAxis: 20, label: { show: false }, lineStyle: { color: '#5a5852', type: 'dotted', width: 0.8 } },
-          ],
-        },
-      } : y),
-    });
-  }
+  try { chart.setOption(option); } catch (e) { console.warn('Kline setOption:', e); }
+  try { chart.resize(); } catch (e) { console.warn('Kline resize:', e); }
 
   // ── 点击 K线柱子 → 切到分时 tab + 加载该日 (2026-07-15) ──
+  chart.off('click');
   chart.on('click', (params) => {
     if (!currentStockCode) return;
     let date = null;
@@ -2827,6 +2866,7 @@ async function drawKlineChart() {
   });
 
   // ── 浮动 readout 同步（鼠标移动）──
+  chart.off('updateAxisPointer');
   chart.on('updateAxisPointer', (event) => {
     const xAxisInfo = event.axesInfo && event.axesInfo[0];
     if (!xAxisInfo || xAxisInfo.value == null) return;
@@ -2883,7 +2923,7 @@ function ma(arr, n) {
   for (let i = 0; i < arr.length; i++) {
     sum += arr[i];
     if (i >= n) sum -= arr[i - n];
-    out.push(i >= n - 1 ? +(sum / n).toFixed(2) : '-');
+    out.push(i >= n - 1 ? +(sum / n).toFixed(2) : null);
   }
   return out;
 }
@@ -3261,7 +3301,7 @@ async function loadIntraDay(code, dateStr) {
   note.textContent = `加载 ${dateStr} 分时 …`;
   note.style.color = INK2;
   const fetchOnce = async () => {
-    const data = await api(`/api/stock/${code}/intraday?date=${encodeURIComponent(dateStr)}`);
+    const data = await api(`/api/stock/${code}/intraday?date=${encodeURIComponent(dateStr)}`, { signal: _stockSignal() });
     return data;
   };
   try {
@@ -3342,7 +3382,7 @@ function renderIntraDay(data) {
     ['最新',     lastPrice != null ? lastPrice.toFixed(2) : '—', colorFor(pct)],
     ['日内涨跌', pct != null ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : '—', colorFor(pct)],
     ['均价VWAP', vwap != null ? vwap.toFixed(3) : '—', ACCENT],
-    ['振幅',     amp != null ? (amp >= 0 ? '+' : '') + amp.toFixed(2) + '%' : '—', amp != null ? (amp >= 5 ? UP : INK2) : INK3],
+    ['振幅',     amp != null ? amp.toFixed(2) + '%' : '—', amp != null ? (amp >= 5 ? UP : INK2) : INK3],
     ['主动买/卖',
       (buyCnt + sellCnt) > 0
         ? `${buyCnt} / ${sellCnt}` + (sideRatio != null ? ` · ${(sideRatio * 100).toFixed(0)}%` : '')
@@ -3365,6 +3405,7 @@ function renderIntraDay(data) {
 }
 
 async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp, supportLevels) {
+  const _labelBg = document.documentElement.getAttribute("data-theme") === "light" ? "rgba(255,255,255,0.85)" : "rgba(10,9,8,0.75)";
   const dom = $('#intra-day-chart');
   if (!dom) return;
   if (echartsCharts.intraDay) { echartsCharts.intraDay.dispose(); echartsCharts.intraDay = null; }
@@ -3373,6 +3414,12 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
   if (_isChartTokenStale('intraDay', tk)) return;
   const chart = echarts.init(dom, null, { renderer: 'canvas' });
   echartsCharts.intraDay = chart;
+
+  // R1: 容器宽度响应 — 窄屏 缩小轴边距/字号
+  const _cw = dom.clientWidth;
+  const _narrow = _cw < 420;
+  const gL = _narrow ? 42 : 56, gRM = _narrow ? 52 : 84, gRV = _narrow ? 12 : 24;
+  const axFs = _narrow ? 9 : 10, mkFs = _narrow ? 8 : 9, mkDist = _narrow ? 2 : 4;
 
   if (!ticks.length) {
     chart.setOption(emptyChartOption('暂无分时数据'));
@@ -3440,13 +3487,13 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
     if (idx >= 0) labelIndexMap[idx] = lt;
   }
 
-  // ── 时间分界线：11:30（午休）和 15:00（收盘）──
-  const dividerTimes = ['11:30', '15:00'];
+  // ── 时间分界线：11:30（午休）──
+  const dividerTimes = ['11:30'];
   const dividerIndex = dividerTimes.map(rt => times.findIndex(t => t && t.startsWith(rt))).filter(i => i >= 0);
   const timeMarkers = dividerIndex.map(i => ({
     xAxis: i,
     lineStyle: { color: '#3a3735', type: 'dashed', width: 1, opacity: 0.5 },
-    label: { show: true, formatter: times[i].slice(0, 5), position: 'start', color: INK3, fontSize: 9 }
+    label: { show: true, formatter: times[i].slice(0, 5), position: 'start', color: INK3, fontSize: mkFs }
   }));
 
   // ── 涨停价参考线 ──
@@ -3468,8 +3515,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
       refLines.push({
         yAxis: +l13.toFixed(3),
         lineStyle: { color: '#9a8cff', type: 'dashed', width: 1.2, opacity: 0.85 },
-        label: { formatter: `1/3位 ${(+l13).toFixed(2)}`, color: '#9a8cff', fontSize: 9,
-                 position: 'insideEndBottom', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+        label: { formatter: `1/3位 ${(+l13).toFixed(2)}`, color: '#9a8cff', fontSize: mkFs,
+                 position: 'insideEndBottom', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3, fontWeight: 600 },
       });
     }
@@ -3479,8 +3526,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
       refLines.push({
         yAxis: +a.toFixed(3),
         lineStyle: { color: '#52c85a', type: 'dotted', width: 1, opacity: 0.7 },
-        label: { formatter: `A=${(+a).toFixed(2)}`, color: '#52c85a', fontSize: 9,
-                 position: 'insideEndBottom', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+        label: { formatter: `A=${(+a).toFixed(2)}`, color: '#52c85a', fontSize: mkFs,
+                 position: 'insideEndBottom', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3 },
       });
     }
@@ -3490,8 +3537,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
       refLines.push({
         yAxis: +b.toFixed(3),
         lineStyle: { color: '#ff4d4f', type: 'dotted', width: 1, opacity: 0.7 },
-        label: { formatter: `B=${(+b).toFixed(2)}`, color: '#ff4d4f', fontSize: 9,
-                 position: 'insideEndTop', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+        label: { formatter: `B=${(+b).toFixed(2)}`, color: '#ff4d4f', fontSize: mkFs,
+                 position: 'insideEndTop', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3 },
       });
     }
@@ -3502,8 +3549,8 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
         refLines.push({
           yAxis: +lastMa5.toFixed(3),
           lineStyle: { color: '#ff9f43', type: 'dashed', width: 1.4, opacity: 0.9 },
-          label: { formatter: `MA5 ${lastMa5.toFixed(2)}`, color: '#ff9f43', fontSize: 10,
-                   position: 'insideEndTop', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+          label: { formatter: `MA5 ${lastMa5.toFixed(2)}`, color: '#ff9f43', fontSize: axFs,
+                   position: 'insideEndTop', distance: mkDist, backgroundColor: _labelBg,
                    padding: [1, 4], borderRadius: 3, fontWeight: 700 },
         });
       }
@@ -3515,7 +3562,6 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
   const _lastPrice = _lastIdx >= 0 ? prices[_lastIdx] : null;
   const _lastColor = _lastPrice != null && _lastPrice >= refVal ? UP : (_lastPrice != null && _lastPrice < refVal ? DOWN : INK2);
   const _lastPct = _lastPrice != null && refVal > 0 ? ((_lastPrice - refVal) / refVal * 100) : 0;
-  const _lastLabel = _lastPrice != null ? `${_lastPrice.toFixed(2)} ${(_lastPct >= 0 ? '+' : '') + _lastPct.toFixed(2)}%` : '';
   // R-fix-2026-07-18: 末值在 y 轴上半区时 (距离 yMax < 25% yRange),把末值标从 end+distance:4 翻到 insideEndBottom —
   // 否则 end 标签占右上角,跟 MA5/10/20 的 insideEndTop 标签堆在同一像素,互相遮挡
   const _yRange = yMax - yMin;
@@ -3539,19 +3585,26 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
         yAxis: +ma.toFixed(3),
         lineStyle: { color, type: n === 5 ? 'solid' : 'dashed', width: w, opacity: 0.75 },
         // 2026-07-17: 标签 insideEndTop (右上方) + 半透背,在右轴刻度列内部清晰可见
-        label: { formatter: `MA${n} ${ma.toFixed(2)}`, color, fontSize: n === 5 ? 10 : 9,
-                 position: 'insideEndTop', distance: 4, backgroundColor: 'rgba(10,9,8,0.75)',
+        label: { formatter: `MA${n} ${ma.toFixed(2)}`, color, fontSize: n === 5 ? axFs : mkFs,
+                 position: 'insideEndTop', distance: mkDist, backgroundColor: _labelBg,
                  padding: [1, 4], borderRadius: 3, fontWeight: n === 5 ? 700 : 500,
                  textBorderColor: 'transparent' },
       });
     }
   }
+  // R3: 窄屏 refLine 去重 — 若两条参考线价格差 < 0.2% 昨收,只留第一条避免右侧标签堆叠
+  if (_narrow && refLines.length > 1) {
+    const _closeThreshold = Math.max(refVal * 0.002, 0.01);
+    refLines = refLines.filter((rl, i) =>
+      i === 0 || refLines.slice(0, i).every(prev => Math.abs(rl.yAxis - prev.yAxis) > _closeThreshold)
+    );
+  }
 
   chart.setOption({
     backgroundColor: 'transparent',
     grid: [
-      { left: 56, right: 76, top: 30, height: '58%' },
-      { left: 56, right: 24, top: '74%', height: '22%' },
+      { left: gL, right: gRM, top: 24, height: _narrow ? '56%' : '60%' },
+      { left: gL, right: gRV, top: _narrow ? '71%' : '75%', height: _narrow ? '26%' : '21%' },
     ],
     tooltip: {
       trigger: 'axis', backgroundColor: CHART_TOOLTIP_BG, borderColor: CHART_LINE,
@@ -3584,18 +3637,18 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     legend: {
-      textStyle: { color: INK2, fontSize: 10 }, top: 4, right: 8,
+      textStyle: { color: INK2, fontSize: axFs }, top: 4, right: 8,
       data: limitUp ? ['价格', '均价', '昨收', '涨停价', '成交量'] : ['价格', '均价', '昨收', '成交量']
     },
     xAxis: [
       { type: 'category', data: times, gridIndex: 0,
         axisLine: { lineStyle: { color: CHART_LINE } },
-        axisLabel: { color: INK2, fontSize: 10, interval: 0,
+        axisLabel: { color: INK2, fontSize: axFs, interval: 0,
           formatter: (v, i) => labelIndexMap[i] || '' },
         splitLine: { show: false } },
       { type: 'category', data: times, gridIndex: 1,
         axisLine: { lineStyle: { color: CHART_LINE } },
-        axisLabel: { color: INK2, fontSize: 9,
+        axisLabel: { color: INK2, fontSize: _narrow ? 8 : 9,
           interval: Math.max(1, Math.floor(times.length / 8)),
           formatter: (v, i) => labelIndexMap[i] || '' },
         splitLine: { show: false } },
@@ -3626,12 +3679,12 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
           { type: 'value', gridIndex: 0, position: 'left',
             min: alignedMin, max: alignedMax, interval: stepPrice,
             splitLine: { lineStyle: { color: GRID } },
-            axisLabel: { color: INK2, fontSize: 10, interval: 0, formatter: v => v.toFixed(2) } },
+            axisLabel: { color: INK2, fontSize: axFs, interval: 0, formatter: v => v.toFixed(2) } },
           // 右轴:涨跌幅 % — 同一区间,formatter 把 v 换算成 pct
           { type: 'value', gridIndex: 0, position: 'right',
             min: alignedMin, max: alignedMax, interval: stepPrice,
             splitLine: { show: false },
-            axisLabel: { color: INK2, fontSize: 10, interval: 0,
+            axisLabel: { color: INK2, fontSize: axFs, interval: 0,
               formatter: v => {
                 if (!refVal) return '';
                 const pct = ((v - refVal) / refVal) * 100;
@@ -3644,9 +3697,9 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
       })(),
       // 成交量轴
       { gridIndex: 1, splitLine: { lineStyle: { color: GRID } },
-        axisLabel: { color: INK2, fontSize: 9 } },
+        axisLabel: { color: INK2, fontSize: _narrow ? 8 : 9 } },
     ],
-    dataZoom: [
+    dataZoom: _narrow ? [] : [
       { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
     ],
     series: [
@@ -3698,9 +3751,9 @@ async function drawIntraDayChart(code, date, ticks, openRef, prevClose, limitUp,
                 formatter: _lastPrice != null && refVal > 0
                   ? `${((_lastPrice - refVal) / refVal * 100 >= 0 ? '+' : '') + ((_lastPrice - refVal) / refVal * 100).toFixed(2)}%`
                   : '',
-                color: '#fff', fontSize: 10, fontWeight: 700,
+                color: '#fff', fontSize: axFs, fontWeight: 700,
                 backgroundColor: _lastColor, padding: [2, 6], borderRadius: 3,
-                distance: _lastPriceNearTop ? 6 : 4,
+                distance: _lastPriceNearTop ? (_narrow ? 4 : 6) : (_narrow ? 2 : 4),
               },
             }] : []),
           ],
@@ -3773,25 +3826,30 @@ $$('.chart-tab[data-tab]').forEach(t => {
         else if (echartsCharts.kline) echartsCharts.kline.resize();
       } else {
         // 数据尚未到达 → 注册一次性监听,数据到后自动画
-        // 后续 timer 轮询等待 _klineDataReady (最长 30s)
-        (function _waitKline() {
+        // 后续 timer 轮询等待 _klineDataReady (最长 30s = 150 次)
+        (function _waitKline(tries = 0) {
           if (_klineDataReady) {
             if (!_klineChartDrawn) drawKlineChart();
             else if (echartsCharts.kline) echartsCharts.kline.resize();
-          } else {
-            setTimeout(_waitKline, 200);
+          } else if (tries < 150) {
+            setTimeout(() => _waitKline(tries + 1), 200);
           }
         })();
       }
     }
     if (tab === 'intraday') {
-      if (echartsCharts.intraDay) echartsCharts.intraDay.resize();
       if (currentStockCode) {
         initIntraDayPicker(currentStockCode);
-        // 首次进入 tab 自动加载当日分时
         const pick = $('#intra-day-pick');
-        if (pick && pick.value && currentStockCode && !intraDayCache.has(currentStockCode + ':' + pick.value)) {
-          loadIntraDay(currentStockCode, pick.value);
+        if (pick && pick.value) {
+          const _ck = currentStockCode + ':' + pick.value;
+          if (intraDayCache.has(_ck)) {
+            // 有缓存但 chart 不存在 → 重绘; 已存在 → resize
+            if (!echartsCharts.intraDay) renderIntraDay(intraDayCache.get(_ck));
+            else echartsCharts.intraDay.resize();
+          } else {
+            loadIntraDay(currentStockCode, pick.value);
+          }
         }
       } else {
         $('#intra-day-note').textContent = '请先在上方搜索一只股票';
@@ -3955,22 +4013,24 @@ function renderSectorsList(sectors) {
 // STOCK 页：板块情绪 + 相关新闻
 // ────────────────────────────────────────────
 // 2026-07-19: 加载个股板块角色 (龙头/中军/杂毛) — 在 stock-title 旁显示 badge
+var _lastRoleCode = '';
 async function _loadStockRole(code) {
   const host = $('#stock-tags-host');
   if (!host) return;
-  // 防 stale: 切股后旧 role 不显示
   if (code !== window._currentStockCode) return;
+  if (_lastRoleCode === code) return;  // R6: dedup — 已加载过同 code
+  _lastRoleCode = code;
   try {
-    const env = await api(`/api/stock/${code}/role`);
+    const env = await api(`/api/stock/${code}/role`, { signal: _stockSignal() });
     if (!env || !env.ok) return;
     if (code !== window._currentStockCode) return;
     const d = env.data || {};
     const role = d.role || '未分类';
     const roleColors = {
-      '龙头':  '#e84545',  // 红
-      '中军':  '#5b8def',  // 蓝
-      '杂毛':  '#888',     // 灰
-      '未分类': '#666',    // 暗灰
+      '龙头':  '#e84545',
+      '中军':  '#5b8def',
+      '杂毛':  '#888',
+      '未分类': '#666',
     };
     const color = roleColors[role] || '#666';
     const tip = `${d.reason || ''} · ${d.explanation || ''}`.slice(0, 120);
@@ -3981,93 +4041,156 @@ async function _loadStockRole(code) {
 }
 
 // 2026-07-19: 加载个股周线擒牛卡 (5 大信号)
-const _WB_CARD_LABELS = {
-  sanxing_taodi:     '三星探底',
-  zhanwen_5w:        '站稳5周线',
-  tupo_pingtai:      '突破震荡平台',
-  junxian_fangxiang: '均线方向',
-  zhouxian_duiliang: '周线堆量',
+// 2026-07-19: 个股策略匹配度卡 — 数据源自策略选股器 (strategy_match),同时填充 3 明细卡
+const _SM_STRATEGY = {
+  wb:  { label: '周线擒牛', color: '#f4d384', max: 40 },
+  rl:  { label: '1/3 回升位', color: '#84f4a8', max: 30 },
+  ma5: { label: '5日线放量', color: '#c084f4', max: 30 },
 };
-async function _loadWeeklyBullCard(code) {
-  const card = $('#q-weekly-bull-card');
-  const body = $('#q-weekly-bull-body');
+async function _loadStrategyMatchCard(code) {
+  const card = $('#q-strategy-match-card');
+  const body = $('#q-sm-body');
   if (!card || !body) return;
   if (code !== window._currentStockCode) return;
   card.hidden = false;
   body.innerHTML = '<span class="dim">加载中…</span>';
   try {
-    const env = await api(`/api/stock/${code}/weekly_bull`);
-    if (!env || !env.ok) {
-      body.innerHTML = `<span class="dim">未命中 5 大信号 — ${escapeHtml(env?.error || '加载失败')}</span>`;
+    const data = await api(`/api/stock/${code}/strategy_match`, { timeout: 10000, signal: _stockSignal() });
+    if (!data) {
+      body.innerHTML = `<span class="dim">策略匹配度无数据</span>`;
       return;
     }
     if (code !== window._currentStockCode) return;
-    const d = env.data || {};
-    const matched = d.matched || [];
-    const reasons = d.reasons || {};
-    const wk = d.weekly_last || {};
-    if (!matched.length) {
-      body.innerHTML = `
-        <p class="dim" style="margin:.25rem 0">当前未命中 5 大信号。</p>
-        <p class="caption dim" style="margin:0">周收盘 ${wk.close != null ? wk.close.toFixed(2) : '—'} · 周涨跌 ${wk.change_pct != null ? (wk.change_pct >= 0 ? '+' : '') + wk.change_pct.toFixed(2) + '%' : '—'} · 5W MA ${wk.wma5 ?? '—'}</p>
-      `;
-      return;
-    }
-    const chips = matched.map(k => {
-      const reason = reasons[k] || '';
-      return `<span class="chip tag-good wb-card-chip" data-action="show-view:weekly_bull?pattern=${escapeHtml(k)}" title="${escapeHtml(reason)}">${escapeHtml(_WB_CARD_LABELS[k] || k)}</span>`;
+    const d = data || {};
+    const sc = d.score || {};
+    const total = sc.total || 0;
+    const max = sc.max || 100;
+    const pct = Math.min(total / max * 100, 100);
+    const barColor = total >= 70 ? '#84f4a8' : total >= 45 ? '#f4d384' : total >= 25 ? '#f0a860' : '#fca5a5';
+    const matchedKeys = d.matched_keys || [];
+    const showNoMatch = !matchedKeys.length;
+
+    // 3 策略行
+    const strategyRows = Object.entries(_SM_STRATEGY).map(([key, def]) => {
+      const val = sc[key] != null ? sc[key] : 0;
+      const pct2 = def.max > 0 ? Math.min(val / def.max * 100, 100) : 0;
+      const chk = matchedKeys.includes(key) ? '✓' : '';
+      const m = d[key] || {};
+
+      let extra = '';
+      if (key === 'wb' && m.count > 0) {
+        const labels = { sanxing_taodi:'三星探底', zhanwen_5w:'站稳5周线', tupo_pingtai:'突破平台', tupo_pingtai_aggressive:'突破3周(激进)', junxian_fangxiang:'均线方向', zhouxian_duiliang:'周线堆量' };
+        extra = '<span class="caption" style="color:var(--ink-2)">' + (m.matched || []).map(p => labels[p] || p).join(' · ') + '</span>';
+      } else if (key === 'rl' && m.level_1_3 != null) {
+        const near = m.near_support ? ' <span class="tag-good caption">强支撑</span>' : '';
+        const dist = m.distance_to_level_1_3_pct != null
+          ? `<span class="caption" style="color:${Math.abs(m.distance_to_level_1_3_pct) < 3 ? '#84f4a8' : 'var(--ink-2)'}">距 1/3 位 ${(m.distance_to_level_1_3_pct >= 0 ? '+' : '') + Number(m.distance_to_level_1_3_pct).toFixed(2) + '%'}</span>`
+          : '';
+        extra = '<span class="caption">1/3=' + (m.level_1_3 ?? '—') + '</span> ' + dist + near;
+      } else if (key === 'ma5' && m.ok) {
+        extra = '<span class="caption" style="color:#c084f4">' + escapeHtml((m.reason || '').slice(0, 60)) + '</span>';
+      }
+
+      return `<div class="sm-row">
+        <div class="sm-row-head">
+          <span><span class="sm-chk">${chk}</span><span style="color:${def.color};font-weight:600;font-size:13px">${def.label}</span></span>
+          <span style="color:${def.color};font-weight:700;font-size:15px">${val}</span>
+        </div>
+        <div class="sm-bar"><div class="sm-bar-fill" style="width:${pct2}%;background:${def.color}"></div></div>
+        <div class="sm-row-extra">${extra}</div>
+      </div>`;
     }).join('');
-    const reasonList = matched.map(k =>
-      `<li><b>${escapeHtml(_WB_CARD_LABELS[k] || k)}</b>: ${escapeHtml((reasons[k] || '').slice(0, 80))}</li>`
-    ).join('');
+
+    // 总分区
+    const quality = total >= 70 ? '优' : total >= 45 ? '良' : total >= 25 ? '中' : total >= 1 ? '差' : '—';
+    const qualityColor = total >= 70 ? '#84f4a8' : total >= 45 ? '#f4d384' : total >= 25 ? '#f0a860' : '#666';
+
+    const breakdownHtml = showNoMatch ? ''
+      : `<div class="sm-breakdown">${(sc.breakdown || []).map(b => `<span class="caption dim">${escapeHtml(b)}</span>`).join(' <span style="color:var(--ink-3);font-size:10px">·</span> ')}</div>`;
+
     body.innerHTML = `
-      <div class="wb-card-chips">${chips}</div>
-      <p class="caption dim" style="margin:.25rem 0">命中 <b class="good">${matched.length}/5</b> · 周收盘 ${wk.close != null ? wk.close.toFixed(2) : '—'} · 周涨跌 ${wk.change_pct != null ? (wk.change_pct >= 0 ? '+' : '') + wk.change_pct.toFixed(2) + '%' : '—'} · 5W MA ${wk.wma5 ?? '—'}</p>
-      <ul class="wb-card-reasons">${reasonList}</ul>
+      <div class="sm-total-row">
+        <div class="sm-total-number" style="color:${barColor}">${total}</div>
+        <div class="sm-total-meta">
+          <div class="sm-total-label">/${max} · <span style="color:${qualityColor}">${quality}</span></div>
+          <div class="sm-total-bar"><div class="sm-total-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+        </div>
+      </div>
+      ${showNoMatch ? '<p class="dim caption" style="margin:.5rem 0">当前股未命中任何策略。</p>' : ''}
+      <div class="sm-strategies" style="margin-top:${showNoMatch ? '0' : '8px'}">${strategyRows}</div>
+      ${breakdownHtml}
     `;
+    // 用同一个 strategy_match 数据填充 3 个策略明细卡 (数据来源: 策略选股器)
+    _renderWBCardFromSM(d.wb);
+    _renderRecoveryCardFromSM(d.rl);
+    _renderMa5CardFromSM(d.ma5_principles);
   } catch (e) {
     body.innerHTML = `<span class="dim">加载异常: ${escapeHtml(e.message)}</span>`;
   }
 }
 
-// 2026-07-19: 加载个股 1/3 回升位卡
-async function _loadRecoveryCard(code) {
+function _renderWBCardFromSM(wb) {
+  const card = $('#q-weekly-bull-card');
+  const body = $('#q-weekly-bull-body');
+  if (!card || !body) return;
+  if (!wb || !wb.count || !wb.matched || !wb.matched.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const wk = wb.weekly_last || {};
+  const labels = { sanxing_taodi:'三星探底', zhanwen_5w:'站稳5周线', tupo_pingtai:'突破平台', tupo_pingtai_aggressive:'突破3周(激进)', junxian_fangxiang:'均线方向', zhouxian_duiliang:'周线堆量' };
+  const chips = wb.matched.map(k => `<span class="chip tag-good wb-card-chip" title="${escapeHtml((wb.reasons||{})[k]||'')}">${escapeHtml(labels[k]||k)}</span>`).join('');
+  const reasonList = wb.matched.map(k => `<li><b>${escapeHtml(labels[k]||k)}</b>: ${escapeHtml((wb.reasons||{})[k]||'').slice(0,80)}</li>`).join('');
+  body.innerHTML = `<div class="wb-card-chips">${chips}</div><p class="caption dim" style="margin:.25rem 0">命中 <b class="good">${wb.matched.length}/5</b> · 周收盘 ${wk.close != null ? wk.close.toFixed(2) : '—'} · 周涨跌 ${wk.change_pct != null ? (wk.change_pct >= 0 ? '+' : '') + wk.change_pct.toFixed(2) + '%' : '—'} · 5W MA ${wk.wma5 ?? '—'}</p><ul class="wb-card-reasons">${reasonList}</ul>`;
+}
+
+function _renderRecoveryCardFromSM(rl) {
   const card = $('#q-recovery-card');
   const body = $('#q-recovery-body');
   if (!card || !body) return;
-  if (code !== window._currentStockCode) return;
+  if (!rl || !rl.has_signal) { card.hidden = true; return; }
   card.hidden = false;
-  body.innerHTML = '<span class="dim">加载中…</span>';
-  try {
-    const env = await api(`/api/stock/${code}/recovery_level`);
-    if (!env || !env.ok) {
-      body.innerHTML = `<span class="dim">回升位加载失败 — ${escapeHtml(env?.error || '未知')}</span>`;
-      return;
-    }
-    if (code !== window._currentStockCode) return;
-    const d = env.data || {};
-    if (!d.has_signal) {
-      body.innerHTML = `<p class="dim" style="margin:.25rem 0">${escapeHtml(d.explanation || '未找到明显的上一轮上涨 (K 线不足或单边)')}</p>`;
-      return;
-    }
-    const cls = d.near_support ? 'tag-good' : '';
-    const distPct = d.distance_to_level_1_3_pct != null ? (d.distance_to_level_1_3_pct >= 0 ? '+' : '') + d.distance_to_level_1_3_pct.toFixed(2) + '%' : '—';
-    body.innerHTML = `
-      <div class="recovery-grid">
-        <div><span class="dim">A 谷底</span> · <b>${d.A}</b> <span class="caption dim">${d.A_date || ''}</span></div>
-        <div><span class="dim">B 山顶</span> · <b>${d.B}</b> <span class="caption dim">${d.B_date || ''}</span></div>
-        <div><span class="dim">涨幅</span> · <b>${d.change_pct != null ? '+' + d.change_pct.toFixed(2) + '%' : '—'}</b></div>
-        <div><span class="dim">现价</span> · <b>${d.current_close ?? '—'}</b></div>
-        <div class="${cls}"><span class="dim">1/3 位</span> · <b>${d.level_1_3}</b> ${d.near_support ? '<span class="tag-good caption" style="margin-left:4px">强支撑</span>' : ''}</div>
-        <div><span class="dim">1/2 位</span> · <b>${d.level_1_2 ?? '—'}</b></div>
-        <div><span class="dim">2/3 位</span> · <b>${d.level_2_3 ?? '—'}</b></div>
-        <div><span class="dim">距 1/3 位</span> · <b>${distPct}</b></div>
-      </div>
-      <p class="caption dim" style="margin:.25rem 0">${escapeHtml((d.explanation || '').slice(0, 200))}</p>
-    `;
-  } catch (e) {
-    body.innerHTML = `<span class="dim">加载异常: ${escapeHtml(e.message)}</span>`;
-  }
+  const cls = rl.near_support ? 'tag-good' : '';
+  const distPct = rl.distance_to_level_1_3_pct != null ? (rl.distance_to_level_1_3_pct >= 0 ? '+' : '') + rl.distance_to_level_1_3_pct.toFixed(2) + '%' : '—';
+  body.innerHTML = `<div class="recovery-grid">
+    <div><span class="dim">A 谷底</span> · <b>${rl.A ?? '—'}</b> <span class="caption dim">${rl.A_date || ''}</span></div>
+    <div><span class="dim">B 山顶</span> · <b>${rl.B ?? '—'}</b> <span class="caption dim">${rl.B_date || ''}</span></div>
+    <div><span class="dim">涨幅</span> · <b>${rl.change_pct != null ? '+' + rl.change_pct.toFixed(2) + '%' : '—'}</b></div>
+    <div><span class="dim">现价</span> · <b>${rl.current_close ?? '—'}</b></div>
+    <div class="${cls}"><span class="dim">1/3 位</span> · <b>${rl.level_1_3 ?? '—'}</b> ${rl.near_support ? '<span class="tag-good caption" style="margin-left:4px">强支撑</span>' : ''}</div>
+    <div><span class="dim">1/2 位</span> · <b>${rl.level_1_2 ?? '—'}</b></div>
+    <div><span class="dim">2/3 位</span> · <b>${rl.level_2_3 ?? '—'}</b></div>
+    <div><span class="dim">距 1/3 位</span> · <b>${distPct}</b></div>
+  </div><p class="caption dim" style="margin:.25rem 0">${escapeHtml((rl.explanation || '').slice(0, 200))}</p>`;
+}
+
+function _renderMa5CardFromSM(mp) {
+  const card = $('#q-ma5-rules-card');
+  const body = $('#q-ma5-rules-body');
+  if (!card || !body) return;
+  if (!mp || !mp.has_kline) { card.hidden = true; return; }
+  card.hidden = false;
+  const deviation = mp.deviation_pct || 0;
+  const belowDays = mp.below_ma5_days || 0;
+  const p3 = mp.principle_3_active;
+  const p4 = mp.principle_4_active;
+  const p5 = mp.principle_5_active;
+  const devColor = deviation > 8 ? '#f0a860' : deviation < -8 ? '#84f4a8' : Math.abs(deviation) < 3 ? '#84f4a8' : 'var(--ink-2)';
+  const devSymbol = deviation > 8 ? '↑' : deviation < -8 ? '↓' : '•';
+  const devText = devSymbol + (deviation >= 0 ? '+' : '') + deviation.toFixed(2) + '%';
+  const allRules = [
+    { n:1, label:'不放量大阳线坚决不碰', active:true, status:'—', note:'等待放量大阳线触发', color:'#888', hide:false },
+    { n:2, label:'放量后回踩 5 日线不破 = 重点观察', active:true, status:'—', note:'等待回踩验证', color:'#888', hide:false },
+    { n:3, label:'明显偏离 5 日线 → 兑现部分利润', active:p3, status:p3?'⚠ 偏离 '+deviation.toFixed(1)+'%':'✓ 正常', note:p3?'偏离 > 8%,注意止盈':'价格在合理范围内', color:p3?'#f0a860':'#84f4a8', hide:false },
+    { n:4, label:'收盘跌破 5 日线不硬抗 → 先降仓位', active:p4, status:p4?'⚠ 已跌破 '+belowDays+' 日':'✓ 站回均线', note:p4?'当前收盘在 5 日线下':'已站回 5 日线', color:p4?'#fca5a5':'#84f4a8', hide:belowDays===0 },
+    { n:5, label:'连续 3 日站不回 → 直接离场', active:p5, status:p5?'⬇ '+belowDays+' 日站不回':'✓', note:p5?'趋势已变,留住本金!':'', color:p5?'#fca5a5':'#84f4a8', hide:belowDays<3 },
+  ];
+  const ma5Price = mp.deviation_pct != null ? '当前价偏离 5 日线 <b style="color:'+devColor+'">'+devText+'</b>' : '';
+  body.innerHTML = '<div style="margin-bottom:8px;font-size:12px;color:var(--ink-2)">'+ma5Price+'</div><div style="display:flex;flex-direction:column;gap:4px">'+
+    allRules.map(r => '<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;background:'+(r.active?'var(--bg-2, #1a1612)':'transparent')+';font-size:11.5px'+(r.hide?';display:none':'')+'">'+
+      '<span style="flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:'+(r.active?r.color+'33':'#333')+';color:'+(r.active?r.color:'#666')+';font-size:10px;font-weight:700">'+r.n+'</span>'+
+      '<span style="flex:1;min-width:0"><span style="color:'+(r.active?'#e8e1d4':'#666')+'">'+r.label+'</span>'+
+        '<span style="margin-left:4px;font-size:10px;color:'+r.color+'">'+r.status+'</span></span>'+
+      (r.note?'<span class="caption" style="flex-shrink:0;color:'+r.color+'">'+r.note+'</span>':'')+
+    '</div>').join('')+'</div>';
 }
 
 async function loadStockSector(code) {
@@ -4137,7 +4260,7 @@ async function loadStockSector(code) {
     }
 
     // 相关新闻 + 板块情绪
-    const rel = await api(`/api/stock/${code}/related_news`) || {};
+    const rel = await api(`/api/stock/${code}/related_news`, { signal: _stockSignal() }) || {};
     const news = rel.news || [];
     // 板块情绪从 sectors/sw 接口抓
     const secOv = await api('/api/sectors/sw') || {};
@@ -4644,3 +4767,56 @@ var _reviewState = {
   flows: new Map(),   // code -> {main_pct, retail_pct, fund_pct, ...}
   flowsTimer: null,
 };
+
+
+// ═════════════════════════════════════════════════════════════════
+// ⭐ 2026-07-19: 预取相邻个股/core — 让下次点击从 SW 缓存读 < 5ms
+// ═════════════════════════════════════════════════════════════════
+// 2026-07-21: 卡死修复 — 相邻个股预取原来每次 loadStockDetail 立即发最多 8 个并发 /core,
+// 频繁切股时 = N×8 个连接飞行(5s 超时),把连接池占满 → 卡死。
+// 改:1) settle 去抖 1.2s — 只在用户停在某只股上才预取,切走前不发;
+//     2) 全局可取消 controller — 下次切股 abort 上一批预取;3) 候选压到 4 个。
+var _prefetchTimer = null;
+var _prefetchCtrl = null;
+function _cancelAdjacentPrefetch() {
+  if (_prefetchTimer) { clearTimeout(_prefetchTimer); _prefetchTimer = null; }
+  if (_prefetchCtrl) { try { _prefetchCtrl.abort(); } catch {} _prefetchCtrl = null; }
+}
+function _prefetchAdjacentStocks(currentCode) {
+  // 先取消上一轮:切股频繁时旧预取立即作废,不占连接
+  _cancelAdjacentPrefetch();
+  const candidates = new Set();
+  // 1. 最近浏览 (历史记录, 最多 5 只)
+  try {
+    const raw = sessionStorage.getItem("tx3_stock_hist") || "[]";
+    const hist = JSON.parse(raw);
+    for (const h of hist) {
+      if (h.code && h.code !== currentCode) candidates.add(h.code);
+      if (candidates.size >= 4) break;
+    }
+  } catch (e) {}
+  // 2. 自选股 (从 watchlist cookie / storage)
+  try {
+    const wlRaw = sessionStorage.getItem("tx3_watchlist") || localStorage.getItem("tx3_watchlist") || "[]";
+    const wl = JSON.parse(wlRaw);
+    for (const w of (Array.isArray(wl) ? wl : (wl.data?.items || []))) {
+      const c = w.code || w;
+      if (c && c !== currentCode) candidates.add(c);
+      if (candidates.size >= 4) break;
+    }
+  } catch (e) {}
+  if (!candidates.size) return;
+  // 3. settle 去抖:1.2s 内又切股则本轮预取被 _cancelAdjacentPrefetch 取消,一枪不发
+  _prefetchTimer = setTimeout(() => {
+    // 用户仍停在该股才预取 (防切走后还发)
+    if (window._currentStockCode !== currentCode) return;
+    _prefetchCtrl = new AbortController();
+    setTimeout(() => { if (_prefetchCtrl) { try { _prefetchCtrl.abort(); } catch {} } }, 5000);
+    for (const c of candidates) {
+      fetch("/api/stock/" + c + "/core", {
+        signal: _prefetchCtrl.signal,
+        cache: "force-cache",  // 让 SW 可以缓存
+      }).catch(() => {});  // 静默失败
+    }
+  }, 1200);
+}
