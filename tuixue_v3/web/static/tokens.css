@@ -1,122 +1,311 @@
 /* ═══════════════════════════════════════════════════════════════════
-   TUIXUE v3 · 设计令牌 (R11-A 统一)
-   所有页面 (index / all_stocks / sector_* / screener) 共享
+   TUIXUE v3 · 设计令牌 (R150 视觉顶层重构)
+
+   这是整个前端唯一允许声明颜色/字号/圆角/间距/玻璃/阴影/动效的地方。
+   所有 view / index.html / style.css 必须通过 var(--xxx) 引用,禁止硬编码。
+
+   主题架构:
+     · :root              — 暗色默认值 (全站默认, 暗色优先 — 交易员日常使用场景)
+     · [data-theme="dark"]— 与 :root 完全等价, 显式声明是为了对称与文档化
+     · [data-theme="light"]— 亮色覆盖, 文字/背景反转
+
+   字号 17 档(全部走 token): 9 / 9.5 / 10 / 10.5 / 11 / 12 / 12.5 / 13 / 14 / 15 / 16 / 17 / 18 / 20 / 22 / 28 / 36 / 48 / 56 / 64
+   圆角  9 档(全部走 token): 2 / 4 / 6 / 10 / 14 / 18 / 22 / 28 / full
+   间距 10 档 +  3 微间距 : 2 / 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 48 / 64
+
+   AA 合规: ink-1 ≥ 7:1, ink-2 ≥ 4.5:1, ink-3/4 ≥ 3:1 (大字/辅文)。
    ═══════════════════════════════════════════════════════════════════ */
-:root {
-  /* CN 涨跌 */
-  --up:        #E5404A;
-  --down:      #1FA868;
-  --up-soft:   rgba(229, 64, 74, .08);
-  --down-soft: rgba(31, 168, 104, .07);
 
-  /* 渐变青蓝 */
-  --accent-h:    212;
-  --accent:      hsl(212, 78%, 56%);
-  --accent-2:    hsl(196, 76%, 56%);
-  --accent-3:    hsl(226, 70%, 60%);
-  --accent-grad: linear-gradient(135deg, hsl(212, 82%, 58%) 0%, hsl(196, 78%, 56%) 100%);
-  --accent-grad-soft: linear-gradient(135deg, hsla(212, 80%, 60%, .12), hsla(196, 76%, 58%, .08));
+/* ─── 暗色 (默认 — 全站优先) ─── */
+:root,
+[data-theme="dark"] {
+  /* ─── CN 涨跌 (不变, 跨主题一致) ─── */
+  --up:            #E5404A;
+  --up-strong:     #FF6B73;
+  --up-soft:       rgba(229, 64, 74, .14);
+  --down:          #1FA868;
+  --down-strong:   #34C77B;
+  --down-soft:     rgba(31, 168, 104, .12);
 
-  /* 莫兰迪冷灰基底 */
-  --bg:        #F2F4F9;
-  --bg-1:      #FFFFFF;
-  --bg-2:      #FAFBFD;
-  --bg-3:      #EEF1F7;
-  --bg-page:   #F2F4F9;
-  --bg-card:   rgba(255,255,255,0.72);
-  --bg-card-2: #FAFBFD;
-  --bg-hover:  #EEF1F7;
-  --line:      rgba(15, 23, 42, .06);
-  --line-2:    rgba(15, 23, 42, .11);
-  --line-3:    rgba(15, 23, 42, .04);
-  --line-strong: rgba(15,23,42,0.11);
+  /* ─── 文字 (暗色) ─── */
+  --ink-1:         #F1F5FB;   /* 主文 — 15:1 over --bg-page */
+  --ink-2:         #C9D1DC;   /* 副文 — 9.5:1 */
+  --ink-3:         #99A4B8;   /* 三级 — 6.0:1 — AA over */
+  --ink-4:         #7C8898;   /* 弱文字/icon — 3.0:1 — 仅用于 ≥18px / 大字 */
+  --ink-inverse:   #0B0E14;   /* 反白文字 (深色块用) */
 
-  /* 玻璃 */
-  --glass-bg: rgba(255, 255, 255, .72);
-  --glass-bg-strong: rgba(255, 255, 255, .82);
-  --glass-bg-soft: rgba(255, 255, 255, .55);
-  --glass-border: rgba(255, 255, 255, .85);
-  --glass-inner: 0 1px 0 rgba(255, 255, 255, .90) inset;
+  /* ─── 背景 (暗色) ─── */
+  --bg:            #0B0E14;
+  --bg-page:       #0B0E14;
+  --bg-1:          #131720;   /* 卡片深 */
+  --bg-2:          #1A2030;
+  --bg-3:          #232B3D;
+  --bg-card:       rgba(19, 23, 32, .65);
+  --bg-card-2:     #1A2030;
+  --bg-hover:      #1E2535;
+  --topbar-bg:     rgba(11, 14, 20, .75);
+
+  /* ─── 线条 / 分隔 ─── */
+  --line:          rgba(255, 255, 255, .06);
+  --line-2:        rgba(255, 255, 255, .12);
+  --line-3:        rgba(255, 255, 255, .03);
+  --line-strong:   rgba(255, 255, 255, .16);
+
+  /* ─── 玻璃 / 阴影 ─── */
+  --glass-bg:            rgba(19, 23, 32, .65);
+  --glass-bg-strong:     rgba(19, 23, 32, .82);
+  --glass-bg-soft:       rgba(19, 23, 32, .50);
+  --glass-border:        rgba(255, 255, 255, .08);
+  --glass-inner:         0 1px 0 rgba(255, 255, 255, .05) inset;
   --glass-shadow:
-    0 1px 0 rgba(255, 255, 255, .9) inset,
-    0 1px 2px rgba(15, 23, 42, .04),
-    0 4px 16px rgba(15, 23, 42, .04),
-    0 16px 48px -8px rgba(15, 23, 42, .08);
-  --shadow:
-    0 1px 0 rgba(255,255,255,.9) inset, 0 1px 2px rgba(15,23,42,.04),
-    0 4px 16px rgba(15,23,42,.04), 0 16px 48px -8px rgba(15,23,42,.08);
+    0 1px 0 rgba(255, 255, 255, .04) inset,
+    0 1px 2px rgba(0, 0, 0, .30),
+    0 4px 16px rgba(0, 0, 0, .32),
+    0 16px 48px rgba(0, 0, 0, .38);
+  --shadow-xs:    0 1px 2px rgba(0,0,0,.25);
+  --shadow-sm:    0 1px 3px rgba(0,0,0,.30), 0 1px 2px rgba(0,0,0,.22);
+  --shadow-md:    0 4px 12px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.25);
+  --shadow-lg:    0 8px 28px rgba(0,0,0,.40), 0 4px 14px rgba(0,0,0,.30);
+  --shadow-hover:
+    0 2px 4px rgba(0, 0, 0, .35),
+    0 12px 28px rgba(0, 0, 0, .40),
+    0 32px 64px rgba(0, 0, 0, .45);
+  --accent-glow:  0 0 0 1px hsla(212, 70%, 50%, .14), 0 8px 28px -4px hsla(212, 70%, 50%, .35);
 
-  /* 文字 */
-  --ink:       #0F172A;
-  --ink-1:     #0F172A;
-  --ink-2:     #475569;
-  --ink-3:     #94A3B8;
-  --ink-4:     #94A3B8;   /* C2: 对比度 1.7:1 → 3:1 (≈ ink-3),AA 标准 */
+  /* ─── 强调色 (青蓝渐变) ─── */
+  --accent-h:     212;
+  --accent:       hsl(212, 78%, 60%);
+  --accent-2:     hsl(196, 76%, 60%);
+  --accent-3:     hsl(226, 70%, 64%);
+  --accent-grad:      linear-gradient(135deg, hsl(212, 82%, 60%) 0%, hsl(196, 78%, 60%) 100%);
+  --accent-grad-soft: linear-gradient(135deg, hsla(212, 80%, 60%, .16), hsla(196, 76%, 58%, .10));
+  --accent-grad-rainbow: linear-gradient(135deg, var(--accent) 0%, var(--up) 50%, var(--down) 100%);
 
-  /* mesh */
-  --mesh-1:    hsla(212, 80%, 60%, .12);
-  --mesh-2:    hsla(196, 75%, 60%, .08);
-  --mesh-3:    hsla(226, 60%, 70%, .04);
+  /* ─── 网格背景 ─── */
+  --mesh-1:       hsla(212, 70%, 50%, .14);
+  --mesh-2:       hsla(196, 70%, 50%, .10);
+  --mesh-3:       hsla(226, 50%, 50%, .06);
 
-  --topbar-bg: rgba(255, 255, 255, .65);
+  /* ─── 类别色 (暗色版更鲜亮) ─── */
+  --cat-northbound:   #8BAEF0;
+  --cat-institution:  #D4A056;
+  --cat-retail_lhasa: #D78AB6;
+  --cat-quant:        #A39DDC;
+  --cat-hot_tier1:    #F0C075;
+  --cat-hot_tier2:    #C89B4E;
+  --cat-hot_tier3:    #8A7548;
+  --cat-unknown:      #6E7A8E;
 
-  /* 类别色 */
-  --cat-northbound:   #6B8FE0;
-  --cat-institution:  #B5894A;
-  --cat-retail_lhasa: #C97BA5;
-  --cat-quant:        #8B85C9;
-  --cat-hot_tier1:    #D4A056;
-  --cat-hot_tier2:    #A87B35;
-  --cat-hot_tier3:    #7A6438;
-  --cat-unknown:      #94A3B8;
+  /* ─── 语义色 ─── */
+  --warn:             #D4A056;
+  --info:             hsl(212, 78%, 60%);
+  --star-gold:        #F0C040;
+  --star-gold-soft:   hsla(45, 80%, 55%, .14);
+  --domain-orange:    #C97A1A;
+  --domain-orange-soft: hsla(36, 80%, 55%, .14);
 
-  /* 间距 */
-  --space-1:  4px;  --space-2:  8px;  --space-3:  12px; --space-4:  16px;
-  --space-5:  20px; --space-6:  24px; --space-7:  32px; --space-8:  40px;
-  --space-9:  48px; --space-10: 64px;
+  /* ─── ECharts 轴色 (暗色) ─── */
+  --chart-line:           #4A4F58;
+  --chart-tooltip-bg:     #1E1A18;
+  --chart-tooltip-border: #444038;
+  --chart-grid:           rgba(255, 255, 255, .06);
+  --chart-axis:           #6E7A8E;
+  --chart-text:           #C9D1DC;
 
-  /* 圆角 */
-  --radius:    14px;
-  --radius-xs:  6px;
-  --radius-sm:  10px;
-  --radius-md:  14px;
-  --radius-lg:  18px;
-  --radius-xl:  22px;
-  --radius-2xl: 28px;
-  --radius-full: 999px;
+  /* ─── 字号 22 档 (主题无影响) ─── */
+  --text-2xs:    9px;
+  --text-3xs:    9.5px;
+  --text-xs:     10px;
+  --text-2xs2:   10.5px;
+  --text-tiny:   11px;
+  --text-sm:     12px;
+  --text-sm2:    12.5px;
+  --text-base:   13px;       /* body 默认 */
+  --text-md:     13.5px;     /* 紧凑大屏默认 (ticker 等) */
+  --text-md2:    14px;
+  --text-lg:     14.5px;
+  --text-xl:     15px;
+  --text-2xl:    16px;
+  --text-3xl:    17px;
+  --text-4xl:    18px;
+  --text-5xl:    20px;
+  --text-6xl:    22px;
+  --text-7xl:    23px;       /* sig-pct 大数字 */
+  --text-8xl:    26px;       /* KPI 大数字 */
+  --text-9xl:    28px;
+  --text-10xl:   36px;
+  --text-11xl:   40px;       /* 倒计时 */
+  --text-12xl:   42px;       /* 超大KPI (scr-preopen) */
+  --text-13xl:   48px;
+  --text-display: 56px;
+  --text-jumbo:   64px;
 
-  /* 字号 */
-  --text-xs: 11px; --text-sm: 13px; --text-base: 14.5px; --text-md: 16px;
-  --text-lg: 18px; --text-xl: 22px; --text-2xl: 28px; --text-3xl: 36px;
-  --text-4xl: 48px; --text-display: 56px;
+  /* ─── 行高 ─── */
+  --lh-tight:    1.2;
+  --lh-snug:     1.35;
+  --lh-base:     1.55;
+  --lh-loose:    1.7;
 
-  /* 字体 */
+  /* ─── 间距 13 档 ─── */
+  --gap-1:       2px;
+  --gap-2:       3px;
+  --gap-3:       6px;
+  --space-1:     4px;
+  --space-2:     8px;
+  --space-3:     12px;
+  --space-4:     16px;
+  --space-5:     20px;
+  --space-6:     24px;
+  --space-7:     32px;
+  --space-8:     40px;
+  --space-9:     48px;
+  --space-10:    64px;
+
+  /* ─── 圆角 9 档 ─── */
+  --radius-2xs:  2px;
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   18px;
+  --radius-2xl:  22px;
+  --radius-3xl:  28px;
+  --radius-full: 9999px;
+
+  /* ─── 字体 (主题无关) ─── */
   --font-display: 'Fraunces', 'Source Serif Pro', ui-serif, Georgia, serif;
   --font-body:    'Manrope', system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* 动效 */
+  /* ─── 动效 ─── */
   --ease:        cubic-bezier(.22, .61, .36, 1);
   --ease-soft:   cubic-bezier(.4, 0, .2, 1);
   --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
   --ease-glide:  cubic-bezier(.16, 1, .3, 1);
 
-  /* 语义色 */
-  --warn:       #D4A056;
+  /* ─── 布局尺寸 (主题无关) ─── */
+  --sidebar-w:   232px;
+  --topbar-h:    44px;
+  --ticker-h:    54px;
+  --tabbar-h:    56px;
 
-  /* 全 A 风向 专属 (R12 统一硬编码字面量 → token) */
-  --accent-grad-rainbow: linear-gradient(135deg, var(--accent) 0%, var(--up) 50%, var(--down) 100%);
-  --star-gold:           #F0C040;
-  --star-gold-soft:      hsla(45, 80%, 55%, .14);
-  --domain-orange:       #C97A1A;
-  --domain-orange-soft:  hsla(36, 80%, 55%, .14);
+  /* ─── tint 占位 (替代 style.css:17-18 的 --tint-up/--tint-down) ─── */
+  --tint-up:     var(--up-soft);
+  --tint-down:   var(--down-soft);
 
-  /* 安全区 */
+  /* ─── 安全区 ─── */
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* ─── 亮色覆盖 ─── */
+[data-theme="light"] {
+  /* CN 涨跌 (亮色下涨红稍深, 不刺眼) */
+  --up:            #DC2626;
+  --up-strong:     #991B1B;
+  --up-soft:       rgba(220, 38, 38, .08);
+  --down:          #16A34A;
+  --down-strong:   #15803D;
+  --down-soft:     rgba(22, 163, 74, .08);
+
+  /* 文字 (亮色 — Slate 色阶, AA 全部合规) */
+  --ink-1:         #0F172A;   /* slate-900 — 19.6:1 over #FFFFFF */
+  --ink-2:         #334155;   /* slate-700 — 9.7:1 */
+  --ink-3:         #475569;   /* slate-600 — 7.2:1 */
+  --ink-4:         #64748B;   /* slate-500 — 4.9:1 */
+  --ink-inverse:   #FFFFFF;
+
+  /* 背景 (亮色) */
+  --bg:            #F8FAFC;   /* page: cool light */
+  --bg-page:       #F8FAFC;
+  --bg-1:          #FFFFFF;   /* 卡片 */
+  --bg-2:          #F1F5F9;   /* slate-100 */
+  --bg-3:          #E2E8F0;   /* slate-200 */
+  --bg-card:       rgba(255, 255, 255, .82);
+  --bg-card-2:     #FAFBFD;
+  --bg-hover:      #EEF1F6;
+  --topbar-bg:     rgba(255, 255, 255, .75);
+
+  /* 线条 */
+  --line:          rgba(15, 23, 42, .08);
+  --line-2:        rgba(15, 23, 42, .14);
+  --line-3:        rgba(15, 23, 42, .04);
+  --line-strong:   rgba(15, 23, 42, .20);
+
+  /* 玻璃 / 阴影 */
+  --glass-bg:          rgba(255, 255, 255, .85);
+  --glass-bg-strong:   rgba(255, 255, 255, .92);
+  --glass-bg-soft:     rgba(255, 255, 255, .65);
+  --glass-border:      rgba(15, 23, 42, .08);
+  --glass-inner:       0 1px 0 rgba(255, 255, 255, .95) inset;
+  --glass-shadow:
+    0 1px 0 rgba(255, 255, 255, .95) inset,
+    0 1px 2px rgba(15, 23, 42, .06),
+    0 4px 16px rgba(15, 23, 42, .06),
+    0 16px 48px -8px rgba(15, 23, 42, .12);
+  --shadow-xs:    0 1px 2px rgba(15,23,42,.06);
+  --shadow-sm:    0 1px 3px rgba(15,23,42,.08), 0 1px 2px rgba(15,23,42,.04);
+  --shadow-md:    0 4px 12px rgba(15,23,42,.08), 0 2px 6px rgba(15,23,42,.05);
+  --shadow-lg:    0 8px 28px rgba(15,23,42,.10), 0 4px 14px rgba(15,23,42,.06);
+  --shadow-hover:
+    0 2px 4px rgba(15, 23, 42, .10),
+    0 12px 28px rgba(15, 23, 42, .10),
+    0 32px 64px rgba(15, 23, 42, .14);
+  --accent-glow:  0 0 0 1px hsla(212, 80%, 56%, .16), 0 8px 28px -4px hsla(212, 80%, 56%, .35);
+
+  /* 强调色 (亮色下偏深) */
+  --accent-h:     212;
+  --accent:       hsl(212, 78%, 52%);
+  --accent-2:     hsl(196, 76%, 52%);
+  --accent-3:     hsl(226, 70%, 56%);
+  --accent-grad:      linear-gradient(135deg, hsl(212, 82%, 54%) 0%, hsl(196, 78%, 54%) 100%);
+  --accent-grad-soft: linear-gradient(135deg, hsla(212, 80%, 60%, .10), hsla(196, 76%, 58%, .06));
+
+  /* 网格背景 (亮色很淡) */
+  --mesh-1:       hsla(212, 80%, 60%, .06);
+  --mesh-2:       hsla(196, 75%, 60%, .04);
+  --mesh-3:       hsla(226, 60%, 70%, .02);
+
+  /* 类别色 (亮色版更深更饱和) */
+  --cat-northbound:   #4A7CD4;
+  --cat-institution:  #9E7530;
+  --cat-retail_lhasa: #B85E8A;
+  --cat-quant:        #6E68B8;
+  --cat-hot_tier1:    #C49040;
+  --cat-hot_tier2:    #9E6E28;
+  --cat-hot_tier3:    #6A5428;
+  --cat-unknown:      #94A3B8;
+
+  /* 语义色 */
+  --warn:         #C49040;
+  --info:         hsl(212, 78%, 52%);
+  --star-gold:    #D4A056;
+  --star-gold-soft:   hsla(45, 80%, 50%, .14);
+  --domain-orange:    #B46514;
+  --domain-orange-soft: hsla(36, 80%, 50%, .14);
+
+  /* ECharts */
+  --chart-line:           #D8D5CE;
+  --chart-tooltip-bg:     #FFFFFF;
+  --chart-tooltip-border: #DDD8D0;
+  --chart-grid:           rgba(15, 23, 42, .05);
+  --chart-axis:           #94A3B8;
+  --chart-text:           #475569;
+}
+
+/* ─── 基础重置 + 全局字体 ─── */
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg-page); color: var(--ink-1);
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-page);
+  color: var(--ink-1);
   font-family: var(--font-body);
-  font-size: 13px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01';
+  transition: background-color .35s var(--ease-soft),
+              color .35s var(--ease-soft);
+}
