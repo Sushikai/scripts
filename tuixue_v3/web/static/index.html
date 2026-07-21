@@ -115,6 +115,10 @@
     <span>复盘</span>
     <span class="sb-num">08</span>
   </div>
+  <div class="sidebar-item" tabindex="0" role="button" data-jump="sources">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="8" cy="5" r="2.5"/><path d="M3 14a5 5 0 0 1 10 0"/></svg></span>
+    <span>数据源</span>
+  </div>
   <div class="sidebar-footer">
     <div class="sidebar-status" id="sidebar-status">
       <span class="dot"></span>
@@ -1443,6 +1447,18 @@
     <script src="/static/zt-frontend.js?v=__JS_V__" defer></script>
   </section>
 
+  <!-- ─── 数据源健康 ─── -->
+  <section class="view view-sources" data-view="sources" hidden>
+    <header class="view-head">
+      <p class="caption">系统监控 · 数据源健康</p>
+      <h1 class="display">数据源 <span class="accent" id="src-health-summary">—</span></h1>
+      <p class="lede" id="src-health-sub">各数据源实时状态 · 熔断 · 冷却</p>
+    </header>
+    <div id="sources-health-body">
+      <div class="dim center" style="padding:2rem">加载中…</div>
+    </div>
+  </section>
+
   <!-- ─── 全 A 风向 (inline, 2026-07-14 从 all_stocks.html 迁入,跟主 app shell 视觉一致) ─── -->
   <section class="view view-all_stocks" data-view="all_stocks" hidden>
     <header class="view-head as-head">
@@ -1538,27 +1554,24 @@
         <table class="data-table as-stocks-table stocks-table" id="as-stocks-table">
           <thead>
             <tr>
-              <th class="cat"                data-col="自选"   rowspan="1" title="加自选"></th>
-              <th class="cat sticky-left sortable"    data-col="代码" data-sort="code" data-order="asc">代码<span class="arrow"></span></th>
-              <th class="cat sticky-left-2 sortable" data-col="名称" data-sort="name" data-order="asc">名称<span class="arrow"></span></th>
-              <th class="cat chip-domain-head" data-col="AI战场" rowspan="1">AI 战场</th>
-              <th class="num sortable" data-col="涨幅"     data-sort="change_pct"       data-order="desc">涨幅<span class="arrow"></span></th>
-              <th class="num sortable" data-col="涨跌额"   data-sort="change_amt"       data-order="desc">涨跌额<span class="arrow"></span></th>
-              <th class="num" data-col="5D走势" title="近 5 日收盘 mini sparkline">5D</th>
-              <th class="num sortable" data-col="换手"     data-sort="turnover"         data-order="desc">换手%<span class="arrow"></span></th>
-              <th class="num sortable" data-col="量比"     data-sort="volume_ratio"     data-order="desc">量比<span class="arrow"></span></th>
-              <th class="num sortable" data-col="振幅"     data-sort="amplitude"        data-order="desc">振幅%<span class="arrow"></span></th>
-              <th class="num cat-mid sortable" data-col="成交额" data-sort="amount"        data-order="desc">成交额(亿)<span class="arrow"></span></th>
-              <th class="num cat-mid sortable" data-col="市值"  data-sort="mcap"           data-order="desc">总市值(亿)<span class="arrow"></span></th>
-              <th class="num cat-mid sortable"         data-col="PE" data-sort="pe" data-order="desc">PE<span class="arrow"></span></th>
-              <th class="num cat-mid sortable" data-col="主力净流入" data-sort="main_fund_inflow" data-order="desc">主力净流入(万)<span class="arrow"></span></th>
-              <th class="cat-mid sortable" data-col="L1" data-sort="l1" data-order="asc">L1 集群<span class="arrow"></span></th>
-              <th class="cat-mid sortable" data-col="L2" data-sort="l2" data-order="asc">L2 申万<span class="arrow"></span></th>
-              <th class="cat-mid" data-col="L3">L3 产业链</th>
-              <th class="cat-mid" data-col="L4">L4 细分概念</th>
-              <th class="cat-mid" data-col="来源"   title="数据来源标记">来源</th>
-              <th class="cat-mid sortable" data-col="涨停" data-sort="zt_today" data-order="desc">涨停<span class="arrow"></span></th>
-              <th class="cat-mid" data-col="同链涨停" title="此股所在 L2 申万/L3 产业链/各 L4 细分 今日涨停家数 (多股性同时显示)">同链涨停</th>
+              <th class="cat"                data-col="自选" data-priority="2" rowspan="1" title="加自选"></th>
+              <th class="cat sticky-left sortable"    data-col="代码" data-priority="1" data-sort="code" data-order="asc">代码<span class="arrow"></span></th>
+              <th class="cat sticky-left-2 sortable" data-col="名称" data-priority="1" data-sort="name" data-order="asc">名称<span class="arrow"></span></th>
+              <th class="cat chip-domain-head" data-col="板块" data-priority="1" data-sort="l2" data-order="asc">板块<span class="arrow"></span></th>
+              <th class="cat chip-domain-head" data-col="概念" data-priority="2" data-sort="l3" data-order="asc">概念<span class="arrow"></span></th>
+              <th class="num sortable" data-col="涨幅" data-priority="1" data-sort="change_pct" data-order="desc">涨幅<span class="arrow"></span></th>
+              <th class="num sortable" data-col="涨跌额" data-priority="2" data-sort="change_amt" data-order="desc">涨跌额<span class="arrow"></span></th>
+              <th class="num" data-col="5D走势" data-priority="3" title="近 5 日收盘 mini sparkline">5D</th>
+              <th class="num sortable" data-col="换手" data-priority="2" data-sort="turnover" data-order="desc">换手%<span class="arrow"></span></th>
+              <th class="num sortable" data-col="量比" data-priority="3" data-sort="volume_ratio" data-order="desc">量比<span class="arrow"></span></th>
+              <th class="num sortable" data-col="振幅" data-priority="3" data-sort="amplitude" data-order="desc">振幅%<span class="arrow"></span></th>
+              <th class="num cat-mid sortable" data-col="成交额" data-priority="3" data-sort="amount" data-order="desc">成交额(亿)<span class="arrow"></span></th>
+              <th class="num cat-mid sortable" data-col="市值" data-priority="2" data-sort="mcap" data-order="desc">总市值(亿)<span class="arrow"></span></th>
+              <th class="num cat-mid sortable" data-col="PE" data-priority="3" data-sort="pe" data-order="desc">PE<span class="arrow"></span></th>
+              <th class="num cat-mid sortable" data-col="主力净流入" data-priority="3" data-sort="main_fund_inflow" data-order="desc">主力净流入(万)<span class="arrow"></span></th>
+              <th class="cat-mid sortable" data-col="L1" data-priority="3" data-sort="l1" data-order="asc">L1 集群<span class="arrow"></span></th>
+              <th class="cat-mid sortable" data-col="涨停" data-priority="2" data-sort="zt_today" data-order="desc">涨停<span class="arrow"></span></th>
+              <th class="cat-mid" data-col="同链涨停" data-priority="3" title="此股所在 L2 申万/L3 产业链/各 L4 细分 今日涨停家数 (多股性同时显示)">同链涨停</th>
             </tr>
           </thead>
           <tbody id="as-stocks-tbody">

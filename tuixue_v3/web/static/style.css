@@ -299,6 +299,17 @@ input, select, textarea { font: inherit; color: inherit; }
 .signal-degraded { opacity: .6; filter: grayscale(.5); }
 .stale-label { font-size: 11px; color: var(--text-muted); font-style: italic; }
 .stock-degraded-badge { font-size: 11px; color: var(--down); background: var(--bg-warn, rgba(255,180,0,.12)); padding: 4px 12px; border-radius: 4px; margin: 4px 12px; display: inline-block; }
+.src-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; padding: 12px; }
+.src-card { padding: 12px; }
+.src-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.src-name { font-size: 13.5px; font-weight: 600; }
+.src-status { font-size: 10px; padding: 2px 8px; border-radius: 4px; }
+.src-status.src-ok { background: var(--up)22; color: var(--up); }
+.src-status.src-down { background: var(--down)22; color: var(--down); }
+.src-card.src-down { border-color: var(--down)44; }
+.src-stats { font-size: 11px; color: var(--ink-3); }
+.src-cooldown { font-size: 11px; color: var(--warn); margin-top: 4px; }
+.src-err { font-size: 10.5px; color: var(--ink-4); margin-top: 4px; word-break: break-all; }
 @media (max-width: 768px) {
   .tickerbar { padding: 0 10px; gap: 0; }
   .tk-item { padding: 8px 10px; gap: 5px; }
@@ -332,6 +343,12 @@ input, select, textarea { font: inherit; color: inherit; }
   /* R-fix-2026-07-16: sticky 首列 80→64 + sticky-left-2 80→70,让右侧更多列可见 */
   .view-all_stocks .stocks-table tbody td.sticky-left-2,
   .view-all_stocks .stocks-table thead th.sticky-left-2 { left: 64px; }
+  /* 2026-07-22: 移动端列优先级隐藏 — 18 列在 768/480 viewport 完全错乱,
+     P3 隐藏 (PE/主力净流入/量比/振幅/成交额/同链涨停/5D/L1) */
+  .view-all_stocks .stocks-table thead th[data-priority="3"],
+  .view-all_stocks .stocks-table tbody td[data-priority="3"] { display: none; }
+  /* 移动端 table min-width 放开 (1080 → auto),靠 P 隐列压缩总宽 */
+  .view-all_stocks .stocks-table { min-width: 0; }
   /* Mobile: 龙头 */
   .view-dragons .dragon-card { padding: 6px 8px; gap: 4px; }
   .view-dragons .dragon-score { font-size: 15px; }
@@ -6535,7 +6552,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   border-collapse: collapse;
   font-size: clamp(10.5px, 2.6vw, 12.5px);
   font-variant-numeric: tabular-nums;
-  min-width: 1080px;
+  /* 2026-07-22: 取消桌面 min-width:1080 强制横滚 — 18 列本就能在 1280px 装下,
+     让小桌面 (1024-1280) 也舒服。表格横向滚动现在交由 data-priority 控制 */
 }
 .view-all_stocks .stocks-table thead th {
   background: var(--bg-2);
@@ -7115,6 +7133,36 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   filter: brightness(.95);
   box-shadow: 0 2px 6px hsla(0,0%,0%,.10);
   transform: translateY(-1px);
+}
+/* 2026-07-22: 单行化 — 每行表格只显示一行,chip 超宽截断+title 看全名 */
+.view-all_stocks .stocks-table tbody tr.stock-row > td {
+  white-space: nowrap;
+  vertical-align: middle;
+  max-height: 36px;
+  overflow: hidden;
+}
+.view-all_stocks .stocks-table tbody tr.stock-row > td .chip {
+  white-space: nowrap;
+  max-width: 100%;
+}
+.view-all_stocks .stocks-table tbody tr.stock-row > td .chip-trunc {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  max-width: 100%;
+}
+.view-all_stocks .stocks-table tbody tr.stock-row > td .chip-more {
+  display: inline-block;
+  margin-left: 3px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 8px;
+  background: hsla(212,80%,60%,.18);
+  color: var(--ink-2, #888);
+  vertical-align: top;
+  line-height: 14px;
 }
 .view-all_stocks .chip-role {
   display: inline-block;
@@ -7876,6 +7924,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
     width: auto;  /* R76-80: 不强制 min-width,table-layout:fixed + explicit col width = 精确列宽 */
     min-width: 0; /* 覆盖 (max-width: 768px) 里的 min-width:720px */
   }
+  /* 2026-07-22: ≤480px iPhone — 再隐藏 P2 (涨跌额/换手/市值/涨停/概念),
+     只留 P1 核心 7 列: 自选/代码/名称/板块/涨幅 — 用户能一眼扫到 */
+  .view-all_stocks .stocks-table thead th[data-priority="2"],
+  .view-all_stocks .stocks-table tbody td[data-priority="2"] { display: none; }
   /* R71-75 (2026-07-17): col-toggle 菜单移动端 — full-width 浮在上方,避免溢出 */
   .view-all_stocks .col-toggle {
     position: static;

@@ -1117,7 +1117,7 @@ function _routeFromHash() {
     arg = _sp.get('code');
   }
   if (!name) return showView('dash', { push: false });
-  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker','sector'];
+  const valid = ['dash','stock','review','dragons','screener','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker','sector','sources'];
   if (!valid.includes(name)) return showView('dash', { push: false });
   if (name === 'stock' && arg) {
     const code = arg.match(/\d{6}/)?.[0];
@@ -9413,22 +9413,22 @@ document.addEventListener('DOMContentLoaded', () => {
       const tax = r.taxonomy || {};
       const domains = Array.isArray(r.domain) ? r.domain : [];
       const domainChip = domains.length
-        ? domains.map(d => `<span class="chip chip-domain chip-click" data-goto-domain="${escapeHtml(d)}" title="查看所有「${escapeHtml(d)}」标的">${escapeHtml(d)}</span>`).join('')
+        ? `<span class="chip chip-domain chip-click chip-trunc" data-goto-domain="${escapeHtml(domains[0])}" title="查看所有「${escapeHtml(domains.join(' / '))}」">${escapeHtml(domains[0])}${domains.length > 1 ? `<sup class="chip-more">+${domains.length - 1}</sup>` : ''}</span>`
         : '<span class="dim">—</span>';
       const l1 = tax.l1
-        ? `<span class="chip chip-l1" style="--chip-bg:${tax.l1_color || 'var(--ink-4)'}22;--chip-fg:${tax.l1_color || 'var(--ink-4)'};border-color:${tax.l1_color || 'var(--ink-4)'};" title="L1 集群">${escapeHtml(tax.l1)}</span>`
+        ? `<span class="chip chip-l1 chip-trunc" style="--chip-bg:${tax.l1_color || 'var(--ink-4)'}22;--chip-fg:${tax.l1_color || 'var(--ink-4)'};border-color:${tax.l1_color || 'var(--ink-4)'};" title="L1 集群">${escapeHtml(tax.l1)}</span>`
         : '<span class="dim">—</span>';
-      const l2 = tax.l2
-        ? `<span class="chip chip-click" data-goto-l2="${escapeHtml(tax.l2)}" title="查看所有 ${escapeHtml(tax.l2)} 标的">${escapeHtml(tax.l2)}</span>`
+      // 板块 = L2 SW,单个 chip,单击筛选
+      const secChip = tax.l2
+        ? `<span class="chip chip-click chip-trunc" data-goto-l2="${escapeHtml(tax.l2)}" title="板块 · ${escapeHtml(tax.l2)}">${escapeHtml(tax.l2)}</span>`
         : '<span class="dim">—</span>';
-      const l3 = tax.l3
-        ? `<span class="chip chip-click" data-goto-l3="${escapeHtml(tax.l3)}" title="查看所有 ${escapeHtml(tax.l3)} 标的">${escapeHtml(tax.l3)}${tax.l3_source && tax.l3_source !== 'cache' ? ` <span class="dim" style="font-size:9px;">(${escapeHtml(tax.l3_source)})</span>` : ''}</span>`
-        : '<span class="dim">—</span>';
+      // 概念 = 优先 L3,空则取 L4[0],空则 l4 计数
       const l4List = tax.l4 || [];
-      const l4 = l4List.length
-        ? l4List.map(x => `<span class="chip chip-click" data-goto-l4="${escapeHtml(x)}" title="查看所有 ${escapeHtml(x)} 标的">${escapeHtml(x)}</span>`).join('')
+      const conceptPrimary = tax.l3 || (l4List[0] || '');
+      const conceptExtra = l4List.filter((_, i) => i !== 0 || !tax.l3).length;
+      const conceptChip = conceptPrimary
+        ? `<span class="chip chip-click chip-trunc" data-goto-l3="${escapeHtml(conceptPrimary)}" title="概念 · ${escapeHtml([tax.l3, ...l4List].filter(Boolean).join(' / '))}">${escapeHtml(conceptPrimary)}${conceptExtra > 0 ? `<sup class="chip-more">+${conceptExtra}</sup>` : ''}</span>`
         : '<span class="dim">—</span>';
-      const role = tax.role ? `<span class="chip-role role-${escapeHtml(tax.role)}">${escapeHtml(tax.role)}</span>` : '';
       const ztTag = r.zt_today
         // 100-R5: 连板天 pill — 5 级 (L1=首板 / L2=2 连 / L3=3 连 / L4=4 连 / L5+=5+ 连)
         ? (() => {
@@ -9438,32 +9438,25 @@ document.addEventListener('DOMContentLoaded', () => {
           })()
         : r.zt_recent ? `<span class="zt-recent" title="近 3 日累计涨停 ${r.zt_recent} 次">${r.zt_recent}日</span>`
         : '<span class="dim">—</span>';
-      const taxSrc = ((tax.l3_source || '').slice(0, 4));
-      const srcTag = taxSrc
-        ? `<span class="dim" style="font-size:10px;" title="taxonomy 来源: ${escapeHtml(taxSrc)}">${escapeHtml(taxSrc)}</span>`
-        : '<span class="dim">—</span>';
       return `<tr class="stock-row" data-code="${escapeHtml(r.code)}" data-name="${escapeHtml(r.name || '')}">
-        <td class="cat" data-col="自选"><span class="star-btn" data-star-code="${escapeHtml(r.code)}" data-star-name="${escapeHtml(r.name || '')}" title="加自选"></span></td>
-        <td class="cat sticky-left" data-col="代码"><span class="code-link" data-code="${escapeHtml(r.code)}">${escapeHtml(r.code)}</span></td>
-        <td class="cat sticky-left-2" data-col="名称"><span class="name">${escapeHtml(r.name || '')}</span></td>
-        <td class="cat" data-col="AI战场">${domainChip}</td>
-        <td class="num ${pctCls} ${pctFl} ${pctTier}" data-col="涨幅">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
-        <td class="num ${amtCls}" data-col="涨跌额">${amt >= 0 ? '+' : ''}${amt.toFixed(2)}</td>
-        <td class="num" data-col="5D走势" data-spark-code="${escapeHtml(r.code)}"><span class="spark-placeholder dim" style="font-size:10px">···</span></td>
-        <td class="num" data-col="换手">${(r.turnover || 0).toFixed(2)}</td>
-        <td class="num" data-col="量比">${(r.volume_ratio || 0).toFixed(2)}</td>
-        <td class="num" data-col="振幅">${(r.amplitude || 0).toFixed(2)}</td>
-        <td class="num cat-mid" data-col="成交额">${(r.amount_yi || 0).toFixed(2)}</td>
-        <td class="num cat-mid" data-col="市值">${(r.mcap_yi || 0).toFixed(0)}</td>
-        <td class="num cat-mid" data-col="PE">${r.pe_ttm ? r.pe_ttm.toFixed(1) : '—'}</td>
-        <td class="num cat-mid ${fundCls}" data-col="主力净流入">${fund >= 0 ? '+' : ''}${fund.toFixed(0)}</td>
-        <td class="cat-mid" data-col="L1">${l1}</td>
-        <td class="cat-mid" data-col="L2">${l2}</td>
-        <td class="cat-mid" data-col="L3">${l3}${role}</td>
-        <td class="cat-mid" data-col="L4">${l4}</td>
-        <td class="cat-mid" data-col="来源">${srcTag}</td>
-        <td class="cat-mid" data-col="涨停">${ztTag}</td>
-        <td class="cat-mid" data-col="同链涨停" data-code="${escapeHtml(r.code)}" data-ztchips="1"><span class="zt-chips-placeholder dim" style="font-size:11px">…</span></td>
+        <td class="cat" data-priority="2" data-col="自选"><span class="star-btn" data-star-code="${escapeHtml(r.code)}" data-star-name="${escapeHtml(r.name || '')}" title="加自选"></span></td>
+        <td class="cat sticky-left" data-priority="1" data-col="代码"><span class="code-link" data-code="${escapeHtml(r.code)}">${escapeHtml(r.code)}</span></td>
+        <td class="cat sticky-left-2" data-priority="1" data-col="名称"><span class="name">${escapeHtml(r.name || '')}</span></td>
+        <td class="cat" data-priority="1" data-col="板块" title="${escapeHtml(tax.l2 || '—')}">${secChip}</td>
+        <td class="cat" data-priority="2" data-col="概念" title="${escapeHtml([tax.l3, ...l4List].filter(Boolean).join(' / ') || '—')}">${conceptChip}</td>
+        <td class="num ${pctCls} ${pctFl} ${pctTier}" data-priority="1" data-col="涨幅">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+        <td class="num ${amtCls}" data-priority="2" data-col="涨跌额">${amt >= 0 ? '+' : ''}${amt.toFixed(2)}</td>
+        <td class="num" data-priority="3" data-col="5D走势" data-spark-code="${escapeHtml(r.code)}"><span class="spark-placeholder dim" style="font-size:10px">···</span></td>
+        <td class="num" data-priority="2" data-col="换手">${(r.turnover || 0).toFixed(2)}</td>
+        <td class="num" data-priority="3" data-col="量比">${(r.volume_ratio || 0).toFixed(2)}</td>
+        <td class="num" data-priority="3" data-col="振幅">${(r.amplitude || 0).toFixed(2)}</td>
+        <td class="num cat-mid" data-priority="3" data-col="成交额">${(r.amount_yi || 0).toFixed(2)}</td>
+        <td class="num cat-mid" data-priority="2" data-col="市值">${(r.mcap_yi || 0).toFixed(0)}</td>
+        <td class="num cat-mid" data-priority="3" data-col="PE">${r.pe_ttm ? r.pe_ttm.toFixed(1) : '—'}</td>
+        <td class="num cat-mid ${fundCls}" data-priority="3" data-col="主力净流入">${fund >= 0 ? '+' : ''}${fund.toFixed(0)}</td>
+        <td class="cat-mid" data-priority="3" data-col="L1">${l1}</td>
+        <td class="cat-mid" data-priority="2" data-col="涨停">${ztTag}</td>
+        <td class="cat-mid" data-priority="3" data-col="同链涨停" data-code="${escapeHtml(r.code)}" data-ztchips="1"><span class="zt-chips-placeholder dim" style="font-size:11px">…</span></td>
       </tr>`;
     }).join('');
     // R8-perf: 记录追加前行数,使 refreshStarMarks 只扫新增行
@@ -9749,7 +9742,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderActiveFilters() {
     const tags = [];
     if (state.l1) tags.push({ key: 'l1', label: `L1 · ${state.l1}` });
-    [[state.l2,'l2','L2'],[state.l3,'l3','L3'],[state.l4,'l4','L4'],[state.domain,'domain','AI战场']].forEach(([v, key, prefix]) => {
+    [[state.l2,'l2','板块'],[state.l3,'l3','概念'],[state.l4,'l4','L4'],[state.domain,'domain','AI']].forEach(([v, key, prefix]) => {
       (v || '').split(',').filter(Boolean).forEach(x => {
         tags.push({ key: `${key}-multi`, label: `${prefix} · ${x}`, val: x });
       });
@@ -10448,9 +10441,43 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ─── 数据源健康看板 ─────────────────────────────────────────
+  function _renderSourcesHealth() {
+    const host = $('#sources-health-body');
+    if (!host) return;
+    host.innerHTML = '<div class="dim center" style="padding:2rem">加载中…</div>';
+    api('/api/sources/health').then(d => {
+      const sources = (d && d.sources) || [];
+      const healthy = d && d.healthy;
+      const disabled = (d && d.disabled_count) || 0;
+      $('#src-health-summary').textContent = `${sources.length} 源 · ${disabled} 冷却 · ${healthy ? '健康' : '异常'}`;
+      $('#src-health-sub').textContent = healthy ? '所有数据源正常运行' : `${disabled} 个数据源处于冷却状态`;
+      if (!sources.length) {
+        host.innerHTML = '<div class="dim center" style="padding:2rem">暂无数据</div>';
+        return;
+      }
+      host.innerHTML = `<div class="src-grid">${sources.map(s => {
+        const pct = s.total_calls > 0 ? ((s.total_fails / s.total_calls) * 100).toFixed(1) : '—';
+        const statusCls = s.disabled ? 'src-down' : 'src-ok';
+        const levelLabel = ['300s','600s','20min','40min','60min'][s.cooldown_level] || '—';
+        const lastErr = s.last_err ? escapeHtml(String(s.last_err).slice(0, 60)) : '';
+        return `<div class="card src-card ${statusCls}">
+          <div class="src-head"><span class="src-name">${escapeHtml(s.name)}</span><span class="src-status ${statusCls}">${s.disabled ? '冷却中' : '正常'}</span></div>
+          <div class="src-stats">调用 ${s.total_calls} · 失败 ${s.total_fails} · 成功率 ${pct}% · 冷却级 ${s.cooldown_level}(${levelLabel})</div>
+          ${s.disabled && s.disabled_remaining_s ? `<div class="src-cooldown">剩余冷却 ${s.disabled_remaining_s}s</div>` : ''}
+          ${lastErr ? `<div class="src-err" title="${escapeHtml(String(s.last_err))}">最近错误: ${lastErr}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+    }).catch(e => {
+      host.innerHTML = `<div class="dim center" style="padding:2rem">加载失败: ${escapeHtml(e.message)}</div>`;
+    });
+  }
+
   // === 26. view-enter 钩子 ================================================
   document.addEventListener('view-enter', (e) => {
-    if (!e.detail || e.detail.name !== 'all_stocks') return;
+    if (!e.detail) return;
+    if (e.detail.name === 'sources') { _renderSourcesHealth(); return; }
+    if (e.detail.name !== 'all_stocks') return;
     if (state._initialised) {
       // 重新进入 view — 重新解析 URL 深链 (支持 sidebar 跨页切换)
       const h = (location.hash || '').replace(/^#/, '');

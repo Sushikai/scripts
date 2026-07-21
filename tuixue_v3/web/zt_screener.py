@@ -59,6 +59,7 @@ def register(app):
     ):
         """同步运行回测（适配合适超时）。"""
         from .. import zt_config as cfg
+        from .server import envelope
         params = _get_params().copy()
         params["start"] = start or cfg.ZT_START
         params["end"] = end or cfg.ZT_END
@@ -66,7 +67,7 @@ def register(app):
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _run_bt, params)
-        return result
+        return envelope(data=result)
 
     # ── POST /api/zt/backtest — 异步回测 ──
     @app.post("/api/zt/backtest")

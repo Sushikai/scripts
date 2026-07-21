@@ -77,22 +77,25 @@
 // v157 (2026-07-22): Tier 2.3 hashchange 50ms debounce — 连续点 5 个 sidebar item 只触发最后 1 次路由,
 //                    旧版 5 次 _routeFromHash → 5 套 view-enter + 5×11 API 拉取,HTTP/1.1 6 连接池撞穿。
 //                    4) showView 派发 view-leave CustomEvent,让全局监听器 (prefetch/_a11yObs 等) 知道何时清理。
-// v152 (2026-07-21): 移 index.html 内联 ~2700 行 screener IIFE 到独立文件 /static/screener-inline.js —
-//                    index.html 从 274KB→127KB (4831→2134 行),主壳 parse 减压,二进访问走 SW cache 秒开。
-const CACHE = 'tuixue-v3-shell-v157';
+// v158 (2026-07-22): view-stock/view-other/weekly/strategy 改为按需注入,不再 precache 首屏不需要的脚本。
+//                    首次进入目标 view 时由 app.js 依赖序列加载并缓存。
+// v159 (2026-07-22): ZT 多因子加权 — zt-frontend.js 加交易明细表 + 每条 trade 加 weighted_score
+// v160 (2026-07-22): 全A 表格顶级化 — AI 战场列拆为「板块」「概念」,删冗余 L2/L3/L4/来源,单行化 (chip 截断+ title 全名 + +N 溢出)
+// v161 (2026-07-22): 移动端列优先级 — 18 列打 data-priority (P1=核心 / P2=次要 / P3=可选),
+//                    ≤768 隐藏 P3, ≤480 再隐藏 P2;撤掉桌面 min-width:1080 强制横滚
+// v162 (2026-07-22): tbody td 同步打 data-priority — 旧版只在 thead th 上挂属性,
+//                    CSS `tbody td[data-priority="3"]` 不命中,移动端表格 18 列全显示,
+//                    scrollWidth 587px > viewport 390px 横滚 bug
+const CACHE = 'tuixue-v3-shell-v163';
 const PRECACHE = [
   '/',
   '/static/app.js',
   '/static/core.js',
   '/static/view-dash.js',
-  '/static/view-stock.js',
-  '/static/view-other.js',
-  '/static/view-all-stocks.js',
-  '/static/view-weekly_bull.js',
-  '/static/view-strategy_picker.js',
   '/static/style.css',
   '/static/index.html',
   '/static/sw.js',
+  '/static/zt-frontend.js',
   '/static/vendor/echarts.min.js',
 ];
 

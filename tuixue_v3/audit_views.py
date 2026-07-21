@@ -82,9 +82,9 @@ VIEWS = [
       "table":  "#review-table",
   }),
   ("screener",       "screener",        None,           {
-      "baseline_rows":  "#scr-tbody-baseline tr",
-      "optimized_rows": "#scr-tbody-optimized tr",
-      "presets":        ".bt-presets",
+      "card":       ".view-screener:not([hidden]) #zt-mount .card",
+      "run_btn":    "#zt-bt-run",
+      "start_in":   "#zt-bt-start",
   }),
   ("all_stocks",     "all_stocks",      None,           {
       "kpis":     "#as-kpis",
@@ -186,7 +186,7 @@ async def main():
                 )
                 page = await ctx.new_page()
 
-                # pre-seed theme via localStorage (index.html inline script reads it)
+                # pre-seed theme via localStorage (index.html inline script 同步读取它)
                 await page.add_init_script(f"try{{localStorage.setItem('tuixue-theme','{theme}')}}catch(e){{}}")
 
                 console_sink = []

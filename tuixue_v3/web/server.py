@@ -34,7 +34,29 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from . import fund_flow, seat_lookup
+import importlib as _importlib
+
+
+class _LazyModule:
+    def __init__(self, name: str):
+        self._name = name
+        self._module = None
+
+    def _get(self):
+        if self._module is None:
+            self._module = _importlib.import_module(f"{__package__}.{self._name}")
+        return self._module
+
+    def __getattr__(self, attr):
+        return getattr(self._get(), attr)
+
+
+fund_flow = _LazyModule("fund_flow")
+seat_lookup = _LazyModule("seat_lookup")
+news_lookup = _LazyModule("news_lookup")
+ai_chat = _LazyModule("ai_chat")
+_review = _LazyModule("review")
+_watchlist = _LazyModule("watchlist")
 from .. import cache_store
 from ._constants import (
     API_DEFAULT_TIMEOUT, API_HEALTH_TIMEOUT, API_VERSION_TIMEOUT, API_META_TIMEOUT,
@@ -1542,11 +1564,11 @@ async def meta_version():
 
 
 @app.get("/api/_meta/cache_stats")
-async def meta_cache_stats():
+async def meta_cache_stats(request: _Request):
     """全量缓存状态 — 给前端 debug 页 / 压力测试用。
     R-B11: envelope 标准化 — 把所有 _meta/* 端点统一
     """
-    return _envelope_ok(_cache_stats_snapshot())
+    return json_etag_response(request, _envelope_ok(_cache_stats_snapshot()), max_age=5)
 
 
 # R91 (Batch 10): /api/_meta/perf 聚合端点 — uptime / version 用
@@ -2859,14 +2881,17 @@ def _pick_data_date(indices: list[dict], fallback: str = "") -> str:
 
 
 @app.get("/api/dashboard/signal")
-async def api_dashboard_signal(force: bool = False):
+async def api_dashboard_signal(request: _Request, force: bool = False):
     """首页三市场信号面板 — A/KR/US verdict + 关键指数 + 不利新闻。
     30s 内存缓存; force=true 强制重算 (数据源冷启动或调试)。
     R-T5x (2026-07-21): 跨 worker 共享 Redis 缓存,避免 4 worker × cold path 11s × N
     """
+    def _response(**payload):
+        return json_etag_response(request, envelope(**payload), max_age=5)
+
     now = time.time()
     if not force and _dashboard_cache["signal"] is not None and (now - _dashboard_cache["ts"]) < _DASHBOARD_TTL:
-        return envelope(data=_dashboard_cache["signal"])
+        return _response(data=_dashboard_cache["signal"])
     # R-T5x: Redis 共享 — bench 20 并发 → 4 worker 全命中, 二次 < 5ms
     if not force:
         try:
@@ -2875,7 +2900,7 @@ async def api_dashboard_signal(force: bool = False):
                 sig = _json_dash.loads(cached)
                 _dashboard_cache["signal"] = sig
                 _dashboard_cache["ts"] = now
-                return envelope(data=sig)
+                return _response(data=sig)
         except Exception as e:
             log.debug(f"dashboard signal redis get fail: {e}")
 
@@ -2884,7 +2909,7 @@ async def api_dashboard_signal(force: bool = False):
     if not force and _dashboard_cache["signal"] is not None:
         if (now - _dashboard_cache["ts"]) >= _DASHBOARD_TTL:
             _bg_dashboard_signal()
-        return envelope(data=_dashboard_cache["signal"])
+        return _response(data=_dashboard_cache["signal"])
     if not force:
         try:
             cached = cache_store.get_store().get(_DASH_REDIS_KEY)
@@ -2893,7 +2918,7 @@ async def api_dashboard_signal(force: bool = False):
                 _dashboard_cache["signal"] = sig
                 _dashboard_cache["ts"] = now
                 # Redis 命中但本机超期 → 后台刷
-                return envelope(data=sig)
+                return _response(data=sig)
         except Exception as e:
             log.debug(f"dashboard signal redis get fail: {e}")
 
@@ -2908,14 +2933,14 @@ async def api_dashboard_signal(force: bool = False):
     except (asyncio.TimeoutError, TimeoutError):
         log.warning(f"dashboard signal 超时 25s (now={now:.0f}, cached_ts={_dashboard_cache['ts']:.0f})")
         # 兜底:返上一次缓存(可能 None)
-        return envelope(error="信号计算超时", data=_dashboard_cache["signal"] or {
+        return _response(error="信号计算超时", data=_dashboard_cache["signal"] or {
             "a_share": {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
             "kr":      {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
             "us":      {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
         })
     except Exception as e:
         log.warning(f"dashboard signal 异常: {e}")
-        return envelope(error=str(e), data=_dashboard_cache["signal"] or {
+        return _response(error=str(e), data=_dashboard_cache["signal"] or {
             "a_share": {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
             "kr":      {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
             "us":      {"verdict": "cautious", "change_pct": 0, "headline": "—", "warnings": []},
@@ -2928,7 +2953,7 @@ async def api_dashboard_signal(force: bool = False):
         cache_store.get_store().set(_DASH_REDIS_KEY, _json_dash.dumps(sig, ensure_ascii=False).encode(), ttl=300)
     except Exception as e:
         log.debug(f"dashboard signal redis set fail: {e}")
-    return envelope(data=sig)
+    return _response(data=sig)
 
 
 @app.get("/api/dashboard/hot_sectors")
@@ -4147,7 +4172,7 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
 # ─────────────────────────────────────────────────────────────
 # NEWS 模块:/api/news + /api/news/refresh + /api/news/analyze
 # ─────────────────────────────────────────────────────────────
-from . import news_lookup
+# 模块通过顶部 _LazyModule 代理在首次请求时加载
 
 @app.get("/api/news")
 async def news_list(refresh: bool = Query(False, description="是否强制刷新抓取")):
@@ -8254,17 +8279,17 @@ async def api_backtest(req: BacktestRequest, request: Request):
 # ───────────────────────────────────────────────────────────
 # 复盘系统 (2026-07-10)
 # ───────────────────────────────────────────────────────────
-from . import review as _review
+# 模块通过顶部 _LazyModule 代理在首次请求时加载
 
 # ───────────────────────────────────────────────────────────
 # AI 对话框 (2026-07-10)
 # ───────────────────────────────────────────────────────────
-from . import ai_chat
+# 模块通过顶部 _LazyModule 代理在首次请求时加载
 
 # ───────────────────────────────────────────────────────────
 # 自选股池 + AI 建议 (2026-07-11)
 # ───────────────────────────────────────────────────────────
-from . import watchlist as _watchlist
+# 模块通过顶部 _LazyModule 代理在首次请求时加载
 
 @app.get("/api/review/trades")
 async def api_review_list_trades(limit: int = 50, code: str | None = None, since_days: int | None = 90):
