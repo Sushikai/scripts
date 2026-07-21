@@ -74,10 +74,12 @@
 // v155 (2026-07-22): 删 screener-inline.js (155KB 死代码,index.html 已用 zt-frontend.js 239 行替换) —
 //                    之前 Tier 1.1 把它从 inline IIFE 提到独立文件,但 index.html 早已切到 zt-frontend.js,
 //                    提到独立文件后无 script 引用,纯浪费 155KB precache。删后 PRECACHE 同步清理。
+// v157 (2026-07-22): Tier 2.3 hashchange 50ms debounce — 连续点 5 个 sidebar item 只触发最后 1 次路由,
+//                    旧版 5 次 _routeFromHash → 5 套 view-enter + 5×11 API 拉取,HTTP/1.1 6 连接池撞穿。
 //                    4) showView 派发 view-leave CustomEvent,让全局监听器 (prefetch/_a11yObs 等) 知道何时清理。
 // v152 (2026-07-21): 移 index.html 内联 ~2700 行 screener IIFE 到独立文件 /static/screener-inline.js —
 //                    index.html 从 274KB→127KB (4831→2134 行),主壳 parse 减压,二进访问走 SW cache 秒开。
-const CACHE = 'tuixue-v3-shell-v156';
+const CACHE = 'tuixue-v3-shell-v157';
 const PRECACHE = [
   '/',
   '/static/app.js',

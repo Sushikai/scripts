@@ -1120,7 +1120,15 @@ function _routeFromHash() {
     } catch (e) { console.warn('[route-from-hash bt]', e); }
   }
 }
-window.addEventListener('hashchange', _routeFromHash);
+// R-T2 (2026-07-22): hashchange 50ms debounce — 连续切 5 个 view 时只触发最后 1 次路由,
+//                 避免每切一次就 fire 一整套 view-enter + 11-13 路 API fetch。
+// 旧版连续点 5 个 sidebar item:5 次 _routeFromHash → 5 套 API 拉取 → 6 连接池撞穿 + 旧请求堆积。
+// 50ms 用户感知不到 (眨眼 100ms),但能把 5 次路由合并成 1 次。
+let _routeDebounce = null;
+window.addEventListener('hashchange', () => {
+  if (_routeDebounce) clearTimeout(_routeDebounce);
+  _routeDebounce = setTimeout(_routeFromHash, 50);
+});
 // 页面加载时跑一次 (放在 DOMContentLoaded 之后,所以用 setTimeout 0)
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => setTimeout(_routeFromHash, 0));

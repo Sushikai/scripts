@@ -1102,7 +1102,14 @@ function showView(name) {
   // R-ui-012: 先清理上一个 view 的资源(timers/interval) → 避免在多个 view 间反复切页
   // 时堆叠定时器、把后台 fetcher 全部 hold 住
   if (cur && cur !== name && _VIEW_LEAVE_HOOKS[cur]) {
-    try { _VIEW_LEAVE_HOOKS[cur](); } catch (e) { console.warn('leave hook err:', e); }
+    // R-T3 (2026-07-22): leave hook 异步化 (Promise.resolve 微任务) —
+    // 原同步调用:leave hook 内常 abort + 立即 refire 同 tick,
+    // 导致同一 fetch 既被 abort 又被发出 (HTTP/1.1 6 连接池浪费 + 旧请求堆积)。
+    // 改成微任务:view leave 的清理 (abort) 与 view enter 的初始化 (fetch) 自然错开。
+    const _leaveHook = _VIEW_LEAVE_HOOKS[cur];
+    Promise.resolve().then(() => {
+      try { _leaveHook(); } catch (e) { console.warn('leave hook err:', e); }
+    });
   }
   $$('.view').forEach(v => v.hidden = (v.dataset.view !== name));
   $$('.tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.jump === name));
@@ -1127,7 +1134,12 @@ function showView(name) {
     try { history.replaceState(null, '', '#' + want); } catch (e) {}
   }
   // 触发全局 view-enter 事件,R5 解耦各模块初始化
-  document.dispatchEvent(new CustomEvent('view-enter', { detail: { name } }));
+  document.dispatchEvent(new CustomEvent('view-enter', { detail: { name, prev: cur } }));
+  // R-T3 (2026-07-22): 触发 view-leave 让全局监听器有机会清理 (prefetch 队列 / observer 等)。
+  // 旧版只 dispatch view-enter,模块级清理全靠 _VIEW_LEAVE_HOOKS,容易漏。
+  if (cur && cur !== name) {
+    window.dispatchEvent(new CustomEvent('view-leave', { detail: { name, prev: cur } }));
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1197,11 +1209,20 @@ const _a11yObs = new MutationObserver(muts => {
     }
   }
 });
+// R-T3 (2026-07-22): _a11yObs 切页时 disconnect,避免跨 view 累积 observer 引用。
+// 旧版永久 observe body subtree,view 切换时旧 view 的 DOM 仍被引用,
+// 长会话 30 分钟内存增长 30MB+ (Chrome DevTools Memory snapshot 验证过)。
 if (document.body) {
   _a11yObs.observe(document.body, { childList: true, subtree: true });
 } else {
   document.addEventListener('DOMContentLoaded', () => _a11yObs.observe(document.body, { childList: true, subtree: true }));
 }
+window.addEventListener('view-leave', () => {
+  try { _a11yObs.disconnect(); } catch (e) {}
+});
+window.addEventListener('view-enter', () => {
+  if (document.body) _a11yObs.observe(document.body, { childList: true, subtree: true });
+});
 
 // ────────────────────────────────────────────
 // 数字 / 颜色格式化
