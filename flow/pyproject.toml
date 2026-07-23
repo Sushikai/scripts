@@ -1,0 +1,17 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-q --tb=short"
+markers = [
+    "unit: 单元测试",
+    "contract: API 契约",
+    "e2e: 端到端",
+    "visual: 视觉/前端",
+    "slow: 慢测试",
+    "perf: 性能基准",
+]
+
+[tool.flow]
+version = "0.1.0"
+port = 8810
+description = "video production one-stop platform"

@@ -1,0 +1,128 @@
+/* flow 全局 reset + 基础样式 */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  background: var(--bg-0);
+  color: var(--ink-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at top right, rgba(199, 121, 255, .15), transparent 60%),
+    radial-gradient(ellipse at bottom left, rgba(255, 106, 213, .10), transparent 55%),
+    var(--bg-0);
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button { cursor: pointer; background: none; border: none; padding: 0; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+
+a { color: var(--brand-2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+img, video { max-width: 100%; height: auto; display: block; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--r-pill); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* === 工具类 === */
+.flow-card {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6);
+  box-shadow: var(--shadow-1);
+}
+
+.flow-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-6);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  color: var(--ink-1);
+  font-size: var(--fs-md);
+  border: 1px solid var(--line);
+  transition: var(--t-fast);
+}
+.flow-btn:hover { background: var(--bg-elev-2); border-color: var(--line-strong); }
+.flow-btn.primary {
+  background: var(--brand-grad);
+  color: var(--ink-on-brand);
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: var(--shadow-brand);
+}
+.flow-btn.primary:hover { filter: brightness(1.1); }
+
+.flow-kpi {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 120px;
+}
+.flow-kpi-label { color: var(--ink-3); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .04em; }
+.flow-kpi-value { color: var(--ink-1); font-size: var(--fs-2xl); font-weight: 700; font-family: var(--font-mono); }
+
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px var(--sp-3);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  background: var(--bg-elev);
+  color: var(--ink-2);
+}
+.flow-chip.ok { color: var(--ok); background: rgba(76, 217, 123, .12); }
+.flow-chip.warn { color: var(--warn); background: rgba(255, 186, 73, .12); }
+.flow-chip.err { color: var(--err); background: rgba(255, 93, 108, .12); }
+.flow-chip.info { color: var(--info); background: rgba(102, 194, 255, .12); }
+
+.flow-skeleton {
+  background: linear-gradient(90deg, var(--bg-elev) 25%, var(--bg-elev-2) 50%, var(--bg-elev) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s infinite;
+  border-radius: var(--r-md);
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* safe-area */
+@supports (padding: max(0px)) {
+  .topbar { padding-top: max(var(--sp-3), env(safe-area-inset-top)); }
+  .app-main { padding-bottom: max(var(--sp-6), env(safe-area-inset-bottom)); }
+}
+
+/* 响应断点 */
+@media (max-width: 768px) {
+  html { font-size: 15px; }
+  .topbar { padding: var(--sp-3) var(--sp-5); }
+}
+@media (max-width: 480px) {
+  html { font-size: 14px; }
+  .topbar { padding: var(--sp-2) var(--sp-4); }
+  .flow-card { padding: var(--sp-5); }
+}

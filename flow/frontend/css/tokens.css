@@ -1,0 +1,101 @@
+/* flow 设计令牌:粉紫品牌,区别于 tuixue_v3 的深蓝绿 */
+
+:root {
+  /* 品牌色(粉紫渐变) */
+  --brand-1: #ff6ad5;
+  --brand-2: #c779ff;
+  --brand-3: #6e7bff;
+  --brand-grad: linear-gradient(135deg, var(--brand-1), var(--brand-2) 60%, var(--brand-3));
+  --brand-grad-soft: linear-gradient(135deg, rgba(255,106,213,.18), rgba(110,123,255,.18));
+
+  /* 语义 */
+  --ok: #4cd97b;
+  --warn: #ffba49;
+  --err: #ff5d6c;
+  --info: #66c2ff;
+
+  /* 暗色默认 */
+  --bg-0: #0e0a1a;
+  --bg-1: #15102a;
+  --bg-2: #1c1538;
+  --bg-3: #251c47;
+  --bg-elev: rgba(255, 255, 255, .04);
+  --bg-elev-2: rgba(255, 255, 255, .07);
+
+  --ink-1: #f4f0ff;          /* AA ≥ 12:1 on --bg-0 */
+  --ink-2: #d6cef5;          /* AA ≥ 7:1 */
+  --ink-3: #a59fc7;          /* AA ≥ 4.5:1 */
+  --ink-4: #6e679a;
+  --ink-on-brand: #1a0a26;
+
+  --line: rgba(255, 255, 255, .08);
+  --line-strong: rgba(255, 255, 255, .16);
+
+  /* 字号(rem-based,根 16px) */
+  --fs-xxs: 9px;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 28px;
+  --fs-4xl: 36px;
+  --fs-5xl: 48px;
+
+  /* 间距 */
+  --sp-0: 0;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 20px;
+  --sp-8: 28px;
+  --sp-9: 40px;
+
+  /* 圆角 */
+  --r-0: 0;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* 阴影 */
+  --shadow-1: 0 2px 6px rgba(0, 0, 0, .35);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, .45);
+  --shadow-brand: 0 0 24px rgba(199, 121, 255, .35);
+
+  /* 字体 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* 顶部栏(顶部 toolbar 高度 + safe-area) */
+  --topbar-h: 52px;
+
+  /* 过渡 */
+  --t-fast: 120ms ease;
+  --t-mid: 220ms cubic-bezier(.22, .61, .36, 1);
+}
+
+/* 浅色主题 */
+[data-theme="light"] {
+  --bg-0: #fbfaff;
+  --bg-1: #f3eef9;
+  --bg-2: #ebe3f4;
+  --bg-3: #d8cce8;
+  --bg-elev: rgba(0, 0, 0, .04);
+  --bg-elev-2: rgba(0, 0, 0, .07);
+  --ink-1: #1a0a26;
+  --ink-2: #3b2a52;
+  --ink-3: #5a4978;
+  --ink-4: #8a7da8;
+  --line: rgba(0, 0, 0, .08);
+  --line-strong: rgba(0, 0, 0, .16);
+  --shadow-1: 0 2px 6px rgba(60, 30, 90, .08);
+  --shadow-2: 0 8px 24px rgba(60, 30, 90, .12);
+}

@@ -1,0 +1,40 @@
+# flow gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# 数据
+*.db
+*.sqlite
+*.sqlite3
+data/
+outputs/
+
+# 日志
+*.log
+logs/
+
+# 隧道
+tunnel_url.txt
+
+# 环境
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 临时
+*.tmp
+*.swp
+*.bak
