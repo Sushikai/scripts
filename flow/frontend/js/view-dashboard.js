@@ -125,6 +125,13 @@
     inboxHost.innerHTML = '<div class="muted">加载中…</div>';
     root.appendChild(inboxHost);
 
+    // 实时 JobRunner 队列 (R13)
+    var queueTitle = flow.el('h2', { class: 'view-section-title', text: '⚡ 实时 Job 队列' });
+    root.appendChild(queueTitle);
+    var queueHost = flow.el('div', { class: 'queue-host', 'data-queue': '' });
+    queueHost.innerHTML = '<div class="muted">加载中…</div>';
+    root.appendChild(queueHost);
+
     host.appendChild(root);
 
     refreshDashboard();
@@ -146,6 +153,7 @@
     loadTunnelStatus();
     loadCrons();
     loadInbox();
+    loadQueue();
   }
 
   function loadInbox() {
@@ -173,6 +181,42 @@
         }
         host.appendChild(row);
       });
+    });
+  }
+
+  function loadQueue() {
+    flow.api('GET', '/api/queue').then(function (res) {
+      var host = document.querySelector('[data-queue]');
+      if (!host || !res.ok) return;
+      var d = res.data;
+      var utilPct = Math.round(d.utilization * 100);
+      var html = '<div class="queue-bar"><span class="muted">Worker 利用率</span>'
+        + '<strong>' + d.inflight_count + '</strong> / ' + d.max_concurrent
+        + ' <span class="muted">(' + utilPct + '%)</span></div>'
+        + '<div class="queue-bar"><span class="muted">DB 待处理</span> <strong>' + d.pending_count + '</strong>'
+        + ' <span class="muted">· 内存队列深度</span> <strong>' + d.queue_depth + '</strong></div>';
+      if (d.inflight.length) {
+        html += '<div class="queue-section-title">运行中</div>';
+        d.inflight.forEach(function (j) {
+          var pctTxt = Math.round((j.progress || 0) * 100) + '%';
+          html += '<div class="queue-row"><span class="mono">' + flow.escapeHtml(j.step || '?') + '</span>'
+            + '<a href="#projects/' + flow.escapeHtml(j.project_id || '') + '" class="queue-proj">' + flow.escapeHtml(j.project_name || '?') + '</a>'
+            + '<div class="queue-bar-mini"><div class="queue-bar-fill" style="width:' + pctTxt + '"></div></div>'
+            + '<span class="mono">' + pctTxt + '</span></div>';
+        });
+      }
+      if (d.pending.length) {
+        html += '<div class="queue-section-title">待启动</div>';
+        d.pending.slice(0, 8).forEach(function (j) {
+          html += '<div class="queue-row"><span class="mono">' + flow.escapeHtml(j.step || '?') + '</span>'
+            + '<a href="#projects/' + flow.escapeHtml(j.project_id || '') + '" class="queue-proj">' + flow.escapeHtml(j.project_name || '?') + '</a>'
+            + '<span class="muted mono">queued</span></div>';
+        });
+      }
+      if (!d.inflight.length && !d.pending.length) {
+        html += '<div class="muted">队列空闲</div>';
+      }
+      host.innerHTML = html;
     });
   }
 
