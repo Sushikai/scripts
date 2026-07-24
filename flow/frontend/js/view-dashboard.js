@@ -20,6 +20,43 @@
     var sub = flow.el('p', { class: 'view-sub', text: 'flow 平台总览 — KPI、工具状态、最近项目。' });
     root.appendChild(sub);
 
+    // === 粘贴链接一键剪上传 ===
+    var pasteCard = flow.el('div', { class: 'flow-card paste-card' });
+    pasteCard.appendChild(flow.el('div', { class: 'paste-title', text: '🔗 粘贴视频链接一键剪切上传' }));
+    pasteCard.appendChild(flow.el('div', { class: 'paste-desc', text: '支持 B站 / 抖音 / YouTube 等任意视频 URL。自动下载 → 80% 裁剪 → 上传。' }));
+    var pasteRow = flow.el('div', { class: 'paste-row' });
+    var pasteInput = flow.el('input', {
+      type: 'text',
+      class: 'form-input paste-input',
+      placeholder: 'https://www.bilibili.com/video/BV1xxx 或 https://youtu.be/xxx',
+      'data-paste-input': '',
+    });
+    var pasteBtn = flow.el('button', {
+      class: 'btn btn-primary paste-btn',
+      text: '去剪切 →',
+      'data-paste-btn': '',
+    });
+    pasteRow.appendChild(pasteInput);
+    pasteRow.appendChild(pasteBtn);
+    pasteCard.appendChild(pasteRow);
+    var pasteErr = flow.el('div', { class: 'paste-err muted', 'data-paste-err': '', text: '' });
+    pasteCard.appendChild(pasteErr);
+    pasteBtn.addEventListener('click', submitPaste);
+    pasteInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') submitPaste();
+    });
+    function submitPaste() {
+      var url = (pasteInput.value || '').trim();
+      if (!/^https?:\/\//i.test(url)) {
+        pasteErr.textContent = '请输入 http(s):// 开头的链接';
+        pasteErr.classList.remove('muted');
+        pasteErr.classList.add('err');
+        return;
+      }
+      flow.navigate('new?tool=fengge_url&source_url=' + encodeURIComponent(url));
+    }
+    root.appendChild(pasteCard);
+
     var kpiGrid = flow.el('div', { class: 'kpi-grid' });
     STAT_TEMPLATES.forEach(function (s) {
       var card = flow.el('div', { class: 'kpi-card' });
@@ -133,6 +170,7 @@
     return {
       info_gap: '🎬',
       fengge: '📺',
+      fengge_url: '🔗',
       tiktok_story: '🎵',
       material_collector: '🎞️',
     }[toolId] || '⚙️';

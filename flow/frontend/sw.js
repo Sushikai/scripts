@@ -1,5 +1,5 @@
-/* flow service worker:v2 — 全部 view 与 css 预缓存 */
-const CACHE_NAME = 'flow-shell-v2';
+/* flow service worker:v3 — 新增 paste-card (fengge_url) */
+const CACHE_NAME = 'flow-shell-v3';
 const PRECACHE_URLS = [
   '/',
   '/static/css/tokens.css',

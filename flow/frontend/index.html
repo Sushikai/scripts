@@ -151,10 +151,21 @@
       padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
       padding-left: var(--sp-6); padding-right: var(--sp-6); padding-bottom: var(--sp-8);
       min-height: 100vh;
+      transition: margin-left var(--t-mid);
+    }
+    /* drawer 打开时,desktop 把主内容右移避免被 drawer 拦截点击 */
+    @media (min-width: 769px) {
+      body.drawer-open .app-main { margin-left: 240px; }
     }
     @media (max-width: 768px) {
       .app-main { padding-left: var(--sp-4); padding-right: var(--sp-4); }
       .drawer { width: 200px; }
+      /* 移动端 drawer 全屏 overlay,主内容不移动 */
+      body.drawer-open .app-main { margin-left: 0; }
+      body.drawer-open::after {
+        content: ''; position: fixed; inset: 0; background: rgba(0,0,0,.4);
+        z-index: 89;
+      }
     }
 
     .toast-host {

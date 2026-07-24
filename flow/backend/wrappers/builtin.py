@@ -51,9 +51,11 @@ def register_builtin(register_fn: Callable[[str, ToolWrapper], None]) -> None:
     """注册 4 个 wrapper:全部用真实实现,默认 dry_run=True。"""
     from .info_gap import InfoGapWrapper
     from .fengge import FenggeWrapper
+    from .fengge_url import FenggeUrlWrapper
     from .tiktok_story import TikTokStoryWrapper
     from .material_collector import MaterialCollectorWrapper
     register_fn("info_gap", InfoGapWrapper(dry_run=True))
     register_fn("fengge", FenggeWrapper(dry_run=True))
+    register_fn("fengge_url", FenggeUrlWrapper(dry_run=True))
     register_fn("tiktok_story", TikTokStoryWrapper(dry_run=True))
     register_fn("material_collector", MaterialCollectorWrapper(dry_run=True))

@@ -32,10 +32,37 @@
       name: 'new',
       enter: function () {
         var q = _query();
-        if (q.tool) {
-          var node = document.querySelector('[data-tool-card="' + q.tool + '"]');
-          if (node) node.click();
-        }
+        // 等工具卡片渲染完(loadTools async)再操作
+        var waitAndApply = function () {
+          if (q.tool) {
+            var node = document.querySelector('[data-tool-card="' + q.tool + '"]');
+            if (node) {
+              node.click();
+            } else {
+              setTimeout(waitAndApply, 100);
+              return;
+            }
+          }
+          // fengge_url 来源链接预填 — 等 selectTool 渲染完 source_url input
+          if (q.source_url) {
+            var tries = 0;
+            var tryPrefill = function () {
+              var input = document.querySelector('[data-input-source-url]');
+              if (input) {
+                input.value = q.source_url;
+                var nameInput = document.querySelector('[data-input-name]');
+                if (nameInput && (!nameInput.value || nameInput.value.indexOf('峰哥粘贴链接_') === 0)) {
+                  var slug = (q.source_url.split('?')[0].split('/').pop() || 'paste').slice(0, 30);
+                  nameInput.value = 'fengge_url_' + slug + '_' + _stamp();
+                }
+              } else if (tries++ < 20) {
+                setTimeout(tryPrefill, 100);
+              }
+            };
+            tryPrefill();
+          }
+        };
+        waitAndApply();
       },
       leave: function () {},
     };
@@ -93,6 +120,21 @@
     nameRow.appendChild(nameInput);
     body.appendChild(nameRow);
 
+    // fengge_url 专属:粘贴链接输入框
+    var sourceUrlInput = null;
+    if (t.tool_id === 'fengge_url') {
+      var urlRow = flow.el('div', { class: 'form-row' });
+      urlRow.appendChild(flow.el('label', { class: 'form-label', text: '视频链接' }));
+      sourceUrlInput = flow.el('input', {
+        class: 'form-input', type: 'text',
+        placeholder: 'https://www.bilibili.com/video/BV1xxx',
+        'data-input-source-url': '',
+      });
+      urlRow.appendChild(sourceUrlInput);
+      urlRow.appendChild(flow.el('div', { class: 'form-hint muted', text: '支持 B站 / 抖音 / YouTube,会自动 yt-dlp 下载。' }));
+      body.appendChild(urlRow);
+    }
+
     var dryRow = flow.el('div', { class: 'form-row form-row-check' });
     var dryInput = flow.el('input', { type: 'checkbox', checked: 'checked', 'data-input-dry': '' });
     dryRow.appendChild(dryInput);
@@ -111,45 +153,56 @@
     var submit = flow.el('button', {
       class: 'btn-primary btn-large',
       text: '🚀 启动项目',
-      on: { click: function () { submitProject(t, state, nameInput, dryInput); } },
+      on: { click: function () { submitProject(t, state, nameInput, dryInput, sourceUrlInput); } },
     });
     body.appendChild(submit);
   }
 
-  function submitProject(tool, state, nameInput, dryInput) {
+  function submitProject(tool, state, nameInput, dryInput, sourceUrlInput) {
     var name = (nameInput.value || '').trim();
     if (!name) { flow.toast('请输入项目名称', 'error'); return; }
     var dryRun = dryInput.checked;
+    var params = { dry_run: dryRun };
+    if (sourceUrlInput) {
+      var url = (sourceUrlInput.value || '').trim();
+      if (!/^https?:\/\//i.test(url)) {
+        flow.toast('请输入 http(s):// 视频链接', 'error');
+        return;
+      }
+      params.source_url = url;
+    }
     flow.api('POST', '/api/projects', {
       tool_id: tool.tool_id,
       name: name,
-      params: { dry_run: dryRun },
+      params: params,
     }).then(function (res) {
       if (!res.ok) { flow.toast('创建失败: ' + (res.error && res.error.message), 'error'); return; }
       var project = res.data;
       flow.toast('项目已创建,正在启动…', 'ok');
-      // 串行提交所有 step
-      submitStepChain(project, tool, 0);
+      // 串行提交所有 step,带 params
+      submitStepChain(project, tool, 0, params);
     });
   }
 
-  function submitStepChain(project, tool, idx) {
+  function submitStepChain(project, tool, idx, baseParams) {
     if (idx >= tool.steps.length) {
       flow.toast('全部步骤已提交', 'ok');
       flow.navigate('projects/' + encodeURIComponent(project.id));
       return;
     }
     var step = tool.steps[idx];
+    // 第一个 step 带 source_url / dry_run,后续 step 复用 _results 不需要
+    var stepParams = idx === 0 ? baseParams : {};
     flow.api('POST', '/api/jobs', {
       tool_id: tool.tool_id,
       project_id: project.id,
       step: step,
-      params: {},
+      params: stepParams,
     }).then(function (res) {
       if (!res.ok) { flow.toast(step + ' 提交失败', 'error'); return; }
       // 串行等待 done 再下一步
       waitForJob(res.data.job_id, function () {
-        submitStepChain(project, tool, idx + 1);
+        submitStepChain(project, tool, idx + 1, baseParams);
       });
     });
   }

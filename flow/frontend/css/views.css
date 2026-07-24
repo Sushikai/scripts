@@ -306,4 +306,20 @@
   .tools-grid { grid-template-columns: 1fr; }
   .step-chip { font-size: var(--fs-xs); }
   .form-input { font-size: 16px; /* 防止 iOS 自动放大 */ }
+  .paste-row { flex-direction: column; align-items: stretch; }
+  .paste-btn { width: 100%; }
+}
+
+/* === Paste URL Card === */
+.paste-card { border: 1px solid var(--brand-2); background: var(--brand-grad-soft); }
+.paste-title { font-size: var(--fs-lg); font-weight: 700; color: var(--ink-1); margin-bottom: var(--sp-2); }
+.paste-desc { color: var(--ink-3); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }
+.paste-row { display: flex; gap: var(--sp-3); align-items: stretch; }
+.paste-input { flex: 1; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.paste-btn { padding: var(--sp-3) var(--sp-6); white-space: nowrap; }
+.paste-err { margin-top: var(--sp-3); font-size: var(--fs-sm); }
+.paste-err.err { color: var(--err); }
+@media (max-width: 720px) {
+  .paste-row { flex-direction: column; align-items: stretch; }
+  .paste-btn { width: 100%; }
 }

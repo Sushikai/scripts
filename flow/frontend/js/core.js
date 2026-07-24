@@ -116,9 +116,11 @@
 
   function handleHash() {
     var hash = window.location.hash.replace(/^#/, '') || 'dashboard';
+    // 路由模式匹配时忽略 query string,view 内部自己解析 ?xxx
+    var pathOnly = hash.split('?')[0];
     for (var i = 0; i < _routes.length; i++) {
       var r = _routes[i];
-      var m = hash.match(r.pattern);
+      var m = pathOnly.match(r.pattern);
       if (m) {
         var host = document.getElementById('view-host');
         if (!host) return;
@@ -264,18 +266,39 @@
     }
     var hamburger = document.getElementById('hamburger');
     var drawer = document.getElementById('drawer');
+    var appMain = document.getElementById('app-main');
     if (hamburger && drawer) {
-      hamburger.addEventListener('click', function () {
+      hamburger.addEventListener('click', function (e) {
+        e.stopPropagation();
         drawer.classList.toggle('open');
+        document.body.classList.toggle('drawer-open', drawer.classList.contains('open'));
       });
+    }
+    function closeDrawer() {
+      if (drawer && drawer.classList.contains('open')) {
+        drawer.classList.remove('open');
+        document.body.classList.remove('drawer-open');
+      }
     }
     var links = document.querySelectorAll('.drawer-link');
     for (var i = 0; i < links.length; i++) {
-      links[i].addEventListener('click', function () {
-        if (drawer) drawer.classList.remove('open');
-      });
+      links[i].addEventListener('click', closeDrawer);
     }
-    window.addEventListener('hashchange', handleHash);
+    // 点 drawer 外区域关闭
+    document.addEventListener('click', function (e) {
+      if (!drawer || !drawer.classList.contains('open')) return;
+      if (drawer.contains(e.target)) return;
+      if (hamburger && hamburger.contains(e.target)) return;
+      closeDrawer();
+    });
+    // ESC 关闭
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDrawer();
+    });
+    window.addEventListener('hashchange', function () {
+      closeDrawer();
+      handleHash();
+    });
     startConnLight();
     handleHash();
   });
