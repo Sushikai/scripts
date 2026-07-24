@@ -84,6 +84,13 @@
     recentTable.innerHTML = '<thead><tr><th>名称</th><th>工具</th><th>状态</th><th>更新时间</th></tr></thead><tbody><tr><td colspan="4" class="muted">加载中…</td></tr></tbody>';
     root.appendChild(recentTable);
 
+    // 跨工具活动流
+    var activityTitle = flow.el('h2', { class: 'view-section-title', text: '🌐 跨工具活动流 (最近 20)' });
+    root.appendChild(activityTitle);
+    var activityFeed = flow.el('div', { class: 'activity-feed', 'data-activity-feed': '' });
+    activityFeed.innerHTML = '<div class="muted">加载中…</div>';
+    root.appendChild(activityFeed);
+
     host.appendChild(root);
 
     refreshDashboard();
@@ -100,6 +107,51 @@
     loadStatsExtra();
     loadTools();
     loadRecent();
+    loadActivityFeed();
+  }
+
+  function loadActivityFeed() {
+    // 并发拉 3 个数据源,合并按时间倒序
+    Promise.all([
+      flow.api('GET', '/api/projects?limit=8').catch(function () { return { ok: false }; }),
+      flow.api('GET', '/api/comments/actions?limit=12').catch(function () { return { ok: false }; }),
+      flow.api('GET', '/api/jobs?limit=8').catch(function () { return { ok: false }; }),
+    ]).then(function (r) {
+      var feed = [];
+      if (r[0].ok) (r[0].data.items || []).forEach(function (p) {
+        feed.push({ ts: p.updated_at || p.created_at, kind: 'project', icon: '📦', text: p.name + ' · ' + p.status, href: '#projects/' + p.id });
+      });
+      if (r[1].ok) (r[1].data.items || []).forEach(function (a) {
+        feed.push({ ts: a.timestamp ? new Date(a.timestamp).getTime() : Date.now(), kind: 'action', icon: a.action === 'like' ? '👍' : '💬', text: (a.uname || '?') + ' · ' + (a.video_title || '').slice(0, 30), href: '#comments' });
+      });
+      if (r[2].ok) (r[2].data.items || []).forEach(function (j) {
+        feed.push({ ts: j.started_at || j.finished_at || Date.now(), kind: 'job', icon: '⚙️', text: j.step + ' · ' + j.status, href: '#projects/' + j.project_id });
+      });
+      feed.sort(function (a, b) { return b.ts - a.ts; });
+      feed = feed.slice(0, 20);
+
+      var host = document.querySelector('[data-activity-feed]');
+      if (!host) return;
+      host.innerHTML = '';
+      if (!feed.length) {
+        host.innerHTML = '<div class="muted">暂无活动</div>';
+        return;
+      }
+      feed.forEach(function (f) {
+        var row = flow.el('div', { class: 'activity-row' });
+        row.appendChild(flow.el('span', { class: 'activity-icon', text: f.icon }));
+        var text = flow.el('span', { class: 'activity-text' });
+        if (f.href) {
+          var a = flow.el('a', { href: f.href, text: f.text });
+          text.appendChild(a);
+        } else {
+          text.textContent = f.text;
+        }
+        row.appendChild(text);
+        row.appendChild(flow.el('span', { class: 'activity-ts muted', text: flow.fmtTime(f.ts) }));
+        host.appendChild(row);
+      });
+    });
   }
 
   function loadStatsExtra() {
