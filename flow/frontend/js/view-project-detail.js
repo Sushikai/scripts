@@ -19,6 +19,13 @@
     metaCard.innerHTML = '<div class="meta-grid" data-meta-grid></div>';
     root.appendChild(metaCard);
 
+    var paramsCard = flow.el('div', { class: 'flow-card' });
+    paramsCard.appendChild(flow.el('h2', { class: 'card-title', text: '⚙️ 项目参数' }));
+    var paramsBox = flow.el('pre', { class: 'json-box', 'data-params-box': '' });
+    paramsBox.textContent = '加载中…';
+    paramsCard.appendChild(paramsBox);
+    root.appendChild(paramsCard);
+
     var stepsCard = flow.el('div', { class: 'flow-card' });
     stepsCard.appendChild(flow.el('h2', { class: 'card-title', text: '🪜 执行步骤' }));
     var stepsList = flow.el('div', { class: 'steps-list', 'data-steps-list': '' });
@@ -31,6 +38,13 @@
     logBox.textContent = '等待日志…';
     logCard.appendChild(logBox);
     root.appendChild(logCard);
+
+    var artifactsCard = flow.el('div', { class: 'flow-card' });
+    artifactsCard.appendChild(flow.el('h2', { class: 'card-title', text: '📦 产物汇总' }));
+    var artifactsList = flow.el('div', { class: 'artifacts-list', 'data-artifacts-list': '' });
+    artifactsList.innerHTML = '<div class="muted">暂无产物</div>';
+    artifactsCard.appendChild(artifactsList);
+    root.appendChild(artifactsCard);
 
     host.appendChild(root);
 
@@ -45,13 +59,22 @@
         title.textContent = p.name + '  (' + p.tool_id + ')';
 
         var mg = metaCard.querySelector('[data-meta-grid]');
+        var totalDuration = _sumDuration(jobs);
         mg.innerHTML = ''
           + _metaItem('工具', p.tool_id)
           + _metaItem('状态', '<span class="status status-' + p.status + '">' + p.status + '</span>')
           + _metaItem('创建', flow.fmtTime(p.created_at))
-          + _metaItem('更新', flow.fmtTime(p.updated_at));
+          + _metaItem('更新', flow.fmtTime(p.updated_at))
+          + _metaItem('Job 数', jobs.length)
+          + _metaItem('总耗时', totalDuration);
+
+        var pb = document.querySelector('[data-params-box]');
+        if (pb) {
+          pb.textContent = JSON.stringify(p.params || {}, null, 2);
+        }
 
         renderSteps(jobs);
+        renderArtifacts(jobs);
       });
     }
 
@@ -75,6 +98,10 @@
         row.appendChild(bar);
         row.appendChild(flow.el('span', { class: 'step-pct', text: ((j.progress || 0) * 100).toFixed(0) + '%' }));
 
+        // 时长
+        var dur = _duration(j.started_at, j.finished_at);
+        if (dur) row.appendChild(flow.el('span', { class: 'step-dur muted', text: dur }));
+
         var actions = flow.el('span', { class: 'step-actions' });
         if (status === 'pending' || status === 'running') {
           var cancel = flow.el('button', {
@@ -93,7 +120,55 @@
         }
         row.appendChild(actions);
         sl.appendChild(row);
+
+        // 错误行
+        if (j.error) {
+          var errRow = flow.el('div', { class: 'step-error' });
+          errRow.textContent = '✗ ' + j.error;
+          sl.appendChild(errRow);
+        }
       });
+    }
+
+    function renderArtifacts(jobs) {
+      var list = document.querySelector('[data-artifacts-list]');
+      if (!list) return;
+      list.innerHTML = '';
+      var count = 0;
+      jobs.forEach(function (j) {
+        var arts = j.artifacts || {};
+        Object.keys(arts).forEach(function (k) {
+          count++;
+          var v = arts[k];
+          var row = flow.el('div', { class: 'artifact-row' });
+          var kEl = flow.el('span', { class: 'artifact-key', text: j.step + ' · ' + k });
+          var vEl = flow.el('span', { class: 'artifact-val' });
+          if (typeof v === 'string' && (v.startsWith('/') || v.startsWith('http'))) {
+            vEl.appendChild(flow.el('span', { class: 'artifact-path', text: v }));
+            var copyBtn = flow.el('button', {
+              class: 'btn-mini',
+              text: '复制',
+              on: { click: (function (val) {
+                return function () {
+                  try {
+                    navigator.clipboard.writeText(val);
+                    flow.toast('已复制', 'ok');
+                  } catch (e) {
+                    flow.toast('复制失败', 'error');
+                  }
+                };
+              })(v) },
+            });
+            vEl.appendChild(copyBtn);
+          } else {
+            vEl.textContent = JSON.stringify(v);
+          }
+          row.appendChild(kEl);
+          row.appendChild(vEl);
+          list.appendChild(row);
+        });
+      });
+      if (!count) list.innerHTML = '<div class="muted">尚无产物</div>';
     }
 
     function cancelJob(jid) {
@@ -121,16 +196,16 @@
     }
 
     function startLog() {
-      // SSE 流式日志
-      try {
-        _logSse = flow.sse('/api/project/' + projectId + '/log', function (m) {
-          var box = document.querySelector('[data-log-box]');
-          if (!box || !m || !m.line) return;
-          box.textContent += '\n' + m.line;
-          box.scrollTop = box.scrollHeight;
-        });
-      } catch (e) { /* 后端可能没实现,降级轮询 */ }
-
+      // 暂不接 SSE(后端 /api/project/{id}/log 待实装),降级轮询 + 显示 server 实时日志
+      flow.api('GET', '/api/log/recent?limit=30').then(function (res) {
+        var box = document.querySelector('[data-log-box]');
+        if (box && res.ok) {
+          var lines = (res.data.lines || []).map(function (l) {
+            return l.method + ' ' + l.path + ' ' + l.status + ' (' + (l.duration_ms || 0) + 'ms)';
+          });
+          box.textContent = lines.join('\n') || '暂无 access log';
+        }
+      }).catch(function () {});
       _pollTimer = setInterval(load, 2000);
       load();
     }
@@ -142,6 +217,22 @@
     }
     function _statusIcon(s) {
       return { pending: '⏳', running: '▶', done: '✓', failed: '✗', cancelled: '⊘' }[s] || '?';
+    }
+    function _duration(start, end) {
+      if (!start) return '';
+      var s = end || Date.now();
+      var sec = Math.round((s - start) / 1000);
+      if (sec < 60) return sec + 's';
+      if (sec < 3600) return Math.floor(sec / 60) + 'm' + (sec % 60) + 's';
+      return Math.floor(sec / 3600) + 'h' + Math.floor((sec % 3600) / 60) + 'm';
+    }
+    function _sumDuration(jobs) {
+      var total = 0;
+      jobs.forEach(function (j) {
+        if (j.started_at && j.finished_at) total += (j.finished_at - j.started_at);
+      });
+      if (!total) return '—';
+      return _duration(0, total);
     }
 
     startLog();

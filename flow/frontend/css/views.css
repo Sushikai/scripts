@@ -365,6 +365,64 @@
 .chip-action-reply { background: rgba(110, 123, 255, .2); color: #6e7bff; }
 .chip-action-follow { background: rgba(76, 217, 123, .2); color: #4cd97b; }
 .chip-action-dm { background: rgba(255, 200, 80, .2); color: #ffc850; }
+
+/* === Project Detail 增强 === */
+.json-box {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.step-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) 0; flex-wrap: wrap; }
+.step-dur { font-family: var(--font-mono); font-size: var(--fs-xs); min-width: 50px; }
+.step-error {
+  padding: var(--sp-2) var(--sp-4);
+  background: rgba(255, 100, 100, .1);
+  border-left: 3px solid var(--err);
+  border-radius: var(--r-sm);
+  color: var(--err);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  margin: var(--sp-1) 0 var(--sp-2) var(--sp-7);
+}
+.artifact-row {
+  display: flex; gap: var(--sp-3); align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px dashed var(--line);
+  font-size: var(--fs-sm);
+}
+.artifact-row:last-child { border-bottom: none; }
+.artifact-key { color: var(--ink-3); min-width: 200px; }
+.artifact-val { flex: 1; display: flex; gap: var(--sp-3); align-items: center; }
+.artifact-path { font-family: var(--font-mono); color: var(--ink-1); word-break: break-all; }
+
+/* === Projects view 工具分布 === */
+.tool-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sp-3);
+}
+.tool-stat-card {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.tool-stat-name { font-size: var(--fs-sm); color: var(--ink-3); font-family: var(--font-mono); }
+.tool-stat-total { font-size: var(--fs-lg); font-weight: 700; color: var(--ink-1); margin: var(--sp-1) 0; }
+.tool-stat-rate { font-size: var(--fs-xs); color: var(--ink-2); margin-bottom: var(--sp-2); }
+.tool-stat-bar { display: flex; height: 8px; border-radius: var(--r-sm); overflow: hidden; gap: 1px; }
+.tool-stat-bar .seg-done { background: var(--ok); }
+.tool-stat-bar .seg-running { background: var(--brand-2); }
+.tool-stat-bar .seg-failed { background: var(--err); }
+.tool-stat-bar .seg-other { background: var(--ink-4); }
 .paste-card { border: 1px solid var(--brand-2); background: var(--brand-grad-soft); }
 .paste-title { font-size: var(--fs-lg); font-weight: 700; color: var(--ink-1); margin-bottom: var(--sp-2); }
 .paste-desc { color: var(--ink-3); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }
