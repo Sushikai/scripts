@@ -1,5 +1,5 @@
-/* flow service worker:v3 — 新增 paste-card (fengge_url) */
-const CACHE_NAME = 'flow-shell-v3';
+/* flow service worker:v4 — 新增 Comments view */
+const CACHE_NAME = 'flow-shell-v4';
 const PRECACHE_URLS = [
   '/',
   '/static/css/tokens.css',
@@ -14,6 +14,7 @@ const PRECACHE_URLS = [
   '/static/js/view-library.js',
   '/static/js/view-accounts.js',
   '/static/js/view-uploads.js',
+  '/static/js/view-comments.js',
   '/static/js/view-logs.js',
   '/static/js/view-settings.js',
 ];

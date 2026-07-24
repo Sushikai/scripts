@@ -22,11 +22,15 @@ def test_assets_empty(client):
     assert body["data"]["count"] == 0
 
 
-def test_accounts_empty(client):
-    """GET /api/accounts 返回空列表(stub)。"""
+def test_accounts_real_4_bilibili(client):
+    """GET /api/accounts 返回 4 个 B 站账号(实装,读 cookie 文件)。"""
     r = client.get("/api/accounts")
     assert r.status_code == 200
-    assert r.json()["data"]["count"] == 0
+    body = r.json()
+    assert body["ok"] is True
+    assert body["data"]["count"] == 4
+    platforms = {a["platform"] for a in body["data"]["items"]}
+    assert "bilibili" in platforms
 
 
 def test_uploads_empty(client):

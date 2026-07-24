@@ -40,7 +40,7 @@ def test_index_loads(browser, flow_server):
     assert "flow" in page.title().lower() or "视频" in page.title()
     # topbar + brand + drawer 都该在
     assert page.locator(".brand").is_visible()
-    assert page.locator(".drawer-link").count() == 8
+    assert page.locator(".drawer-link").count() == 9  # 8 原 + Comments
     page.close()
 
 

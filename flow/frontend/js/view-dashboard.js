@@ -8,6 +8,10 @@
     { id: 'jobs_today', label: '今日 Job', kind: 'num' },
     { id: 'uploads_today', label: '今日上传', kind: 'num' },
     { id: 'success_rate', label: '成功率', kind: 'pct' },
+    { id: 'cookie_fresh', label: 'Cookie 新鲜', kind: 'count' },
+    { id: 'cookie_stale', label: 'Cookie 过期', kind: 'count' },
+    { id: 'interactions_today', label: '今日互动', kind: 'count' },
+    { id: 'total_interactions', label: '总互动', kind: 'count' },
   ];
 
   function view(match, host) {
@@ -93,8 +97,35 @@
 
   function refreshDashboard() {
     loadStats();
+    loadStatsExtra();
     loadTools();
     loadRecent();
+  }
+
+  function loadStatsExtra() {
+    // 异步加载 accounts + comments stats,合并到 KPI 网格
+    Promise.all([
+      flow.api('GET', '/api/accounts').catch(function () { return { ok: false }; }),
+      flow.api('GET', '/api/comments/stats').catch(function () { return { ok: false }; }),
+    ]).then(function (results) {
+      var accounts = results[0].ok ? results[0].data.items : [];
+      var cstats = results[1].ok ? results[1].data : {};
+      var fresh = 0, stale = 0, missing = 0;
+      accounts.forEach(function (a) {
+        var f = a.cookie && a.cookie.freshness;
+        if (f === 'fresh') fresh++;
+        else if (f === 'stale' || f === 'expired') stale++;
+        else if (f === 'missing') missing++;
+      });
+      var setVal = function (id, v) {
+        var n = document.querySelector('[data-stat="' + id + '"]');
+        if (n) n.textContent = String(v);
+      };
+      setVal('cookie_fresh', fresh);
+      setVal('cookie_stale', stale);
+      setVal('interactions_today', cstats.today_count || 0);
+      setVal('total_interactions', cstats.total || 0);
+    });
   }
 
   function loadStats() {
