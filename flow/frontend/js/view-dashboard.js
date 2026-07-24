@@ -118,6 +118,13 @@
     cronTbl.innerHTML = '<thead><tr><th>任务</th><th>调度</th><th>状态</th><th>PID</th><th>退出码</th><th>最近日志</th></tr></thead><tbody><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>';
     root.appendChild(cronTbl);
 
+    // Inbox — 跨子系统告警 (R11)
+    var inboxTitle = flow.el('h2', { class: 'view-section-title', text: '📥 Inbox (待办告警)' });
+    root.appendChild(inboxTitle);
+    var inboxHost = flow.el('div', { class: 'inbox-list', 'data-inbox': '' });
+    inboxHost.innerHTML = '<div class="muted">加载中…</div>';
+    root.appendChild(inboxHost);
+
     host.appendChild(root);
 
     refreshDashboard();
@@ -138,6 +145,35 @@
     loadWrapperStats();
     loadTunnelStatus();
     loadCrons();
+    loadInbox();
+  }
+
+  function loadInbox() {
+    flow.api('GET', '/api/inbox').then(function (res) {
+      var host = document.querySelector('[data-inbox]');
+      if (!host || !res.ok) return;
+      var items = res.data.items || [];
+      if (!items.length) {
+        host.innerHTML = '<div class="muted">无待办 — 系统健康 ✨</div>';
+        return;
+      }
+      host.innerHTML = '';
+      items.forEach(function (it) {
+        var row = flow.el('div', { class: 'inbox-row sev-' + it.severity + ' cat-' + it.category });
+        row.appendChild(flow.el('span', { class: 'inbox-icon', text: it.severity === 'error' ? '⛔' : '⚠️' }));
+        row.appendChild(flow.el('span', { class: 'inbox-cat', text: it.category }));
+        var txt = flow.el('span', { class: 'inbox-text' });
+        var title = flow.el('strong', { text: it.title });
+        txt.appendChild(title);
+        if (it.detail) txt.appendChild(flow.el('span', { class: 'inbox-detail muted', text: ' — ' + it.detail }));
+        row.appendChild(txt);
+        if (it.href) {
+          var a = flow.el('a', { href: it.href, class: 'inbox-link mono', text: '→' });
+          row.appendChild(a);
+        }
+        host.appendChild(row);
+      });
+    });
   }
 
   function loadCrons() {
