@@ -451,6 +451,9 @@
 .log-table tbody tr td.status-ok { color: var(--ok); }
 .log-table tbody tr td.status-bad { color: var(--err); font-weight: 600; }
 .filter-bar input.form-input { width: 220px; }
+.wrapper-table tbody tr td.status-ok { color: var(--ok); font-weight: 600; }
+.wrapper-table tbody tr td.status-warn { color: var(--warn); font-weight: 600; }
+.wrapper-table tbody tr td.status-bad { color: var(--err); font-weight: 600; }
 .paste-card { border: 1px solid var(--brand-2); background: var(--brand-grad-soft); }
 .paste-title { font-size: var(--fs-lg); font-weight: 700; color: var(--ink-1); margin-bottom: var(--sp-2); }
 .paste-desc { color: var(--ink-3); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }

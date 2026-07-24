@@ -77,6 +77,7 @@ from .routers import uploads as uploads_router
 from .routers import logs as logs_router
 from .routers import comments as comments_router
 from .routers import scripts as scripts_router
+from .routers import wrapper_stats as wrapper_stats_router
 
 app.include_router(jobs_router.router)
 app.include_router(projects_router.router)
@@ -88,6 +89,7 @@ app.include_router(uploads_router.router)
 app.include_router(logs_router.router)
 app.include_router(comments_router.router)
 app.include_router(scripts_router.router)
+app.include_router(wrapper_stats_router.router)
 
 
 # === 异常统一 envelope ===

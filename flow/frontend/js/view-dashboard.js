@@ -91,6 +91,13 @@
     activityFeed.innerHTML = '<div class="muted">加载中…</div>';
     root.appendChild(activityFeed);
 
+    // wrapper 运行统计
+    var wrapperTitle = flow.el('h2', { class: 'view-section-title', text: '🛠 Wrapper 运行统计' });
+    root.appendChild(wrapperTitle);
+    var wrapperTbl = flow.el('table', { class: 'flow-table wrapper-table', 'data-wrapper-tbl': '' });
+    wrapperTbl.innerHTML = '<thead><tr><th>工具</th><th>总数</th><th>成功</th><th>失败</th><th>取消</th><th>成功率</th><th>平均耗时</th></tr></thead><tbody><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>';
+    root.appendChild(wrapperTbl);
+
     host.appendChild(root);
 
     refreshDashboard();
@@ -108,6 +115,34 @@
     loadTools();
     loadRecent();
     loadActivityFeed();
+    loadWrapperStats();
+  }
+
+  function loadWrapperStats() {
+    flow.api('GET', '/api/wrapper-stats?days=30').then(function (res) {
+      var tbl = document.querySelector('[data-wrapper-tbl]');
+      if (!tbl || !res.ok) return;
+      var tbody = tbl.querySelector('tbody');
+      var items = res.data.items || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="muted">尚无运行数据</td></tr>';
+        return;
+      }
+      tbody.innerHTML = '';
+      items.forEach(function (s) {
+        var tr = document.createElement('tr');
+        var rate = (s.success_rate * 100).toFixed(1) + '%';
+        var rateClass = s.success_rate >= 0.9 ? 'status-ok' : s.success_rate >= 0.5 ? 'status-warn' : 'status-bad';
+        tr.innerHTML = '<td><strong>' + flow.escapeHtml(s.tool_id) + '</strong></td>'
+          + '<td>' + s.total + '</td>'
+          + '<td>' + s.done + '</td>'
+          + '<td>' + (s.failed || 0) + '</td>'
+          + '<td>' + (s.cancelled || 0) + '</td>'
+          + '<td class="' + rateClass + '">' + rate + '</td>'
+          + '<td class="muted mono">' + (s.avg_duration_ms ? (s.avg_duration_ms + 'ms') : '—') + '</td>';
+        tbody.appendChild(tr);
+      });
+    });
   }
 
   function loadActivityFeed() {
