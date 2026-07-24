@@ -441,6 +441,10 @@
 .activity-text a:hover { color: var(--brand-2); }
 .activity-ts { font-family: var(--font-mono); font-size: var(--fs-xs); min-width: 110px; text-align: right; }
 .path { font-size: var(--fs-xs); word-break: break-all; max-width: 360px; }
+.kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-3); }
+.kv-row { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-3); background: var(--bg-elev); border-radius: var(--r-sm); }
+.kv-key { color: var(--ink-3); font-size: var(--fs-xs); }
+.kv-val { color: var(--ink-1); font-weight: 600; font-size: var(--fs-md); }
 .paste-card { border: 1px solid var(--brand-2); background: var(--brand-grad-soft); }
 .paste-title { font-size: var(--fs-lg); font-weight: 700; color: var(--ink-1); margin-bottom: var(--sp-2); }
 .paste-desc { color: var(--ink-3); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }
