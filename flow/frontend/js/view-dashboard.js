@@ -361,6 +361,8 @@
       tbody.innerHTML = '';
       items.forEach(function (c) {
         var tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.dataset.cronLabel = c.label;
         var statusCls = c.running ? 'status-ok' : (c.last_status !== '-' && c.last_status !== '0' ? 'status-bad' : 'status-warn');
         var statusTxt = c.running ? 'running' : (c.last_status !== '-' ? 'exit ' + c.last_status : 'stopped');
         var tail = (c.stdout_tail || c.stderr_tail || '').split('\n').pop();
@@ -373,7 +375,60 @@
           + '<td class="mono">' + flow.escapeHtml(c.pid || '-') + '</td>'
           + '<td class="mono">' + flow.escapeHtml(c.last_status || '-') + '</td>'
           + '<td class="muted mono path">' + flow.escapeHtml(tail.slice(0, 80)) + '</td>';
+        tr.addEventListener('click', function () { showCronLog(c.label); });
         tbody.appendChild(tr);
+      });
+    });
+  }
+
+  function showCronLog(label) {
+    var modal = document.querySelector('[data-cron-modal]');
+    if (!modal) {
+      modal = flow.el('div', { class: 'cron-modal hidden', 'data-cron-modal': '' });
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal) modal.classList.add('hidden');
+      });
+      var inner = flow.el('div', { class: 'cron-modal-inner', 'data-cron-modal-inner': '' });
+      modal.appendChild(inner);
+      document.body.appendChild(modal);
+    }
+    var inner = modal.querySelector('[data-cron-modal-inner]');
+    inner.innerHTML = '<div class="muted">加载 ' + flow.escapeHtml(label) + ' …</div>';
+    modal.classList.remove('hidden');
+    flow.api('GET', '/api/crons/' + encodeURIComponent(label) + '/log?lines=80').then(function (res) {
+      if (!res.ok) {
+        inner.innerHTML = '<div class="muted">读取失败</div>';
+        return;
+      }
+      var d = res.data;
+      var html = '<div class="cron-modal-head"><strong>' + flow.escapeHtml(d.label) + '</strong>'
+        + ' <span class="chip">' + flow.escapeHtml(d.schedule) + '</span>'
+        + ' <button class="btn-mini cron-modal-close">关闭 ✕</button></div>';
+      html += '<div class="kv-grid">'
+        + '<div class="kv-row"><span class="kv-key">stdout</span><span class="kv-val mono path">' + flow.escapeHtml(d.stdout_path || '—') + ' (' + d.stdout_size + ' B)</span></div>'
+        + '<div class="kv-row"><span class="kv-key">stderr</span><span class="kv-val mono path">' + flow.escapeHtml(d.stderr_path || '—') + ' (' + d.stderr_size + ' B)</span></div>'
+        + '</div>';
+      html += '<div class="cron-log-block"><div class="cron-log-title">stdout (' + d.stdout_lines.length + ' 行)</div>';
+      if (d.stdout_lines.length) {
+        html += '<pre class="cron-log">';
+        d.stdout_lines.forEach(function (l) { html += flow.escapeHtml(l.n + '  ' + l.line) + '\n'; });
+        html += '</pre>';
+      } else {
+        html += '<div class="muted">空</div>';
+      }
+      html += '</div>';
+      html += '<div class="cron-log-block"><div class="cron-log-title">stderr (' + d.stderr_lines.length + ' 行)</div>';
+      if (d.stderr_lines.length) {
+        html += '<pre class="cron-log cron-log-err">';
+        d.stderr_lines.forEach(function (l) { html += flow.escapeHtml(l.n + '  ' + l.line) + '\n'; });
+        html += '</pre>';
+      } else {
+        html += '<div class="muted">空</div>';
+      }
+      html += '</div>';
+      inner.innerHTML = html;
+      inner.querySelector('.cron-modal-close').addEventListener('click', function () {
+        modal.classList.add('hidden');
       });
     });
   }

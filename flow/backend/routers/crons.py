@@ -146,3 +146,54 @@ async def crons_summary(request: Request):
         "failed_exit": len(failed),
         "with_logs": sum(1 for x in items if x["stdout_path"] or x["stderr_path"]),
     })
+
+
+@router.get("/crons/{label}/log")
+async def cron_log_detail(label: str, request: Request, lines: int = 50):
+    """单个 cron 的详细日志:stdout/stderr 最近 N 行 + 文件大小。"""
+    if not LAUNCH_AGENTS.exists():
+        return with_trace(request, {"items": [], "label": label, "error": "no LaunchAgents"})
+    target = None
+    for plist_path in LAUNCH_AGENTS.glob("*.plist"):
+        plist = _parse_plist(plist_path)
+        if not plist:
+            continue
+        if plist.get("Label", plist_path.stem) == label:
+            target = plist
+            target["__plist_path"] = str(plist_path)
+            break
+    if not target:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail={"code": "CRON_NOT_FOUND", "message": label})
+    def tail_lines(path: str, n: int) -> list[dict]:
+        if not path:
+            return []
+        p = Path(path)
+        if not p.exists():
+            return []
+        try:
+            sz = p.stat().st_size
+            with p.open("rb") as f:
+                if sz > 1024 * 1024:
+                    f.seek(sz - 1024 * 1024)
+                data = f.read().decode(errors="ignore")
+            raw_lines = data.splitlines()[-n:]
+            return [{"n": i + 1, "line": ln} for i, ln in enumerate(raw_lines)]
+        except Exception:
+            return []
+    stdout_lines = tail_lines(target.get("StandardOutPath", ""), lines)
+    stderr_lines = tail_lines(target.get("StandardErrorPath", ""), lines)
+    sp = target.get("StandardOutPath", "")
+    ep = target.get("StandardErrorPath", "")
+    return with_trace(request, {
+        "label": label,
+        "plist_path": target.get("__plist_path"),
+        "schedule": _schedule_summary(target),
+        "program_args": target.get("ProgramArguments") or [],
+        "stdout_path": sp,
+        "stderr_path": ep,
+        "stdout_lines": stdout_lines,
+        "stderr_lines": stderr_lines,
+        "stdout_size": Path(sp).stat().st_size if sp and Path(sp).exists() else 0,
+        "stderr_size": Path(ep).stat().st_size if ep and Path(ep).exists() else 0,
+    })

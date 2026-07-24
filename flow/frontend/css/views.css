@@ -721,3 +721,57 @@
   max-height: 120px;
   overflow-y: auto;
 }
+
+/* === Cron modal (R18 — 点击行展开日志) === */
+.cron-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--sp-5);
+}
+.cron-modal.hidden { display: none; }
+.cron-modal-inner {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-6);
+  max-width: 900px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-2);
+}
+.cron-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-md);
+}
+.cron-modal-close { margin-left: auto; }
+.cron-log-block { margin-bottom: var(--sp-3); }
+.cron-log-title {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  text-transform: uppercase;
+  margin-bottom: var(--sp-2);
+}
+.cron-log {
+  background: #0a0510;
+  color: #b9a3d8;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.cron-log-err { color: #ffaaaa; }
