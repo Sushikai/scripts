@@ -132,18 +132,48 @@
     queueHost.innerHTML = '<div class="muted">加载中…</div>';
     root.appendChild(queueHost);
 
+    // 自动刷新开关 + 状态指示 (R14)
+    var refreshBar = flow.el('div', { class: 'refresh-bar', 'data-refresh-bar': '' });
+    var refreshBtn = flow.el('button', {
+      class: 'btn-mini refresh-btn',
+      'data-refresh-btn': '',
+      text: '⏸ 自动刷新已开启 (10s)',
+    });
+    var refreshStamp = flow.el('span', { class: 'muted mono refresh-stamp', 'data-refresh-stamp': '', text: '' });
+    refreshBar.appendChild(refreshBtn);
+    refreshBar.appendChild(refreshStamp);
+    root.appendChild(refreshBar);
+
     host.appendChild(root);
 
     refreshDashboard();
 
+    var autoTimer = null;
+    function startAuto() {
+      if (autoTimer) return;
+      autoTimer = setInterval(function () { refreshDashboard(); }, 10000);
+      refreshBtn.textContent = '⏸ 自动刷新已开启 (10s)';
+    }
+    function stopAuto() {
+      if (autoTimer) clearInterval(autoTimer);
+      autoTimer = null;
+      refreshBtn.textContent = '▶ 自动刷新已暂停';
+    }
+    refreshBtn.addEventListener('click', function () {
+      if (autoTimer) stopAuto(); else startAuto();
+    });
+    startAuto();
+
     return {
       name: 'dashboard',
-      leave: function () { /* noop */ },
-      enter: function () { refreshDashboard(); },
+      leave: function () { stopAuto(); },
+      enter: function () { refreshDashboard(); startAuto(); },
     };
   }
 
   function refreshDashboard() {
+    var stamp = document.querySelector('[data-refresh-stamp]');
+    if (stamp) stamp.textContent = '更新于 ' + new Date().toLocaleTimeString();
     loadStats();
     loadStatsExtra();
     loadTools();

@@ -589,3 +589,17 @@
   background: var(--brand-grad);
   transition: width .3s;
 }
+
+/* === Refresh bar (R14 — 自动刷新开关) === */
+.refresh-bar {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+}
+.refresh-stamp { font-size: var(--fs-xs); }
