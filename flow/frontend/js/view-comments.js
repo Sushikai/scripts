@@ -48,6 +48,14 @@
     recentCard.appendChild(recentTbl);
     root.appendChild(recentCard);
 
+    // === Top 互动用户 (R19) ===
+    var topUsersCard = flow.el('div', { class: 'flow-card' });
+    topUsersCard.appendChild(flow.el('h2', { class: 'card-title', text: '👥 Top 20 互动用户 (按 fan_hunter 目标聚合)' }));
+    var topUsersTbl = flow.el('table', { class: 'flow-table', 'data-topusers-tbl': '' });
+    topUsersTbl.innerHTML = '<thead><tr><th>#</th><th>用户</th><th>UID</th><th>👍</th><th>💬</th><th>➕</th><th>📩</th><th>视频</th><th>首次</th><th>最近</th></tr></thead><tbody><tr><td colspan="9" class="muted">加载中…</td></tr></tbody>';
+    topUsersCard.appendChild(topUsersTbl);
+    root.appendChild(topUsersCard);
+
     host.appendChild(root);
 
     refreshAll();
@@ -63,6 +71,37 @@
     loadAccounts();
     loadStats();
     loadConversion();
+    loadTopUsers();
+  }
+
+  function loadTopUsers() {
+    flow.api('GET', '/api/comments/by-target?limit=20').then(function (res) {
+      var tbl = document.querySelector('[data-topusers-tbl]');
+      if (!tbl || !res.ok) return;
+      var tbody = tbl.querySelector('tbody');
+      var items = res.data.items || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="muted">暂无数据</td></tr>';
+        return;
+      }
+      tbody.innerHTML = '';
+      items.forEach(function (u, i) {
+        var tr = document.createElement('tr');
+        var fs = (u.first_seen || '').slice(5, 16).replace('T', ' ');
+        var ls = (u.last_seen || '').slice(5, 16).replace('T', ' ');
+        tr.innerHTML = '<td>' + (i + 1) + '</td>'
+          + '<td><strong>' + flow.escapeHtml(u.uname) + '</strong></td>'
+          + '<td class="mono muted">' + flow.escapeHtml(u.uid) + '</td>'
+          + '<td>' + u.likes + '</td>'
+          + '<td>' + u.replies + '</td>'
+          + '<td>' + u.follows + '</td>'
+          + '<td>' + u.dms + '</td>'
+          + '<td>' + u.video_count + '</td>'
+          + '<td class="muted mono">' + flow.escapeHtml(fs) + '</td>'
+          + '<td class="muted mono">' + flow.escapeHtml(ls) + '</td>';
+        tbody.appendChild(tr);
+      });
+    });
   }
 
   function loadAccounts() {

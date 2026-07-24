@@ -85,6 +85,7 @@ from .routers import queue as queue_router
 from .routers import today as today_router
 from .routers import storage as storage_router
 from .routers import script_detail as script_detail_router
+from .routers import comments_by_account as comments_by_target_router
 
 app.include_router(jobs_router.router)
 app.include_router(projects_router.router)
@@ -95,6 +96,7 @@ app.include_router(accounts_router.router)
 app.include_router(uploads_router.router)
 app.include_router(logs_router.router)
 app.include_router(comments_router.router)
+app.include_router(comments_by_target_router.router)
 app.include_router(scripts_router.router)
 app.include_router(wrapper_stats_router.router)
 app.include_router(tunnel_router.router)
