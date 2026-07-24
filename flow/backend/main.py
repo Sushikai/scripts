@@ -83,6 +83,7 @@ from .routers import crons as crons_router
 from .routers import inbox as inbox_router
 from .routers import queue as queue_router
 from .routers import today as today_router
+from .routers import storage as storage_router
 
 app.include_router(jobs_router.router)
 app.include_router(projects_router.router)
@@ -100,6 +101,7 @@ app.include_router(crons_router.router)
 app.include_router(inbox_router.router)
 app.include_router(queue_router.router)
 app.include_router(today_router.router)
+app.include_router(storage_router.router)
 
 
 # === 异常统一 envelope ===

@@ -139,6 +139,13 @@
     todayHost.innerHTML = '<div class="muted">加载中…</div>';
     root.appendChild(todayHost);
 
+    // 磁盘用量 (R16)
+    var storageTitle = flow.el('h2', { class: 'view-section-title', text: '💾 磁盘用量' });
+    root.appendChild(storageTitle);
+    var storageHost = flow.el('div', { class: 'storage-host', 'data-storage': '' });
+    storageHost.innerHTML = '<div class="muted">加载中…</div>';
+    root.appendChild(storageHost);
+
     // 自动刷新开关 + 状态指示 (R14)
     var refreshBar = flow.el('div', { class: 'refresh-bar', 'data-refresh-bar': '' });
     var refreshBtn = flow.el('button', {
@@ -222,6 +229,42 @@
     loadInbox();
     loadQueue();
     loadToday();
+    loadStorage();
+  }
+
+  function loadStorage() {
+    Promise.all([
+      flow.api('GET', '/api/storage/disk').catch(function () { return { ok: false }; }),
+      flow.api('GET', '/api/storage').catch(function () { return { ok: false }; }),
+    ]).then(function (res) {
+      var host = document.querySelector('[data-storage]');
+      if (!host) return;
+      var html = '';
+      if (res[0].ok && res[0].data && !res[0].data.error) {
+        var d = res[0].data;
+        var pctCls = d.pct >= 90 ? 'status-bad' : d.pct >= 80 ? 'status-warn' : '';
+        html += '<div class="storage-disk">'
+          + '<span>根分区</span>'
+          + '<strong class="' + pctCls + '">' + d.pct + '%</strong>'
+          + '<span class="muted">已用 ' + d.used_human + ' / 剩 ' + d.avail_human + '</span>'
+          + '</div>';
+      }
+      if (res[1].ok) {
+        var items = res[1].data.items || [];
+        if (items.length) {
+          html += '<div class="storage-summary muted">监控路径 共 ' + res[1].data.total_human + '</div>';
+          items.slice(0, 8).forEach(function (it) {
+            var top = (it.top_files || [])[0];
+            html += '<div class="storage-row">'
+              + '<span class="storage-name">' + flow.escapeHtml(it.name) + '</span>'
+              + '<span class="mono">' + flow.escapeHtml(it.size_human) + '</span>'
+              + (top ? '<span class="muted mono storage-top" title="' + flow.escapeHtml(top.path) + '">' + flow.escapeHtml(top.path.split('/').slice(-2).join('/')) + ' (' + flow.escapeHtml(top.size_human) + ')</span>' : '<span class="muted">' + (it.exists ? '' : '(不存在)') + '</span>')
+              + '</div>';
+          });
+        }
+      }
+      host.innerHTML = html || '<div class="muted">磁盘信息读取失败</div>';
+    });
   }
 
   function loadInbox() {
