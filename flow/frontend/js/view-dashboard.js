@@ -105,6 +105,19 @@
     accessCard.innerHTML = '<div class="muted">加载中…</div>';
     root.appendChild(accessCard);
 
+    // 后台 cron 健康 (R10)
+    var cronTitle = flow.el('h2', { class: 'view-section-title', text: '⏰ 后台 Cron 健康' });
+    root.appendChild(cronTitle);
+    var cronKpis = flow.el('div', { class: 'kpi-grid', 'data-cron-kpis': '' });
+    cronKpis.innerHTML = '<div class="kpi-card"><div class="kpi-label">总数</div><div class="kpi-value">—</div></div>'
+      + '<div class="kpi-card"><div class="kpi-label">运行中</div><div class="kpi-value">—</div></div>'
+      + '<div class="kpi-card"><div class="kpi-label">已停止</div><div class="kpi-value">—</div></div>'
+      + '<div class="kpi-card"><div class="kpi-label">非零退出</div><div class="kpi-value">—</div></div>';
+    root.appendChild(cronKpis);
+    var cronTbl = flow.el('table', { class: 'flow-table cron-table', 'data-cron-tbl': '' });
+    cronTbl.innerHTML = '<thead><tr><th>任务</th><th>调度</th><th>状态</th><th>PID</th><th>退出码</th><th>最近日志</th></tr></thead><tbody><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>';
+    root.appendChild(cronTbl);
+
     host.appendChild(root);
 
     refreshDashboard();
@@ -124,6 +137,54 @@
     loadActivityFeed();
     loadWrapperStats();
     loadTunnelStatus();
+    loadCrons();
+  }
+
+  function loadCrons() {
+    Promise.all([
+      flow.api('GET', '/api/crons/summary').catch(function () { return { ok: false }; }),
+      flow.api('GET', '/api/crons').catch(function () { return { ok: false }; }),
+    ]).then(function (res) {
+      // KPI
+      var kpiHost = document.querySelector('[data-cron-kpis]');
+      if (kpiHost && res[0].ok) {
+        var d = res[0].data;
+        var cards = kpiHost.querySelectorAll('.kpi-value');
+        if (cards.length >= 4) {
+          cards[0].textContent = d.total;
+          cards[1].textContent = d.running;
+          cards[2].textContent = d.stopped;
+          cards[3].textContent = d.failed_exit;
+          cards[3].className = 'kpi-value ' + (d.failed_exit > 0 ? 'status-bad' : '');
+        }
+      }
+      // 表格
+      var tbl = document.querySelector('[data-cron-tbl]');
+      if (!tbl || !res[1].ok) return;
+      var tbody = tbl.querySelector('tbody');
+      var items = res[1].data.items || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted">无可监控 cron</td></tr>';
+        return;
+      }
+      tbody.innerHTML = '';
+      items.forEach(function (c) {
+        var tr = document.createElement('tr');
+        var statusCls = c.running ? 'status-ok' : (c.last_status !== '-' && c.last_status !== '0' ? 'status-bad' : 'status-warn');
+        var statusTxt = c.running ? 'running' : (c.last_status !== '-' ? 'exit ' + c.last_status : 'stopped');
+        var tail = (c.stdout_tail || c.stderr_tail || '').split('\n').pop();
+        tr.innerHTML = '<td><strong>' + flow.escapeHtml(c.label) + '</strong>'
+          + (c.keep_alive ? ' <span class="chip">KA</span>' : '')
+          + (c.run_at_load ? ' <span class="chip">RAL</span>' : '')
+          + '</td>'
+          + '<td class="mono">' + flow.escapeHtml(c.schedule) + '</td>'
+          + '<td class="' + statusCls + '">' + statusTxt + '</td>'
+          + '<td class="mono">' + flow.escapeHtml(c.pid || '-') + '</td>'
+          + '<td class="mono">' + flow.escapeHtml(c.last_status || '-') + '</td>'
+          + '<td class="muted mono path">' + flow.escapeHtml(tail.slice(0, 80)) + '</td>';
+        tbody.appendChild(tr);
+      });
+    });
   }
 
   function loadTunnelStatus() {

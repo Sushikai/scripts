@@ -487,3 +487,13 @@
 .access-key { color: var(--ink-3); }
 .access-val a { color: var(--brand-2); text-decoration: none; word-break: break-all; }
 .access-val a:hover { color: var(--brand-1); text-decoration: underline; }
+
+/* === Cron table (R10 — launchd 健康) === */
+.cron-table tbody tr td:first-child { font-size: var(--fs-xs); }
+.cron-table tbody tr td.path {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cron-table .chip { font-size: 10px; padding: 1px 4px; }

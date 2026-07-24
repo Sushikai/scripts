@@ -79,6 +79,7 @@ from .routers import comments as comments_router
 from .routers import scripts as scripts_router
 from .routers import wrapper_stats as wrapper_stats_router
 from .routers import tunnel as tunnel_router
+from .routers import crons as crons_router
 
 app.include_router(jobs_router.router)
 app.include_router(projects_router.router)
@@ -92,6 +93,7 @@ app.include_router(comments_router.router)
 app.include_router(scripts_router.router)
 app.include_router(wrapper_stats_router.router)
 app.include_router(tunnel_router.router)
+app.include_router(crons_router.router)
 
 
 # === 异常统一 envelope ===
