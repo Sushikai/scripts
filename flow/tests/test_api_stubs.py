@@ -33,11 +33,14 @@ def test_accounts_real_4_bilibili(client):
     assert "bilibili" in platforms
 
 
-def test_uploads_empty(client):
-    """GET /api/uploads 返回空列表(stub)。"""
+def test_uploads_aggregates_jobs(client):
+    """GET /api/uploads 现在从 job artifacts 聚合,可能为空但格式正确。"""
     r = client.get("/api/uploads")
     assert r.status_code == 200
-    assert r.json()["data"]["count"] == 0
+    body = r.json()
+    assert body["ok"] is True
+    assert "count" in body["data"]
+    assert "items" in body["data"]
 
 
 def test_log_recent(client):
