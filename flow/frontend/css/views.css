@@ -693,3 +693,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* === Script detail (R17) === */
+.detail-section {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+.detail-row {
+  display: grid;
+  grid-template-columns: 80px 160px 1fr;
+  gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-1) 0;
+  font-size: var(--fs-sm);
+}
+.detail-sha { font-weight: 600; color: var(--brand-2); }
+.detail-log {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}

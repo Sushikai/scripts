@@ -31,11 +31,18 @@
 
     // 视频脚本清单
     var scriptsCard = flow.el('div', { class: 'flow-card' });
-    scriptsCard.appendChild(flow.el('h2', { class: 'card-title', text: '📜 视频脚本清单 (路径 + 状态)' }));
+    scriptsCard.appendChild(flow.el('h2', { class: 'card-title', text: '📜 视频脚本清单 (点击查看详情)' }));
     var scriptsTbl = flow.el('table', { class: 'flow-table', 'data-scripts-tbl': '' });
     scriptsTbl.innerHTML = '<thead><tr><th>脚本</th><th>类型</th><th>路径</th><th>状态</th><th>大小</th><th>mtime</th></tr></thead><tbody><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>';
     scriptsCard.appendChild(scriptsTbl);
     root.appendChild(scriptsCard);
+
+    // 详情面板
+    var detailCard = flow.el('div', { class: 'flow-card hidden', 'data-script-detail': '' });
+    detailCard.appendChild(flow.el('h2', { class: 'card-title', 'data-detail-title': '', text: '' }));
+    var detailBody = flow.el('div', { 'data-detail-body': '' });
+    detailCard.appendChild(detailBody);
+    root.appendChild(detailCard);
 
     host.appendChild(root);
 
@@ -64,6 +71,8 @@
         tbody.innerHTML = '';
         items.forEach(function (s) {
           var tr = document.createElement('tr');
+          tr.style.cursor = 'pointer';
+          tr.dataset.scriptName = s.name;
           var statusChip = '<span class="chip status-' + (s.exists ? 'ok' : 'bad') + '">'
             + (s.exists ? '✓ ' + s.kind : '✗ 缺失') + '</span>';
           tr.innerHTML = '<td><strong>' + flow.escapeHtml(s.name) + '</strong></td>'
@@ -72,8 +81,50 @@
             + '<td>' + statusChip + '</td>'
             + '<td class="mono muted">' + (s.size_human || '—') + '</td>'
             + '<td class="muted">' + flow.fmtTime(s.mtime) + '</td>';
+          tr.addEventListener('click', function () { showScriptDetail(s.name); });
           tbody.appendChild(tr);
         });
+      });
+    }
+
+    function showScriptDetail(name) {
+      var card = document.querySelector('[data-script-detail]');
+      var titleEl = document.querySelector('[data-detail-title]');
+      var body = document.querySelector('[data-detail-body]');
+      if (!card || !body) return;
+      card.classList.remove('hidden');
+      body.innerHTML = '<div class="muted">加载中…</div>';
+      flow.api('GET', '/api/scripts/' + encodeURIComponent(name)).then(function (res) {
+        if (!res.ok) {
+          body.innerHTML = '<div class="muted">读取失败</div>';
+          return;
+        }
+        var d = res.data;
+        titleEl.textContent = '🔍 ' + d.name + ' (' + (d.category || '?') + ')';
+        var html = '<div class="kv-row"><span class="kv-key">路径</span><span class="kv-val mono path">' + flow.escapeHtml(d.path) + '</span></div>';
+        html += '<div class="kv-row"><span class="kv-key">存在</span><span class="kv-val">' + (d.exists ? '✓' : '✗') + '</span></div>';
+        if (d.size_bytes != null) {
+          html += '<div class="kv-row"><span class="kv-key">大小</span><span class="kv-val mono">' + d.size_bytes + ' B</span></div>';
+        }
+        if (d.imports && d.imports.length) {
+          html += '<div class="kv-row"><span class="kv-key">依赖</span><span class="kv-val mono">' + d.imports.map(flow.escapeHtml).join(' · ') + '</span></div>';
+        }
+        if (d.git_log && d.git_log.length) {
+          html += '<div class="detail-section">📜 Git 最近 5 次提交</div>';
+          d.git_log.forEach(function (g) {
+            html += '<div class="detail-row"><span class="mono detail-sha">' + flow.escapeHtml(g.sha) + '</span>'
+              + '<span class="muted mono">' + flow.escapeHtml(g.ts) + '</span>'
+              + '<span>' + flow.escapeHtml(g.message) + '</span></div>';
+          });
+        } else {
+          html += '<div class="muted">无 git 历史</div>';
+        }
+        if (d.last_log_line) {
+          html += '<div class="detail-section">📄 末行日志</div>';
+          html += '<div class="detail-log mono">' + flow.escapeHtml(d.last_log_line) + '</div>';
+        }
+        body.innerHTML = html;
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
 

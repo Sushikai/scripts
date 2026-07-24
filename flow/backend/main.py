@@ -84,6 +84,7 @@ from .routers import inbox as inbox_router
 from .routers import queue as queue_router
 from .routers import today as today_router
 from .routers import storage as storage_router
+from .routers import script_detail as script_detail_router
 
 app.include_router(jobs_router.router)
 app.include_router(projects_router.router)
@@ -102,6 +103,7 @@ app.include_router(inbox_router.router)
 app.include_router(queue_router.router)
 app.include_router(today_router.router)
 app.include_router(storage_router.router)
+app.include_router(script_detail_router.router)
 
 
 # === 异常统一 envelope ===
