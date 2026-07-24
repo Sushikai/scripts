@@ -497,3 +497,52 @@
   white-space: nowrap;
 }
 .cron-table .chip { font-size: 10px; padding: 1px 4px; }
+
+/* === Inbox (R11 — 跨子系统告警) === */
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.inbox-row {
+  display: grid;
+  grid-template-columns: 24px 64px 1fr auto;
+  gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+}
+.inbox-row.sev-error { border-left-color: var(--err); }
+.inbox-row.sev-warn { border-left-color: var(--warn); }
+.inbox-row .inbox-icon { font-size: var(--fs-md); text-align: center; }
+.inbox-row .inbox-cat {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+.inbox-row .inbox-detail {
+  font-size: var(--fs-xs);
+  word-break: break-all;
+}
+.inbox-row .inbox-link {
+  font-size: var(--fs-md);
+  color: var(--brand-2);
+  text-decoration: none;
+}
+.inbox-row .inbox-link:hover { color: var(--brand-1); }
+
+/* === Library (R12 — 资产库实装) === */
+.asset-path {
+  font-size: 10px;
+  color: var(--ink-4);
+  margin-top: var(--sp-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-bar select.form-input { width: auto; min-width: 160px; }

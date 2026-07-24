@@ -13,13 +13,16 @@ def test_dashboard_stats(client):
     assert "success_rate" in stats
 
 
-def test_assets_empty(client):
-    """GET /api/assets 返回空列表(stub)。"""
+def test_assets_real(client):
+    """GET /api/assets 扫描多个根,真实返回 items。"""
     r = client.get("/api/assets")
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert body["data"]["count"] == 0
+    # 真实环境有素材 → count >= 1
+    assert body["data"]["count"] >= 1
+    assert "by_source" in body["data"]
+    assert "roots" in body["data"]
 
 
 def test_accounts_real_4_bilibili(client):
