@@ -603,3 +603,55 @@
   font-size: var(--fs-sm);
 }
 .refresh-stamp { font-size: var(--fs-xs); }
+
+/* === Today (R15 — 24h heatmap) === */
+.today-host {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+}
+.today-summary {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-3);
+}
+.today-summary strong {
+  color: var(--ink-1);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  margin: 0 4px;
+}
+.today-grid {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 96px;
+}
+.today-cell {
+  flex: 1;
+  background: var(--brand-grad);
+  border-radius: var(--r-sm);
+  min-height: 4px;
+  position: relative;
+  cursor: help;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 2px 1px;
+  transition: filter .15s;
+}
+.today-cell:hover { filter: brightness(1.2); }
+.today-cell-lbl {
+  font-size: 9px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+.today-cell-val {
+  font-size: 9px;
+  color: rgba(255, 255, 255, .9);
+  font-weight: 700;
+}

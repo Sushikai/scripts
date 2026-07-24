@@ -132,6 +132,13 @@
     queueHost.innerHTML = '<div class="muted">加载中…</div>';
     root.appendChild(queueHost);
 
+    // 今日时间线 (R15)
+    var todayTitle = flow.el('h2', { class: 'view-section-title', text: '📅 今日时间线 (按小时)' });
+    root.appendChild(todayTitle);
+    var todayHost = flow.el('div', { class: 'today-host', 'data-today': '' });
+    todayHost.innerHTML = '<div class="muted">加载中…</div>';
+    root.appendChild(todayHost);
+
     // 自动刷新开关 + 状态指示 (R14)
     var refreshBar = flow.el('div', { class: 'refresh-bar', 'data-refresh-bar': '' });
     var refreshBtn = flow.el('button', {
@@ -171,6 +178,36 @@
     };
   }
 
+  function loadToday() {
+    flow.api('GET', '/api/today').then(function (res) {
+      var host = document.querySelector('[data-today]');
+      if (!host || !res.ok) return;
+      var d = res.data;
+      var hours = d.hours || [];
+      var maxAct = Math.max(1, ...hours.map(function (h) { return h.jobs + h.uploads; }));
+      var html = '<div class="today-summary">'
+        + '<span>今日 jobs <strong>' + d.total_jobs + '</strong></span>'
+        + '<span class="muted">·</span>'
+        + '<span>上传 <strong>' + d.total_uploads + '</strong></span>'
+        + '<span class="muted">·</span>'
+        + '<span>cron 跑 <strong>' + d.cron_running + '</strong></span>'
+        + (d.peak_hour ? '<span class="muted">· 高峰 ' + d.peak_hour + '</span>' : '')
+        + '</div>';
+      html += '<div class="today-grid">';
+      hours.forEach(function (h) {
+        var act = h.jobs + h.uploads;
+        var pct = act > 0 ? Math.max(8, Math.round(act / maxAct * 100)) : 0;
+        var sample = h.samples.slice(0, 1).map(function (s) { return s.name; }).join(' · ');
+        html += '<div class="today-cell" style="height:' + pct + 'px" title="' + h.label + ' · ' + act + ' 个活动 — ' + flow.escapeHtml(sample) + '">'
+          + '<span class="today-cell-lbl">' + h.label.split(':')[0] + '</span>'
+          + '<span class="today-cell-val">' + act + '</span>'
+          + '</div>';
+      });
+      html += '</div>';
+      host.innerHTML = html;
+    });
+  }
+
   function refreshDashboard() {
     var stamp = document.querySelector('[data-refresh-stamp]');
     if (stamp) stamp.textContent = '更新于 ' + new Date().toLocaleTimeString();
@@ -184,6 +221,7 @@
     loadCrons();
     loadInbox();
     loadQueue();
+    loadToday();
   }
 
   function loadInbox() {
