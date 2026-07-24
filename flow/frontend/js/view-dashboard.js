@@ -98,6 +98,13 @@
     wrapperTbl.innerHTML = '<thead><tr><th>工具</th><th>总数</th><th>成功</th><th>失败</th><th>取消</th><th>成功率</th><th>平均耗时</th></tr></thead><tbody><tr><td colspan="7" class="muted">加载中…</td></tr></tbody>';
     root.appendChild(wrapperTbl);
 
+    // 公网 / 局域网访问入口 (R9)
+    var accessTitle = flow.el('h2', { class: 'view-section-title', text: '🌐 访问入口' });
+    root.appendChild(accessTitle);
+    var accessCard = flow.el('div', { class: 'access-card', 'data-access-card': '' });
+    accessCard.innerHTML = '<div class="muted">加载中…</div>';
+    root.appendChild(accessCard);
+
     host.appendChild(root);
 
     refreshDashboard();
@@ -116,6 +123,35 @@
     loadRecent();
     loadActivityFeed();
     loadWrapperStats();
+    loadTunnelStatus();
+  }
+
+  function loadTunnelStatus() {
+    flow.api('GET', '/api/tunnel-status').then(function (res) {
+      var card = document.querySelector('[data-access-card]');
+      if (!card || !res.ok) return;
+      var d = res.data || {};
+      var stateCls = d.state === 'online' ? 'status-ok' : 'status-bad';
+      var html = '<div class="access-row">'
+        + '<span class="status-light ' + stateCls + '"></span>'
+        + '<span class="access-key">公网隧道</span>'
+        + '<span class="access-val mono">' + (d.url ? '<a href="' + flow.escapeHtml(d.url) + '" target="_blank" rel="noopener">' + flow.escapeHtml(d.url) + '</a>' : '<span class="muted">离线</span>') + '</span>'
+        + '<span class="muted mono">' + flow.escapeHtml(d.method || '') + '</span>'
+        + '</div>';
+      html += '<div class="access-row">'
+        + '<span class="status-light ' + (d.lan_ip ? 'status-ok' : 'status-bad') + '"></span>'
+        + '<span class="access-key">局域网</span>'
+        + '<span class="access-val mono">' + (d.lan_url ? '<a href="' + flow.escapeHtml(d.lan_url) + '" target="_blank" rel="noopener">' + flow.escapeHtml(d.lan_url) + '</a>' : '<span class="muted">未知</span>') + '</span>'
+        + '<span class="muted mono">' + flow.escapeHtml(d.hostname || '') + '</span>'
+        + '</div>';
+      if (d.process_patterns && d.process_patterns.length) {
+        html += '<div class="access-row"><span class="access-key muted">后台进程</span><span class="access-val mono muted">' + d.process_patterns.map(flow.escapeHtml).join(' / ') + '</span></div>';
+      }
+      card.innerHTML = html;
+    }).catch(function () {
+      var card = document.querySelector('[data-access-card]');
+      if (card) card.innerHTML = '<div class="muted">访问入口读取失败</div>';
+    });
   }
 
   function loadWrapperStats() {
