@@ -147,6 +147,9 @@ var _dragonsLoaded = false;
 var _dragonsLoading = false;
 var _dragonsData = null;                          // 缓存最近一次 /api/dragons 返回
 var _dragonsSortState = { key: 'rank', dir: 'asc' };  // 全涨停表排序状态
+// R227 (2026-07-26): 昨日涨停表独立排序状态 + 升降板/平/断排序键
+var _dragonsYestSortState = { key: 'rank', dir: 'asc' };  // 昨日表默认按默认序列排 (升板置顶)
+var _YEST_STATUS_ORDER = { up: 4, flat: 3, down: 2, broken: 1 };  // 升 > 平 > 降 > 断
 
 // 排序键映射(对应 dragons.py 输出的字段)
 var _DRAGONS_SORT_KEYS = {
@@ -154,11 +157,11 @@ var _DRAGONS_SORT_KEYS = {
   code:        s => s.code || '',
   name:        s => s.name || '',
   sector:      s => s.sector || '',
-  concept:     s => (s.taxonomy?.l3 || s.taxonomy?.l2 || ''),
   streak:      s => s.streak ?? 0,
+  concept:     s => (s.taxonomy?.l3 || s.taxonomy?.l2 || ''),
   market_cap:  s => s.market_cap_yi ?? 0,
   turnover:    s => s.turnover_pct ?? 0,
-  seal:        s => s.seal_ratio_pct ?? -1,         // 缺失值排最后
+  seal:        s => s.seal_ratio_pct ?? -1,
   score:       s => s.score_total ?? 0,
 };
 function _sortDragonsAll(list, key, dir) {
@@ -169,6 +172,40 @@ function _sortDragonsAll(list, key, dir) {
     if (typeof av === 'string') {
       return dir === 'asc' ? av.localeCompare(bv, 'zh-Hans') : bv.localeCompare(av, 'zh-Hans');
     }
+    return dir === 'asc' ? av - bv : bv - av;
+  });
+  return sorted;
+}
+
+// R227 (2026-07-26): 昨日涨停表排序键 — 字符串/数值/delta/status 综合
+var _YEST_SORT_KEYS = {
+  rank:        z => z.rank ?? 999,
+  code:        z => z.code || '',
+  name:        z => z.name || '',
+  sector:      z => z.sector || '',
+  streak:      z => z.yStreak ?? 0,
+  concept:     z => (z.taxonomy?.l3 || z.taxonomy?.l2 || ''),
+  market_cap:  z => z.market_cap_yi ?? 0,
+  turnover:    z => z.turnover_pct ?? 0,
+  seal:        z => z.seal_ratio_pct ?? -1,
+  score:       z => z.score_total ?? 0,
+  delta:       z => z.delta ?? -Infinity,
+  status:      z => _YEST_STATUS_ORDER[z.statusKey] ?? 0,
+};
+function _sortDragonsYesterday(list, key, dir) {
+  const fn = _YEST_SORT_KEYS[key];
+  if (!fn || !list) return list || [];
+  const sorted = [...list].sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    if (typeof av === 'string') {
+      return dir === 'asc' ? av.localeCompare(bv, 'zh-Hans') : bv.localeCompare(av, 'zh-Hans');
+    }
+    // null 处理 — desc 时 Infinity 排最后 (-Infinity 排最前), asc 时反之
+    const aNull = av == null || (typeof av === 'number' && !isFinite(av));
+    const bNull = bv == null || (typeof bv === 'number' && !isFinite(bv));
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;   // 缺失值排最后
+    if (bNull) return -1;
     return dir === 'asc' ? av - bv : bv - av;
   });
   return sorted;
@@ -332,6 +369,7 @@ function renderDragons(data) {
             <span class="dragon-rank">#${escapeHtml(String(s.rank))}</span>
             <span class="dragon-code">${escapeHtml(s.code)}</span>
             <span class="dragon-name">${escapeHtml(s.name)}</span>
+            <button class="wl-toggle-btn dragon-wl-btn" data-wl-code="${escapeHtml(s.code)}" data-wl-name="${escapeHtml(s.name)}" title="加入自选">⭐</button>
             <span class="dragon-score">${escapeHtml(String(s.score_total))}</span>
             ${wbBadge}${rlBadge}
           </div>
@@ -349,6 +387,21 @@ function renderDragons(data) {
           ${warn}
         </div>`;
     }).join('');
+  }
+
+  // R1000-B1: 龙头卡片自选按钮 — 事件委托
+  var top10Host = $('#dragons-top10');
+  if (top10Host) {
+    top10Host.querySelectorAll('.wl-toggle-btn').forEach(function (btn) {
+      btn.onclick = function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        window.wlToggle(btn.dataset.wlCode, btn.dataset.wlName).then(function () {
+          window.wlRefreshBtn(btn);
+        });
+      };
+      window.wlRefreshBtn(btn);
+    });
   }
 
   // STEP 4: 全部涨停 (默认折叠)
@@ -375,19 +428,20 @@ function renderDragons(data) {
       const warnTxt = (s.warnings || []).length ? escapeHtml(s.warnings.join('; ')) : '—';
       const bd = s.score_breakdown || {};
       const bdHtml = _renderAIAnalysisCards(bd, s);
+      const conceptCell = (() => {
+        const tx = s.taxonomy || {};
+        const parts = [];
+        if (tx.l3) parts.push(escapeHtml(tx.l3));
+        if (tx.l2 && tx.l2 !== tx.l3) parts.push(`<span class="dim">${escapeHtml(tx.l2)}</span>`);
+        return parts.length ? parts.join(' · ') : '<span class="dim">—</span>';
+      })();
       return `<tr data-code="${escapeHtml(s.code)}" class="clickable ai-toggle">
         <td>${escapeHtml(String(s.rank))}</td>
         <td><a href="#" class="stock-link" data-code="${escapeHtml(s.code)}">${escapeHtml(s.code)}</a></td>
         <td>${escapeHtml(s.name)}</td>
         <td>${escapeHtml(s.sector || '—')}</td>
-        <td>${(() => {
-          const tx = s.taxonomy || {};
-          const parts = [];
-          if (tx.l3) parts.push(escapeHtml(tx.l3));
-          if (tx.l2 && tx.l2 !== tx.l3) parts.push(`<span class="dim">${escapeHtml(tx.l2)}</span>`);
-          return parts.length ? parts.join(' · ') : '<span class="dim">—</span>';
-        })()}</td>
-        <td>${escapeHtml(String(s.streak))}板</td>
+        <td><b style="color:${(s.streak || 0) >= 3 ? 'var(--up)' : (s.streak || 0) >= 2 ? 'var(--warn)' : 'var(--ink2)'}">${escapeHtml(String(s.streak))}板</b></td>
+        <td>${conceptCell}</td>
         <td>${escapeHtml(String(s.market_cap_yi))}亿</td>
         <td>${escapeHtml(String(s.turnover_pct))}%</td>
         <td>${escapeHtml(sealTxt)}</td>
@@ -436,7 +490,7 @@ function renderDragons(data) {
         _dragonsSortState.dir = _dragonsSortState.dir === 'asc' ? 'desc' : 'asc';
       } else {
         _dragonsSortState.key = key;
-        _dragonsSortState.dir = (key === 'rank' || key === 'code' || key === 'name' || key === 'sector' || key === 'concept') ? 'asc' : 'desc';
+        _dragonsSortState.dir = (key === 'rank' || key === 'code' || key === 'name' || key === 'sector' || key === 'concept' || key === 'streak') ? 'asc' : 'desc';
       }
       if (_dragonsData) renderDragons(_dragonsData);
     };
@@ -505,8 +559,137 @@ function renderDragons(data) {
       });
     });
   }
-}
+  // 昨日涨停 — 带「连板变化」对比今日
+  const yestList = (d.yesterday_all || []).slice();
+  $('#dragons-yesterday-date').textContent = d.yesterday_date
+    ? `(${String(d.yesterday_date).slice(4, 6)}/${String(d.yesterday_date).slice(6, 8)})`
+    : '';
+  const todayByCode = {};
+  for (const s of (d.all || [])) {
+    if (s && s.code) todayByCode[s.code] = s;
+  }
+  // R227 (2026-07-26): 补 今日状态 + delta 排序键 + 概念(从今日 taxonomy 富化)
+  // 给每条昨日记录补 derived 字段:tStreak/delta/status,方便 column 渲染 + 排序
+  function _yestDerived(z) {
+    const yStreak = z.streak || 1;
+    const today = todayByCode[z.code] || {};
+    const tStreak = today.streak;
+    let delta, status, statusKey, sortKey;
+    if (tStreak == null) {
+      delta = null; status = '断板'; statusKey = 'broken'; sortKey = -100 + yStreak;
+    } else {
+      delta = tStreak - yStreak;
+      if (delta > 0)        { status = `↑${delta}`; statusKey = 'up';   sortKey = 1000 + tStreak; }
+      else if (delta === 0) { status = '—';         statusKey = 'flat'; sortKey = 500 + tStreak; }
+      else                  { status = `↓${Math.abs(delta)}`; statusKey = 'down'; sortKey = 200 + tStreak; }
+    }
+    const taxonomy = z.taxonomy || today.taxonomy || {};
+    return Object.assign({}, z, { yStreak, tStreak, delta, status, statusKey, sortKey, taxonomy, score_total: z.score_total ?? today.score_total });
+  }
+  const yestEnriched = yestList.map(_yestDerived);
 
+  // 默认排序 — 用 sortKey (跟原版一致:升板>平板>降板>断板)
+  yestEnriched.sort((a, b) => b.sortKey - a.sortKey);
+  $('#dragons-yesterday-count').textContent = yestEnriched.length;
+
+  // 应用当前 sort state
+  const sortedYest = _sortDragonsYesterday(yestEnriched, _dragonsYestSortState.key, _dragonsYestSortState.dir);
+  // 更新列头视觉 (▲▼)
+  $$('#dragons-yesterday-table th.sortable').forEach(th => {
+    th.classList.remove('active-sort');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = '';
+    if (th.dataset.sort === _dragonsYestSortState.key) {
+      th.classList.add('active-sort');
+      if (arrow) arrow.textContent = _dragonsYestSortState.dir === 'asc' ? '▲' : '▼';
+    }
+  });
+
+  const yBody = $('#dragons-yesterday-table tbody');
+  if (yestEnriched.length === 0) {
+    yBody.innerHTML = '<tr><td colspan="12" class="empty">无昨日涨停数据</td></tr>';
+  } else {
+    yBody.innerHTML = sortedYest.map((z, i) => {
+      const sealTxt = z.seal_ratio_pct != null ? `${z.seal_ratio_pct.toFixed(1)}%` : '—';
+      const yStreak = z.yStreak;
+      // delta (↑N / — / ↓N)
+      const deltaCell = z.tStreak == null
+        ? `<span class="streak-badge streak-dn" title="今日未封板">—</span>`
+        : `<span class="streak-badge streak-${z.statusKey === 'up' ? 'new' : z.statusKey === 'flat' ? 'same' : 'dn'}" title="${z.tStreak > z.yStreak ? '今日继续封板, 连板提升' : z.tStreak === z.yStreak ? '今日平板' : '今日连板降低'}">${z.status}</span>`;
+      // 今日状态 — 升/平/断 标签 (跟 delta 文字同色,有 ↑↓ 图标)
+      const statusCell = z.statusKey === 'broken'
+        ? `<span class="streak-badge streak-dn">断板</span>`
+        : z.statusKey === 'up'
+        ? `<span class="streak-badge streak-new">升</span>`
+        : z.statusKey === 'flat'
+        ? `<span class="streak-badge streak-same">平</span>`
+        : `<span class="streak-badge streak-dn">降</span>`;
+      // delta / status / streak 排序属性挂到 row
+      // 列顺序必须与 #dragons-yesterday-table thead 严格一致 (test_dragons_tables_contract 锁住)
+      const concept = z.taxonomy?.l3 || z.taxonomy?.l2 || '—';
+      const score = z.score_total != null ? String(z.score_total) : '—';
+      return `<tr data-code="${escapeHtml(z.code)}" data-streak="${yStreak}" data-delta="${z.delta ?? ''}" data-status="${z.statusKey}" data-rank="${i + 1}">
+        <td>${i + 1}</td>
+        <td><a href="#" class="stock-link" data-code="${escapeHtml(z.code)}">${escapeHtml(z.code)}</a></td>
+        <td>${escapeHtml(z.name)}</td>
+        <td>${escapeHtml(z.sector || '—')}</td>
+        <td><b style="color:${yStreak >= 3 ? 'var(--up)' : yStreak >= 2 ? 'var(--warn)' : 'var(--ink2)'}">${yStreak}板</b></td>
+        <td>${escapeHtml(concept)}</td>
+        <td>${escapeHtml(String(z.market_cap_yi ?? '—'))}亿</td>
+        <td>${escapeHtml(String(z.turnover_pct ?? '—'))}%</td>
+        <td>${escapeHtml(sealTxt)}</td>
+        <td><b>${escapeHtml(score)}</b></td>
+        <td>${deltaCell}</td>
+        <td>${statusCell}</td>
+      </tr>`;
+    }).join('');
+  }
+  // R227 (2026-07-26): 昨日表加表头排序 — 委托到 thead,click handler 走 _dragonsYestSortState
+  $$('#dragons-yesterday-table th.sortable').forEach(th => {
+    th.onclick = () => {
+      const key = th.dataset.sort;
+      if (_dragonsYestSortState.key === key) {
+        _dragonsYestSortState.dir = _dragonsYestSortState.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _dragonsYestSortState.key = key;
+        // 文本列默认 asc,数值列默认 desc,delta 升板优先 (custom)
+        if (key === 'delta' || key === 'status') _dragonsYestSortState.dir = 'desc';
+      else if (key === 'rank' || key === 'code' || key === 'name' || key === 'sector' || key === 'concept') _dragonsYestSortState.dir = 'asc';
+      else _dragonsYestSortState.dir = 'desc';
+      }
+      if (_dragonsData) renderDragons(_dragonsData);
+    };
+  });
+  // 备注: 实时统计 昨日→今日 升板 / 平板 / 断板
+  if (yestList.length > 0) {
+    let upgraded = 0, broken = 0, held = 0;
+    for (const z of yestList) {
+      const yS = z.streak || 1;
+      const tS = todayByCode[z.code]?.streak;
+      if (tS == null) broken++;
+      else if (tS > yS) upgraded++;
+      else if (tS === yS) held++;
+    }
+    const note = `昨日 <b>${yestList.length}</b> 只涨停 · 今日继续封板 <b style="color:var(--up)">${upgraded + held}</b> 只 (升板 ${upgraded} / 平板 ${held}) · 断板 <b style="color:var(--down)">${broken}</b> 只`;
+    const noteEl = $('#dragons-yesterday-note');
+    if (noteEl) noteEl.innerHTML = note;
+  }
+  // 昨日涨停 stock-link 绑定
+  $('#dragons-yesterday-table tbody').querySelectorAll('.stock-link').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      gotoStock(a.dataset.code);
+    });
+  });
+  // 昨日涨停折叠
+  $('#dragons-yesterday-toggle').onclick = () => {
+    const wrap = $('#dragons-yesterday-wrap');
+    wrap.classList.toggle('hidden');
+    $('#dragons-yesterday-toggle .arrow').textContent =
+      wrap.classList.contains('hidden') ? '▶' : '▼';
+  };
+}
 async function loadDragons(refresh = false) {
   if (_dragonsLoading) return;
   _dragonsLoading = true;
@@ -1867,31 +2050,6 @@ function _renderAiReview(rev) {
   `;
 }
 
-// R-ui-011: 单一 toast 路径 — showToast 直通 toast() 队列, 不再 remove+create 闪屏
-// 之前: 复盘每笔完成 → remove + createElement(z-index 9999) 一次, 14 笔就是 14 次闪
-// 现在: 复用 drainToast 队列 + 同 kind 相邻去重, 自动节流
-function showToast(msg, type) {
-  const kind = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
-  if (typeof toast === 'function') {
-    return toast(msg, kind, type === 'error' ? 4000 : 2400);
-  }
-  // 兜底 (toast 未定义时): 保留老 inline 行为
-  if (window.__toastBox) window.__toastBox.remove();
-  const colors = { info: 'var(--warn)', success: 'var(--down-strong)', error: 'var(--up-strong)' };
-  const box = document.createElement('div');
-  box.textContent = msg;
-  box.style.cssText = `
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    padding: 12px 24px; background: rgba(20,18,14,0.95); color: ${colors[kind] || colors.info};
-    border: 1px solid ${colors[kind] || colors.info}; border-radius: 8px;
-    font-size: 14px; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-    max-width: 80vw;
-  `;
-  document.body.appendChild(box);
-  window.__toastBox = box;
-  setTimeout(() => { if (box.parentNode) box.remove(); }, 4000);
-}
-
 async function _reviewDelete(tradeId) {
   if (!confirm('确认删除这笔交易及其复盘?')) return;
   try {
@@ -3013,6 +3171,7 @@ var _watchlistBatchRunning = false;
 function _watchlistOnViewEnter() {
   if (!document.querySelector('.view-watchlist:not([hidden])')) return;
   _watchlistBindAdd();
+  _watchlistBindSort();
   if (!_watchlistLoaded) {
     _watchlistLoaded = true;
     _watchlistLoad();
@@ -3133,7 +3292,7 @@ function _wlShowSearchResults(items, onPick) {
 async function _watchlistLoad() {
   const tbody = $('#wl-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="12" class="dim center">加载中 …</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="13" class="dim center">加载中 …</td></tr>';
   try {
     const r = await _fetchWithTimeout('/api/watchlist');
     const j = await r.json();
@@ -3142,17 +3301,89 @@ async function _watchlistLoad() {
     $('#wl-count').textContent = String(_watchlistItems.length);
     const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     $('#wl-ts').textContent = `更新 ${ts}`;
-    _watchlistRender();
+    _watchlistSortAndRender();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="12" class="dim center">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" class="dim center">加载失败: ${escapeHtml(e.message)}</td></tr>`;
   }
+}
+
+// R1-5 (2026-07-26): 自选 client-side 排序 — 复用 view-weekly_bull.js:124 _wbSortKey 模式
+var _wlSortKey = 'added_at';
+var _wlSortDir = 'desc';
+try {
+  const _stored = localStorage.getItem('_wl_sort');
+  if (_stored) {
+    const _obj = JSON.parse(_stored);
+    if (_obj.key) _wlSortKey = _obj.key;
+    if (_obj.dir) _wlSortDir = _obj.dir;
+  }
+} catch (e) {}
+
+function _watchlistSortAndRender() {
+  const key = _wlSortKey, dir = _wlSortDir === 'asc' ? 1 : -1;
+  const valOf = (it) => {
+    const s = it.snapshot || {}, a = it.ai || {};
+    switch (key) {
+      case 'code': return it.code || '';
+      case 'name': return it.name || '';
+      case 'price': return s.price ?? -Infinity;
+      case 'chg_pct': return s.chg_pct ?? -Infinity;
+      case 'turnover': return s.turnover ?? -Infinity;
+      case 'main_pct': return s.main_pct ?? -Infinity;
+      case 'pct_5d': return s.pct_5d ?? -Infinity;
+      case 'pct_10d': return s.pct_10d ?? -Infinity;
+      case 'sector_zt': return s.sector_zt ?? -1;
+      case 'conviction': return a ? (a.conviction ?? -1) : -1;
+      case 'window': return a && a.suggested_window ? a.suggested_window : '￿';
+      case 'added_at':
+      default: return it.added_at ?? 0;
+    }
+  };
+  _watchlistItems.sort((a, b) => {
+    const va = valOf(a), vb = valOf(b);
+    if (typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb) * dir;
+    return ((va ?? -Infinity) - (vb ?? -Infinity)) * dir;
+  });
+  _watchlistRender();
+}
+
+function _watchlistBindSort() {
+  const thead = document.querySelector('#wl-table thead');
+  if (!thead) return;
+  thead.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const k = th.dataset.sort;
+      if (!k) return;
+      if (_wlSortKey === k) {
+        _wlSortDir = _wlSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _wlSortKey = k;
+        _wlSortDir = th.dataset.order || 'desc';
+      }
+      try { localStorage.setItem('_wl_sort', JSON.stringify({ key: _wlSortKey, dir: _wlSortDir })); } catch (e) {}
+      thead.querySelectorAll('th.sortable').forEach(t => {
+        const isActive = t.dataset.sort === _wlSortKey;
+        t.classList.toggle('sort-active', isActive);
+        const arrow = t.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = isActive ? (_wlSortDir === 'asc' ? '▲' : '▼') : '';
+      });
+      _watchlistSortAndRender();
+    });
+  });
+  // initial arrow
+  thead.querySelectorAll('th.sortable').forEach(t => {
+    const isActive = t.dataset.sort === _wlSortKey;
+    t.classList.toggle('sort-active', isActive);
+    const arrow = t.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = isActive ? (_wlSortDir === 'asc' ? '▲' : '▼') : '';
+  });
 }
 
 function _watchlistRender() {
   const tbody = $('#wl-tbody');
   if (!tbody) return;
   if (!_watchlistItems.length) {
-    tbody.innerHTML = `<tr><td colspan="12" style="padding:0;border:none;">
+    tbody.innerHTML = `<tr><td colspan="13" style="padding:0;border:none;">
         ${emptyState({ icon: '⭐', title: '自选股池为空', hint: '在左上方输入框加第一只股票,或浏览全 A 风向把感兴趣的股票 ⭐ 进来', cta: { label: '浏览全 A 风向 →', jump: 'all_stocks' } })}
       </td></tr>`;
     return;
@@ -3264,6 +3495,7 @@ function _watchlistRowHtml(it) {
       <td>${secLink}</td>
       <td>${aiCellHtml}</td>
       <td>${windowHtml}</td>
+      <td class="wl-added-cell" title="点击表头 ⏱ 按添加时间排序" data-added="${it.added_at || 0}"><span class="dim">⏱</span></td>
       <td class="wl-ops">
         <button class="btn btn-tiny" data-wl-ai="${escapeHtml(code)}" title="AI 判定">✨</button>
         <button class="btn btn-tiny" data-wl-detail="${escapeHtml(code)}" title="查看个股">→</button>
