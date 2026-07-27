@@ -372,6 +372,18 @@ async def _request_timeout_middleware(request: Request, call_next):
         resp = await call_next(request)
         _record_latency(path, time.monotonic() - t0)
         return resp
+    # dexin 冷路径 spot + 80只批量日线 实测 22-30s (push2 限频),需要更长预算
+    if path.startswith("/api/dexin/"):
+        t0 = time.monotonic()
+        resp = await asyncio.wait_for(call_next(request), timeout=60.0)
+        _record_latency(path, time.monotonic() - t0)
+        return resp
+    # Dash 大盘+板块分时 — 5 指数并行 + 4 板块顺序 (东财 ban 并发) 累计 ~30s 冷启
+    if path == "/api/dashboard/index_trend":
+        t0 = time.monotonic()
+        resp = await asyncio.wait_for(call_next(request), timeout=55.0)
+        _record_latency(path, time.monotonic() - t0)
+        return resp
 
     try:
         t0 = time.monotonic()
@@ -3098,6 +3110,224 @@ async def api_dashboard_hot_sectors(force: bool = False):
     return envelope(data=out)
 
 
+# 大盘 + 板块分时走势 (首页 sparkline 网格)
+_INDICES_FOR_TREND = [
+    # (code, mkt_prefix, name) — code = 6 位原代码
+    ("000001", "sh", "上证"),
+    ("399001", "sz", "深证"),
+    ("399006", "sz", "创业"),
+    ("000300", "sh", "沪深300"),
+    ("000905", "sh", "中证500"),
+]
+
+
+def _tencent_minute_one(code6: str, *, is_index: bool = False) -> list:
+    """拉单只代码今日分时(腾讯). 返 [{time, price}] 或 []
+    适配 6 位股票代码 (e.g. 000300) / BK 板块代码 / 大盘指数 (需 is_index=True)
+
+    重要:大盘指数在腾讯的 mkt 规则跟股票不同:
+    - sh 开头 (6/9/5) 普通股票
+    - sz 开头 (0/2/3) 普通股票
+    - 大盘指数如 000001/399001/000300 要显式传 is_index=True,腾讯也用 sh/sz 但匹配
+      "sh000001" / "sz399001" 才是大盘而非个股
+    """
+    import requests as _req
+    try:
+        if code6.startswith(("BK", "bk")):
+            mkt = "sh" if code6[2:3] == "0" else "sz"
+        elif is_index or code6 in ("000001", "000300", "000905", "000852", "399001", "399006", "399905", "399903"):
+            # 显式索引 (避免跟同号个股撞)
+            mkt = "sh" if code6.startswith("0") else "sz"
+        else:
+            mkt = "sh" if code6.startswith(("6", "9", "5")) else "sz"
+        url = "http://web.ifzq.gtimg.cn/appstock/app/minute/query"
+        r = _req.get(url, params={"code": f"{mkt}{code6}"}, timeout=5,
+                     headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+        if r.status_code != 200:
+            return []
+        j = r.json()
+        # 兼容两种结构: nested dict or list directly
+        data_section = (j.get("data") or {}).get(f"{mkt}{code6}", {})
+        raw = []
+        if isinstance(data_section, dict):
+            raw = (data_section.get("data") or {}).get("data") or []
+        elif isinstance(data_section, list):
+            raw = data_section
+        ticks = []
+        for line in raw:
+            parts = line.split(" ")
+            if len(parts) < 2:
+                continue
+            t = parts[0]
+            if len(t) == 4 and t.isdigit():
+                t = f"{t[:2]}:{t[2:]}:00"
+            try:
+                price = float(parts[1])
+            except (ValueError, TypeError):
+                continue
+            ticks.append({"time": t, "price": price})
+        return ticks
+    except Exception as e:
+        log.debug(f"tencent minute {code6}: {e}")
+        return []
+
+
+def _fetch_sector_sparkline(name: str) -> dict:
+    """板块名 → 东财板块指数代码 (BK) → 今日分时 (push2.trends2 带 retry).
+    关键:腾讯不支持 BK 前缀;东财 push2.trends2 secid=90.BKxxxx 直接吃板块指数
+    push2 易触发 RemoteDisconnected,自动 retry 2 次 (4s/8s backoff)
+    """
+    import requests as _req
+    try:
+        url_search = "https://searchadapter.eastmoney.com/api/suggest/get"
+        r = _req.get(url_search, params={"input": name, "type": 14}, timeout=4,
+                     headers={"User-Agent": "Mozilla/5.0"})
+        bk_code = ""
+        if r.status_code == 200:
+            for item in (r.json().get("QuotationCodeTable") or {}).get("Data") or []:
+                code = str(item.get("Code", ""))
+                if code.startswith(("BK", "bk")):
+                    bk_code = code
+                    break
+        if not bk_code:
+            return {"name": name, "ticks": [], "open": None, "last": None, "change_pct": None, "ok": False, "note": "板块代码未找到"}
+        # push2.trends2: 1min K 序列,~241/day,带 retry
+        url = "https://push2.eastmoney.com/api/qt/stock/trends2/get"
+        params = {
+            "secid": f"90.{bk_code}",
+            "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            "iscr": 0, "ndays": 1,
+        }
+        headers = {"User-Agent":"Mozilla/5.0", "Referer":"https://quote.eastmoney.com/"}
+        trends = []
+        for attempt in range(3):
+            try:
+                r = _req.get(url, params=params, timeout=5, headers=headers)
+                if r.status_code == 200:
+                    d = r.json().get("data") or {}
+                    trends = d.get("trends") or []
+                    if trends:
+                        break
+            except Exception as e:
+                if attempt == 2:
+                    log.warning(f"sector_sparkline {name} ({bk_code}) 第 3 次仍失败: {e}")
+                else:
+                    import time as _t
+                    _t.sleep(1 + attempt)   # 1s/2s backoff (vs 2/4)
+        if not trends:
+            # 没有 ticks: 返空 + 前端用 change_pct 兜底 (从 hot_sectors 注入)
+            return {"name": name, "bk_code": bk_code, "ticks": [], "open": None, "last": None, "change_pct": None, "ok": False, "note": "东财 API 3 次失败"}
+        ticks = []
+        for line in trends:
+            parts = line.split(",")
+            if len(parts) < 2: continue
+            dt = parts[0].split(" ")
+            t = dt[1] if len(dt) > 1 else ""
+            try:
+                price = float(parts[1])
+            except (ValueError, TypeError):
+                continue
+            ticks.append({"time": t, "price": price})
+        prices = [t["price"] for t in ticks]
+        return {
+            "name": name, "bk_code": bk_code,
+            "ticks": ticks, "prices": prices,
+            "open": prices[0], "last": prices[-1],
+            "change_pct": (prices[-1] - prices[0]) / prices[0] * 100 if prices[0] else 0,
+            "ok": True,
+        }
+    except Exception as e:
+        return {"name": name, "ok": False, "note": f"err: {e}"}
+
+
+@app.get("/api/dashboard/index_trend")
+async def api_dashboard_index_trend():
+    """首页 sparkline 网格数据:
+    indices[] = 5 大指数分时 (today minute, ~240 ticks)
+    sectors[] = 4 热门板块分时 (板块指数代码 from fetch_hot_sectors)
+    60s Redis cache — 切页 0ms,首屏 fallback < 100ms
+    """
+    import json as _json_dash
+    cache_key = "tuixue:dashboard:index_trend:v1"
+    try:
+        cached = cache_store.get_store().get(cache_key)
+        if cached:
+            return envelope(data=_json_dash.loads(cached))
+    except Exception as e:
+        log.debug(f"index_trend redis get: {e}")
+
+    def _fetch_index_sparkline(code6: str, name: str) -> dict:
+        ticks = _tencent_minute_one(code6, is_index=True)
+        if not ticks:
+            return {"code": code6, "name": name, "prices": [], "open": None, "last": None, "change_pct": None, "ok": False}
+        prices = [t["price"] for t in ticks]
+        return {
+            "code": code6, "name": name, "ticks": ticks, "prices": prices,
+            "open":  prices[0], "last": prices[-1],
+            "change_pct": (prices[-1] - prices[0]) / prices[0] * 100 if prices[0] else 0,
+            "ok": True,
+        }
+
+    out = {"ts": time.time(), "indices": [], "sectors": []}
+    import traceback as _tb
+    DEBUG_PATH = "/tmp/tuixue_index_trend_debug.log"
+    def _dbg(msg):
+        try:
+            with open(DEBUG_PATH, "a") as _f:
+                _f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+        except Exception: pass
+    _dbg("enter endpoint")
+    try:
+        # 5 大指数 + 4 板块并行拉 (板块复用同一线程池,绕过东财 RemoteDisconnected 串行拥塞)
+        import concurrent.futures as _cf
+        from .. import multi_source_fetchers as msf
+        try:
+            hot = msf.fetch_hot_sectors(top_n_flow=20, top_n_pct=20) or []
+        except Exception as e:
+            log.warning(f"index_trend hot_sectors: {e}")
+            hot = []
+        rows = sorted(hot, key=lambda x: -(x.get("net_inflow_yi") or 0))[:4]
+        sector_names = [s.get("name", "") for s in rows if s.get("name")]
+
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=5) as ex:
+            idx_futs = [ex.submit(_fetch_index_sparkline, c, n) for (c, _, n) in _INDICES_FOR_TREND]
+            indices_out = [f.result() for f in idx_futs]
+        out["indices"] = [r for r in indices_out if r]
+        # sectors 顺序执行 — 东财 push2 高并发会触发 RemoteDisconnected
+        sectors_out = []
+        for src_sector in rows:
+            nm = src_sector.get("name", "")
+            if not nm: continue
+            try:
+                r = _fetch_sector_sparkline(nm)
+            except Exception as e:
+                _dbg(f"sector {nm} fail: {e}")
+                r = {"name": nm, "ok": False, "note": str(e)}
+            # 注入 hot_sectors 自带的 change_pct + net_inflow 兜底 (无 tick 也可绘)
+            if r.get("change_pct") is None:
+                cp = src_sector.get("change_pct")
+                r["change_pct"] = float(cp) if cp is not None else None
+                r["net_inflow_yi"] = src_sector.get("net_inflow_yi")
+            sectors_out.append(r)
+        out["sectors"] = sectors_out
+        _dbg(f"OK: indices={len(out['indices'])} sectors={len(out['sectors'])}")
+    except Exception as e:
+        err = _tb.format_exc()
+        _dbg(f"FAIL: {type(e).__name__}: {e}")
+        _dbg(err[-2000:])
+        log.warning(f"index_trend parallel: {type(e).__name__}: {e}")
+        log.warning(f"index_trend TRACEBACK: {_tb.format_exc()}")
+
+    # 60s TTL — 与 hot_sectors 同档
+    try:
+        cache_store.get_store().set(cache_key, _json_dash.dumps(out, ensure_ascii=False).encode(), ttl=60)
+    except Exception as e:
+        log.debug(f"index_trend redis set: {e}")
+    return envelope(data=out)
+
+
 # ───────────────────────────────────────────────────────────
 # 个股相关 - 路由顺序很关键:具体路径必须放在 {code} 之前
 # ───────────────────────────────────────────────────────────
@@ -4684,6 +4914,10 @@ app.include_router(_all_stocks_router)
 # ZT 涨停板溢价策略
 from . import zt_screener as _zt_screener
 _zt_screener.register(app)
+
+# 得鑫量变术 四阶段量化选股
+from . import dexin_screener as _dexin_screener
+_dexin_screener.register(app)
 
 
 
@@ -6364,10 +6598,27 @@ def _store_set(key: str, value, ttl: int = 5) -> bool:
 
 def stock_kline_loader(code: str, days: int = 120) -> list[dict]:
     from .. import lib_common as lc
+    # R-fix 2026-07-26: pre_cache 优先 + 内层 stale 兜底 — 上游数据源全挂时仍能保证 10 日涨跌格子 + K 线图有数据
+    try:
+        from .. import cache_db as _cdb_loader
+        _pre = _cdb_loader.daily().get_kline_pre(code, days)
+        if _pre is not None and len(_pre) >= 5:
+            return _pre
+    except Exception:
+        pass
     @cached(_cache_kline, key_fn=lambda c, d: ("kline", c, d))
     def _load(code_, days_):
         df = lc.fetch_daily(code_, days=days_)
         if df is None or df.empty:
+            # R-fix 2026-07-26: 数据源全挂 → 内层 stale 兜底,免得 10 日格子/K线双双空白
+            try:
+                from .. import cache_db as _cdb_inner
+                stale_pre = _cdb_inner.daily().get_kline_pre(code_, days_)
+                if stale_pre:
+                    log.debug(f"stock_kline_loader {code_}/{days_} 上游空 → 用 stale pre_cache ({len(stale_pre)} 条)")
+                    return stale_pre
+            except Exception:
+                pass
             return []
         rows = []
         for _, row in df.iterrows():
@@ -10953,8 +11204,17 @@ def _startup_dependency_check() -> None:
         else:
             asyncio.create_task(_preheat_cache_on_startup())
         # P1-5 · tunnel 自愈
-        app.state._tunnel_heal_task = asyncio.create_task(_tunnel_heal_loop())
-        log.info("[tunnel-heal] 后台自愈 loop 已注册")
+        # 2026-07-26: ngrok 现由 launchd com.kaikai.tuixue.ngrok (KeepAlive) 独占管理,
+        # tunnel_keepalive.sh 只监视 + 写 tunnel_url.txt。in-server heal-loop 会跟它抢
+        # 同一个文件 + 每 30s spawn start_tunnel_only.sh (14 路 fallback), 泄漏 ssh 隧道
+        # (serveo/localhost.run) 并把 URL 覆盖成 serveo,导致手机链接反复失效。
+        # 默认关闭; 只有显式 TUIXUE_INSERVER_TUNNEL_HEAL=1 才启用 (无 launchd 的裸机模式)。
+        if os.environ.get("TUIXUE_INSERVER_TUNNEL_HEAL") == "1":
+            app.state._tunnel_heal_task = asyncio.create_task(_tunnel_heal_loop())
+            log.info("[tunnel-heal] 后台自愈 loop 已注册 (TUIXUE_INSERVER_TUNNEL_HEAL=1)")
+        else:
+            app.state._tunnel_heal_task = None
+            log.info("[tunnel-heal] 跳过 (launchd 管理 ngrok, 设 TUIXUE_INSERVER_TUNNEL_HEAL=1 可启用裸机自愈)")
         # 2026-07-13: 选股 poller
         try:
             from . import screener as _scr

@@ -84,36 +84,41 @@
     <span>自选</span>
     <span class="sb-num">05</span>
   </div>
+  <div class="sidebar-item" tabindex="0" role="button" data-jump="dexin">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 13l3-3 3 2 5-6"/><path d="M8 4l3-1 1 3"/><path d="M2 13h12"/></svg></span>
+    <span>得鑫量变</span>
+    <span class="sb-num">06</span>
+  </div>
+  <span class="sidebar-section">系统</span>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="screener">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/><path d="M5 7l1.5 1.5L9 6"/></svg></span>
     <span>涨停溢价</span>
-    <span class="sb-num">09</span>
+    <span class="sb-num">07</span>
   </div>
-  <span class="sidebar-section">系统</span>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="optimize">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="8" cy="8" r="6"/><path d="M8 4v4M5 6.5l3 1.5 3-1.5"/></svg></span>
     <span>调优</span>
-    <span class="sb-num">06</span>
+    <span class="sb-num">08</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="laws">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 2h8v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M6 5h4M6 8h4M6 11h2"/></svg></span>
     <span>心法</span>
-    <span class="sb-num">07</span>
+    <span class="sb-num">09</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="weekly_bull">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 12l3-3 3 2 5-5"/><path d="M2 14h12"/></svg></span>
     <span>周线擒牛</span>
-    <span class="sb-num">08</span>
+    <span class="sb-num">10</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="strategy_picker">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="6" cy="6" r="3"/><circle cx="11" cy="11" r="3"/><path d="M2 14h12"/></svg></span>
     <span>策略选股</span>
-    <span class="sb-num">09</span>
+    <span class="sb-num">11</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="review">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 4h10M3 8h10M3 12h7"/><circle cx="13" cy="12" r="2"/></svg></span>
     <span>复盘</span>
-    <span class="sb-num">08</span>
+    <span class="sb-num">12</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="sources">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="8" cy="5" r="2.5"/><path d="M3 14a5 5 0 0 1 10 0"/></svg></span>
@@ -230,6 +235,24 @@
         <div class="hs-empty">加载中 …</div>
       </div>
       <p class="caption dim" id="hot-sectors-sub">—</p>
+    </article>
+
+    <article class="card mt-32" id="index-trend-card">
+      <div class="card-eyebrow">大盘 · 实时分时</div>
+      <h3 class="card-h">5 大指数</h3>
+      <div class="trend-grid" id="index-trend-grid">
+        <div class="hs-empty">加载中 …</div>
+      </div>
+      <p class="caption dim">60s SW cache · 首次切页秒出</p>
+    </article>
+
+    <article class="card mt-32" id="sector-trend-card">
+      <div class="card-eyebrow">板块 · 今日分时</div>
+      <h3 class="card-h">热门 4 板块</h3>
+      <div class="trend-grid" id="sector-trend-grid">
+        <div class="hs-empty">加载中 …</div>
+      </div>
+      <p class="caption dim">东财板块指数 · 1min K · 60s SW cache</p>
     </article>
 
     <article class="card mt-32">
@@ -861,23 +884,24 @@
       <div class="table-wrap">
         <table id="wl-table" class="data-table">
           <thead>
-            <tr>
-              <th>代码</th>
-              <th>名称</th>
-              <th>最新价</th>
-              <th>涨幅</th>
-              <th>换手</th>
-              <th>主力%</th>
-              <th>5 日</th>
-              <th>10 日</th>
-              <th>板块联动</th>
-              <th>AI 建议</th>
-              <th>时间窗口</th>
+            <tr id="wl-thead-row">
+              <th class="sortable" data-sort="code" data-order="asc">代码<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="name" data-order="asc">名称<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="price" data-order="desc">最新价<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="chg_pct" data-order="desc">涨幅<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="turnover" data-order="desc">换手<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="main_pct" data-order="desc">主力%<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="pct_5d" data-order="desc">5 日<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="pct_10d" data-order="desc">10 日<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="sector_zt" data-order="desc">板块联动<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="conviction" data-order="desc">AI 建议<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="window" data-order="asc">时间窗口<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="added_at" data-order="desc" title="点列表头按添加时间排序">⏱<span class="sort-arrow"></span></th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody id="wl-tbody">
-            <tr><td colspan="12" class="empty">加载中 …</td></tr>
+            <tr><td colspan="13" class="empty">加载中 …</td></tr>
           </tbody>
         </table>
       </div>
@@ -912,6 +936,7 @@
       <p class="caption">调优 · 06 · 1000 轮迭代</p>
       <h1 class="display">参数<span class="accent">调优</span></h1>
       <p class="lede">随机搜索 + walk-forward 验证 · 自动写入 ⭐ 优化策略</p>
+      <a class="caption dim view-back-link" data-jump="dash">← 返回操作台</a>
     </header>
 
     <!-- 控制面板 + 进度 -->
@@ -984,6 +1009,15 @@
 
   <!-- ─── DRAGONS · 龙头战法 ─── -->
   <section class="view view-dragons" data-view="dragons" hidden>
+    <style>
+      .dragons-twin{display:grid;grid-template-columns:1.55fr 1fr;gap:.85rem}
+      @media (max-width:880px){.dragons-twin{grid-template-columns:1fr}}
+      .dragon-pair-now .card-eyebrow,#dragons-all-toggle{font-size:.95rem}
+      .streak-badge{display:inline-block;min-width:1.6em;padding:.05em .35em;border-radius:.3em;font-weight:700;background:var(--up)14;color:var(--up);font-variant-numeric:tabular-nums}
+      .streak-badge.streak-dn{background:var(--down)14;color:var(--down)}
+      .streak-badge.streak-same{background:var(--ink2)22;color:var(--ink2)}
+      .streak-badge.streak-new{background:var(--accent)26;color:var(--accent)}
+    </style>
     <header class="view-head">
       <p class="caption">龙头 · 03</p>
       <h1 class="display">龙头<span class="accent">战法</span></h1>
@@ -997,8 +1031,75 @@
       </div>
     </header>
 
+    <!-- 今日 + 昨日 并排显示 (R-fix 2026-07-26): 两表同屏,缺一不可 -->
+    <div class="dragons-twin">
+      <!-- 今日 -->
+      <article class="card mt-16">
+        <div class="card-eyebrow collapsible" id="dragons-all-toggle">
+          <span>今日涨停 (<span id="dragons-all-count">—</span>)</span>
+          <span class="arrow">▼</span>
+        </div>
+        <div id="dragons-all-wrap">
+          <div id="dragons-tax-stats" class="dragons-tax-stats"></div>
+          <p class="caption dim" style="margin: .25rem 0 .75rem">
+            所有涨停 + 评分明细 · 点击列名排序 · 点击行跳个股页
+          </p>
+          <div class="table-wrap">
+            <table id="dragons-all-table" class="data-table">
+              <thead><tr>
+                <th class="sortable" data-sort="rank">#<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="code">代码<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="name">名称<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="sector">板块<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="streak">连板<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="concept">概念<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="market_cap">市值<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="turnover">换手<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="seal">封成比<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="score">总分<span class="sort-arrow"></span></th>
+                <th>提示</th>
+              </tr></thead>
+              <tbody><tr><td colspan="11" class="empty">加载中 …</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+
+      <!-- 昨日 — 默认展开,并排显示 (R-fix 2026-07-26) -->
+      <article class="card mt-16">
+        <div class="card-eyebrow collapsible" id="dragons-yesterday-toggle">
+          <span>昨日涨停 <span class="dim" id="dragons-yesterday-date"></span> (<span id="dragons-yesterday-count">—</span>)</span>
+          <span class="arrow">▼</span>
+        </div>
+        <div id="dragons-yesterday-wrap">
+          <p class="caption dim" style="margin: .25rem 0 .75rem">
+            <span id="dragons-yesterday-note">昨日全量涨停板 · 对比今日连板变化 · 点击代码跳个股页</span>
+          </p>
+          <div class="table-wrap">
+            <table id="dragons-yesterday-table" class="data-table">
+              <thead><tr>
+                <th class="sortable" data-sort="rank">#<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="code">代码<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="name">名称<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="sector">板块<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="streak">连板<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="concept">概念<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="market_cap">市值<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="turnover">换手<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="seal">封成比<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="score">总分<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="delta">连板变化<span class="sort-arrow"></span></th>
+                <th class="sortable" data-sort="status">今日状态<span class="sort-arrow"></span></th>
+              </tr></thead>
+              <tbody><tr><td colspan="12" class="empty">加载中 …</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+    </div>
+
     <!-- 步骤 1: 整体情绪 -->
-    <article class="card" id="dragons-sentiment">
+    <article class="card mt-16" id="dragons-sentiment">
       <div class="card-eyebrow">STEP 1 · 整体情绪</div>
       <div class="sentiment-row">
         <div class="sentiment-label" id="dragons-sentiment-label">—</div>
@@ -1022,7 +1123,7 @@
     <article class="card mt-16">
       <div class="card-eyebrow">STEP 3 · 龙头候选 Top 10</div>
       <p class="caption dim" style="margin: .25rem 0 .75rem">
-        6 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 (满分 128, 封单降级时 108)
+        8 维评分 = 连板 30 + 资金 30 + 封成比 20 + 市值 15 + 技术 18 + 题材 15 + 周线擒牛 + 回升位 (满分 128, 封单降级时 108)
       </p>
       <div id="dragons-top10" class="dragon-cards">
         <p class="empty">加载中 …</p>
@@ -1034,38 +1135,6 @@
       <div class="card-eyebrow">STEP 4 · 决策建议</div>
       <div id="dragons-decision">
         <p class="empty">加载中 …</p>
-      </div>
-    </article>
-
-    <!-- 步骤 4: 全部涨停 (折叠) -->
-    <article class="card mt-16">
-      <div class="card-eyebrow collapsible" id="dragons-all-toggle">
-        <span>STEP 4 · 全部涨停 (<span id="dragons-all-count">—</span>)</span>
-        <span class="arrow">▶</span>
-      </div>
-      <div id="dragons-all-wrap" class="hidden">
-        <div id="dragons-tax-stats" class="dragons-tax-stats"></div>
-        <p class="caption dim" style="margin: .25rem 0 .75rem">
-          所有涨停 + 评分明细 · 点击列名排序 · 点击行跳个股页
-        </p>
-        <div class="table-wrap">
-          <table id="dragons-all-table" class="data-table">
-            <thead><tr>
-              <th class="sortable" data-sort="rank">#<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="code">代码<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="name">名称<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="sector">板块<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="concept">概念<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="streak">连板<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="market_cap">市值<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="turnover">换手<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="seal">封成比<span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="score">总分<span class="sort-arrow"></span></th>
-              <th>提示</th>
-            </tr></thead>
-            <tbody><tr><td colspan="11" class="empty">加载中 …</td></tr></tbody>
-          </table>
-        </div>
       </div>
     </article>
 
@@ -1169,6 +1238,7 @@
       <p class="caption">心法 · 07</p>
       <h1 class="display">退学心法 · <span class="accent">铁律</span></h1>
       <p class="lede">《我和小明》原文 · 浓缩成 46 条 · 作为每日下单前的铁闸</p>
+      <a class="caption dim view-back-link" data-jump="dash">← 返回操作台</a>
     </header>
 
     <!-- 滚动口号条 -->
@@ -1444,7 +1514,32 @@
       </div>
     </header>
     <div id="zt-mount"></div>
-    <script src="/static/zt-frontend.js?v=__JS_V__" defer></script>
+  </section>
+
+  <!-- 得鑫量变术 · 时序链条量化选股 -->
+  <section class="view view-dexin" data-view="dexin" hidden>
+    <header class="view-head">
+      <div>
+        <div class="dexin-title">得鑫量变术 <span class="sub">上升→藏诈→虚杀→清零→得鑫 · 时序链条</span></div>
+        <div class="dexin-meta" id="dexin-meta">—</div>
+      </div>
+      <div class="view-actions">
+        <span class="dexin-dirty-hint" id="dexin-wl-dirty-hint" hidden>⭐ 自选变化 · 点击刷新</span>
+        <button class="btn-refresh" id="dexin-refresh" type="button">刷新</button>
+      </div>
+    </header>
+    <div class="dexin-tabs" id="dexin-tabs" role="tablist">
+      <button class="dexin-tab active" data-tab="cang_zha" role="tab">藏诈诱多</button>
+      <button class="dexin-tab" data-tab="xu_sha" role="tab">虚杀洗盘</button>
+      <button class="dexin-tab" data-tab="clearing" role="tab">等待突破</button>
+      <button class="dexin-tab" data-tab="de_xin" role="tab">得鑫主升</button>
+      <button class="dexin-tab dexin-tab-danger" data-tab="xu_sha_dangerous" role="tab">危险剔除</button>
+    </div>
+    <div id="dexin-mount"></div>
+    <div class="dexin-creed-panel" id="dexin-creed-panel">
+      <div class="dexin-creed-list" id="dexin-creed-list"></div>
+      <div class="dexin-disclaimer" id="dexin-disclaimer"></div>
+    </div>
   </section>
 
   <!-- ─── 数据源健康 ─── -->
@@ -1453,6 +1548,7 @@
       <p class="caption">系统监控 · 数据源健康</p>
       <h1 class="display">数据源 <span class="accent" id="src-health-summary">—</span></h1>
       <p class="lede" id="src-health-sub">各数据源实时状态 · 熔断 · 冷却</p>
+      <a class="caption dim view-back-link" data-jump="dash">← 返回操作台</a>
     </header>
     <div id="sources-health-body">
       <div class="dim center" style="padding:2rem">加载中…</div>
@@ -1476,6 +1572,10 @@
     <article class="card mt-16 as-filter-card">
       <div class="card-eyebrow as-eyebrow-row">
         <span>FILTERS · L1→L4 + 领域</span>
+        <!-- 2026-07-26: 移动端筛选 toggle — 默认折叠,让表格直接可见 -->
+        <button class="as-filter-toggle" id="as-filter-toggle" type="button">
+          筛选 <span class="chev">▾</span>
+        </button>
         <div class="right as-eyebrow-tools">
           <div class="quick-search qs-sm" id="as-quick-search">
             <span class="qs-icon">⌕</span>
@@ -1562,6 +1662,9 @@
               <th class="num sortable" data-col="涨幅" data-priority="1" data-sort="change_pct" data-order="desc">涨幅<span class="arrow"></span></th>
               <th class="num sortable" data-col="涨跌额" data-priority="2" data-sort="change_amt" data-order="desc">涨跌额<span class="arrow"></span></th>
               <th class="num" data-col="5D走势" data-priority="3" title="近 5 日收盘 mini sparkline">5D</th>
+              <th class="num sortable" data-col="风险" data-priority="3" title="风险信号: 高振幅 + 小市值 = 高风险" data-sort="risk" data-order="desc">风险<span class="arrow"></span></th>
+              <th class="num sortable" data-col="联动" data-priority="2" title="板块联动强度: 综合 zt_today/zt_recent/sector 涨停数" data-sort="synergy" data-order="desc">联动<span class="arrow"></span></th>
+              <th class="num sortable" data-col="量价" data-priority="2" title="量价配合信号:放量涨 / 缩量跌 / 异常放量" data-sort="vp_sig" data-order="desc">量价<span class="arrow"></span></th>
               <th class="num sortable" data-col="换手" data-priority="2" data-sort="turnover" data-order="desc">换手%<span class="arrow"></span></th>
               <th class="num sortable" data-col="量比" data-priority="3" data-sort="volume_ratio" data-order="desc">量比<span class="arrow"></span></th>
               <th class="num sortable" data-col="振幅" data-priority="3" data-sort="amplitude" data-order="desc">振幅%<span class="arrow"></span></th>
@@ -1570,12 +1673,16 @@
               <th class="num cat-mid sortable" data-col="PE" data-priority="3" data-sort="pe" data-order="desc">PE<span class="arrow"></span></th>
               <th class="num cat-mid sortable" data-col="主力净流入" data-priority="3" data-sort="main_fund_inflow" data-order="desc">主力净流入(万)<span class="arrow"></span></th>
               <th class="cat-mid sortable" data-col="L1" data-priority="3" data-sort="l1" data-order="asc">L1 集群<span class="arrow"></span></th>
+              <th class="cat-mid sortable" data-col="角色" data-priority="3" title="板块角色: main 龙头 / sub 二线 / spec 杂毛" data-sort="role" data-order="desc">角色<span class="arrow"></span></th>
               <th class="cat-mid sortable" data-col="涨停" data-priority="2" data-sort="zt_today" data-order="desc">涨停<span class="arrow"></span></th>
               <th class="cat-mid" data-col="同链涨停" data-priority="3" title="此股所在 L2 申万/L3 产业链/各 L4 细分 今日涨停家数 (多股性同时显示)">同链涨停</th>
+              <th class="cat-mid sortable" data-col="趋势" data-priority="3" title="5d/20d 综合趋势信号" data-sort="trend" data-order="desc">趋势<span class="arrow"></span></th>
+              <th class="cat-mid sortable" data-col="龙头属性" data-priority="3" title="板块龙头/明星/跟随属性" data-sort="lead" data-order="desc">龙头属性<span class="arrow"></span></th>
+              <th class="cat-mid" data-col="得鑫" data-priority="3" title="得鑫量变术 · 5 阶段时序判定 — 点击行弹判定详情">得鑫</th>
             </tr>
           </thead>
           <tbody id="as-stocks-tbody">
-            <tr><td colspan="21" class="loading">加载中…</td></tr>
+            <tr><td colspan="28" class="loading">加载中…</td></tr>
           </tbody>
         </table>
         <div id="as-scroll-sentinel" class="as-scroll-sentinel" aria-hidden="true"></div>
@@ -1671,6 +1778,8 @@
 
 <script src="/static/core.js?v=__JS_V__" defer></script>
 <script src="/static/app.js?v=__JS_V__" defer></script>
+<script src="/static/zt-frontend.js?v=__JS_V__" defer></script>
+<script src="/static/dexin-frontend.js?v=__JS_V__" defer></script>
 <script src="/static/view-dash.js?v=__JS_V__" defer></script>
 <script>
 // R17: 主页 smart-back — 从其他页(全A/板块层/选股)跳过来时,左上角显示"← 全A"等

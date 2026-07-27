@@ -86,7 +86,42 @@
 // v162 (2026-07-22): tbody td 同步打 data-priority — 旧版只在 thead th 上挂属性,
 //                    CSS `tbody td[data-priority="3"]` 不命中,移动端表格 18 列全显示,
 //                    scrollWidth 587px > viewport 390px 横滚 bug
-const CACHE = 'tuixue-v3-shell-v163';
+// v199 (2026-07-26): ZT 可行性模型 — exclude_yiziban + fill_rate + 动态策略卡 + open_t1 入口
+// v200 (2026-07-26): 得鑫量变术 · 四阶段选股 view + /api/dexin/screen 离线缓存
+// v201 (2026-07-26): 得鑫 volBadge 今收 chip 双重转义修复 (fmtPct HTML 被 esc 成字面量)
+// v202 (2026-07-26): sector hash 路由修复 — _routeFromHash 把 sector 的 arg 装 ctx.name,
+//                   renderSectorDetail 同时支持 string ctx,否则 #sector=半导体 永远 "未指定板块"
+// v204 (2026-07-26): 得鑫 loadScreen 期间 meta 显示"加载中…"(替 "—"),避免深链首屏 meta 空 + audit race
+// v205 (2026-07-26): K线 1000-rounds R1 — grid gutter 56→64px + top 12→16,避免 y 轴标签被切 + MA endLabel 顶齐
+// v207 (2026-07-26): K线 1000-rounds R2 — MA5/10/20/60 + BOLL 中轨 endLabel,免去 hover 看 legend
+// v208 (2026-07-26): K线 1000-rounds R3 — 主图 y 轴千分位 formatter (1,234.57 替代 1234.56),免读数误差
+// v209 (2026-07-26): K线 1000-rounds R4 — 主图 markLine 当前价 (1,292.41) 右侧 pill label,用户第 1 秒看到当前价
+// v210 (2026-07-26): K线 1000-rounds R5 — markLine label 加涨跌额/涨跌幅 + 色跟随 (UP 红/DOWN 绿)
+// v211 (2026-07-26): K线 1000-rounds R5b — markLine label position 移到 insideEndTop (图内右上角),避免被 y 轴遮挡
+// v212 (2026-07-26): R1000-B1 自选按钮统一 — wlToggle 跨模块共享 + 5 view 加自选按钮 + toast 格式统一
+// v213 (2026-07-26): K线 1000-rounds R6 — markLine label 加 ▲/▼ 方向箭头 + 实色背景,涨跌一眼可辨
+// v218 (2026-07-26): R-mobile-refresh — SKIP_WAITING message handler + controllerchange 触发 reload,修 iOS Safari 卡旧 cache
+// v220 (2026-07-26): R26 趋势 badge (强/升/震/杀) + R27 龙头属性 badge (👑/⭐/跟) — 5d/20d 综合 + role×mcap 派生
+// v222 (2026-07-26): Dash 大盘 + 板块分时 sparkline 网格 (trend-grid 5 大指数 + 4 热门板块)
+// v223 (2026-07-26): 得鑫 renderActiveTab 同步 tabs.active — 修 HTML 默认 cang_zha active 与 JS 默认 de_xin 不一致致 tab 高亮错位 (e2e test_tab_renders_cards[clearing] 之前命中 race 因 active 不一致导致 audit 命中错误的 tab)
+// v224 (2026-07-26): R31 双击行=加自选 toggle + R32 长按 600ms 弹迷你 K线预览 popover (涨幅/换手 快速显示,K线/加自选 2 按钮)
+// v225 (2026-07-26): R33 键盘 J/K 行导航 + Enter 跳转 + R34 E 加自选 + / 搜索 + F 折叠筛选 + 一次性提示卡 (右下 6s)
+// v226 (2026-07-26): Batch 4 R41-R43 — code-link padding 6/6 + min-height 32; chip-click 触控 32 命中区; updateSortArrows 切 sort-asc/sort-desc 类 (CSS opacity=1 强制)
+// v227 (2026-07-26): R61 sparkline 60×16 → 80×22 + 5 点圆点 + area 渐变填充 (涨绿跌红半透 10%)
+// v228 (2026-07-26): 龙头页昨日涨停表补「连板变化」列 (view-other.js renderDragons — 之前只改了 app.js 的死副本) + 升板/平板/断板排序 + 统计备注
+// v229 (2026-07-26): 跟进度合并 — R31-R61 全 stack (双击加自选 + 长按 K线 popover + J/K 行导航 + E///F 快捷键 + sort-asc/sort-desc 类 + sort-area path + chip/code-link 触控热区)
+// v230 (2026-07-26): R20 跨模块 dexin 集成 — modal + 全 A「得鑫」列 + search 结果 pill 验按钮 + dexin-loaded 事件 → 行内 badge 染色
+// v231 (2026-07-26): sidebar 重排 — 得鑫量变从"涨停溢价"下方移到"工作台"段末尾,与龙头/全A/个股/自选并列 (06);同时清理 sb-num 重复 09/10/08/09/08
+// v233 (2026-07-27): view-dash 自带 _ensureDashEcharts (vendor/echarts SW 已有 precache) — view-stock 的 _ensureECharts 在 dash view 不可见, sparkline 永远是空白 div
+// v234 (2026-07-27): 龙头页两表维度彻底拉齐 + 契约测试
+//                    1) 今日表 thead 重排:概念/连板 倒置为 连板/概念,行模板同步换列
+//                    2) 昨日表加 概念/总分 两列 (跟今日一致),空态 colspan 10→12
+//                    3) _YEST_SORT_KEYS 补 streak/concept/market_cap/turnover/seal/score + 默认排序方向 (字符串 asc/数值 desc)
+//                    4) _DRAGONS_SORT_KEYS 重排,跟新 thead 顺序一致 (修"点连板列但排序键错位"bug)
+//                    5) tests/test_dragons_tables_contract.py — 5 用例锁列集合/排序键/colspan/对齐
+//                    6) dragons.py yesterday_all 加 taxonomy (classify_sector_name) + score_total (streak×15 + seal×0.4 + mcap 适中)
+//                       避免两表拉齐后昨日两列空,前端 fallback todayByCode 已就位做双保险
+const CACHE = 'tuixue-v3-shell-v235';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -96,6 +131,7 @@ const PRECACHE = [
   '/static/index.html',
   '/static/sw.js',
   '/static/zt-frontend.js',
+  '/static/dexin-frontend.js',
   '/static/vendor/echarts.min.js',
 ];
 
@@ -111,6 +147,11 @@ const _CACHEABLE_API_PREFIXES = [
   // 2026-07-20: 自选页慢 — 后端 9 码 × 多源 fallback 偶尔 16s (单源失败 0.5+1+2=3.5s × 4 源=14s+ fetch)
   // SW 30s 缓存保底,二次访问 < 5ms (第一次慢也只影响首屏)
   '/api/watchlist',
+  // 2026-07-26: 得鑫四阶段选股 — 5min TTL 减负, 二次切换 < 50ms
+  '/api/dexin/screen',
+  '/api/dexin/laws',
+  // 2026-07-26: Dash 大盘+板块 sparkline — 60s 同 hot_sectors,二次切页 < 50ms
+  '/api/dashboard/index_trend',
 ];
 // R1 (Batch 1) + v146 修正: /api/stock/{code}/full 单独长缓存 —
 // 原本 5min 锁死,导致 SW 返昨日数据 (server-side /full=5s, /core=30s,5min 内根本不刷新).
@@ -163,6 +204,13 @@ self.addEventListener('activate', (event) => {
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
+// R-mobile-refresh: 接受页面的 SKIP_WAITING,新 SW 立即接管所有 tab
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {

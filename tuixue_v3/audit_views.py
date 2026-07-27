@@ -91,6 +91,13 @@ VIEWS = [
       "filter":   ".as-filter-card",
       "tbody":    "#as-stocks-tbody",
   }),
+  ("dexin",          "dexin",           None,           {
+      "tabs":      "#dexin-tabs",
+      "tab_min":   ("min", ".dexin-tab", 5),
+      "meta":      "#dexin-meta",
+      "meta_txt":  ("not_text", "#dexin-meta", r"^\s*—\s*$"),
+      "disclaimer":"#dexin-disclaimer",
+  }),
   # ai-review 跳过 — 需 trade_id 实参
 ]
 
