@@ -596,6 +596,70 @@ def score_dragons(date_str: str | None = None) -> dict:
     # 主线选股 TOP 3 (主线内得分最高)
     top_mainline = [s for s in scored if s.get("is_mainline")][:3]
 
+    # 10) 昨日涨停 (轻量)
+    yesterday_date = _prev_trade_date(date)
+    yesterday_all_raw = []
+    if yesterday_date:
+        try:
+            yesterday_all_raw = msf.fetch_zt_pool(yesterday_date) or []
+        except Exception as e:
+            log.warning(f"[dragons] 昨日涨停池失败: {e}")
+    yesterday_all = []
+    # v234b (2026-07-28): 补"今日表现"字段 — change_pct (今日涨幅) / is_zt_today (今日是否涨停) / change_type (连板/晋级/晋级失败/大面/震荡)
+    # 需要今日 spot 数据, 但 score_dragons 主体已用过 to_thread 拉过 zt_pool; 这里另起一次小 fetch, 失败降级
+    y_spot_map: dict[str, dict] = {}
+    try:
+        y_spot_map = msf.fetch_spot_a_full(8) or {}
+    except Exception as e:
+        log.debug(f"[dragons] 昨日表补 spot 失败 (降级): {e}")
+
+    for z in yesterday_all_raw:
+        seal_pct = (float(z.get("limit_order_amount", 0) or 0)
+                    / max(float(z.get("amount", 1) or 1), 1) * 100)
+        y_streak = int(z.get("streak", 1) or 1)
+        y_mcap = float(z.get("market_cap", 0) or 0) / 1e8
+        # v234 (2026-07-27): 昨日表加 概念/总分,与今日表拉齐 — sector→taxonomy,启发式 score
+        y_score = round(
+            min(60, y_streak * 15)
+            + min(20, seal_pct * 0.4 if seal_pct > 0 else 0)
+            + (15 if 30 <= y_mcap <= 300 else 5), 1)
+        y_code = str(z.get("code", "")).zfill(6)
+        y_spot = y_spot_map.get(y_code) or {}
+        try:
+            y_change_pct = float(y_spot.get("涨跌幅", 0) or 0)
+        except Exception:
+            y_change_pct = 0.0
+        # 涨停判定: 涨幅 ≥ 9.5% (主板 10% / 创板 20% / 北证 30%, 但实际多数在 9.5-11%)
+        is_zt_today = y_change_pct >= 9.5
+        # 进阶分类 (3 段式)
+        if is_zt_today:
+            # 今日涨停 → 晋级 (streak 至少 +1)
+            y_change_type = "晋级" if (y_streak + 1) >= 2 else "连板"
+        elif y_change_pct >= 5.0:
+            y_change_type = "高开高走"
+        elif y_change_pct >= 0.0:
+            y_change_type = "震荡"
+        elif y_change_pct >= -5.0:
+            y_change_type = "回调"
+        else:
+            y_change_type = "大面"
+        yesterday_all.append({
+            "code": y_code,
+            "name": str(z.get("name", "")),
+            "sector": str(z.get("sector", "")),
+            "streak": y_streak,
+            "market_cap_yi": round(y_mcap, 1),
+            "turnover_pct": round(float(z.get("turnover_pct", 0) or 0), 1),
+            "seal_ratio_pct": round(seal_pct, 1) if seal_pct > 0 else None,
+            "taxonomy": classify_sector_name(z.get("name") or z.get("sector", "")),
+            "score_total": y_score,
+            # v234b 新增字段
+            "change_pct": round(y_change_pct, 2),
+            "is_zt_today": is_zt_today,
+            "change_type": y_change_type,
+        })
+    log.info(f"[dragons] 昨日涨停 {len(yesterday_all)} 只 ({yesterday_date})")
+
     return {
         "date": date,
         "sentiment": {
@@ -610,6 +674,8 @@ def score_dragons(date_str: str | None = None) -> dict:
         "all": scored,
         "decisions": decisions,
         "top_mainline": top_mainline,
+        "yesterday_all": yesterday_all,
+        "yesterday_date": yesterday_date or "",
         "stats": {
             "total_zt": zt_count,
             "lhb_loaded": len(lhb_map),
@@ -687,6 +753,33 @@ def _build_decisions(top10: list[dict], sentiment_label: str, max_streak: int, z
     }
 
 
+def _prev_trade_date(date_str: str) -> str | None:
+    """返回 date_str 的前一个交易日 (YYYYMMDD)"""
+    try:
+        raw = msf.fetch_trade_dates() or set()
+        # msf 返回 YYYY-MM-DD 格式, 统一转 YYYYMMDD, 降序 (最新在前)
+        dates = sorted(
+            (str(d).replace("-", "")[:8] for d in raw if len(str(d).replace("-", "")[:8]) == 8),
+            reverse=True,
+        )
+        idx = None
+        for i, d in enumerate(dates):
+            if d == date_str:
+                idx = i
+                break
+        if idx is not None and idx + 1 < len(dates):
+            return dates[idx + 1]
+        if idx is not None and idx == len(dates) - 1:
+            return None
+        # date_str not in list → 取列表中最接近且 < date_str 的
+        for d in dates:
+            if d < date_str:
+                return d
+    except Exception as e:
+        log.warning(f"[dragons] _prev_trade_date({date_str}) 失败: {e}")
+    return None
+
+
 def _empty_result(date: str, reason: str, t0) -> dict:
     return {
         "date": date,
@@ -695,6 +788,10 @@ def _empty_result(date: str, reason: str, t0) -> dict:
         "mainline": [],
         "top10": [],
         "all": [],
+        "decisions": {"overall": reason, "plays": [], "dips": [], "avoids": []},
+        "top_mainline": [],
+        "yesterday_all": [],
+        "yesterday_date": "",
         "stats": {"total_zt": 0, "lhb_loaded": 0, "tech_loaded": 0,
                   "seal_degraded": 0,
                   "elapsed_sec": round((datetime.now() - t0).total_seconds(), 1),

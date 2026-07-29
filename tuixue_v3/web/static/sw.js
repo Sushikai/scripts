@@ -114,6 +114,7 @@
 // v231 (2026-07-26): sidebar 重排 — 得鑫量变从"涨停溢价"下方移到"工作台"段末尾,与龙头/全A/个股/自选并列 (06);同时清理 sb-num 重复 09/10/08/09/08
 // v233 (2026-07-27): view-dash 自带 _ensureDashEcharts (vendor/echarts SW 已有 precache) — view-stock 的 _ensureECharts 在 dash view 不可见, sparkline 永远是空白 div
 // v234 (2026-07-27): 龙头页两表维度彻底拉齐 + 契约测试
+// v236 (2026-07-27): mobile 底部 tabbar 加"得鑫"入口 (10 列 grid) + 桌面 sidebar 工作台段补 06; R20 phase_dates 中文 key 兼容; modal chips 渲染修复
 //                    1) 今日表 thead 重排:概念/连板 倒置为 连板/概念,行模板同步换列
 //                    2) 昨日表加 概念/总分 两列 (跟今日一致),空态 colspan 10→12
 //                    3) _YEST_SORT_KEYS 补 streak/concept/market_cap/turnover/seal/score + 默认排序方向 (字符串 asc/数值 desc)
@@ -121,7 +122,16 @@
 //                    5) tests/test_dragons_tables_contract.py — 5 用例锁列集合/排序键/colspan/对齐
 //                    6) dragons.py yesterday_all 加 taxonomy (classify_sector_name) + score_total (streak×15 + seal×0.4 + mcap 适中)
 //                       避免两表拉齐后昨日两列空,前端 fallback todayByCode 已就位做双保险
-const CACHE = 'tuixue-v3-shell-v235';
+// v235 (2026-07-27): 修昨日表 row 顺序与 thead 漂移 — 之前 row 第 5/6 列是 concept/streak,但 thead 是 streak/concept,
+//                    导致 "板块 / 概念 / 连板 / 市值..." 显示错位。修:row 模板 streak 移到 concept 前。
+//                    加 3 条契约:昨日/今日 row 主行 td 数 == thead th 总数;昨日 row 内 streak 在 concept 前;_th_all helper 锁全 th 计数
+// v236 (2026-07-27): mobile 底部 tabbar 加"得鑫"入口 (10 列 grid) + 桌面 sidebar 工作台段补 06; R20 phase_dates 中文 key 兼容; modal chips 渲染修复
+// v238 (2026-07-27): 移动端表格横向拖动修复 — .card/.canvas/.dragons-twin 子项加 min-width:0;
+//                    .table-wrap 加 width:100% + min-width:0,允许 grid/flex 父容器把表格当可收缩节点;
+//                    body overflow-x:hidden → clip; dragons-twin 2 列表在 mobile 也支持卡片级内部横滚
+// v245 (2026-07-29): AI 新闻卡片可点击+预取复用+stock chip 可跳转+情感色带; 全A 移动端 CSS 冲突修复
+// v247 (2026-07-30): 龙头页 昨日涨停 今日表现 (今日涨幅 + 涨停/大面 chip); dragons middleware timeout 25s 白名单 + 端点 30→90s
+const CACHE = 'tuixue-v3-shell-v247';
 const PRECACHE = [
   '/',
   '/static/app.js',

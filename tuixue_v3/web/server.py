@@ -355,7 +355,7 @@ async def _request_timeout_middleware(request: Request, call_next):
     path = request.url.path
 
     # 白名单: 策略选股/周线擒牛/回测等长任务 (各自内部有更细的超时控制)
-    _long_paths = ("/api/strategies/scan", "/api/strategies/text", "/api/weekly_bull", "/api/screener/backtest")
+    _long_paths = ("/api/strategies/scan", "/api/strategies/text", "/api/weekly_bull", "/api/screener/backtest", "/api/dragons")
     if path.startswith(_long_paths):
         t0 = time.monotonic()
         resp = await call_next(request)
@@ -373,9 +373,11 @@ async def _request_timeout_middleware(request: Request, call_next):
         _record_latency(path, time.monotonic() - t0)
         return resp
     # dexin 冷路径 spot + 80只批量日线 实测 22-30s (push2 限频),需要更长预算
-    if path.startswith("/api/dexin/"):
+    # 视觉验证路径另算 (matplotlib 画图 + MiniMax vision, 单只 ~25s, Top 3 累计 70-90s)
+    if path.startswith("/api/dexin/") or path.startswith("/api/admin/dexin/"):
+        timeout_sec = 90.0 if "visual_verify" in path else 60.0
         t0 = time.monotonic()
-        resp = await asyncio.wait_for(call_next(request), timeout=60.0)
+        resp = await asyncio.wait_for(call_next(request), timeout=timeout_sec)
         _record_latency(path, time.monotonic() - t0)
         return resp
     # Dash 大盘+板块分时 — 5 指数并行 + 4 板块顺序 (东财 ban 并发) 累计 ~30s 冷启
@@ -2526,7 +2528,8 @@ async def market_overview():
         indices_raw, zt = None, None
 
     has_index_data = isinstance(indices_raw, list) and len(indices_raw) > 0 and any(
-        i.get("price", 0) > 0 for i in indices_raw)
+        (isinstance(i.get("price"), (int, float)) and i.get("price") > 0)
+        for i in indices_raw if isinstance(i, dict))
     has_zt_data = isinstance(zt, list)
 
     if has_index_data:
@@ -3253,7 +3256,18 @@ async def api_dashboard_index_trend():
     try:
         cached = cache_store.get_store().get(cache_key)
         if cached:
-            return envelope(data=_json_dash.loads(cached))
+            # cache_store 应该返回 dict;老版本 compat: 如果是 bytes/str 需 loads
+            if isinstance(cached, dict):
+                return envelope(data=cached)
+            if isinstance(cached, (bytes, bytearray)):
+                return envelope(data=_json_dash.loads(cached.decode("utf-8")))
+            if isinstance(cached, str):
+                # 兼容旧版 double-encode 错误: 可能开头是 b'  (repr of bytes)
+                if cached.startswith("b'") or cached.startswith('b"'):
+                    log.warning(f"index_trend cache 命中但格式异常 (re-encode): 清掉")
+                    cache_store.get_store().delete(cache_key)
+                else:
+                    return envelope(data=_json_dash.loads(cached))
     except Exception as e:
         log.debug(f"index_trend redis get: {e}")
 
@@ -3278,41 +3292,57 @@ async def api_dashboard_index_trend():
                 _f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
         except Exception: pass
     _dbg("enter endpoint")
+    # 端点总超时 7s — 移动端 iPhone 13 ngrok 31s 超时体验像"链接断了"
+    # 拆解:fetch_hot_sectors ≤3s + indices ≤1s(已并行) + sectors ≤3s(单 sector ≤1.2s)
     try:
-        # 5 大指数 + 4 板块并行拉 (板块复用同一线程池,绕过东财 RemoteDisconnected 串行拥塞)
-        import concurrent.futures as _cf
-        from .. import multi_source_fetchers as msf
-        try:
-            hot = msf.fetch_hot_sectors(top_n_flow=20, top_n_pct=20) or []
-        except Exception as e:
-            log.warning(f"index_trend hot_sectors: {e}")
-            hot = []
-        rows = sorted(hot, key=lambda x: -(x.get("net_inflow_yi") or 0))[:4]
-        sector_names = [s.get("name", "") for s in rows if s.get("name")]
-
-        import concurrent.futures as _cf
-        with _cf.ThreadPoolExecutor(max_workers=5) as ex:
-            idx_futs = [ex.submit(_fetch_index_sparkline, c, n) for (c, _, n) in _INDICES_FOR_TREND]
-            indices_out = [f.result() for f in idx_futs]
-        out["indices"] = [r for r in indices_out if r]
-        # sectors 顺序执行 — 东财 push2 高并发会触发 RemoteDisconnected
-        sectors_out = []
-        for src_sector in rows:
-            nm = src_sector.get("name", "")
-            if not nm: continue
+        async def _do():
+            loop = asyncio.get_event_loop()
+            from .. import multi_source_fetchers as msf
             try:
-                r = _fetch_sector_sparkline(nm)
-            except Exception as e:
-                _dbg(f"sector {nm} fail: {e}")
-                r = {"name": nm, "ok": False, "note": str(e)}
-            # 注入 hot_sectors 自带的 change_pct + net_inflow 兜底 (无 tick 也可绘)
-            if r.get("change_pct") is None:
-                cp = src_sector.get("change_pct")
-                r["change_pct"] = float(cp) if cp is not None else None
-                r["net_inflow_yi"] = src_sector.get("net_inflow_yi")
-            sectors_out.append(r)
-        out["sectors"] = sectors_out
-        _dbg(f"OK: indices={len(out['indices'])} sectors={len(out['sectors'])}")
+                hot = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: msf.fetch_hot_sectors(top_n_flow=20, top_n_pct=20)),
+                    timeout=3.0,
+                ) or []
+            except (asyncio.TimeoutError, Exception) as e:
+                log.warning(f"index_trend hot_sectors: {type(e).__name__}: {e}")
+                hot = []
+            rows = sorted(hot, key=lambda x: -(x.get("net_inflow_yi") or 0))[:4]
+
+            # 5 指数并行拉
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=5) as ex:
+                idx_futs = [ex.submit(_fetch_index_sparkline, c, n) for (c, _, n) in _INDICES_FOR_TREND]
+                indices_out = [f.result() for f in idx_futs]
+            out["indices"] = [r for r in indices_out if r]
+
+            # sectors 串行,但单 sector ≤1.2s — 4 个仍可能跑 4.8s,但通常 1-2 个成功就够画
+            sectors_out = []
+            for src_sector in rows:
+                nm = src_sector.get("name", "")
+                if not nm: continue
+                try:
+                    r = await asyncio.wait_for(
+                        loop.run_in_executor(None, _fetch_sector_sparkline, nm),
+                        timeout=1.2,
+                    )
+                except asyncio.TimeoutError:
+                    r = {"name": nm, "ok": False, "note": "timeout"}
+                except Exception as e:
+                    _dbg(f"sector {nm} fail: {e}")
+                    r = {"name": nm, "ok": False, "note": str(e)}
+                # 注入 hot_sectors 自带的 change_pct + net_inflow 兜底 (无 tick 也可绘)
+                if r.get("change_pct") is None:
+                    cp = src_sector.get("change_pct")
+                    r["change_pct"] = float(cp) if cp is not None else None
+                    r["net_inflow_yi"] = src_sector.get("net_inflow_yi")
+                sectors_out.append(r)
+            out["sectors"] = sectors_out
+            _dbg(f"OK: indices={len(out['indices'])} sectors={len(out['sectors'])}")
+
+        await asyncio.wait_for(_do(), timeout=7.0)
+    except asyncio.TimeoutError:
+        _dbg(f"FAIL: total endpoint timeout 7s — partial out: indices={len(out['indices'])} sectors={len(out['sectors'])}")
+        log.warning("index_trend 端点总超时 7s — 返部分数据")
     except Exception as e:
         err = _tb.format_exc()
         _dbg(f"FAIL: {type(e).__name__}: {e}")
@@ -3322,7 +3352,7 @@ async def api_dashboard_index_trend():
 
     # 60s TTL — 与 hot_sectors 同档
     try:
-        cache_store.get_store().set(cache_key, _json_dash.dumps(out, ensure_ascii=False).encode(), ttl=60)
+        cache_store.get_store().set(cache_key, out, ttl=60)
     except Exception as e:
         log.debug(f"index_trend redis set: {e}")
     return envelope(data=out)
@@ -4598,8 +4628,12 @@ async def api_limitup_per_code(req: dict):
 async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
     与个股相关的新闻(按 ctime 倒序,最新在前):
-    - 该股所在申万行业被新闻 sectors 包含
+    - 该股所在申万行业被新闻 sectors 包含 (精确匹配)
+    - 或股票所在 l1_cluster/industry-chain 被新闻提到 (宽口径)
     - 或新闻 stocks 列表里包含此 code
+
+    R-fix 2026-07-27: 改用「精确 + 宽口径」匹配;若仍 0 命中 → fallback 到最近 5 条财经要闻,
+    避免个股页 news 区永远空白 (用户反馈「新闻不是这只股相关的」)。
 
     R66 (Batch 7): 6h Redis 缓存 (个股+行业新闻聚合一日内变化不大)
     """
@@ -4615,6 +4649,21 @@ async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
     def _load():
         sec = get_sector(code)
         sw = sec.get("sw")
+        # 宽口径: 取 sw_raw 中所有 "-" 分隔的子段 + l1_cluster + taxonomy chain
+        sw_keys = []
+        if sw:
+            sw_keys.append(sw)
+        sw_raw = (sec.get("sw_raw") or "")
+        for seg in sw_raw.split("-"):
+            seg = seg.strip()
+            if seg and seg not in sw_keys:
+                sw_keys.append(seg)
+        l1 = ((sec.get("taxonomy") or {}).get("level1_cluster") or "").strip()
+        if l1 and l1 not in sw_keys:
+            sw_keys.append(l1)
+        l3 = ((sec.get("taxonomy") or {}).get("level3_chain") or "").strip()
+        if l3 and l3 not in sw_keys:
+            sw_keys.append(l3)
         cache = news_lookup.load_cache()
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
@@ -4622,11 +4671,19 @@ async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
         for n in news:
             a = ai.get(n["id"])
             if not a: continue
+            a_stocks = a.get("stocks") or []
+            a_sectors = a.get("sectors") or []
             hit_reason = []
-            if code in (a.get("stocks") or []):
+            if code in a_stocks:
                 hit_reason.append("提及该股")
-            if sw and sw in (a.get("sectors") or []):
-                hit_reason.append(f"行业={sw}")
+            # 精确 + 宽口径匹配
+            hit_sw = None
+            for k in sw_keys:
+                if k and k in a_sectors:
+                    hit_sw = k
+                    break
+            if hit_sw:
+                hit_reason.append(f"行业={hit_sw}")
             if not hit_reason:
                 continue
             item = dict(n)
@@ -4634,11 +4691,24 @@ async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
             item["hit_reason"] = " · ".join(hit_reason)
             matched.append(item)
         matched.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
+        # R-fix 2026-07-27: fallback — 0 命中时返回最近 5 条财经要闻,保证页面不空白
+        # 不强制要求 ai (AI 分析未跑时 news 仍可展示)
+        degraded = False
+        if not matched and news:
+            matched = []
+            for n in news[:5]:
+                a = ai.get(n["id"])
+                item = {**n, "hit_reason": "近期财经要闻"}
+                if a:
+                    item["ai"] = a
+                matched.append(item)
+            degraded = True
         return {
             "code": code,
             "sector": sec,
             "news": matched,
             "count": len(matched),
+            "_degraded_fallback": degraded,
         }
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=8)
@@ -6525,6 +6595,21 @@ def _filter_news_for_stock(news_cache, code, sector) -> list:
         if not news_cache:
             return []
         sw = (sector or {}).get("sw") or ""
+        # 宽口径 keys (与 stock_related_news 同步)
+        sw_keys = []
+        if sw:
+            sw_keys.append(sw)
+        sw_raw = ((sector or {}).get("sw_raw") or "")
+        for seg in sw_raw.split("-"):
+            seg = seg.strip()
+            if seg and seg not in sw_keys:
+                sw_keys.append(seg)
+        l1 = (((sector or {}).get("taxonomy") or {}).get("level1_cluster") or "").strip()
+        if l1 and l1 not in sw_keys:
+            sw_keys.append(l1)
+        l3 = (((sector or {}).get("taxonomy") or {}).get("level3_chain") or "").strip()
+        if l3 and l3 not in sw_keys:
+            sw_keys.append(l3)
         news = news_cache.get("news") or []
         ai = news_cache.get("ai") or {}
         matched = []
@@ -6532,13 +6617,29 @@ def _filter_news_for_stock(news_cache, code, sector) -> list:
             a = ai.get(n.get("id"))
             if not a:
                 continue
+            a_stocks = a.get("stocks") or []
+            a_sectors = a.get("sectors") or []
             hit_reason = []
-            if code in (a.get("stocks") or []):
+            if code in a_stocks:
                 hit_reason.append("提及该股")
-            if sw and sw in (a.get("sectors") or []):
-                hit_reason.append(f"行业={sw}")
+            hit_sw = None
+            for k in sw_keys:
+                if k and k in a_sectors:
+                    hit_sw = k
+                    break
+            if hit_sw:
+                hit_reason.append(f"行业={hit_sw}")
             if hit_reason:
                 matched.append({**n, "ai": a, "hit_reason": " · ".join(hit_reason)})
+        # R-fix 2026-07-27: 0 命中 fallback — 最近 5 条要闻 (避免个股页空白)
+        # 不强制要求 ai (AI 分析未跑时 news 仍可展示)
+        if not matched and news:
+            for n in news[:5]:
+                a = ai.get(n.get("id"))
+                item = {**n, "hit_reason": "近期财经要闻"}
+                if a:
+                    item["ai"] = a
+                matched.append(item)
         return matched[:8]
     except Exception:
         return []
@@ -10008,7 +10109,7 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
             async def _bg_refresh():
                 try:
                     _DRAGONS_INFLIGHT[cache_key] = True
-                    fresh = await asyncio.wait_for(to_thread(score_dragons, date), timeout=30)
+                    fresh = await asyncio.wait_for(to_thread(score_dragons, date), timeout=90)
                     if fresh:
                         _DRAGONS_CACHE[cache_key] = {"data": fresh, "ts": datetime.datetime.now()}
                         # R-T5x: 同步写 Redis
@@ -10026,10 +10127,10 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
     try:
         result = await asyncio.wait_for(
             to_thread(score_dragons, date),
-            timeout=30,                                       # 2026-07-19: 15→30, score_dragons 多源 fetch 常超 15s
+            timeout=90,                                       # 2026-07-29: 30→90 (东财限频 + tech fetch 81只并行偶发超 60s, 留 buffer)
         )
     except asyncio.TimeoutError:
-        log.warning(f"dragons 超时 30s (date={date}) → 尝试陈旧缓存")
+        log.warning(f"dragons 超时 90s (date={date}) → 尝试陈旧缓存")
         stale = _DRAGONS_CACHE.get(cache_key)
         if stale and (datetime.datetime.now() - stale["ts"]).total_seconds() < 600:
             stale_data = dict(stale["data"])
