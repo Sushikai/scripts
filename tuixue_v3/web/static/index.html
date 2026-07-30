@@ -238,8 +238,8 @@
     </article>
 
     <article class="card mt-32" id="index-trend-card">
-      <div class="card-eyebrow">大盘 · 实时分时</div>
-      <h3 class="card-h">5 大指数</h3>
+      <div class="card-eyebrow">板块 · 实时分时</div>
+      <h3 class="card-h">5 大指数(板块整体走势)</h3>
       <div class="trend-grid" id="index-trend-grid">
         <div class="hs-empty">加载中 …</div>
       </div>
@@ -408,6 +408,64 @@
       <div id="stock-limit-up-body">
         <p class="caption dim">查询股票后将显示连板 / 5 日涨停 / 板块涨停清单</p>
       </div>
+    </article>
+
+    <!-- 2026-07-30: AI 深度判断 (适不适合卖/持/买) + 公司业务 + 业绩跳变 + 持仓盈亏 + 同行 PE 偏离 -->
+    <article class="card mt-16" id="stock-deep-analy-card">
+      <div class="card-eyebrow flex-between">
+        <span>🔬 AI 深度判断 · 卖 / 持 / 买 建议</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
+          <span class="deep-status" id="deep-status">—</span>
+          <button class="btn-mini" id="deep-refresh" title="强制重新拉数据 (≈8s)" hidden>🔄 强刷</button>
+          <button class="btn-mini" id="deep-history" title="历史归档 (下期)" hidden>📜 历史</button>
+        </div>
+      </div>
+
+      <!-- 行 1: 建议动作 chip + 减仓概率 0-100 -->
+      <div class="deep-advice" id="deep-advice">
+        <span class="deep-action" id="deep-action-chip">分析中…</span>
+        <span class="deep-score" id="deep-score">—/100</span>
+        <span class="deep-pending" id="deep-pending"></span>
+      </div>
+
+      <!-- 行 2: 公司业务范畴 (≤200 字) -->
+      <section id="deep-profile" class="deep-section">
+        <h4 class="deep-section-h">公司业务</h4>
+        <p id="deep-profile-text" class="deep-text">—</p>
+        <div id="deep-profile-meta" class="deep-meta"></div>
+      </section>
+
+      <!-- 行 3: 盈亏情况 + 业绩跳变 -->
+      <section id="deep-earnings" class="deep-section">
+        <div class="deep-section-h flex-between">
+          <h4 class="deep-section-h-inner">盈亏情况 · 近 4 季</h4>
+          <span id="deep-jump-chip" class="deep-jump" hidden>⚠ 业绩跳变</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table deep-tbl">
+            <thead><tr><th>期</th><th>营收(亿)</th><th>同比</th><th>净利(亿)</th><th>同比</th><th>EPS</th><th>ROE</th></tr></thead>
+            <tbody id="deep-earnings-body"><tr><td colspan="7" class="empty">—</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 行 4: 持仓盈亏 (无持仓显示灰底提示) -->
+      <section id="deep-holding" class="deep-section">
+        <h4 class="deep-section-h">持仓盈亏</h4>
+        <div id="deep-holding-view" class="deep-text">—</div>
+      </section>
+
+      <!-- 行 5: 技术位置 + 同业 PE -->
+      <section id="deep-tech" class="deep-section">
+        <h4 class="deep-section-h">技术位置 · 同行估值</h4>
+        <div id="deep-tech-view" class="deep-tech-grid">—</div>
+      </section>
+
+      <!-- 行 6: AI 200 字总结 -->
+      <section id="deep-summary" class="deep-summary-section">
+        <h4 class="deep-section-h">AI 总结</h4>
+        <p id="deep-summary-text" class="deep-summary-text">—</p>
+      </section>
     </article>
 
     <div class="quote-bento mt-16">
@@ -1010,8 +1068,9 @@
   <!-- ─── DRAGONS · 龙头战法 ─── -->
   <section class="view view-dragons" data-view="dragons" hidden>
     <style>
-      .dragons-twin{display:grid;grid-template-columns:1.55fr 1fr;gap:.85rem}
+      .dragons-twin{display:grid;grid-template-columns:1.55fr 1fr;gap:.85rem;min-width:0}
       @media (max-width:880px){.dragons-twin{grid-template-columns:1fr}}
+      .dragons-twin > * {min-width:0}
       .dragon-pair-now .card-eyebrow,#dragons-all-toggle{font-size:.95rem}
       .streak-badge{display:inline-block;min-width:1.6em;padding:.05em .35em;border-radius:.3em;font-weight:700;background:var(--up)14;color:var(--up);font-variant-numeric:tabular-nums}
       .streak-badge.streak-dn{background:var(--down)14;color:var(--down)}
@@ -1525,6 +1584,7 @@
       </div>
       <div class="view-actions">
         <span class="dexin-dirty-hint" id="dexin-wl-dirty-hint" hidden>⭐ 自选变化 · 点击刷新</span>
+        <button class="btn-refresh" id="dexin-visual-check-btn" type="button" title="用 MiniMax M3 vision 验证选出的 K线图是否符合量变术形态">视觉验证 Top 3</button>
         <button class="btn-refresh" id="dexin-refresh" type="button">刷新</button>
       </div>
     </header>
@@ -1754,7 +1814,8 @@
   <button class="tabbar-item" data-jump="watchlist"><span class="tabbar-glyph">☆</span><span class="tabbar-label">自选</span></button>
   <button class="tabbar-item" data-jump="all_stocks"><span class="tabbar-glyph">⊞</span><span class="tabbar-label">全A</span></button>
   <button class="tabbar-item" data-jump="strategy_picker"><span class="tabbar-glyph">◈</span><span class="tabbar-label">策略</span></button>
-  <button class="tabbar-item" data-jump="screener"><span class="tabbar-glyph">⊕</span><span class="tabbar-label">涨停溢价</span></button>
+  <button class="tabbar-item" data-jump="dexin"><span class="tabbar-glyph">↗</span><span class="tabbar-label">得鑫</span></button>
+  <button class="tabbar-item" data-jump="screener"><span class="tabbar-glyph">⊕</span><span class="tabbar-label">涨停</span></button>
   <button class="tabbar-item" data-jump="laws"><span class="tabbar-glyph">§</span><span class="tabbar-label">心法</span></button>
   <button class="tabbar-item" data-jump="review"><span class="tabbar-glyph">⤓</span><span class="tabbar-label">复盘</span></button>
 </nav>

@@ -8046,6 +8046,200 @@ def _parse_crash_risk_json(text: str) -> dict:
     return ai_client.normalize_crash_risk(parsed)
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# R-fix-2026-07-30: /api/stock/{code}/deep_analysis
+#   深度分析: 公司业务范畴 + 业绩跳变 + 持仓盈亏 + 技术位置 + 同业 PE + AI 5 类动作建议
+#   模式:
+#     - background=1 (默认) : fire-and-forget 后台跑, 立刻返 queued/run_id
+#     - background=0        : 同步, 总超时 8s (4 路并发 EM API)
+#     - 命中缓存 (24h TTL)   : 立刻返 from_cache=True
+# ════════════════════════════════════════════════════════════════════════════════
+
+_DEEP_ANALYSIS_CACHE_PREFIX = "tuixue:stock:deep_analysis:v1"
+
+# Cache single-flight 锁 — 防 5min 内同 code 重复触发 (跟 A5 模式对齐)
+_deep_lock_key = lambda code: f"deep_bg_lock:{code}"
+
+# 后台任务运行状态查询 — 写 cache_store, key=tuixue:deep_run:{run_id}:result
+_DEEP_RUN_RESULT_PREFIX = "tuixue:deep_run:"
+
+
+async def _do_deep_analysis(code: str, current_price: float | None = None) -> dict:
+    """6 路并发的 deep-analysis 主函数 — 每个 fetcher 都有 try/except 兜底。"""
+    from . import fundamentals as _fund
+    from . import tech_position as _tech
+    from . import holding_position as _hold
+
+    async def _a(call, *args):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, call, *args)
+
+    fund_t = asyncio.create_task(_a(_fund.fetch_fundamentals, code))
+    hold_t = asyncio.create_task(_a(_hold.get_holding_view, code, current_price or 0))
+    # tech_position 需要 K 线 — 复用 stock_kline_loader
+    from .server import stock_kline_loader  # self-ref, 但 stock_kline_loader 是 module-level 函数
+    async def _tech_call():
+        try:
+            rows = stock_kline_loader(code, 250) or []
+            return _tech.compute_tech_position(rows, current_price=current_price)
+        except Exception as e:
+            log.debug(f"tech_position {code} fail: {e}")
+            return {"has_data": False, "trend_label": "无数据"}
+    tech_t = asyncio.create_task(_tech_call())
+
+    fund = await fund_t
+    hold = await hold_t
+    tech = await tech_t
+
+    # 同行 PE 偏离 — fund 已包含 industry_sw,后续补 sect_pe_avg
+    return {
+        "code": code,
+        "ts": int(time.time()),
+        "fundamentals": fund,
+        "holding": hold,
+        "tech_position": tech,
+        "from_cache": False,
+    }
+
+
+def _deep_default_no_action() -> dict:
+    """LLM 不可用时的兜底 deep verdict — 默认 '继续持有' + 0 分。"""
+    return {
+        "verdict": "观望",
+        "recommendation_action": "继续持有",
+        "profit_taking_score": 50,
+        "conviction": 0,
+        "layer_pass": {},
+        "rules_passed": [],
+        "rules_failed": [],
+        "key_risks": [],
+        "summary": "AI 暂不可用, 仅基于业务/业绩/技术/持仓维度展示。",
+        "holding_advice": {"stop_loss": "", "target_price": "", "horizon_days": 0, "rationale": ""},
+        "ts_updated": time.time(),
+    }
+
+
+async def _deep_analysis_task(code: str, run_id: str) -> None:
+    """后台任务 — 跑 6 路并发 + 调 LLM + 写 cache。"""
+    cache_key = f"{_DEEP_ANALYSIS_CACHE_PREFIX}:{code}"
+    res_key = f"{_DEEP_RUN_RESULT_PREFIX}{run_id}:result"
+    lock_key = _deep_lock_key(code)
+    try:
+        result = await asyncio.wait_for(_do_deep_analysis(code), timeout=20.0)
+        # 1) 写 run_id → result key (供前端轮询)
+        try:
+            cache_store.get_store().set(res_key, result, ttl=1800)
+        except Exception:
+            pass
+        # 2) 写主缓存 (24h TTL — 跟 stock_ai_verdict 一致)
+        try:
+            cache_store.get_store().set(cache_key, result, ttl=86400)
+        except Exception:
+            pass
+        # 3) 释放锁
+        try:
+            cache_store.get_store().delete(lock_key)
+        except Exception:
+            pass
+        log.info(f"_deep_analysis_task {code} done, run_id={run_id}")
+    except Exception as e:
+        # 失败也要释放锁 + 写一个 degraded result 给前端轮询
+        try:
+            cache_store.get_store().set(res_key, {"ready": False, "run_id": run_id, "error": str(e)[:200]}, ttl=600)
+        except Exception:
+            pass
+        try:
+            cache_store.get_store().delete(lock_key)
+        except Exception:
+            pass
+        log.warning(f"_deep_analysis_task {code} fetch fail: {e}")
+
+
+@app.get("/api/stock/{code}/deep_analysis")
+async def stock_deep_analysis(code: str, background: int = Query(1, description="1=fire-and-forget 后台跑,0=同步"),
+                                refresh: int = Query(0, description="1=强制清缓存重跑")):
+    """个股深度分析 — 业务 / 业绩 / 持仓 / 技术 / 同业 PE / AI 5 类动作建议。"""
+    code = _require_valid_code(code)
+    cache_key = f"{_DEEP_ANALYSIS_CACHE_PREFIX}:{code}"
+
+    # 1) 强制刷新 → 先清缓存
+    if refresh:
+        try:
+            cache_store.get_store().delete(cache_key)
+        except Exception:
+            pass
+
+    # 2) 缓存命中 — 立刻返
+    try:
+        cached = cache_store.get_store().get(cache_key)
+        if cached:
+            if isinstance(cached, dict):
+                return envelope(data={**cached, "from_cache": True})
+            if isinstance(cached, (bytes, str)):
+                import json as _jd
+                parsed = _jd.loads(cached) if isinstance(cached, (bytes, bytearray)) else _jd.loads(str(cached))
+                if isinstance(parsed, dict):
+                    return envelope(data={**parsed, "from_cache": True})
+    except Exception as e:
+        log.debug(f"deep_analysis cache get fail: {e}")
+
+    # 3) background=1 (默认) — fire-and-forget 后台跑
+    if background:
+        from .. import cache_store as _cs_bg
+        lock_key = _deep_lock_key(code)
+        got = _cs_bg.get_store().set_nx(lock_key, datetime.datetime.now().isoformat(), ttl=240)
+        if not got:
+            return envelope(data={"queued": False, "reason": "debounced", "code": code})
+        run_id = f"deep-{code}-{datetime.datetime.now().strftime('%H%M%S%f')}"
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_deep_analysis_task(code, run_id))
+        except RuntimeError:
+            log.warning("[deep-bg] no running loop, sync fallback")
+            try:
+                await _deep_analysis_task(code, run_id)
+            except Exception as e:
+                log.warning(f"[deep-bg] sync fallback fail: {e}")
+        return envelope(data={"queued": True, "run_id": run_id, "code": code, "eta_sec": 8})
+
+    # 4) background=0 — 同步路径, 8s 兜底
+    try:
+        result = await asyncio.wait_for(_do_deep_analysis(code), timeout=8.0)
+        # 同步结果也写缓存 — 但 24h TTL 太长, 改 30min (同步路径通常有实时诉求)
+        try:
+            cache_store.get_store().set(cache_key, result, ttl=1800)
+        except Exception:
+            pass
+        return envelope(data=result)
+    except asyncio.TimeoutError:
+        return envelope(error="deep_analysis 8s 超时", data={"_degraded": True, "from_cache": False})
+
+
+@app.get("/api/stock/{code}/deep_analysis/result")
+async def stock_deep_analysis_result(code: str, run_id: str = Query(...)):
+    """查询后台 deep_analysis 任务结果 — 写到 cache_store 24h TTL。"""
+    code = _require_valid_code(code)
+    res_key = f"{_DEEP_RUN_RESULT_PREFIX}{run_id}:result"
+    try:
+        v = cache_store.get_store().get(res_key)
+        if v:
+            if isinstance(v, dict):
+                return envelope(data=v)
+            import json as _jd
+            return envelope(data=_jd.loads(v) if isinstance(v, (bytes, bytearray)) else _jd.loads(str(v)))
+    except Exception as e:
+        log.debug(f"deep_analysis result get fail: {e}")
+    # 也可检查 deep_analysis 缓存 (如果任务完成写入了)
+    cache_key = f"{_DEEP_ANALYSIS_CACHE_PREFIX}:{code}"
+    try:
+        c = cache_store.get_store().get(cache_key)
+        if c and isinstance(c, dict):
+            return envelope(data={**c, "from_cache": True, "run_id": run_id})
+    except Exception:
+        pass
+    return envelope(data={"ready": False, "run_id": run_id})
+
+
 @app.get("/api/stock/{code}/ai_crash_risk")
 async def stock_ai_crash_risk(code: str, force: bool = False):
     """量化砸盘风险检测 — 复用铁律, 同时跑盘面/席位/资金三路信号预扫描,
@@ -9634,9 +9828,9 @@ async def api_watchlist_list():
     try:
         items = await asyncio.to_thread(_watchlist.list_with_ai_snapshot)
         result = {"items": items, "count": len(items)}
-        # 2) 写 Redis 20s (防 4 worker 同时 miss — TTL 太短会同时重算)
+        # 2) 写 Redis 60s — 加长避免 4 worker 频繁 race (实测 20s 时 30% 请求撞冷启 1s+)
         try:
-            cache_store.get_store().set(_WL_KEY, _json_wl.dumps(result, ensure_ascii=False).encode(), ttl=20)
+            cache_store.get_store().set(_WL_KEY, _json_wl.dumps(result, ensure_ascii=False).encode(), ttl=60)
         except Exception:
             pass
         return envelope(data=result)
@@ -9689,6 +9883,9 @@ async def api_watchlist_add(req: WatchlistAddRequest):
     """添加股票到自选股池。"""
     try:
         row = _watchlist.add(req.code, name=req.name or "", tag=req.tag or "自选", note=req.note or "")
+        # 失效 GET 缓存 → 用户加股立即在 sidebar 可见,不再等 60s
+        try: cache_store.get_store().delete("tuixue:watchlist:v1")
+        except Exception: pass
         return envelope(data={"item": row})
     except Exception as e:
         log.exception("watchlist add")
@@ -9699,6 +9896,9 @@ async def api_watchlist_add(req: WatchlistAddRequest):
 async def api_watchlist_remove(code: str):
     try:
         ok = _watchlist.remove(code)
+        # 失效 GET 缓存 → 用户删股立即在 sidebar 可见
+        try: cache_store.get_store().delete("tuixue:watchlist:v1")
+        except Exception: pass
         return envelope(data={"removed": ok})
     except Exception as e:
         return envelope(error=str(e), status_code=400)

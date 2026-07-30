@@ -577,6 +577,8 @@ def _rescue_fields(text: str) -> dict:
 VERDICT_WHITELIST = {"买", "观望", "回避", "-", "强烈买入", "卖出", "及格", "失误", "严重失误", "优", "正常"}
 ROLE_WHITELIST = {"龙头", "中军", "杂毛", "main", "second", "noise", "—", "-"}
 CRASH_WHITELIST = {"高", "中高", "中", "低", "无", "未知"}
+# 2026-07-30: 深分析 (deep_analysis) 5 类操作建议白名单
+ACTION_WHITELIST = {"加仓", "继续持有", "减仓", "清仓", "观望"}
 CONV_MIN, CONV_MAX = 0, 100
 
 
@@ -613,6 +615,19 @@ def normalize_ai_verdict(d: dict | None) -> dict:
     out["rules_failed"] = list(d.get("rules_failed") or [])[:10]
     out["key_risks"]    = list(d.get("key_risks") or [])[:10]
     out["summary"]      = cap_text(str(d.get("summary") or ""), 200)
+    # R-fix-2026-07-30: 深分析扩展 5 类操作建议
+    out["recommendation_action"] = _check_whitelist(
+        d.get("recommendation_action"), ACTION_WHITELIST, "继续持有")
+    out["profit_taking_score"] = int(_clamp(d.get("profit_taking_score"), 0, 100))
+    holding = d.get("holding_advice") or {}
+    if not isinstance(holding, dict):
+        holding = {}
+    out["holding_advice"] = {
+        "stop_loss": str(holding.get("stop_loss") or "")[:30],
+        "target_price": str(holding.get("target_price") or "")[:30],
+        "horizon_days": int(_clamp(holding.get("horizon_days"), 0, 365) or 0),
+        "rationale": cap_text(str(holding.get("rationale") or ""), 200),
+    }
     out.setdefault("ts_updated", time.time())
     return out
 

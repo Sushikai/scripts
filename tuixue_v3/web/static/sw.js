@@ -131,7 +131,10 @@
 //                    body overflow-x:hidden → clip; dragons-twin 2 列表在 mobile 也支持卡片级内部横滚
 // v245 (2026-07-29): AI 新闻卡片可点击+预取复用+stock chip 可跳转+情感色带; 全A 移动端 CSS 冲突修复
 // v247 (2026-07-30): 龙头页 昨日涨停 今日表现 (今日涨幅 + 涨停/大面 chip); dragons middleware timeout 25s 白名单 + 端点 30→90s
-const CACHE = 'tuixue-v3-shell-v247';
+// v249 (2026-07-30): ZT 回测异步化 (POST /api/zt/backtest + poll status, 避免 25s 超时)
+// v250 (2026-07-30): 个股页 AI 深度判断卡片 (deep-analysis: 业务+业绩+持仓+技术+同业 PE, 6 section)
+// v251 (2026-07-30): 修 view-stock.js profile_text 三元 bug (|| fund.has_data 永远 truthy) + .deep-bar / .deep-hold-grid 样式 + chip class 统一 deep-meta-chip
+const CACHE = 'tuixue-v3-shell-v251';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -172,6 +175,9 @@ const _LONG_CACHE_API_PATTERNS = [
 ];
 const _LONG_CACHE_API_TTL_MS_CORE = 15_000;   // /core: 15s (< server 30s, 强制走 server refresh)
 const _LONG_CACHE_API_TTL_MS_FULL = 5_000;    // /full: 5s (= server 5s)
+// 2026-07-30: AI 深度判断 — 基本面/技术面缓变, server TTL 240min, SW 用 4h 兜底
+const _DEEP_ANALYSIS_PATTERN = /^\/api\/stock\/[^/]+\/deep_analysis(\?.*)?$/;
+const _DEEP_ANALYSIS_TTL_MS = 4 * 60 * 60 * 1000;
 // API 缓存新鲜度: 60s 内直接用 cache,超过则后台 revalidate
 const _API_CACHE_FRESH_MS = 60_000;
 
@@ -185,6 +191,7 @@ function _isLongCacheApi(pathname) {
 }
 
 function _freshnessMs(pathname) {
+  if (_DEEP_ANALYSIS_PATTERN.test(pathname)) return _DEEP_ANALYSIS_TTL_MS;            // deep_analysis: 4h
   if (_LONG_CACHE_API_PATTERNS[0].test(pathname)) return _LONG_CACHE_API_TTL_MS_FULL;  // /full
   if (_LONG_CACHE_API_PATTERNS[1].test(pathname)) return _LONG_CACHE_API_TTL_MS_CORE;  // /core
   return _API_CACHE_FRESH_MS;
@@ -231,7 +238,7 @@ self.addEventListener('fetch', (event) => {
 
   // ── API: cacheable → stale-while-revalidate,其它 → network-only ──
   if (url.pathname.startsWith('/api/')) {
-    if (_isCacheableApi(url.pathname) || _isLongCacheApi(url.pathname)) {
+    if (_isCacheableApi(url.pathname) || _isLongCacheApi(url.pathname) || _DEEP_ANALYSIS_PATTERN.test(url.pathname)) {
       event.respondWith(
         caches.open(CACHE).then(async (cache) => {
           const cached = await cache.match(req);

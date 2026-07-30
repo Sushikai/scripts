@@ -743,6 +743,7 @@ async function loadStockDetail(code, date) {
     _stockAuxCache.seat_breakdown = null;
     _stockAuxCache.related_news = null;
     _stockAuxCache.ai_status = null;
+    newsCache = null;  // R1: 切股时清新闻缓存, 防止显示旧股新闻
     _stockAuxCache.intraday = null;
     _stockAuxCache.inflight = null;
     _stockAuxCache.ts = 0;
@@ -1589,6 +1590,7 @@ function renderStockDetail(code, data) {
 	loadStockSector(code);
 	$('#ai-detail').innerHTML = '';
 	loadAIAnalysis(code);
+	loadStockDeepAnalysis(code);
 	loadStockMyTrades(code);
 	loadCrashRisk(code);
 
@@ -2122,11 +2124,23 @@ function renderKlineKpi(kline) {
 }
 
 // ─── 近 10 日涨跌格子 · close-to-close 9 档热力 (2026-07-17 恢复 · 摘要条 + 点击切分时) ───
+// R-fix 2026-07-26: 当 kline 太短时主动补拉 /api/stock/{code}/kline?days=30 兜底,缺数据不再静默
 function renderStreak10d(kline) {
   const host = $('#q-streak-10d');
   if (!host) return;
-  if (!kline || kline.length < 5) {
-    host.innerHTML = '<p class="caption dim" style="margin:.25rem 0 0">近 10 日数据不足</p>';
+  const codeNow = window._currentStockCode || window.currentStockCode;
+  if (!kline || kline.length < 11) {
+    host.innerHTML = '<p class="caption dim" style="margin:.25rem 0 0">近 10 日数据加载中…</p>';
+    if (codeNow) {
+      _streakKlineFallback(codeNow).then(arr => {
+        if (!arr || arr.length < 5) return;
+        if (window._currentStockCode !== codeNow) return;
+        klineState.data = arr;
+        renderStreak10d(arr);
+      }).catch(()=>{
+        host.innerHTML = '<p class="caption dim" style="margin:.25rem 0 0">近 10 日数据获取失败,可点击 K线 tab 重试</p>';
+      });
+    }
     return;
   }
   // 取 11 条 → 10 个 chg% 值 (第 1 条无 prev_close 不算 chg)
@@ -2525,6 +2539,24 @@ function computeBOLL(closes, n = 20, k = 2) {
 // 加载 K 线 (按周期)
 // R4: 多并发 dedup — 同一 (code,days) 同时被调用多次,只发 1 个请求
 var _klineInflight = {};
+// R-fix 2026-07-26: 30 日 K 线兜底 — renderStreak10d 在原数据 <11 条时调用
+var _streakKlineFallbackInflight = {};
+async function _streakKlineFallback(code) {
+  const key = code + ':30';
+  if (_streakKlineFallbackInflight[key]) return _streakKlineFallbackInflight[key];
+  const p = (async () => {
+    try {
+      const data = await api(`/api/stock/${code}/kline?days=30`, { timeout: 6000 });
+      return (data && data.kline) || [];
+    } catch (e) {
+      return [];
+    } finally {
+      setTimeout(() => { if (_streakKlineFallbackInflight[key] === p) delete _streakKlineFallbackInflight[key]; }, 800);
+    }
+  })();
+  _streakKlineFallbackInflight[key] = p;
+  return p;
+}
 async function loadKline(code, days) {
   if (code !== window._currentStockCode) return Promise.resolve();
   const key = code + ':' + days;
@@ -2571,10 +2603,23 @@ async function drawKlineChart() {
   const chart = echarts.init(dom, null, { renderer: 'canvas' });
   echartsCharts.kline = chart;
   _klineChartDrawn = true;
-  const kline = klineState.data;
+  let kline = klineState.data;
   if (!kline || !kline.length) {
-    try { chart.setOption(emptyChartOption('暂无 K 线数据')); chart.resize(); } catch (e) {}
-    return;
+    // R-fix 2026-07-26: 空数据兜底 — 主动拉 30 日 K 线 (走 /api/stock/{code}/kline,后端已 pre_cache 优先 + stale 兜底)
+    const codeEmpty = window._currentStockCode || window.currentStockCode;
+    if (codeEmpty) {
+      const got = await _streakKlineFallback(codeEmpty);
+      if (got && got.length && window._currentStockCode === codeEmpty) {
+        klineState.data = got;
+        kline = got;
+        renderKlineKpi(kline);
+        renderStreak10d(kline);
+      }
+    }
+    if (!kline || !kline.length) {
+      try { chart.setOption(emptyChartOption('暂无 K 线数据')); chart.resize(); } catch (e) {}
+      return;
+    }
   }
   const ind = klineState.indicators;
   const dates = kline.map(k => k.date);
@@ -3897,6 +3942,20 @@ async function loadNewsList(forceRefresh) {
   const meta = $('#news-meta');
   const list = $('#news-list');
   if (!list) return;
+  const code = window._currentStockCode || currentStockCode;
+
+  // R1: 优先用 /full 预取的 related_news (0 网络开销, 即时渲染)
+  if (!forceRefresh && code && _stockAuxCache.code === code && _stockAuxCache.related_news) {
+    const cached = _stockAuxCache.related_news;
+    newsCache = cached;
+    const fa = cached.fetched_at ? new Date(cached.fetched_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
+    const degLabel = cached._degraded_fallback ? ' · fallback' : '';
+    meta.textContent = `${code} 相关 · ${cached.count || 0} 条${degLabel} · 抓取 ${fa} · AI ${cached.ai_count || 0}/${cached.count || 0}`;
+    meta.style.color = INK2;
+    renderNewsList(cached.news || []);
+    return;
+  }
+
   if (forceRefresh) {
     meta.textContent = '刷新中…（抓取 + AI 评分，约 60s）';
     meta.style.color = INK2;
@@ -3904,13 +3963,28 @@ async function loadNewsList(forceRefresh) {
       `<div class="news-card"><div class="skeleton skeleton-block" style="width:100%"></div></div>`).join('');
   }
   try {
-    const data = forceRefresh
-      ? await (await fetch('/api/news/refresh', { method: 'POST' })).json().then(d => d.data || {})
-      : (await api('/api/news')).data || {};
+    let data;
+    let stockCtx = null;
+    if (code) {
+      const resp = await api(`/api/stock/${code}/related_news${forceRefresh ? '?fresh=1' : ''}`);
+      data = resp || {};
+      stockCtx = { code, sector: data.sector || {} };
+    } else if (forceRefresh) {
+      data = await (await fetch('/api/news/refresh', { method: 'POST' })).json().then(d => d.data || {});
+    } else {
+      data = (await api('/api/news')) || {};
+    }
     newsCache = data;
     const fa = data.fetched_at ? new Date(data.fetched_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
     const aa = data.analyzed_at ? new Date(data.analyzed_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
-    meta.textContent = `抓取 ${fa}  ·  AI ${data.ai_count || 0}/${data.count || 0} · 分析 ${aa}`;
+    if (code) {
+      const sec = stockCtx.sector || {};
+      const swLabel = sec.sw ? `申万「${sec.sw}」` : '';
+      const degLabel = data._degraded_fallback ? ' · fallback' : '';
+      meta.textContent = `${code}${swLabel ? ' · ' + swLabel : ''} 相关 · ${data.count || 0} 条${degLabel} · 抓取 ${fa} · AI ${data.ai_count || 0}/${data.count || 0}`;
+    } else {
+      meta.textContent = `抓取 ${fa}  ·  AI ${data.ai_count || 0}/${data.count || 0} · 分析 ${aa}`;
+    }
     meta.style.color = INK2;
     renderNewsList(data.news || []);
   } catch (e) {
@@ -3924,8 +3998,7 @@ async function loadNewsList(forceRefresh) {
 function renderNewsList(items) {
   const list = $('#news-list');
   if (!items.length) {
-    // 2026-07-16 R46: 列表为空时给一个手动刷新按钮 (避免 "暂无新闻" 死局)
-    list.innerHTML = '<div class="empty-card"><p class="caption dim">暂无新闻</p>' +
+    list.innerHTML = '<div class="empty-card"><p class="caption dim">暂无相关新闻</p>' +
       '<button class="btn btn-ghost btn-sm" data-news-retry>🔄 刷新</button></div>';
     const retry = list.querySelector('[data-news-retry]');
     if (retry) retry.addEventListener('click', () => loadNewsList(false));
@@ -3938,16 +4011,16 @@ function renderNewsList(items) {
     const cls = score == null ? '' : (score >= 7 ? 'hot' : score >= 4 ? 'warm' : 'cold');
     const dirColor = dir === '利好' ? UP : dir === '利空' ? DOWN : INK2;
     const sectorChips = (a?.sectors || []).slice(0, 3).map(s => `<span class="chip">${escapeHtml(s)}</span>`).join('');
-    const stockChips = (a?.stocks || []).slice(0, 4).map(s => `<span class="chip chip-code">${s}</span>`).join('');
+    const stockChips = (a?.stocks || []).slice(0, 4).map(s => `<a class="stock-link chip chip-code" data-code="${s}">${s}</a>`).join('');
     const reason = a?.reason ? `<div class="news-reason">${escapeHtml(a.reason)}</div>` : '';
     const href = n.url ? escapeHtml(n.url) : '#';
     return `
-      <div class="news-card ${cls}">
+      <div class="news-card ${cls}" data-url="${href}" tabindex="0" role="link" aria-label="打开新闻: ${escapeHtml(n.title)}">
         <div class="news-score">
           ${score != null ? `<div class="news-score-num" style="color:${dirColor}">${score.toFixed(1)}</div><div class="news-score-cap">${dir}</div>` : '<div class="news-score-num dim">—</div><div class="news-score-cap dim">未评分</div>'}
         </div>
         <div class="news-body">
-          <a class="news-title" href="${href}" target="_blank" rel="noopener">${escapeHtml(n.title)}</a>
+          <a class="news-title" href="${href}" target="_blank" rel="noopener" tabindex="-1">${escapeHtml(n.title)}</a>
           <div class="news-meta">
             <span class="dim">${n.ctime_str || ''}</span>
             <span class="dim">· ${escapeHtml(n.media || '')}</span>
@@ -3959,6 +4032,27 @@ function renderNewsList(items) {
       </div>`;
   }).join('');
 }
+
+// R1: 新闻卡片全局点击 — 整卡可点, 键盘 Enter 打开
+(function _initNewsCardClick() {
+  const list = $('#news-list');
+  if (!list) return;
+  list.addEventListener('click', (e) => {
+    const card = e.target.closest('.news-card');
+    if (!card) return;
+    // 标题链接和 stock-link chip 用各自默认行为, 不拦截
+    if (e.target.closest('a')) return;
+    const url = card.dataset.url;
+    if (url && url !== '#') window.open(url, '_blank', 'noopener');
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const card = e.target.closest('.news-card');
+    if (!card) return;
+    const url = card.dataset.url;
+    if (url && url !== '#') window.open(url, '_blank', 'noopener');
+  });
+})();
 
 // ────────────────────────────────────────────
 // SECTORS · 申万 31 行业聚合情绪
@@ -4840,5 +4934,236 @@ function _prefetchAdjacentStocks(currentCode) {
     }
   }, 1200);
 }
+
+// ─── R-fix-2026-07-30: AI 深度判断 (公司业务 / 业绩跳变 / 持仓 / 技术 / 同业 PE) ───
+const _DEEP_POLL_INTERVAL = 2000; // 后台任务轮询 2s
+const _DEEP_POLL_MAX = 15;        // 最多 15 次 = 30s
+const _DEEP_ACTION_META = {
+  '加仓': { color: 'var(--up)', icon: '↑' },
+  '继续持有': { color: 'var(--accent-2)', icon: '✓' },
+  '减仓': { color: 'var(--accent)', icon: '↓' },
+  '清仓': { color: 'var(--down)', icon: '×' },
+  '观望': { color: 'var(--dim)', icon: '·' },
+};
+
+async function loadStockDeepAnalysis(code) {
+  // 1) Reset UI
+  const $ = sel => document.querySelector(sel);
+  const fields = ['#deep-status','#deep-action-chip','#deep-score','#deep-profile-text','#deep-profile-meta',
+                  '#deep-earnings-body','#deep-jump-chip','#deep-holding-view','#deep-tech-view','#deep-summary-text'];
+  for (const f of fields) $(f).textContent = '';
+  const setTxt = (sel, t) => { const el=$(sel); if (el) el.textContent = t; };
+  setTxt('#deep-action-chip', '拉取中…');
+  setTxt('#deep-status', '约 8s');
+
+  let curRunId = null;
+  let queueState = 'fetching';
+  try {
+    // 后台 fire-and-forget,1s 内返 (命中缓存更短)
+    const envQ = await apiRaw(`/api/stock/${code}/deep_analysis?background=1`, { method: 'GET' });
+    const dq = envQ.json ? await envQ.json() : envQ;
+    if (dq && dq.data && dq.data.queued) {
+      curRunId = dq.data.run_id;
+      queueState = 'background';
+    } else if (dq && dq.data && dq.data.from_cache) {
+      // 已经缓存命中 — 直接渲染
+      renderDeepAnalysis(dq.data);
+      return;
+    }
+  } catch (e) {
+    setTxt('#deep-status', '后台排队失败');
+  }
+
+  // 2) 轮询 result (background 模式)
+  if (queueState === 'background' && curRunId) {
+    for (let i = 0; i < _DEEP_POLL_MAX; i++) {
+      await new Promise(r => setTimeout(r, _DEEP_POLL_INTERVAL));
+      try {
+        const r = await apiRaw(`/api/stock/${code}/deep_analysis/result?run_id=${curRunId}`);
+        const envR = r.json ? await r.json() : r;
+        if (envR && envR.data && envR.data.from_cache) {
+          renderDeepAnalysis(envR.data);
+          return;
+        }
+        if (envR && envR.data && envR.data.ready) {
+          renderDeepAnalysis(envR.data);
+          return;
+        }
+      } catch (e) { /* keep polling */ }
+    }
+    setTxt('#deep-status', '后台超时 (8s+),已降级');
+  }
+
+  // 3) 兜底同步路径
+  try {
+    const r = await apiRaw(`/api/stock/${code}/deep_analysis?background=0`);
+    const envD = r.json ? await r.json() : r;
+    if (envD && envD.data) renderDeepAnalysis(envD.data);
+  } catch (e) {
+    setTxt('#deep-action-chip', '分析失败');
+    setTxt('#deep-status', e && e.message || '网络错误');
+  }
+}
+
+function renderDeepAnalysis(data) {
+  if (!data) return;
+  const $ = sel => document.querySelector(sel);
+  const setTxt = (sel, t) => { const el = $(sel); if (el) el.textContent = t; };
+
+  // 1) 顶部 action chip + score
+  const action = data.recommendation_action || data.action || '继续持有';
+  const meta = _DEEP_ACTION_META[action] || _DEEP_ACTION_META['继续持有'];
+  const chip = $('#deep-action-chip');
+  if (chip) {
+    chip.textContent = `${meta.icon} ${action}`;
+    chip.style.background = meta.color;
+    chip.style.color = '#fff';
+  }
+  const score = data.profit_taking_score != null ? data.profit_taking_score :
+                (data.conviction != null ? data.conviction : 50);
+  setTxt('#deep-score', `${score}/100`);
+  setTxt('#deep-pending', '');
+
+  // 2) 状态标
+  const cacheTxt = data.from_cache ? `缓存 ${Math.round((Date.now()/1000 - (data.ts || 0))/60)} 分钟前` : '刚刚拉取';
+  setTxt('#deep-status', cacheTxt);
+
+  // 3) 公司业务
+  const fund = data.fundamentals || {};
+  const profile = fund.profile || {};
+  const bizText = profile.business_summary || profile.business_scope || '';
+  setTxt('#deep-profile-text', bizText || '（暂无业务数据）');
+  const metaDiv = $('#deep-profile-meta');
+  if (metaDiv) {
+    const indTags = [profile.industry_sw, profile.industry_csrc].filter(Boolean).map(x =>
+      `<span class="deep-meta-chip">${escapeHtml(x)}</span>`).join('');
+    const empTag = profile.emp_num ? `<span class="deep-meta-chip">员工 ${profile.emp_num.toLocaleString()}</span>` : '';
+    const addressTag = profile.address ? `<span class="deep-meta-chip">📍 ${escapeHtml(profile.address)}</span>` : '';
+    metaDiv.innerHTML = indTags + empTag + addressTag;
+  }
+
+  // 4) 业绩表
+  const finBody = $('#deep-earnings-body');
+  if (finBody) {
+    const fins = fund.financials || [];
+    if (fins.length === 0) {
+      finBody.innerHTML = '<tr><td colspan="7" class="empty">暂未拉到业绩快报</td></tr>';
+    } else {
+      finBody.innerHTML = fins.map(f => {
+        const yoyRev = f.revenue_yoy_pct;
+        const yoyNp = f.netprofit_yoy_pct;
+        const clsRev = (yoyRev || 0) >= 0 ? 'pos' : 'neg';
+        const clsNp = (yoyNp || 0) >= 0 ? 'pos' : 'neg';
+        return `
+          <tr>
+            <td>${escapeHtml(f.period || f.period_label || '—')}</td>
+            <td>${f.revenue_yi?.toFixed(0) ?? '—'}</td>
+            <td class="${clsRev}">${yoyRev == null ? '—' : (yoyRev >= 0 ? '+' : '') + yoyRev.toFixed(1) + '%'}</td>
+            <td>${f.netprofit_yi?.toFixed(0) ?? '—'}</td>
+            <td class="${clsNp}">${yoyNp == null ? '—' : (yoyNp >= 0 ? '+' : '') + yoyNp.toFixed(1) + '%'}</td>
+            <td>${f.eps?.toFixed(2) ?? '—'}</td>
+            <td>${f.roe_pct?.toFixed(1) ?? '—'}%</td>
+          </tr>`;
+      }).join('');
+    }
+  }
+
+  // 业绩跳变 chip
+  const jumpChip = $('#deep-jump-chip');
+  const jumpInfo = fund.earnings_jump || {};
+  if (jumpChip) {
+    if (jumpInfo.jump) {
+      const reasons = (jumpInfo.reasons || []).slice(0, 2).join(' · ');
+      jumpChip.textContent = `⚠ 业绩跳变 · ${reasons}`;
+      jumpChip.hidden = false;
+    } else {
+      jumpChip.hidden = true;
+    }
+  }
+
+  // 5) 持仓盈亏
+  const hold = data.holding || {};
+  const holdView = $('#deep-holding-view');
+  if (holdView) {
+    if (hold.has_position) {
+      const sign = hold.unrealized_pnl_pct >= 0 ? '+' : '';
+      const pnlColor = hold.unrealized_pnl_pct >= 0 ? 'var(--up)' : 'var(--down)';
+      holdView.innerHTML = `
+        <div class="deep-hold-grid">
+          <div><span class="dim">成本</span><b>¥${hold.avg_cost?.toFixed(2) ?? '—'}</b></div>
+          <div><span class="dim">现价</span><b>¥${hold.last_price?.toFixed(2) ?? '—'}</b></div>
+          <div><span class="dim">股数</span><b>${hold.shares?.toLocaleString() ?? '—'}</b></div>
+          <div><span class="dim">市值</span><b>¥${hold.market_value?.toFixed(0) ?? '—'}</b></div>
+          <div><span class="dim">浮盈</span><b style="color:${pnlColor}">${sign}${hold.unrealized_pnl_pct?.toFixed(2) ?? '—'}%</b></div>
+          <div><span class="dim">盈亏额</span><b style="color:${pnlColor}">${sign}${(hold.unrealized_pnl_yuan/10000).toFixed(2)} 万</b></div>
+          <div><span class="dim">持有</span><b>${hold.days_held ?? 0} 天</b></div>
+          <div><span class="dim">末次加仓</span><b>${hold.last_buy_date || '—'} ¥${hold.last_buy_price?.toFixed(2) ?? '—'}</b></div>
+        </div>`;
+    } else {
+      holdView.innerHTML = `<div class="deep-hold-empty">用户无持仓 · 按策略 + 技术面 + 业绩综合建议</div>`;
+    }
+  }
+
+  // 6) 技术位置 + 同业 PE
+  const tech = data.tech_position || {};
+  const techView = $('#deep-tech-view');
+  if (techView) {
+    if (tech.has_data) {
+      const pos60 = tech.pct_position_60d ?? 50;
+      const pos252 = tech.pct_position_252d ?? 50;
+      const rev60 = tech.pullback_from_60d_high_pct ?? 0;
+      const trends = tech.trend_label || '—';
+      const spark = pos60.toFixed(0);
+      const bar60 = `<div class="deep-bar"><span class="deep-bar-fill" style="width:${Math.max(0,Math.min(100,pos60))}%;"></span></div>`;
+      const bar252 = `<div class="deep-bar"><span class="deep-bar-fill" style="width:${Math.max(0,Math.min(100,pos252))}%;"></span></div>`;
+      techView.innerHTML = `
+        <div class="deep-tech-grid-inner">
+          <div><span class="dim">60 日位置</span><b>${spark}%</b>${bar60}</div>
+          <div><span class="dim">52 周位置</span><b>${pos252.toFixed(0)}%</b>${bar252}</div>
+          <div><span class="dim">60 日高点回撤</span><b>${rev60 >= 0 ? '+' : ''}${rev60.toFixed(2)}%</b></div>
+          <div><span class="dim">趋势判定</span><b>${escapeHtml(trends)}</b></div>
+          <div><span class="dim">MA5 乖离</span><b>${tech.bias_ma5?.toFixed(2) ?? '—'}%</b></div>
+          <div><span class="dim">MA20 乖离</span><b>${tech.bias_ma20?.toFixed(2) ?? '—'}%</b></div>
+          <div><span class="dim">突破带</span><b style="color:${tech.breakout_zone ? 'var(--up)' : 'var(--dim)'}">${tech.breakout_zone ? '在 ±2% 区间' : '—'}</b></div>
+          <div><span class="dim">支撑带</span><b style="color:${tech.support_zone ? 'var(--up)' : 'var(--dim)'}">${tech.support_zone ? '在 ±5% 区间' : '—'}</b></div>
+        </div>`;
+    } else {
+      techView.innerHTML = '<div class="dim">技术数据不足</div>';
+    }
+  }
+
+  // 7) AI 总结
+  const summary = (data.summary || (hold.has_position ? `基于您的持仓成本与浮盈率 + 公司业务/业绩状态 + 技术位置综合建议: <b>${action}</b>` : `基于公司业务 + 业绩状态 + 技术位置综合建议: <b>${action}</b>`));
+  const holdingAdvice = data.holding_advice || {};
+  let adviceLine = '';
+  if (holdingAdvice.stop_loss || holdingAdvice.target_price) {
+    const sl = holdingAdvice.stop_loss ? `止损 ${holdingAdvice.stop_loss}` : '';
+    const tp = holdingAdvice.target_price ? `目标 ${holdingAdvice.target_price}` : '';
+    const hd = holdingAdvice.horizon_days ? `${holdingAdvice.horizon_days} 日` : '';
+    const parts = [sl, tp, hd].filter(Boolean).join(' · ');
+    if (parts) adviceLine = `<div class="deep-advice-line">${escapeHtml(parts)}</div>`;
+  }
+  setTxt('#deep-summary-text', summary + adviceLine);
+
+  // 显示 refresh 按钮 (允许 user 强刷)
+  const refresh = $('#deep-refresh');
+  if (refresh) refresh.hidden = false;
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'deep-refresh') {
+    const code = (typeof _currentStockCode === 'function' ? _currentStockCode() :
+                  window._currentStockCode || document.getElementById('stock-code')?.textContent || '').trim();
+    if (/^\d{6}$/.test(code)) {
+      document.getElementById('deep-refresh').textContent = '强制拉取中…';
+      apiRaw(`/api/stock/${code}/deep_analysis?background=0&refresh=1`)
+        .then(() => loadStockDeepAnalysis(code))
+        .finally(() => {
+          const btn = document.getElementById('deep-refresh');
+          if (btn) btn.textContent = '🔄 强刷';
+        });
+    }
+  }
+});
 
 window.__tx3StockLoadStockDetail = loadStockDetail;
