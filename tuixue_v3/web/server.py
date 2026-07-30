@@ -1289,8 +1289,7 @@ async def _rate_limit_middleware(request, call_next):
         resp = await call_next(request)
     except Exception as e:
         log.exception(f"[{trace_id}] {request.method} {request.url.path} 异常: {e}")
-        from fastapi.responses import JSONResponse
-        # R-B11: envelope + error code
+        # R-B11: envelope + error code (JSONResponse from module-level import)
         return JSONResponse(
             _envelope_err(CODE_INTERNAL, f"internal: {type(e).__name__}", trace_id=trace_id),
             status_code=500,
