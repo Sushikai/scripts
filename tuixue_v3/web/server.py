@@ -8582,13 +8582,9 @@ async def stock_deep_analysis(code: str, background: int = Query(1, description=
     try:
         cached = cache_store.get_store().get(cache_key)
         if cached:
-            if isinstance(cached, dict):
-                return envelope(data={**cached, "from_cache": True})
-            if isinstance(cached, (bytes, str)):
-                import json as _jd
-                parsed = _jd.loads(cached) if isinstance(cached, (bytes, bytearray)) else _jd.loads(str(cached))
-                if isinstance(parsed, dict):
-                    return envelope(data={**parsed, "from_cache": True})
+            decoded = _cache_obj(cached)
+            if decoded is not None and isinstance(decoded, dict):
+                return envelope(data={**decoded, "from_cache": True})
     except Exception as e:
         log.debug(f"deep_analysis cache get fail: {e}")
 
@@ -8639,10 +8635,9 @@ async def stock_deep_analysis_result(code: str, run_id: str = Query(...)):
     try:
         v = cache_store.get_store().get(res_key)
         if v:
-            if isinstance(v, dict):
-                return envelope(data=v)
-            import json as _jd
-            return envelope(data=_jd.loads(v) if isinstance(v, (bytes, bytearray)) else _jd.loads(str(v)))
+            decoded = _cache_obj(v)
+            if decoded is not None:
+                return envelope(data=decoded)
     except Exception as e:
         log.debug(f"deep_analysis result get fail: {e}")
     # 也可检查 deep_analysis 缓存 (如果任务完成写入了)
