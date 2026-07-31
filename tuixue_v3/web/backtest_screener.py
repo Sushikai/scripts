@@ -1499,7 +1499,8 @@ def _fetch_5min_for_code(code: str, start_date: str, end_date: str) -> list[dict
     # 缓存 (即使空列表也缓存,避免反复打挂掉的源)
     try:
         from .. import cache_store as _cs
-        _cs.set(cache_key, _json.dumps(bars or []), ttl=_FIVEMIN_CACHE_TTL)
+        # R-fix-2026-08-01: 跟 7dc158c cache 双编码 bug 同根,改传 list 不预 JSON
+        _cs.get_store().set(cache_key, bars or [], ttl=_FIVEMIN_CACHE_TTL)
     except Exception:
         pass
 
