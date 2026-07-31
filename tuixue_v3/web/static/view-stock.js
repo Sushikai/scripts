@@ -839,6 +839,8 @@ async function loadStockDetail(code, date) {
     _stockAuxCache.related_news = data.related_news || null;
     _stockAuxCache.ai_status = data.ai_status || null;
     _stockAuxCache.intraday = data.intraday || null;
+    // 2026-08-01: 公司画像 4 件套 (营业范围/主营/概念/行业地位)
+    _stockAuxCache.profile = data.profile || null;
     _stockAuxCache.ts = Date.now();
 
     // 写 sessionStorage + 内存层 (R3)
@@ -846,7 +848,7 @@ async function loadStockDetail(code, date) {
     _memFullSet(code, dateParam, data);
     _recordHit('network');
     try { renderStockDetail(code, data); }
-    catch (e) { console.error('renderStockDetail failed:', e); toast(`渲染失败:${e.message}`, 'error'); }
+    catch (e) { console.error('renderStockDetail failed:', e); toast(`✗ 渲染失败: ${e.message}`, 'error'); }
     window._stockFullRenderTime = performance.now();
     _hideStockSkeleton();  // R72 (Batch 8): 首次成功 render 后移除 skeleton
     // 记录到历史
@@ -873,7 +875,7 @@ async function loadStockDetail(code, date) {
     if (cached) {
       console.warn('[stock] 网络失败,使用缓存:', e.message);
     } else {
-      toast(`加载失败：${e.message}`, 'error');
+      toast(`✗ 加载失败：${e.message}`, 'error');
       // R77 (Batch 8): 无缓存 + 网络失败 → 显示错误卡 + 重试按钮
       _showStockError(code, e.message || '网络异常');
     }
@@ -1593,6 +1595,8 @@ function renderStockDetail(code, data) {
 	loadStockDeepAnalysis(code);
 	loadStockMyTrades(code);
 	loadCrashRisk(code);
+	// 2026-08-01: 公司画像 4 件套 — 优先用 /full 预取,缺失再单独 fetch
+	loadStockProfile(code);
 
 
 	}
@@ -2324,62 +2328,140 @@ function renderSeatsKpi(seats) {
   ]);
 }
 
+// R-ai-fix (2026-07-31): 个股 AI 分析 — 之前同步 GET,17-35s LLM 撞 20s api()
+// timeout → "请求失败"。改 background=1 fire-and-forget + 轮询:
+//   1) 同步 GET 试缓存命中 (<100ms 完成)
+//   2) 未命中 → POST background=1 立刻返 queued:true,UI 显示 "AI 复盘中 …"
+//   3) 每 3s 轮询 GET,直到 verdict 出来,最多 60s
+//   4) 切股时 cancel 轮询,避免旧股结果污染新视图
+var _aiPollingTimers = {};
 async function loadAIAnalysis(code) {
+  // 取消旧股的轮询 (切股场景)
+  if (_aiPollingTimers[code]) {
+    clearInterval(_aiPollingTimers[code]);
+    delete _aiPollingTimers[code];
+  }
+  // 1) 快速 GET 试缓存命中
   try {
     const env = await apiRaw(`/api/stock/${code}/ai_analysis`).then(r => r.json());
-    const data = env.data || {};
-    if (!env.ok) {
-      $('#ai-status').textContent = '';
-      renderAIVerdict('—', 0);
-      $('#ai-detail').innerHTML = `<div class="ai-rules">
-        <div class="cr-mark no">!</div>
-        <div class="cr-text">${escapeHtml(env.error || 'AI 调用失败')}</div>
-      </div>`;
-      $('#ai-summary').textContent = data.summary || '';
+    if (env && env.ok && env.data && (env.data.verdict || env.data.summary)) {
+      _renderAIResult(code, env.data, env);
       return;
     }
-    renderAIVerdict(data.verdict, data.conviction);
-    $('#ai-summary').textContent = data.summary || '';
-
-    const lp = data.layer_pass || {};
-    const layers = [
-      ['L1 风控', lp.L1_风控],
-      ['L2 周期主线', lp.L2_周期主线],
-      ['L3 形态', lp.L3_形态],
-      ['L4 分时', lp.L4_分时],
-    ];
-    let html = '<div class="ai-layers">';
-    for (const [name, status] of layers) {
-      const sym = status === true ? '✓' : status === false ? '✗' : '?';
-      const cls = status === true ? 'ok' : status === false ? 'no' : 'warn';
-      html += `<div class="ai-layer ${cls}">
-        <span class="ai-layer-mark">${sym}</span>
-        <span class="ai-layer-name">${name}</span>
-      </div>`;
-    }
-    html += '</div>';
-    if ((data.rules_passed || []).length) {
-      html += '<div class="ai-rule-section"><h4>通过</h4><ul>';
-      data.rules_passed.forEach(r => { html += `<li class="ok">${escapeHtml(r)}</li>`; });
-      html += '</ul></div>';
-    }
-    if ((data.rules_failed || []).length) {
-      html += '<div class="ai-rule-section"><h4>违背</h4><ul>';
-      data.rules_failed.forEach(r => { html += `<li class="no">${escapeHtml(r)}</li>`; });
-      html += '</ul></div>';
-    }
-    if ((data.key_risks || []).length) {
-      html += '<div class="ai-rule-section"><h4>关键风险</h4><ul>';
-      data.key_risks.forEach(r => { html += `<li class="warn">${escapeHtml(r)}</li>`; });
-      html += '</ul></div>';
-    }
-    $('#ai-detail').innerHTML = html;
-    $('#ai-status').textContent = '完成';
   } catch (e) {
-    $('#ai-status').textContent = '失败';
-    $('#ai-verdict').textContent = '—';
-    $('#ai-summary').textContent = `请求失败:${e.message}`;
+    // GET 失败不致命,继续走 background 路径
   }
+
+  // 2) POST background=1 fire-and-forget
+  $('#ai-status').textContent = 'AI 复盘中 …';
+  try {
+    const bgResp = await fetch(`/api/stock/${code}/ai_analysis?background=1`, {
+      method: 'POST',
+      headers: { 'X-Trace-Id': Math.random().toString(36).slice(2, 14) }
+    });
+    const bgJson = await bgResp.json();
+    if (!bgJson.ok) {
+      // background 接口失败 (罕见) → 显示错误
+      _renderAIError(code, bgJson.error?.message || 'AI 后台启动失败');
+      return;
+    }
+    const q = bgJson.data || {};
+    if (q.reason === 'debounced') {
+      // 5 分钟内已有人触发,直接轮询等结果即可
+      $('#ai-status').textContent = 'AI 复盘中 …';
+    } else if (q.queued) {
+      $('#ai-status').textContent = `AI 复盘中 (~${q.eta_sec || 25}s) …`;
+    }
+  } catch (e) {
+    _renderAIError(code, '后台 AI 触发失败: ' + e.message);
+    return;
+  }
+
+  // 3) 轮询 GET,直到拿到 verdict
+  const startTs = Date.now();
+  _aiPollingTimers[code] = setInterval(async () => {
+    // 60s 后停止轮询
+    if (Date.now() - startTs > 60_000) {
+      clearInterval(_aiPollingTimers[code]);
+      delete _aiPollingTimers[code];
+      const ap = $('#ai-status'); if (ap) ap.textContent = '超时,请重试';
+      return;
+    }
+    try {
+      const env = await apiRaw(`/api/stock/${code}/ai_analysis`).then(r => r.json());
+      if (env && env.ok && env.data && (env.data.verdict || env.data.summary)) {
+        clearInterval(_aiPollingTimers[code]);
+        delete _aiPollingTimers[code];
+        _renderAIResult(code, env.data, env);
+      }
+    } catch (e) {
+      // 静默继续轮询
+    }
+  }, 3000);
+}
+
+// 切股/切页时清空所有 AI 轮询
+function _cancelAIPolling() {
+  Object.keys(_aiPollingTimers).forEach(k => {
+    clearInterval(_aiPollingTimers[k]);
+    delete _aiPollingTimers[k];
+  });
+}
+if (typeof _registerViewLeave === 'function') {
+  // R-fix-2026-08-01: 切走 stock view 也 abort 相关股预取,避免 6 连接池占满 + 切页 carryover
+  _registerViewLeave('stock', () => {
+    try { _cancelAIPolling(); } catch (e) {}
+    try { _cancelAdjacentPrefetch(); } catch (e) {}
+    try { _inflightAbortAll(); } catch (e) {}
+  });
+}
+
+function _renderAIResult(code, data, env) {
+  renderAIVerdict(data.verdict, data.conviction);
+  $('#ai-summary').textContent = data.summary || '';
+  const lp = data.layer_pass || {};
+  const layers = [
+    ['L1 风控', lp.L1_风控],
+    ['L2 周期主线', lp.L2_周期主线],
+    ['L3 形态', lp.L3_形态],
+    ['L4 分时', lp.L4_分时],
+  ];
+  let html = '<div class="ai-layers">';
+  for (const [name, status] of layers) {
+    const sym = status === true ? '✓' : status === false ? '✗' : '?';
+    const cls = status === true ? 'ok' : status === false ? 'no' : 'warn';
+    html += `<div class="ai-layer ${cls}">
+      <span class="ai-layer-mark">${sym}</span>
+      <span class="ai-layer-name">${name}</span>
+    </div>`;
+  }
+  html += '</div>';
+  if ((data.rules_passed || []).length) {
+    html += '<div class="ai-rule-section"><h4>通过</h4><ul>';
+    data.rules_passed.forEach(r => { html += `<li class="ok">${escapeHtml(r)}</li>`; });
+    html += '</ul></div>';
+  }
+  if ((data.rules_failed || []).length) {
+    html += '<div class="ai-rule-section"><h4>违背</h4><ul>';
+    data.rules_failed.forEach(r => { html += `<li class="no">${escapeHtml(r)}</li>`; });
+    html += '</ul></div>';
+  }
+  if ((data.key_risks || []).length) {
+    html += '<div class="ai-rule-section"><h4>关键风险</h4><ul>';
+    data.key_risks.forEach(r => { html += `<li class="warn">${escapeHtml(r)}</li>`; });
+    html += '</ul></div>';
+  }
+  $('#ai-detail').innerHTML = html;
+  $('#ai-status').textContent = '完成';
+}
+
+function _renderAIError(code, msg) {
+  $('#ai-status').textContent = '';
+  renderAIVerdict('—', 0);
+  $('#ai-detail').innerHTML = `<div class="ai-rules">
+    <div class="cr-mark no">!</div>
+    <div class="cr-text">${escapeHtml(msg)}</div>
+  </div>`;
 }
 
 function renderAIVerdict(verdict, conv) {
@@ -4014,6 +4096,11 @@ function renderNewsList(items) {
     const stockChips = (a?.stocks || []).slice(0, 4).map(s => `<a class="stock-link chip chip-code" data-code="${s}">${s}</a>`).join('');
     const reason = a?.reason ? `<div class="news-reason">${escapeHtml(a.reason)}</div>` : '';
     const href = n.url ? escapeHtml(n.url) : '#';
+    // 2026-08-01: 命中标签 — 强/弱/fallback 一眼分清
+    const hitKind = n._hit_kind || (n.hit_reason && /宽口径/.test(n.hit_reason) ? 'weak' : 'strong');
+    const hitTag = hitKind === 'weak' ? '<span class="news-hit-tag weak" title="板块宽口径匹配,可能与本股相关">板块</span>'
+                  : hitKind === 'fallback' ? '<span class="news-hit-tag fallback" title="该股暂无精准新闻,展示近期财经要闻兜底">兜底</span>'
+                  : (n.hit_reason ? `<span class="news-hit-tag strong" title="${escapeHtml(n.hit_reason)}">精准</span>` : '');
     return `
       <div class="news-card ${cls}" data-url="${href}" tabindex="0" role="link" aria-label="打开新闻: ${escapeHtml(n.title)}">
         <div class="news-score">
@@ -4025,6 +4112,7 @@ function renderNewsList(items) {
             <span class="dim">${n.ctime_str || ''}</span>
             <span class="dim">· ${escapeHtml(n.media || '')}</span>
             <span class="dim">· ${n.lid_name || ''}</span>
+            ${hitTag}
           </div>
           ${reason}
           ${sectorChips || stockChips ? `<div class="news-chips">${sectorChips}${stockChips}</div>` : ''}
@@ -4330,7 +4418,7 @@ async function loadStockSector(code) {
     sec = (await _auxGet(code, 'sector', `/api/stock/${code}/sector`)) || {};
     const b = sec.board || {};
     host1.innerHTML = `
-      <div class="kv-row"><span>市场</span><b>${escapeHtml(b.board_name || '—')}</b></div>
+      <div class="kv-row"><span>市场</span><b>${escapeHtml(b.board_short || b.board_name || '—')}</b></div>
       <div class="kv-row"><span>代码前缀</span><b>${escapeHtml(b.prefix || '—')}</b></div>
       <div class="kv-row"><span>涨跌幅</span><b>±${b.pct_limit || '—'}%</b></div>
       <div class="kv-row"><span>门槛</span><b>${b.capital_floor_wan ? b.capital_floor_wan + ' 万' : '无'}</b></div>`;
@@ -4397,12 +4485,20 @@ async function loadStockSector(code) {
       const n = news[0];
       const a = n.ai;
       const dirColor = a.direction === '利好' ? UP : a.direction === '利空' ? DOWN : INK2;
+      // 2026-08-01: 命中标签 (强/弱/fallback) — 摘要区也展示,跟新闻 tab 保持一致
+      const hk = n._hit_kind || (n.hit_reason && /宽口径/.test(n.hit_reason) ? 'weak' : 'strong');
+      const summaryTag = hk === 'weak' ? '<span class="news-hit-tag weak" title="板块宽口径">板块</span>'
+                       : hk === 'fallback' ? '<span class="news-hit-tag fallback" title="该股暂无精准新闻,展示近期财经要闻">兜底</span>'
+                       : (n.hit_reason ? `<span class="news-hit-tag strong" title="${escapeHtml(n.hit_reason)}">精准</span>` : '');
       host5.innerHTML = `
         <div class="news-card ${a.score >= 7 ? 'hot' : a.score >= 4 ? 'warm' : 'cold'}">
           <div class="news-score"><div class="news-score-num" style="color:${dirColor}">${a.score.toFixed(1)}</div></div>
           <div class="news-body">
             <div class="news-title" style="font-size:.92rem">${escapeHtml(n.title)}</div>
-            <div class="news-meta"><span class="dim">${n.ctime_str || ''} · ${escapeHtml(n.media || '')} · ${a.direction || ''}</span></div>
+            <div class="news-meta">
+              <span class="dim">${n.ctime_str || ''} · ${escapeHtml(n.media || '')} · ${a.direction || ''}</span>
+              ${summaryTag}
+            </div>
           </div>
         </div>
         <p class="caption dim" style="margin:.4rem 0 0">
@@ -5005,13 +5101,190 @@ async function loadStockDeepAnalysis(code) {
   }
 }
 
+// ─── R-fix-2026-08-01: 公司画像 (营业范围 / 主营 / 行业地位 / 多板块) ───
+function _renderProfileBars(byProduct) {
+  if (!byProduct || !byProduct.length) return '<div class="caption dim">— 暂无主营构成 —</div>';
+  const max = Math.max(...byProduct.map(p => p.ratio_pct || 0), 0.01);
+  return byProduct.map(p => {
+    const w = Math.min(100, ((p.ratio_pct || 0) / max) * 100);
+    const meta = [
+      `<b>${(p.income_yi ?? 0).toFixed(0)}</b>亿`,
+      `${(p.ratio_pct ?? 0).toFixed(1)}%`,
+      p.gross_margin_pct != null ? `毛利 <b>${p.gross_margin_pct.toFixed(1)}%</b>` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="prof-bar-row" title="${escapeHtml(p.name || '')} · ${meta}">
+        <span class="prof-bar-name">${escapeHtml(p.name || '—')}</span>
+        <span class="prof-bar-track"><span class="prof-bar-fill" style="width:${w.toFixed(1)}%"></span></span>
+        <span class="prof-bar-meta">${meta}</span>
+      </div>`;
+  }).join('');
+}
+
+function _renderProfileChips(concepts, maxChips = 16) {
+  if (!concepts || !concepts.length) return '<span class="caption dim">— 暂无概念板块 —</span>';
+  // 排序: 精确概念在前, 然后按 rank
+  const sorted = concepts.slice().sort((a, b) => {
+    if (a.is_precise && !b.is_precise) return -1;
+    if (!a.is_precise && b.is_precise) return 1;
+    return (a.rank || 99) - (b.rank || 99);
+  });
+  const visible = sorted.slice(0, maxChips);
+  const hiddenCount = sorted.length - visible.length;
+  const html = visible.map(c => {
+    const cls = c.is_precise ? 'prof-chip prof-chip-precise' : 'prof-chip';
+    const rank = c.rank ? `<span class="prof-chip-rank">#${c.rank}</span>` : '';
+    return `<span class="${cls}" title="排名 ${c.rank || '—'} · ${c.is_precise ? '精准命中' : '相关概念'}">${escapeHtml(c.name || '—')}${rank}</span>`;
+  }).join('');
+  return html + (hiddenCount > 0 ? `<span class="prof-chip" title="${sorted.length - maxChips} 个未显示">+${hiddenCount}</span>` : '');
+}
+
+function renderProfile(pack) {
+  const $ = sel => document.querySelector(sel);
+  const card = $('#stock-profile-card');
+  if (!card) return;
+  if (!pack || (!pack.profile && !pack.biz_breakdown && !pack.concepts_pack)) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  const profile = pack.profile || {};
+  const biz = pack.biz_breakdown || {};
+  const conc = pack.concepts_pack || {};
+  const meta = pack.profile_meta || {};
+
+  // 行 1: 营业范围 / 简介
+  const scopeEl = $('#prof-scope-text');
+  if (scopeEl) {
+    const biz_summary = profile.business_summary || '';
+    const biz_scope = biz.scope || profile.business_scope || '';
+    let text = '';
+    if (biz_scope) {
+      // 截前 200 字 + ellipsis (长尾展开)
+      const cut = biz_scope.length > 220;
+      text = cut ? biz_scope.slice(0, 220) + '…' : biz_scope;
+    } else if (biz_summary) {
+      const cut = biz_summary.length > 220;
+      text = cut ? biz_summary.slice(0, 220) + '…' : biz_summary;
+    } else {
+      text = '（暂未拉到该股的营业范围）';
+    }
+    scopeEl.textContent = text;
+  }
+
+  // 行 2: 主营产品 (横条) + 地区拆分
+  const barsEl = $('#prof-products-bars');
+  if (barsEl) {
+    barsEl.innerHTML = _renderProfileBars(biz.by_product || []);
+  }
+  const regionsEl = $('#prof-regions-text');
+  if (regionsEl) {
+    const regions = biz.by_region || [];
+    if (regions.length) {
+      const rtxt = regions.map(r => `${r.name} ${(r.ratio_pct ?? 0).toFixed(1)}%`).join(' · ');
+      regionsEl.textContent = `地区: ${rtxt}`;
+    } else {
+      regionsEl.textContent = '';
+    }
+  }
+  const reportEl = $('#prof-report-date');
+  if (reportEl) {
+    reportEl.textContent = biz.report_date ? `${biz.report_date} 报告期` : '';
+  }
+
+  // 行 3: 行业地位
+  const posEl = $('#prof-position-text');
+  if (posEl) {
+    let posText = conc.industry_position || '';
+    if (!posText) {
+      // 退而求其次: 主营业务核心题材第 1 条
+      const mainBiz = (conc.hot_tags || []).find(t => t.classif === '主营业务');
+      posText = mainBiz ? mainBiz.content : '';
+    }
+    if (!posText) {
+      // 再退: 行业背景
+      const bg = (conc.hot_tags || []).find(t => t.classif === '行业背景');
+      posText = bg ? bg.content : '';
+    }
+    posEl.textContent = posText ? (posText.length > 200 ? posText.slice(0, 200) + '…' : posText) : '（暂无行业地位描述）';
+  }
+
+  // 行 4: 多板块 (chip)
+  const chipsEl = $('#prof-concepts-chips');
+  if (chipsEl) {
+    chipsEl.innerHTML = _renderProfileChips(conc.concepts || [], 16);
+  }
+  const cntEl = $('#prof-concept-count');
+  if (cntEl) {
+    const total = meta.concept_count || (conc.concepts || []).length || 0;
+    const precise = meta.precise_concept_count || 0;
+    cntEl.textContent = total ? `(共 ${total} 个 · 精准 ${precise})` : '';
+  }
+  const noteEl = $('#prof-precise-note');
+  if (noteEl) {
+    const total = (conc.concepts || []).length;
+    const precise = (conc.concepts || []).filter(c => c.is_precise).length;
+    if (total >= 3 && precise >= 1) {
+      noteEl.textContent = `✨ 多板块重合度高,可作题材共振依据`;
+    } else if (total === 0) {
+      noteEl.textContent = '';
+    } else {
+      noteEl.textContent = '';
+    }
+  }
+  // 顶部 meta 行
+  const metaRow = $('#profile-meta-row');
+  if (metaRow) {
+    const parts = [];
+    if (profile.industry_sw) parts.push(`行业 ${profile.industry_sw}`);
+    if (meta.product_count) parts.push(`${meta.product_count} 类产品`);
+    if (meta.concept_count) parts.push(`${meta.concept_count} 概念`);
+    metaRow.textContent = parts.join(' · ');
+  }
+}
+
+function loadStockProfile(code) {
+  // 1) 优先 _stockAuxCache 已有的 (来自 /full 预取)
+  if (_stockAuxCache && _stockAuxCache.code === code && _stockAuxCache.profile) {
+    renderProfile(_stockAuxCache.profile);
+    return;
+  }
+  // 2) 没拿到 → 单端点 fetch, 6h Redis 缓存,不会拖慢主路径
+  api(`/api/stock/${code}/profile`).then(r => {
+    if (_currentStockCode !== code) return;
+    if (r && r.data) {
+      _stockAuxCache.profile = r.data;
+      renderProfile(r.data);
+    } else {
+      renderProfile(null);
+    }
+  }).catch(e => {
+    console.warn('loadStockProfile fail', e);
+    if (_currentStockCode === code) renderProfile(null);
+  });
+}
+
 function renderDeepAnalysis(data) {
   if (!data) return;
   const $ = sel => document.querySelector(sel);
   const setTxt = (sel, t) => { const el = $(sel); if (el) el.textContent = t; };
 
+  // 降级状态: 数据拉取超时或 LLM 不可用
+  if (data._degraded) {
+    setTxt('#deep-action-chip', '⚠ 降级');
+    setTxt('#deep-status', '数据拉取超时,显示缓存或兜底数据');
+    setTxt('#deep-score', '—');
+    const chip = $('#deep-action-chip');
+    if (chip) { chip.style.background = 'var(--dim)'; chip.style.color = '#fff'; }
+    // 仍尝试渲染已有的基本面/技术数据(如果有)
+    if (!data.fundamentals && !data.holding && !data.tech_position) {
+      setTxt('#deep-summary-text', 'AI 深度分析暂不可用,请稍后重试或点击强制刷新。');
+      return;
+    }
+  }
+
   // 1) 顶部 action chip + score
-  const action = data.recommendation_action || data.action || '继续持有';
+  const action = data.recommendation_action || data.action || (data._degraded ? '观望' : '继续持有');
   const meta = _DEEP_ACTION_META[action] || _DEEP_ACTION_META['继续持有'];
   const chip = $('#deep-action-chip');
   if (chip) {

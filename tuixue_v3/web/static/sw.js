@@ -134,7 +134,16 @@
 // v249 (2026-07-30): ZT 回测异步化 (POST /api/zt/backtest + poll status, 避免 25s 超时)
 // v250 (2026-07-30): 个股页 AI 深度判断卡片 (deep-analysis: 业务+业绩+持仓+技术+同业 PE, 6 section)
 // v251 (2026-07-30): 修 view-stock.js profile_text 三元 bug (|| fund.has_data 永远 truthy) + .deep-bar / .deep-hold-grid 样式 + chip class 统一 deep-meta-chip
-const CACHE = 'tuixue-v3-shell-v251';
+// v252 (2026-07-30): 龙头页今日/昨日两表增加可排序“今日涨幅”列
+// v253 (2026-07-30): 得鑫 _jump('stock', {code}) 不再丢 code — showView 不读 opts.code,
+//                    先写 _currentStockCode 再 showView + loadStockDetail,深链 hash 也对
+// v255 (2026-07-31): 修复 mobile tabbar 浮动到屏幕中间 (visualViewport 地址栏误判 + contain 移除 + GPU compositing)
+// v256 (2026-07-31): 个股 AI 分析 — 之前同步 GET 撞 20s timeout 永远失败;
+//                    改 background=1 fire-and-forget + 3s 轮询 (最大 60s) + 切股取消旧轮询
+// v257 (2026-07-31): 得鑫每只股票加 score + score_breakdown (组合加权基础) + 卡片分数 chip
+// v260 (2026-08-01): 修复 dragon-name flex crush (min-width:0→2.5em + dragon-head flex-wrap)
+// v263 (2026-08-01): 切页统一 abort inflight + SSE,避免旧 view 数据污染新 view + 6 连接池占满卡死
+const CACHE = 'tuixue-v3-shell-v264';
 const PRECACHE = [
   '/',
   '/static/app.js',
