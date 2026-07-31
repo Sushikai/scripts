@@ -44,8 +44,18 @@ def _cache_get(key: str):
 
 
 def _cache_set(key: str, value):
+    # R-fix-2026-08-01: 5min TTL 过期 entry 不删 → 5540 code × 多日期无界增长
+    # 主动清理:每次 set 前扫描过期 key
+    now = datetime.now().timestamp()
+    if _CACHE_TS:
+        expired = [k for k, t in _CACHE_TS.items() if now - t >= _CACHE_TTL]
+        for k in expired:
+            _CACHE.pop(k, None)
+            _CACHE_TS.pop(k, None)
+        if expired:
+            log.debug(f"_CACHE 清掉 {len(expired)} 过期 keys (剩 {len(_CACHE)})")
     _CACHE[key] = value
-    _CACHE_TS[key] = datetime.now().timestamp()
+    _CACHE_TS[key] = now
 
 
 def _to_ymd(d) -> str:
@@ -203,8 +213,16 @@ def get_limit_up_context(code: str, sector_name: str = None) -> Dict[str, Any]:
     if cached and (datetime.now().timestamp() - cached["_ts"]) < _CTX_CACHE_TTL:
         return cached["data"]
 
+    # R-fix-2026-08-01: 主动清理 _CTX_CACHE 过期 (5540 code × 多 sector 5min 内
+    # 访问全部会写, 内存泄漏 ~百 KB)
+    now_ts = datetime.now().timestamp()
+    if _CTX_CACHE:
+        expired_k = [k for k, v in _CTX_CACHE.items() if now_ts - v["_ts"] >= _CTX_CACHE_TTL]
+        for k in expired_k:
+            _CTX_CACHE.pop(k, None)
+
     result = _get_limit_up_context_impl(code, sector_name)
-    _CTX_CACHE[cache_key] = {"data": result, "_ts": datetime.now().timestamp()}
+    _CTX_CACHE[cache_key] = {"data": result, "_ts": now_ts}
     return result
 
 
