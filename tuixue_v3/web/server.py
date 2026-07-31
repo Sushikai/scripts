@@ -3672,6 +3672,23 @@ async def stock_seat_breakdown(code: str, fresh: int = Query(0, ge=0, le=1)):
     return envelope(data=breakdown or _empty)
 
 
+async def _warm_intraday_today_async(code: str, cache_key: str):
+    """R51 (Batch 6): 后台异步拉今日分时写 L1 today cache (60s TTL)"""
+    try:
+        from datetime import datetime
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        result = await asyncio.wait_for(
+            to_thread(_fetch_intraday_today_tencent_first, code),
+            timeout=10,
+        )
+        if result and result.get("ticks"):
+            result["date"] = today_str
+            _store_set(cache_key, {"intraday_today": result}, ttl=60)
+            log.debug(f"async warm intraday today {code} OK ({len(result['ticks'])} ticks)")
+    except Exception as e:
+        log.debug(f"async warm intraday today {code} err: {e}")
+
+
 @app.get("/api/stock/{code}/intraday_5d")
 async def stock_intraday_5d(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
@@ -3716,23 +3733,6 @@ async def stock_intraday_5d(code: str, fresh: int = Query(0, ge=0, le=1)):
                 except Exception:
                     pass
             return envelope(data=out)
-
-
-async def _warm_intraday_today_async(code: str, cache_key: str):
-    """R51 (Batch 6): 后台异步拉今日分时写 L1 today cache (60s TTL)"""
-    try:
-        from datetime import datetime
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        result = await asyncio.wait_for(
-            to_thread(_fetch_intraday_today_tencent_first, code),
-            timeout=10,
-        )
-        if result and result.get("ticks"):
-            result["date"] = today_str
-            _store_set(cache_key, {"intraday_today": result}, ttl=60)
-            log.debug(f"async warm intraday today {code} OK ({len(result['ticks'])} ticks)")
-    except Exception as e:
-        log.debug(f"async warm intraday today {code} err: {e}")
 
     def _load():
         from .. import multi_source_fetchers as msf
@@ -3922,14 +3922,6 @@ async def _warm_intraday_today_async(code: str, cache_key: str):
         result = await asyncio.wait_for(to_thread(_load), timeout=40)
     except asyncio.TimeoutError:
         log.warning(f"intraday_5d {code} 超时 40s, 尝试读 partial cache")
-    except Exception as e:
-        log.warning(f"intraday_5d {code} 异常: {e}")
-        return envelope_degraded(
-            data={"code": code, "daily_5d": [], "intraday_today": None},
-            stale_key=f"stock_intraday_5d:{code}",
-            stale_max_age=_STALE_TTL["stock_intraday_5d"],
-            degraded_reason="intraday_5d_error",
-        )
         # 超时兜底 — 试 L1 partial
         cached_today = _store_get(cache_key_today, ttl=60)
         cached_hist  = _store_get(cache_key_hist, ttl=1800)
@@ -3946,6 +3938,14 @@ async def _warm_intraday_today_async(code: str, cache_key: str):
             stale_key=f"stock_intraday_5d:{code}",
             stale_max_age=_STALE_TTL["stock_intraday_5d"],
             degraded_reason="intraday_5d_timeout",
+        )
+    except Exception as e:
+        log.warning(f"intraday_5d {code} 异常: {e}")
+        return envelope_degraded(
+            data={"code": code, "daily_5d": [], "intraday_today": None},
+            stale_key=f"stock_intraday_5d:{code}",
+            stale_max_age=_STALE_TTL["stock_intraday_5d"],
+            degraded_reason="intraday_5d_error",
         )
     if result is None:
         return envelope_degraded(
@@ -8401,6 +8401,108 @@ def _deep_default_no_action() -> dict:
     }
 
 
+async def _deep_llm_verdict(code: str, data: dict, timeout: float = 20.0) -> dict:
+    """基于 6 路数据调 LLM 做综合判定,失败回退 _deep_default_no_action。"""
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if not api_key:
+        return _deep_default_no_action()
+
+    fund = data.get("fundamentals", {}) or {}
+    hold = data.get("holding", {}) or {}
+    tech = data.get("tech_position", {}) or {}
+    profile = fund.get("profile", {}) or {}
+    financials = fund.get("financials", []) or []
+    jump = fund.get("earnings_jump", {}) or {}
+
+    lines = [
+        "你是 A 股深度分析助手。基于下方多维数据,给出该股的综合判定与操作建议。",
+        "",
+        "【公司概况】",
+        f"  行业(SW): {profile.get('industry_sw', '-')}",
+        f"  行业(CSRC): {profile.get('industry_csrc', '-')}",
+        f"  员工: {profile.get('emp_num', '-')}",
+        f"  业务摘要: {(profile.get('business_summary') or profile.get('business_scope') or '-')[:200]}",
+    ]
+    if financials:
+        lines.append("【近几期业绩】")
+        for f in financials[:4]:
+            lines.append(
+                f"  {f.get('period','-')} 营收 {f.get('revenue_yi','-')} 亿 "
+                f"(YoY {f.get('revenue_yoy_pct','-')}%) "
+                f"净利 {f.get('netprofit_yi','-')} 亿 "
+                f"(YoY {f.get('netprofit_yoy_pct','-')}%) "
+                f"ROE {f.get('roe_pct','-')}%"
+            )
+    if jump and jump.get("jump"):
+        lines.append(f"【业绩跳变】⚠ {', '.join(jump.get('reasons', [])[:3])}")
+
+    lines.append("【技术位置】")
+    lines.append(
+        f"  趋势: {tech.get('trend_label', '-')}  "
+        f"60日位置: {tech.get('pct_position_60d', '-')}%  "
+        f"52周位置: {tech.get('pct_position_252d', '-')}%  "
+        f"60日高点回撤: {tech.get('pullback_from_60d_high_pct', '-')}%"
+    )
+    lines.append(
+        f"  MA5乖离: {tech.get('bias_ma5', '-')}%  "
+        f"MA20乖离: {tech.get('bias_ma20', '-')}%  "
+        f"突破带: {'是' if tech.get('breakout_zone') else '否'}  "
+        f"支撑带: {'是' if tech.get('support_zone') else '否'}"
+    )
+
+    lines.append("【持仓状态】")
+    if hold.get("has_position"):
+        lines.append(
+            f"  成本 ¥{hold.get('avg_cost', '-')}  现价 ¥{hold.get('last_price', '-')}  "
+            f"浮盈 {hold.get('unrealized_pnl_pct', '-')}%  "
+            f"持有 {hold.get('days_held', 0)} 天"
+        )
+    else:
+        lines.append("  无持仓")
+
+    lines.append("")
+    lines.append("【输出要求】严格输出 JSON,不要 markdown 围栏:")
+    lines.append('{"recommendation_action":"加仓|继续持有|减仓|清仓|观望",')
+    lines.append(' "profit_taking_score":0-100,')
+    lines.append(' "conviction":0-100,')
+    lines.append(' "summary":"≤120字综合判断,包含核心逻辑与风险点",')
+    lines.append(' "key_risks":["风险1","风险2"],')
+    lines.append(' "holding_advice":{"stop_loss":"如 12.50","target_price":"如 18.00","horizon_days":30,"rationale":"≤40字"}}')
+
+    user_content = "\n".join(lines)
+    user_content_safe = ai_client.wrap_prompt("ctx", user_content)
+    user_content_safe = ai_client.truncate_to_tokens(user_content_safe, max_tokens=800)
+
+    spec = ai_client.CallSpec(
+        url=ai_client.default_url(),
+        headers=ai_client.headers(api_key),
+        body={
+            "model": ai_client.default_model(),
+            "messages": [
+                {"role": "system", "content": "你是 A 股深度分析助手。基于基本面/技术面/持仓数据给出综合操作建议。必须严格输出 JSON。"},
+                {"role": "user", "content": user_content_safe},
+            ],
+            "temperature": 0.3,
+        },
+        name="deep_analysis",
+        model=ai_client.default_model(),
+        timeout=timeout,
+        attempts=(1, 2),
+        max_tokens_alts=(600, 1200),
+    )
+    try:
+        _text, parsed, _info = await asyncio.get_event_loop().run_in_executor(
+            _SCORING_EXECUTOR, ai_client.call, spec
+        )
+        if parsed and isinstance(parsed, dict):
+            parsed["ts_updated"] = time.time()
+            return parsed
+    except Exception as e:
+        log.warning(f"_deep_llm_verdict {code} LLM fail: {e}")
+
+    return _deep_default_no_action()
+
+
 async def _deep_analysis_task(code: str, run_id: str) -> None:
     """后台任务 — 跑 6 路并发 + 调 LLM + 写 cache。"""
     cache_key = f"{_DEEP_ANALYSIS_CACHE_PREFIX}:{code}"
@@ -8408,6 +8510,13 @@ async def _deep_analysis_task(code: str, run_id: str) -> None:
     lock_key = _deep_lock_key(code)
     try:
         result = await asyncio.wait_for(_do_deep_analysis(code), timeout=20.0)
+        # LLM 综合判定 (失败回退 _deep_default_no_action)
+        try:
+            verdict = await asyncio.wait_for(_deep_llm_verdict(code, result, timeout=18.0), timeout=20.0)
+        except Exception as e:
+            log.warning(f"_deep_analysis_task {code} LLM timeout/error: {e}")
+            verdict = _deep_default_no_action()
+        result.update(verdict)
         # 1) 写 run_id → result key (供前端轮询)
         try:
             cache_store.get_store().set(res_key, result, ttl=1800)
@@ -8484,9 +8593,16 @@ async def stock_deep_analysis(code: str, background: int = Query(1, description=
                 log.warning(f"[deep-bg] sync fallback fail: {e}")
         return envelope(data={"queued": True, "run_id": run_id, "code": code, "eta_sec": 8})
 
-    # 4) background=0 — 同步路径, 8s 兜底
+    # 4) background=0 — 同步路径, 25s 兜底 (数据 + LLM)
     try:
-        result = await asyncio.wait_for(_do_deep_analysis(code), timeout=8.0)
+        result = await asyncio.wait_for(_do_deep_analysis(code), timeout=10.0)
+        # LLM 综合判定 (失败回退 _deep_default_no_action)
+        try:
+            verdict = await asyncio.wait_for(_deep_llm_verdict(code, result, timeout=12.0), timeout=14.0)
+        except Exception as e:
+            log.warning(f"deep_analysis sync LLM fail {code}: {e}")
+            verdict = _deep_default_no_action()
+        result.update(verdict)
         # 同步结果也写缓存 — 但 24h TTL 太长, 改 30min (同步路径通常有实时诉求)
         try:
             cache_store.get_store().set(cache_key, result, ttl=1800)
@@ -8494,7 +8610,7 @@ async def stock_deep_analysis(code: str, background: int = Query(1, description=
             pass
         return envelope(data=result)
     except asyncio.TimeoutError:
-        return envelope(error="deep_analysis 8s 超时", data={"_degraded": True, "from_cache": False})
+        return envelope(error="deep_analysis 超时", data={"_degraded": True, "from_cache": False})
 
 
 @app.get("/api/stock/{code}/deep_analysis/result")
@@ -8532,6 +8648,7 @@ async def stock_ai_crash_risk(code: str, force: bool = False):
 
     # SQLite 缓存 key: crash_risk:{date}:{code}
     from .. import cache_db as _cdb
+    from . import ai_client
     today_str = datetime.datetime.now().strftime("%Y%m%d")
     cache_key = f"crash_risk:{today_str}:{code}"
 
@@ -8539,7 +8656,6 @@ async def stock_ai_crash_risk(code: str, force: bool = False):
         hit = _cdb.get_cached_ai(today_str, code, f"{ai_client.default_model()}-crash")
         if hit:
             # R4 缓存污染防护
-            from . import ai_client
             if not ai_client.is_valid_cached_crash(hit):
                 log.warning(f"crash_risk 缓存污染 ({code}), 重算")
                 hit = None
