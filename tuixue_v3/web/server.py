@@ -3277,23 +3277,14 @@ async def api_dashboard_index_trend():
     sectors[] = 4 热门板块分时 (板块指数代码 from fetch_hot_sectors)
     60s Redis cache — 切页 0ms,首屏 fallback < 100ms
     """
-    import json as _json_dash
     cache_key = "tuixue:dashboard:index_trend:v1"
     try:
         cached = cache_store.get_store().get(cache_key)
         if cached:
-            # cache_store 应该返回 dict;老版本 compat: 如果是 bytes/str 需 loads
-            if isinstance(cached, dict):
-                return envelope(data=cached)
-            if isinstance(cached, (bytes, bytearray)):
-                return envelope(data=_json_dash.loads(cached.decode("utf-8")))
-            if isinstance(cached, str):
-                # 兼容旧版 double-encode 错误: 可能开头是 b'  (repr of bytes)
-                if cached.startswith("b'") or cached.startswith('b"'):
-                    log.warning(f"index_trend cache 命中但格式异常 (re-encode): 清掉")
-                    cache_store.get_store().delete(cache_key)
-                else:
-                    return envelope(data=_json_dash.loads(cached))
+            # R-fix-2026-08-01: 用 _cache_obj helper 统一解码 (兼容 dict / bytes / 旧版 double-encode 字符串)
+            decoded = _cache_obj(cached)
+            if decoded is not None:
+                return envelope(data=decoded)
     except Exception as e:
         log.debug(f"index_trend redis get: {e}")
 
