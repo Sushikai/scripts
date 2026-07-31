@@ -5,6 +5,22 @@
 var _DASHBOARD_CACHE_KEY = 'tx3_dash_cache';
 var _DASHBOARD_CACHE_TTL_MS = 120_000;  // 2min 过期
 
+// R232: 自包含 ECharts 加载器 — view-dash 是首屏,view-stock 还没按需注入,
+// 这里自己拉 vendor/echarts (SW 已 precache),避免 sparkline 永远是空白 div
+var _dashEchartsPromise = null;
+function _ensureDashEcharts() {
+  if (typeof echarts !== 'undefined') return Promise.resolve(echarts);
+  if (_dashEchartsPromise) return _dashEchartsPromise;
+  _dashEchartsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = '/static/vendor/echarts.min.js';
+    s.onload = () => resolve(echarts);
+    s.onerror = () => { _dashEchartsPromise = null; reject(new Error('echarts load fail')); };
+    document.head.appendChild(s);
+  });
+  return _dashEchartsPromise;
+}
+
 function _dashCacheSave(data) {
   try {
     localStorage.setItem(_DASHBOARD_CACHE_KEY, JSON.stringify({
@@ -73,6 +89,8 @@ function _dashLoadPhased() {
   // Phase 1: 异步刷新 signal + hot sectors
   _dashRefreshSignal();
   _dashRefreshHot();
+  // 大盘/板块分时走势 (sparkline grid)
+  _dashRefreshIndexTrend();
 }
 
 async function _dashRefreshSignal() {
@@ -110,6 +128,163 @@ async function _dashRefreshHot() {
   } catch (e) {
     console.debug('[dash] hot refresh failed:', e.message);
   }
+}
+
+// 大盘 + 板块分时 sparkline (Phase 1 异步,不再阻塞首屏)
+async function _dashRefreshIndexTrend() {
+  try {
+    const r = await _fetchWithTimeout('/api/dashboard/index_trend', { timeout: 25000 });
+    const env = await r.json();
+    if (!env.ok) return;
+    const d = env.data || {};
+    _paintIndexTrend(d);
+  } catch (e) {
+    console.debug('[dash] index_trend refresh failed:', e.message);
+    const idxHost = $('#index-trend-grid');
+    const secHost = $('#sector-trend-grid');
+    if (idxHost && /^加载中/.test(idxHost.textContent || '')) {
+      idxHost.innerHTML = '<div class="hs-empty">板块数据暂不可达</div>';
+    }
+    if (secHost && /^加载中/.test(secHost.textContent || '')) {
+      secHost.innerHTML = '<div class="hs-empty">板块数据暂不可达</div>';
+    }
+  }
+}
+
+var _dashTrendCharts = {};   // tile.id → echarts instance
+var _dashTrendResizeHooked = false;
+
+function _paintIndexTrend(d) {
+  // 顶卡「板块·实时分时」: 5 大指数作为盘面整体走势代理(板块 tick 数据源 evening 不稳)
+  // 底卡「板块·今日分时」: 4 热门板块 tick 折线(tick 可用时才出图)
+  const indices = d.indices || [];
+  const sectors = d.sectors || [];
+  _paintTrendGrid('#index-trend-grid', indices, 'index-trend', (it, i) => `idx-${i}`);
+  _paintTrendGrid('#sector-trend-grid', sectors.slice(0, 4), 'sector-trend', (it, i) => `sec-${i}`);
+}
+
+function _paintTrendGrid(sel, items, _ns, keyFn) {
+  const host = document.querySelector(sel);
+  if (!host) return;
+  if (!items.length) {
+    host.innerHTML = '<div class="hs-empty">暂无数据</div>';
+    return;
+  }
+  host.innerHTML = items.map((it, i) => {
+    const pct = Number(it.change_pct) || 0;
+    const cls = pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : '';
+    const arrow = pct > 0 ? '+' : '';
+    const last = it.last;
+    const open = it.open;
+    const ticks = it.ticks || [];
+    const lastTime = ticks.length ? (ticks[ticks.length - 1].time || '').slice(0, 5) : '';
+    const tileId = keyFn(it, i);
+    // pulse_only 子行: 净流入 + 排名(板块·实时分时专用,无 tick 时也有数据)
+    let pulseSub = '';
+    if (it.pulse_only) {
+      const parts = [];
+      if (it.net_inflow_yi != null) {
+        const ni = Number(it.net_inflow_yi);
+        const sign = ni > 0 ? '+' : '';
+        const cls = ni > 0 ? '' : (ni < 0 ? 'down' : '');
+        parts.push(`<span class="${cls}">净流入 ${sign}${ni.toFixed(2)}亿</span>`);
+      }
+      if (it.rank_kind && it.rank_kind !== 'none') {
+        const labels = [];
+        if (it.rank_flow) labels.push(`流入#${it.rank_flow}`);
+        if (it.rank_pct) labels.push(`涨幅#${it.rank_pct}`);
+        if (labels.length) parts.push(`<span style="opacity:.7">${labels.join(' ')}</span>`);
+      }
+      pulseSub = parts.length ? `<div class="trend-tile-sub" style="margin-top:2px;font-size:11px">${parts.join('')}</div>` : '';
+    }
+    return `<div class="trend-tile ${cls}" data-tile-id="${escapeHtml(tileId)}">
+      <div class="trend-tile-head">
+        <span class="trend-tile-name">${escapeHtml(it.name || it.code || '—')}</span>
+        <span class="trend-tile-pct ${cls}">${arrow}${pct.toFixed(2)}%</span>
+      </div>
+      <div class="trend-tile-chart" id="trend-chart-${escapeHtml(tileId)}"></div>
+      <div class="trend-tile-sub">
+        <span>开 ${open != null ? (+open).toFixed(2) : '—'}</span>
+        <span>收 ${last != null ? (+last).toFixed(2) : '—'}</span>
+        <span style="opacity:.65">${escapeHtml(lastTime)}</span>
+      </div>
+      ${pulseSub}
+    </div>`;
+  }).join('');
+  // 渲染 sparkline — 先确保 echarts 已加载 (R232: 用 view-dash 自带 _ensureDashEcharts)
+  if (typeof echarts === 'undefined') {
+    _ensureDashEcharts().then(() => _renderTrendCharts(items, keyFn)).catch(() => {});
+    return;
+  }
+  _renderTrendCharts(items, keyFn);
+}
+
+function _renderTrendCharts(items, keyFn) {
+  items.forEach((it, i) => {
+    const tileId = keyFn(it, i);
+    const el = document.getElementById(`trend-chart-${tileId}`);
+    if (!el) return;
+    const up = (it.change_pct || 0) >= 0;
+    const color = up ? 'var(--up)' : 'var(--down)';
+    if (!it.ticks || !it.ticks.length) {
+        // 兜底: 没分时数据画水平 sparkline (左→右 fill 宽度=变化幅度)
+        const pct = Math.min(Math.abs(Number(it.change_pct) || 0), 5);  // cap 5%
+        const widthPct = pct / 5 * 100;
+        el.innerHTML = `<div style="position:relative;height:100%;display:flex;align-items:center">
+          <div style="position:absolute;left:0;right:0;height:1px;background:var(--line);opacity:.5"></div>
+          <div style="position:relative;height:6px;width:0;${up?'left:50%':'right:50%'};background:${color};border-radius:3px;opacity:.7;width:${widthPct}%;max-width:50%;transform-origin:${up?'left':'right'} center" title="${it.change_pct?.toFixed(2)}%"></div>
+        </div>`;
+        return;
+    }
+    const prices = it.ticks.map(t => t.price);
+    const minP = Math.min(...prices), maxP = Math.max(...prices);
+    // up/color 已在顶部声明
+    const prevId = _dashTrendCharts[tileId];
+    const opt = {
+      animation: false,
+      grid: { left: 0, right: 0, top: 2, bottom: 2 },
+      xAxis: { type: 'category', show: false, data: it.ticks.map(t => t.time) },
+      yAxis: { type: 'value', show: false, scale: true, min: minP, max: maxP },
+      series: [{
+        type: 'line', data: prices, showSymbol: false,
+        smooth: true, lineStyle: { width: 1.6, color },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: up ? 'rgba(232,71,74,0.35)' : 'rgba(62,175,86,0.35)' },
+              { offset: 1, color: 'rgba(0,0,0,0)' },
+            ],
+          },
+        },
+      }],
+    };
+    if (prevId && echartsCharts[prevId]) {
+      echartsCharts[prevId].dispose();
+    }
+    const inst = echarts.init(el, null, { renderer: 'canvas' });
+    inst.setOption(opt);
+    _dashTrendCharts[tileId] = inst.id || tileId;
+    if (!echartsCharts[inst.id]) echartsCharts[inst.id] = inst;
+    // resize on dash toggle / theme change
+    if (!_dashTrendResizeHooked) {
+      _dashTrendResizeHooked = true;
+      window.addEventListener('resize', () => {
+        Object.values(_dashTrendCharts).forEach(id => {
+          const c = echartsCharts[id];
+          if (c && !c.isDisposed && c.getDom && c.getDom().isConnected) c.resize();
+        });
+      });
+      // 主题切换 hook
+      const observer = new MutationObserver(() => {
+        Object.values(_dashTrendCharts).forEach(id => {
+          const c = echartsCharts[id];
+          if (c && !c.isDisposed) c.resize();
+        });
+      });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    }
+  });
 }
 
 function _paintHotSectors(d) {

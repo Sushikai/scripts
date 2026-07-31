@@ -5275,7 +5275,7 @@ function renderDeepAnalysis(data) {
     setTxt('#deep-status', '数据拉取超时,显示缓存或兜底数据');
     setTxt('#deep-score', '—');
     const chip = $('#deep-action-chip');
-    if (chip) { chip.style.background = 'var(--dim)'; chip.style.color = '#fff'; }
+    if (chip) { chip.style.background = 'var(--dim)'; chip.style.color = 'var(--ink-inverse)'; }
     // 仍尝试渲染已有的基本面/技术数据(如果有)
     if (!data.fundamentals && !data.holding && !data.tech_position) {
       setTxt('#deep-summary-text', 'AI 深度分析暂不可用,请稍后重试或点击强制刷新。');
@@ -5290,7 +5290,7 @@ function renderDeepAnalysis(data) {
   if (chip) {
     chip.textContent = `${meta.icon} ${action}`;
     chip.style.background = meta.color;
-    chip.style.color = '#fff';
+    chip.style.color = 'var(--ink-inverse)';
   }
   const score = data.profit_taking_score != null ? data.profit_taking_score :
                 (data.conviction != null ? data.conviction : 50);

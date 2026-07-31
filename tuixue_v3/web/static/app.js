@@ -4007,7 +4007,7 @@ function drawKlineChart() {
       label: {
         show: true,
         position: 'end',
-        color: '#fff',  // R6: 白字 + 色背景,对比更强
+        color: 'var(--ink-inverse)',  // R6: 反白文字 + 色背景,对比更强 (跨主题)
         fontSize: 10,
         fontWeight: 700,
         backgroundColor: _chgColor,  // R6: 实色背景 (UP 红 / DOWN 绿)
@@ -4028,8 +4028,8 @@ function drawKlineChart() {
   });
   // MA 叠加（主图）— R2 (kline-1000rounds): endLabel 显示 series 名,免去 hover 看 legend
   if (ind.ma) {
-    series.push({ name: 'MA5',  type: 'line', data: ma5,  smooth: true, lineStyle: { color: '#e8b75a', width: 1 }, symbol: 'none', connectNulls: true,
-      endLabel: { show: true, formatter: 'MA5',  color: '#e8b75a', fontSize: 10, fontWeight: 600 } });
+    series.push({ name: 'MA5',  type: 'line', data: ma5,  smooth: true, lineStyle: { color: 'var(--cat-institution)', width: 1 }, symbol: 'none', connectNulls: true,
+      endLabel: { show: true, formatter: 'MA5',  color: 'var(--cat-institution)', fontSize: 10, fontWeight: 600 } });
     series.push({ name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { color: 'var(--accent-2)', width: 1 }, symbol: 'none', connectNulls: true,
       endLabel: { show: true, formatter: 'MA10', color: 'var(--accent-2)', fontSize: 10, fontWeight: 600 } });
     series.push({ name: 'MA20', type: 'line', data: ma20, smooth: true, lineStyle: { color: ACCENT,  width: 1.2 }, symbol: 'none', connectNulls: true,

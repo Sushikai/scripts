@@ -142,8 +142,8 @@
 //                    改 background=1 fire-and-forget + 3s 轮询 (最大 60s) + 切股取消旧轮询
 // v257 (2026-07-31): 得鑫每只股票加 score + score_breakdown (组合加权基础) + 卡片分数 chip
 // v260 (2026-08-01): 修复 dragon-name flex crush (min-width:0→2.5em + dragon-head flex-wrap)
-// v263 (2026-08-01): 切页统一 abort inflight + SSE,避免旧 view 数据污染新 view + 6 连接池占满卡死
-const CACHE = 'tuixue-v3-shell-v264';
+// v264 (2026-08-01): 5 处硬编码 hex 颜色 → var(--ink-inverse/--cat-institution/--up/--down) (visual token 化)
+const CACHE = 'tuixue-v3-shell-v265';
 const PRECACHE = [
   '/',
   '/static/app.js',
