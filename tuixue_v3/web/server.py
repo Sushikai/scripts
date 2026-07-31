@@ -7818,6 +7818,9 @@ async def stock_ai_analysis(code: str, date: str | None = Query(None, descriptio
     """
     code = _require_valid_code(code)
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    # 函数内 import 会让名字变 local — 所有用到的 import 必须早于此函数第一行引用
+    # 之前 ai_client.default_model() 在 line 7852 引用,但 from . import ai_client 在 7855,触发 UnboundLocalError
+    from . import ai_client  # noqa
 
     # R-fix-2026-07-18 A5: background=1 → 后台 fire-and-forget 跑 LLM,立刻返
     # 防抖:同一只 5 分钟内最多 1 次,避免每次切页面都打 LLM
@@ -7852,7 +7855,6 @@ async def stock_ai_analysis(code: str, date: str | None = Query(None, descriptio
     hit = _cdb.get_cached_ai(today_str, code, ai_client.default_model())
     if hit:
         # R4 缓存污染防护: schema 校验,不合法 → 当未命中重算
-        from . import ai_client
         if not ai_client.is_valid_cached_verdict(hit):
             log.warning(f"stock_ai_analysis 缓存污染 ({code}), 重算")
             hit = None
