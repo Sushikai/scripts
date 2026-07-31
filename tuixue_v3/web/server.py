@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 import importlib as _importlib
-
+from . import ai_client
 
 class _LazyModule:
     def __init__(self, name: str):
@@ -1066,7 +1066,7 @@ def _render_index_html() -> bytes:
         return b"<h1>index.html missing</h1>"
     css_h = _live_fingerprint("style.css", STATIC_DIR / "style.css")
     # 所有 JS 分片文件的合并指纹 — 任一个修改则所有缓存失效
-    js_files = ["core.js", "app.js", "view-dash.js", "view-stock.js", "view-other.js", "view-all-stocks.js"]
+    js_files = ["core.js", "app.js", "view-dash.js", "view-stock.js", "view-other.js"]
     js_h = "0" * 8
     for fname in js_files:
         fh = _live_fingerprint(fname, STATIC_DIR / fname)
@@ -3881,6 +3881,24 @@ async def _warm_intraday_today_async(code: str, cache_key: str):
         except Exception as e:
             log.warning(f"akshare 今日分时 tick 拉取失败: {e}")
 
+        # R-aug-01 (2026-08-01): 日期防御 — 跨日脏数据清洗
+        # 多源并行无日期校验时,tick 可能混入昨日/前日 1min 数据,污染当日图
+        # 仅对 today source (akshare/today) 开 allow_time_only,因为 today tick 本就只有 HH:MM:SS
+        if out.get("intraday_today") and out["intraday_today"].get("ticks"):
+            _src = out["intraday_today"].get("source", "")
+            _allow_t = _src in ("akshare", "akshare_intraday_em", "tencent_1min", "tencent_intraday")
+            _ticks_clean, _dates = _filter_intraday_ticks_for_date(
+                out["intraday_today"]["ticks"], today_str.replace("-", ""),
+                allow_time_only=_allow_t,
+            )
+            if len(_ticks_clean) < len(out["intraday_today"]["ticks"]):
+                log.warning(
+                    f"intraday_5d {code} today tick 过滤 {len(out['intraday_today']['ticks'])}→{len(_ticks_clean)} "
+                    f"(dates={sorted(_dates)}, src={_src})"
+                )
+            out["intraday_today"]["ticks"] = _ticks_clean
+            out["intraday_today"]["ticks_n"] = len(_ticks_clean)
+
         # akshare 失败 → tencent 1min 兜底(关键,沙箱 DNS 劫持环境必须)
         if not out.get("intraday_today") or not out["intraday_today"].get("ticks"):
             ten = _fetch_intraday_today_tencent_first(code)
@@ -4271,6 +4289,50 @@ def _fetch_intraday_today_tencent_first(code: str) -> dict | None:
     return None
 
 
+def _filter_intraday_ticks_for_date(ticks: list, ymd_compact: str, *, allow_time_only: bool = False) -> tuple[list, set]:
+    """
+    按精确日期过滤 intraday ticks,strip 掉日期前缀。
+    ymd_compact: "20260722" 形式
+    allow_time_only: 当 ticks 来自 today source (akshare/tencent 1min) 时,tick 只有 HH:MM:SS
+                     没有日期前缀,只要日期对得上 today 就放行 (否则历史 1min 都拒)
+
+    返回:
+      filtered:    只保留匹配 ymd_compact 的 tick (time 已 strip 日期前缀,只剩 HH:MM:SS)
+      actual_dates: 原始 ticks 里所有能解析出的日期集合 (用于追踪污染/调试)
+    """
+    import re as _re
+    from datetime import datetime as _dt
+    out, dates = [], set()
+    for t in ticks or []:
+        raw = (t.get("time") if isinstance(t, dict) else "") or ""
+        s = str(raw).strip()
+        if not s:
+            continue
+        # 格式 1: "2026-07-22 09:30:00"
+        if len(s) >= 10 and s[4:5] == "-" and s[7:8] == "-":
+            d_part = s[:10].replace("-", "")
+            t_part = s[10:].lstrip(" ")
+            if d_part == ymd_compact:
+                out.append({**t, "time": t_part} if isinstance(t, dict) else t)
+            dates.add(d_part)
+            continue
+        # 格式 2: "202607220930" (Tencent compact 12 位 = 8-digit date + 4-digit HHMM)
+        m = _re.fullmatch(r"(\d{8})(\d{4})", s)
+        if m:
+            d_part, hhmm = m.group(1), m.group(2)
+            if d_part == ymd_compact:
+                out.append({**t, "time": f"{hhmm[:2]}:{hhmm[2:4]}:00"} if isinstance(t, dict) else t)
+            dates.add(d_part)
+            continue
+        # 格式 3: 只有 "09:30:00" — 历史源严禁放行;today 源允许
+        if _re.fullmatch(r"\d{1,2}:\d{2}:\d{2}", s):
+            if allow_time_only:
+                out.append(t)
+            continue
+        # 其它格式: 既不可信也不暴露给 caller
+    return out, dates
+
+
 def _fetch_intraday_per_day(code: str, recent5: list[str], intraday_today: dict | None) -> dict:
     """
     给定近 5 个交易日 + 当日 intraday_today,返回每日的分时 ticks。
@@ -4324,12 +4386,20 @@ def _fetch_intraday_per_day(code: str, recent5: list[str], intraday_today: dict 
             out["days"].append(day_obj)
             continue
 
-        # 历史日期:从并行结果取
+        # 历史日期:从并行结果取 + 按精确日期防御过滤(历史源严禁 allow_time_only)
         sub = hist_results.get(d, {"ticks": [], "ticks_n": 0, "source": ""})
         if sub.get("ticks"):
-            day_obj["ticks"] = sub["ticks"]
-            day_obj["ticks_n"] = sub["ticks_n"]
-            day_obj["source"] = sub["source"]
+            _ticks_clean, _dates = _filter_intraday_ticks_for_date(
+                sub["ticks"], d.replace("-", ""), allow_time_only=False,
+            )
+            if len(_ticks_clean) < len(sub["ticks"]):
+                log.warning(
+                    f"intraday_per_day {code} {d} 过滤 {len(sub['ticks'])}→{len(_ticks_clean)} "
+                    f"(dates={sorted(_dates)}, src={sub.get('source', '')})"
+                )
+            day_obj["ticks"] = _ticks_clean
+            day_obj["ticks_n"] = len(_ticks_clean)
+            day_obj["source"] = sub.get("source", "")
         out["days"].append(day_obj)
 
     have = sum(1 for d in out["days"] if d.get("ticks"))
@@ -4386,6 +4456,21 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
         )
     # R53: 写 L0;L1 Redis 复用 K.INTRADAY:{date}:{code} (TTL 30min 历史/盘中兜底)
     if result and result.get("ticks"):
+        # R-aug-01 (2026-08-01): 日期防御 — 按精确日期过滤 tick,strip 日期前缀
+        # 今日 (akshare/today) tick 只有 HH:MM:SS → allow_time_only=True
+        # 历史 (sina/em hist_min) tick 有完整 YYYY-MM-DD HH:MM:SS → 严格匹配
+        from datetime import datetime as _dt2
+        _is_today = (d == _dt2.now().strftime("%Y-%m-%d"))
+        _ticks_clean, _dates = _filter_intraday_ticks_for_date(
+            result["ticks"], d.replace("-", ""), allow_time_only=_is_today,
+        )
+        if len(_ticks_clean) < len(result["ticks"]):
+            log.warning(
+                f"intraday {code} {d} 过滤 {len(result['ticks'])}→{len(_ticks_clean)} "
+                f"(dates={sorted(_dates)}, src={result.get('source', '')})"
+            )
+        result["ticks"] = _ticks_clean
+        result["ticks_n"] = len(_ticks_clean)
         # 2026-07-19: 注入支撑/压力位 (1/3 回升位 + A/B + 5日线) — 复用 weekly_bull + recovery_level 缓存
         try:
             # 复用模块级别已导入的 _recovery (line ~9301)
@@ -4486,7 +4571,7 @@ async def news_analyze():
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
     if not api_key:
         return envelope(error="MINIMAX_API_KEY 未配置", data={"analyzed": 0, "total": 0})
-    model   = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+    model   = ai_client.default_model()
     base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
 
     def _run():
@@ -4516,7 +4601,7 @@ async def news_refresh():
     强制重新抓取 + 立即跑 AI 分析(用于前端"刷新"按钮)。
     """
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
-    model   = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+    model   = ai_client.default_model()
     base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
 
     def _run():
@@ -4591,6 +4676,72 @@ async def stock_sector(code: str, fresh: int = Query(0, ge=0, le=1)):
     return envelope(data=result)
 
 
+# 2026-08-01: 公司画像 (营业范围 / 主营构成 / 行业地位 / 概念板块)
+# 仅拉 4 个字段,不跑业绩/PE 聚合,独立 6h 缓存
+@app.get("/api/stock/{code}/profile")
+async def stock_profile(code: str, fresh: int = Query(0, ge=0, le=1)):
+    """
+    4 段信息:
+      profile        — 公司档案 (名称/地址/员工/法定代表人/网站...)
+      biz_breakdown  — 主营构成 (按产品/按地区) + 经营评述
+      concepts_pack  — 所属概念板块 + 核心题材/行业地位
+      profile_meta   — 多板块重合提示 (concepts 数)
+    """
+    from . import fundamentals as _fund
+    code = _require_valid_code(code)
+
+    cache_key = cache_store.K.STOCK_PROFILE.format(code=code)
+    if not fresh:
+        cached = _store_get(cache_key, ttl=21600)
+        if cached:
+            cached["_cache_hit"] = True
+            cached["_cache_level"] = "l1_redis"
+            return envelope(data=cached)
+
+    def _load():
+        # 复用 _fetch 函数,避免 4 路重复 IO
+        profile = _fund._fetch_profile_em(code)
+        biz_bd = _fund._fetch_business_breakdown_em(code)
+        conc = _fund._fetch_concepts_em(code)
+        return {
+            "code": code,
+            "profile": profile,
+            "biz_breakdown": biz_bd,
+            "concepts_pack": conc,
+            "profile_meta": {
+                "concept_count": len(conc.get("concepts") or []),
+                "precise_concept_count": sum(1 for c in (conc.get("concepts") or []) if c.get("is_precise")),
+                "product_count": len(biz_bd.get("by_product") or []),
+                "region_count": len(biz_bd.get("by_region") or []),
+                "report_date": biz_bd.get("report_date") or "",
+            },
+        }
+
+    try:
+        result = await asyncio.wait_for(to_thread(_load), timeout=12)
+    except asyncio.TimeoutError:
+        cached = _store_get(cache_key, ttl=21600)
+        if cached:
+            cached["_degraded"] = "upstream_timeout_cached"
+            return envelope(data=cached)
+        return envelope(error="profile 超时", data={"code": code, "_degraded": "timeout"})
+
+    has_data = bool(
+        result.get("profile", {}).get("name")
+        or result.get("biz_breakdown", {}).get("by_product")
+        or result.get("concepts_pack", {}).get("concepts")
+    )
+    result["has_data"] = has_data
+    result["ts"] = int(time.time())
+
+    if has_data and not fresh:
+        try:
+            _store_set(cache_key, result, ttl=21600)
+        except Exception:
+            pass
+    return envelope(data=result)
+
+
 @app.post("/api/limitup/per_code")
 async def api_limitup_per_code(req: dict):
     """批量:每只个股对应的"今日同板块/产业链/细分 涨停股数"(多股性列多条)。
@@ -4626,15 +4777,16 @@ async def api_limitup_per_code(req: dict):
 @app.get("/api/stock/{code}/related_news")
 async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
     """
-    与个股相关的新闻(按 ctime 倒序,最新在前):
-    - 该股所在申万行业被新闻 sectors 包含 (精确匹配)
-    - 或股票所在 l1_cluster/industry-chain 被新闻提到 (宽口径)
-    - 或新闻 stocks 列表里包含此 code
+    与个股相关的新闻(按 ctime 倒序,最新在前)。
 
-    R-fix 2026-07-27: 改用「精确 + 宽口径」匹配;若仍 0 命中 → fallback 到最近 5 条财经要闻,
-    避免个股页 news 区永远空白 (用户反馈「新闻不是这只股相关的」)。
+    2026-08-01 收紧相关性 (修"新闻不跟股相关"反馈):
+      1) 强命中 (必须返回): 新闻 stocks 列表里有此 code
+      2) 强命中: 新闻 sectors 包含该股精确 sw 二级 / 行业 csrc
+      3) 名称命中: 新闻标题 / 内容里出现该股简称 (兜底, 应对 AI stocks 列表漏抓)
+      4) 弱命中 (降权后置): sw_raw 子段 / l1_cluster / l3_chain 命中 — 仅在强命中 0 时才纳入前 5
 
-    R66 (Batch 7): 6h Redis 缓存 (个股+行业新闻聚合一日内变化不大)
+    R-fix 2026-07-27: 0 命中 fallback 到最近 5 条财经要闻 (避免空白页)。
+    R66 (Batch 7): 6h Redis 缓存。
     """
     from .sector_classify import get_sector
     code = _require_valid_code(code)
@@ -4647,57 +4799,106 @@ async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
             return envelope(data=cached)
     def _load():
         sec = get_sector(code)
-        sw = sec.get("sw")
-        # 宽口径: 取 sw_raw 中所有 "-" 分隔的子段 + l1_cluster + taxonomy chain
-        sw_keys = []
+        sw = sec.get("sw") or ""
+        # 强匹配: 行业精确 + sw_raw 子段 (3 级以内)
+        sw_keys_strong = []
         if sw:
-            sw_keys.append(sw)
+            sw_keys_strong.append(sw)
         sw_raw = (sec.get("sw_raw") or "")
-        for seg in sw_raw.split("-"):
+        # 仅取前 2 个子段 (避免 "计算机-软件-企业级服务-..." 4 层过度泛化)
+        for seg in sw_raw.split("-")[:2]:
             seg = seg.strip()
-            if seg and seg not in sw_keys:
-                sw_keys.append(seg)
+            if seg and seg not in sw_keys_strong:
+                sw_keys_strong.append(seg)
+        csrc = (sec.get("csrc") or "").strip()
+        if csrc and csrc not in sw_keys_strong:
+            sw_keys_strong.append(csrc)
+        # 弱匹配 (只在前 5 名里允许出现)
+        sw_keys_weak = []
         l1 = ((sec.get("taxonomy") or {}).get("level1_cluster") or "").strip()
-        if l1 and l1 not in sw_keys:
-            sw_keys.append(l1)
+        if l1 and l1 not in sw_keys_strong:
+            sw_keys_weak.append(l1)
         l3 = ((sec.get("taxonomy") or {}).get("level3_chain") or "").strip()
-        if l3 and l3 not in sw_keys:
-            sw_keys.append(l3)
+        if l3 and l3 not in sw_keys_strong and l3 not in sw_keys_weak:
+            sw_keys_weak.append(l3)
+        # 其它子段
+        for seg in sw_raw.split("-")[2:]:
+            seg = seg.strip()
+            if seg and seg not in sw_keys_strong and seg not in sw_keys_weak:
+                sw_keys_weak.append(seg)
+
+        # 拿到该股名称用于标题/内容兜底
+        stock_name = ""
+        try:
+            from .fundamentals import _fetch_profile_em
+            prof = _fetch_profile_em(code) or {}
+            stock_name = (prof.get("name") or "").strip()
+        except Exception:
+            stock_name = ""
+
         cache = news_lookup.load_cache()
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
-        matched = []
+        strong_hits = []
+        weak_hits = []
         for n in news:
             a = ai.get(n["id"])
-            if not a: continue
-            a_stocks = a.get("stocks") or []
-            a_sectors = a.get("sectors") or []
-            hit_reason = []
+            a_stocks = (a or {}).get("stocks") or []
+            a_sectors = (a or {}).get("sectors") or []
+            hit_reasons = []
+            hit_kind = None  # 'strong' | 'weak' | None
+            # 1) 强: code 命中
             if code in a_stocks:
-                hit_reason.append("提及该股")
-            # 精确 + 宽口径匹配
-            hit_sw = None
-            for k in sw_keys:
-                if k and k in a_sectors:
-                    hit_sw = k
-                    break
-            if hit_sw:
-                hit_reason.append(f"行业={hit_sw}")
-            if not hit_reason:
+                hit_reasons.append(f"提及{stock_name or code}")
+                hit_kind = "strong"
+            # 2) 强: 行业精确匹配
+            if not hit_kind:
+                for k in sw_keys_strong:
+                    if k and k in a_sectors:
+                        hit_reasons.append(f"行业={k}")
+                        hit_kind = "strong"
+                        break
+            # 3) 名称命中: AI 漏抓但新闻里出现该股简称
+            if not hit_kind and stock_name and len(stock_name) >= 3:
+                title = (n.get("title") or "").strip()
+                content = (n.get("content") or n.get("summary") or "").strip()
+                if stock_name in title or stock_name in content:
+                    hit_reasons.append(f"标题/内容含{stock_name}")
+                    hit_kind = "strong"
+            # 3.5) AI 没评分但标题/内容里含该股 sw 行业关键字 (如"白酒""食品饮料")
+            if not hit_kind:
+                title = (n.get("title") or "").strip()
+                content = (n.get("content") or n.get("summary") or "").strip()
+                for k in sw_keys_strong:
+                    if k and len(k) >= 2 and (k in title or k in content):
+                        hit_reasons.append(f"标题/内容含{k}")
+                        hit_kind = "strong"
+                        break
+            # 4) 弱: 板块/l1/l3 命中
+            if not hit_kind:
+                for k in sw_keys_weak:
+                    if k and k in a_sectors:
+                        hit_reasons.append(f"宽口径={k}")
+                        hit_kind = "weak"
+                        break
+            if not hit_kind:
                 continue
             item = dict(n)
-            item["ai"] = a
-            item["hit_reason"] = " · ".join(hit_reason)
-            matched.append(item)
-        matched.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
-        # R-fix 2026-07-27: fallback — 0 命中时返回最近 5 条财经要闻,保证页面不空白
-        # 不强制要求 ai (AI 分析未跑时 news 仍可展示)
+            item["ai"] = a or {}
+            item["hit_reason"] = " · ".join(hit_reasons) if hit_reasons else "相关"
+            item["_hit_kind"] = hit_kind
+            (strong_hits if hit_kind == "strong" else weak_hits).append(item)
+        # 排序: 强优先 (ctime 倒序) + 弱补到 5 条
+        strong_hits.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
+        weak_hits.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
+        matched = strong_hits + weak_hits[: max(0, 5 - len(strong_hits))]
+        # 彻底 0 命中 — fallback 到最近 5 条财经要闻
         degraded = False
         if not matched and news:
             matched = []
             for n in news[:5]:
                 a = ai.get(n["id"])
-                item = {**n, "hit_reason": "近期财经要闻"}
+                item = {**n, "hit_reason": "近期财经要闻", "_hit_kind": "fallback"}
                 if a:
                     item["ai"] = a
                 matched.append(item)
@@ -4708,6 +4909,8 @@ async def stock_related_news(code: str, fresh: int = Query(0, ge=0, le=1)):
             "news": matched,
             "count": len(matched),
             "_degraded_fallback": degraded,
+            "_strong_count": len(strong_hits),
+            "_weak_count": len(weak_hits),
         }
     try:
         result = await asyncio.wait_for(to_thread(_load), timeout=8)
@@ -6360,6 +6563,8 @@ async def _build_stock_full(code: str, date: str) -> dict:
     news_t    = to_thread(_nl.load_cache)
     ai_t      = to_thread(_get_ai_status, code, today_yyyymmdd)
     intraday_t = to_thread(_fetch_intraday_today, code)
+    # 2026-08-01: 公司画像 (营业范围/主营构成/概念板块/行业地位) — 走 Redis 6h 缓存,IO 极小
+    profile_t = to_thread(_fetch_profile_pack, code)
 
     # 3) per-task timeout handled by _gather_with_fallback
     # 4) 一次性 gather 所有任务 (主包 + 子包), 4s 强等 + 2s 弱等
@@ -6377,6 +6582,7 @@ async def _build_stock_full(code: str, date: str) -> dict:
         (news_t, 1.5),
         (ai_t, 1),
         (intraday_t, 2),
+        (profile_t, 2.5),  # 13) 公司画像 — 4 个 EM 接口,2.5s 软上限
     ], timeout_primary=4, timeout_secondary=2)
     if all(r is None for r in _g_results):
         log.warning(f"stock_full {code} 全部超时 → 部分降级")
@@ -6386,7 +6592,7 @@ async def _build_stock_full(code: str, date: str) -> dict:
             out = dict(stale["data"])
             out.update({"_partial": True, "_degraded_fields": ["flow", "seats", "sector", "lu", "strong", "seat_bd", "news", "ai"], "_stale_seconds": age, "ts": time.time()})
             return out
-        _g_results = (None,) * 12
+        _g_results = (None,) * 13
     results = _g_results
 
     # 5) 解构结果 (主包)
@@ -6410,6 +6616,7 @@ async def _build_stock_full(code: str, date: str) -> dict:
     news_raw    = results[9]
     ai_status   = results[10]
     intraday    = results[11]
+    profile     = results[12] or {}
 
     # 6) news 过滤 (按 sector + code 命中)
     related_news = _filter_news_for_stock(news_raw, code, sector)
@@ -6470,7 +6677,7 @@ async def _build_stock_full(code: str, date: str) -> dict:
     lu_ctx = _ok(lu_ctx, {"code": code, "today": None, "recent_5d": [], "sector_today": [], "summary": ""})
     seat_bd = _ok(seat_bd, {"code": code, "rows": [], "categories": [], "intraday": {}, "risks": [], "signals": {"positive": [], "warning": []}, "tags": []})
     related_news = _ok(related_news, [])
-    ai_status = _ok(ai_status, {"ready": False, "cached": False, "model": "MiniMax-M3", "ts": 0})
+    ai_status = _ok(ai_status, {"ready": False, "cached": False, "model": ai_client.default_model(), "ts": 0})
     intraday = _ok(intraday, {"code": code, "minutes": [], "date": today_yyyymmdd})
 
     # 10) name 字段修正
@@ -6567,6 +6774,8 @@ async def _build_stock_full(code: str, date: str) -> dict:
         "related_news":    related_news,
         "ai_status":       ai_status,
         "intraday":        intraday,
+        # 2026-08-01: 公司画像 (营业范围/主营/概念/行业地位) — 走 Redis 6h
+        "profile":         profile,
         # ─── 状态 ──────────────────────────────────────────────────────────────
         "_partial":        False,
         "_degraded_fields": [],
@@ -6576,6 +6785,43 @@ async def _build_stock_full(code: str, date: str) -> dict:
     if not is_historical and quote:
         _STOCK_LAST_OK[code] = {"data": out, "ts": time.time()}
     return out
+
+
+def _fetch_profile_pack(code: str) -> dict:
+    """公司画像 4 件套 — 拉 EM 4 个接口后整合,Redis 6h 缓存。
+
+    复用 _fetch 函数避免重复 IO,失败返回空 dict 不阻塞主路径。
+    """
+    cache_key = cache_store.K.STOCK_PROFILE.format(code=code)
+    cached = _store_get(cache_key, ttl=21600)
+    if cached:
+        return cached
+    try:
+        from . import fundamentals as _fund
+        profile = _fund._fetch_profile_em(code)
+        biz_bd = _fund._fetch_business_breakdown_em(code)
+        conc = _fund._fetch_concepts_em(code)
+        result = {
+            "code": code,
+            "profile": profile,
+            "biz_breakdown": biz_bd,
+            "concepts_pack": conc,
+            "profile_meta": {
+                "concept_count": len(conc.get("concepts") or []),
+                "precise_concept_count": sum(1 for c in (conc.get("concepts") or []) if c.get("is_precise")),
+                "product_count": len(biz_bd.get("by_product") or []),
+                "region_count": len(biz_bd.get("by_region") or []),
+                "report_date": biz_bd.get("report_date") or "",
+            },
+            "ts": int(time.time()),
+        }
+        has_data = bool(profile.get("name") or biz_bd.get("by_product") or conc.get("concepts"))
+        if has_data:
+            _store_set(cache_key, result, ttl=21600)
+        return result
+    except Exception as e:
+        log.debug(f"_fetch_profile_pack {code} fail: {e}")
+        return {"code": code, "profile": {}, "biz_breakdown": {}, "concepts_pack": {}, "profile_meta": {}, "_degraded": "fetch_failed"}
 
 
 def _fetch_intraday_today(code: str) -> dict:
@@ -6589,53 +6835,90 @@ def _fetch_intraday_today(code: str) -> dict:
 
 
 def _filter_news_for_stock(news_cache, code, sector) -> list:
-    """从 news_lookup 全量 cache 中过滤与本股相关的新闻 (与 stock_related_news 同逻辑)"""
+    """从 news_lookup 全量 cache 中过滤与本股相关的新闻 (与 stock_related_news 同步)。
+
+    2026-08-01 收紧: 强命中 (code 命中 / 行业精确) 优先, 宽口径 (l1/l3) 仅作前 5 补位。
+    """
     try:
         if not news_cache:
             return []
         sw = (sector or {}).get("sw") or ""
-        # 宽口径 keys (与 stock_related_news 同步)
-        sw_keys = []
+        # 强匹配
+        sw_keys_strong = []
         if sw:
-            sw_keys.append(sw)
+            sw_keys_strong.append(sw)
         sw_raw = ((sector or {}).get("sw_raw") or "")
-        for seg in sw_raw.split("-"):
+        for seg in sw_raw.split("-")[:2]:
             seg = seg.strip()
-            if seg and seg not in sw_keys:
-                sw_keys.append(seg)
+            if seg and seg not in sw_keys_strong:
+                sw_keys_strong.append(seg)
+        csrc = ((sector or {}).get("csrc") or "").strip()
+        if csrc and csrc not in sw_keys_strong:
+            sw_keys_strong.append(csrc)
+        # 弱匹配
+        sw_keys_weak = []
         l1 = (((sector or {}).get("taxonomy") or {}).get("level1_cluster") or "").strip()
-        if l1 and l1 not in sw_keys:
-            sw_keys.append(l1)
+        if l1 and l1 not in sw_keys_strong:
+            sw_keys_weak.append(l1)
         l3 = (((sector or {}).get("taxonomy") or {}).get("level3_chain") or "").strip()
-        if l3 and l3 not in sw_keys:
-            sw_keys.append(l3)
+        if l3 and l3 not in sw_keys_strong and l3 not in sw_keys_weak:
+            sw_keys_weak.append(l3)
+        for seg in sw_raw.split("-")[2:]:
+            seg = seg.strip()
+            if seg and seg not in sw_keys_strong and seg not in sw_keys_weak:
+                sw_keys_weak.append(seg)
+        # 名称兜底
+        stock_name = ""
+        try:
+            from .fundamentals import _fetch_profile_em
+            prof = _fetch_profile_em(code) or {}
+            stock_name = (prof.get("name") or "").strip()
+        except Exception:
+            stock_name = ""
         news = news_cache.get("news") or []
         ai = news_cache.get("ai") or {}
-        matched = []
+        strong_hits = []
+        weak_hits = []
         for n in news:
             a = ai.get(n.get("id"))
-            if not a:
-                continue
-            a_stocks = a.get("stocks") or []
-            a_sectors = a.get("sectors") or []
-            hit_reason = []
+            a_stocks = (a or {}).get("stocks") or []
+            a_sectors = (a or {}).get("sectors") or []
+            hit_reasons = []
+            hit_kind = None
             if code in a_stocks:
-                hit_reason.append("提及该股")
-            hit_sw = None
-            for k in sw_keys:
-                if k and k in a_sectors:
-                    hit_sw = k
-                    break
-            if hit_sw:
-                hit_reason.append(f"行业={hit_sw}")
-            if hit_reason:
-                matched.append({**n, "ai": a, "hit_reason": " · ".join(hit_reason)})
-        # R-fix 2026-07-27: 0 命中 fallback — 最近 5 条要闻 (避免个股页空白)
-        # 不强制要求 ai (AI 分析未跑时 news 仍可展示)
+                hit_reasons.append(f"提及{stock_name or code}")
+                hit_kind = "strong"
+            if not hit_kind:
+                for k in sw_keys_strong:
+                    if k and k in a_sectors:
+                        hit_reasons.append(f"行业={k}")
+                        hit_kind = "strong"
+                        break
+            if not hit_kind and stock_name and len(stock_name) >= 3:
+                title = (n.get("title") or "").strip()
+                content = (n.get("content") or n.get("summary") or "").strip()
+                if stock_name in title or stock_name in content:
+                    hit_reasons.append(f"标题/内容含{stock_name}")
+                    hit_kind = "strong"
+            if not hit_kind:
+                for k in sw_keys_weak:
+                    if k and k in a_sectors:
+                        hit_reasons.append(f"宽口径={k}")
+                        hit_kind = "weak"
+                        break
+            if not hit_kind:
+                continue
+            item = {**n, "ai": a, "hit_reason": " · ".join(hit_reasons)}
+            item["_hit_kind"] = hit_kind
+            (strong_hits if hit_kind == "strong" else weak_hits).append(item)
+        strong_hits.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
+        weak_hits.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
+        matched = strong_hits + weak_hits[: max(0, 5 - len(strong_hits))]
+        # 0 命中 fallback — 最近 5 条要闻 (避免个股页空白)
         if not matched and news:
             for n in news[:5]:
                 a = ai.get(n.get("id"))
-                item = {**n, "hit_reason": "近期财经要闻"}
+                item = {**n, "hit_reason": "近期财经要闻", "_hit_kind": "fallback"}
                 if a:
                     item["ai"] = a
                 matched.append(item)
@@ -6657,12 +6940,12 @@ def _get_ai_status(code: str, trade_date: str) -> dict:
     """
     try:
         from . import cache_db as _cdb
-        ai = _cdb.get_cached_ai(trade_date, code, "MiniMax-M3") or {}
+        ai = _cdb.get_cached_ai(trade_date, code, ai_client.default_model()) or {}
         if ai and ai.get("verdict"):
             return {
                 "ready": True,
                 "cached": True,
-                "model": "MiniMax-M3",
+                "model": ai_client.default_model(),
                 "ts": int(ai.get("ts_updated") or 0),
                 "verdict": ai.get("verdict") or "",
                 "summary": ai.get("summary") or "",
@@ -6670,7 +6953,7 @@ def _get_ai_status(code: str, trade_date: str) -> dict:
             }
     except Exception as e:
         log.warning(f"ai_status read fail: {e}")
-    return {"ready": False, "cached": False, "model": "MiniMax-M3", "ts": 0, "verdict": "", "summary": ""}
+    return {"ready": False, "cached": False, "model": ai_client.default_model(), "ts": 0, "verdict": "", "summary": ""}
 
 
 # ─── Redis K.STOCK_FULL helpers ────────────────────────────────────────────────
@@ -7453,7 +7736,7 @@ async def _background_ai_task(code: str, date: str | None, run_id: str) -> None:
     try:
         log.info(f"[ai-bg] start {run_id} (code={code}, date={today_str})")
         # 检查缓存 — 已经存在就跳过
-        hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3")
+        hit = _cdb.get_cached_ai(today_str, code, ai_client.default_model())
         if hit and ai_client.is_valid_cached_verdict(hit):
             log.info(f"[ai-bg] skip {run_id} — already cached")
             return
@@ -7511,7 +7794,7 @@ async def _background_ai_task(code: str, date: str | None, run_id: str) -> None:
             return
         # 写 cache_db
         sector_name = (sector_ or {}).get("sw") or ""
-        _cdb.upsert_ai(today_str, code, "MiniMax-M3", result, sector=sector_name)
+        _cdb.upsert_ai(today_str, code, ai_client.default_model(), result, sector=sector_name)
         log.info(f"[ai-bg] {run_id} done in {time.time()-t0:.1f}s, verdict={result.get('verdict')}")
         # 通知前端 — 通过 Redis pub (B 阶段 SSE 订阅会用上)
         try:
@@ -7521,8 +7804,6 @@ async def _background_ai_task(code: str, date: str | None, run_id: str) -> None:
             pass
     except Exception as e:
         log.exception(f"[ai-bg] {run_id} fail: {e}")
-    except Exception:
-        return default
 
 
 @app.get("/api/stock/{code}/ai_analysis")
@@ -7568,7 +7849,7 @@ async def stock_ai_analysis(code: str, date: str | None = Query(None, descriptio
     else:
         date = None
     today_str = date or datetime.datetime.now().strftime("%Y%m%d")
-    hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3")
+    hit = _cdb.get_cached_ai(today_str, code, ai_client.default_model())
     if hit:
         # R4 缓存污染防护: schema 校验,不合法 → 当未命中重算
         from . import ai_client
@@ -7730,7 +8011,7 @@ async def stock_ai_analysis(code: str, date: str | None = Query(None, descriptio
     # 2) 写入 SQLite 日内缓存 — 下次同一只 stock 同一天秒返
     try:
         sector_name = (sector or {}).get("sw") or (sector or {}).get("name") or ""
-        _cdb.upsert_ai(today_str, code, "MiniMax-M3", result, sector=sector_name)
+        _cdb.upsert_ai(today_str, code, ai_client.default_model(), result, sector=sector_name)
     except Exception as e:
         log.debug(f"AI cache write fail: {e}")
 
@@ -8253,7 +8534,7 @@ async def stock_ai_crash_risk(code: str, force: bool = False):
     cache_key = f"crash_risk:{today_str}:{code}"
 
     if not force:
-        hit = _cdb.get_cached_ai(today_str, code, "MiniMax-M3-crash")
+        hit = _cdb.get_cached_ai(today_str, code, f"{ai_client.default_model()}-crash")
         if hit:
             # R4 缓存污染防护
             from . import ai_client
@@ -8429,7 +8710,7 @@ async def stock_ai_crash_risk(code: str, force: bool = False):
     # ── 5) 写缓存 ──
     try:
         sector_name = (sector or {}).get("sw") or (sector or {}).get("name") or ""
-        _cdb.upsert_ai(today_str, code, "MiniMax-M3-crash", result, sector=sector_name)
+        _cdb.upsert_ai(today_str, code, f"{ai_client.default_model()}-crash", result, sector=sector_name)
     except Exception as e:
         log.debug(f"crash_risk cache write fail: {e}")
 
@@ -8459,7 +8740,7 @@ async def api_stock_ai_history(code: str, days: int = Query(7, ge=1, le=30)):
                 "SELECT date, verdict, role, conviction, sector, ts_updated "
                 "FROM ai_verdict WHERE code=? AND model=? "
                 "ORDER BY date DESC LIMIT ?",
-                (code, "MiniMax-M3", days),
+                (code, ai_client.default_model(), days),
             ).fetchall()
         except Exception as e:
             log.debug(f"ai_history SQL 失败 {code}: {e}")
@@ -8725,7 +9006,7 @@ async def api_stock_ai_refresh(code: str):
     try:
         _cdb.safe_write(lambda conn: (
             conn.execute("DELETE FROM ai_verdict WHERE date=? AND code=? AND model=?",
-                         (today_str, code, "MiniMax-M3")),
+                         (today_str, code, ai_client.default_model())),
             conn.commit(),
         ))
     except Exception as e:
@@ -10011,7 +10292,7 @@ async def api_watchlist_analyze(code: str, force: bool = False):
         try:
             from .. import cache_db as _cdb
             sector_name = (extras or {}).get("sector_name") or ""
-            _cdb.upsert_ai(trade_date, code, "MiniMax-M3", result, sector=sector_name)
+            _cdb.upsert_ai(trade_date, code, ai_client.default_model(), result, sector=sector_name)
         except Exception:
             pass
         return envelope(data={"ai": result, "extras": extras, "code": code})
