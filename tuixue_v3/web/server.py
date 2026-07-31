@@ -4522,7 +4522,7 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
         ttl = 300 if is_today else 1800
         cache_key = f"intraday:{d}:{code}"
         try:
-            get_store().set(cache_key, result, ttl=ttl)
+            cache_store.get_store().set(cache_key, result, ttl=ttl)
         except Exception:
             pass
     # 保存陈旧数据供降级兜底
@@ -4777,6 +4777,16 @@ async def api_limitup_per_code(req: dict):
     if not codes:
         return envelope(data={"counts": {}, "ts": time.time()})
 
+    # R-fix-2026-08-01: 60s cache — 之前每次都重算 (~1s), R5 perf_api p95=1162ms 超预算 900ms
+    # 用 sorted tuple 做 key, 同样 codes 集合命中 (跨 worker 共享)
+    cache_key = f"tuixue:limitup:per_code:{hash(tuple(sorted(codes)))}"
+    try:
+        cached = cache_store.get_store().get(cache_key)
+        if cached is not None:
+            return envelope(data=cached)
+    except Exception:
+        pass
+
     def _run():
         try:
             return zt_chains_per_code(codes, sector_lookup=get_sector)
@@ -4789,7 +4799,12 @@ async def api_limitup_per_code(req: dict):
     except asyncio.TimeoutError:
         log.warning(f"limitup_per_code 超时 15s (codes={len(codes)})")
         counts = {}
-    return envelope(data={"counts": counts or {}, "ts": time.time(), "codes": len(codes)})
+    result = {"counts": counts or {}, "ts": time.time(), "codes": len(codes)}
+    try:
+        cache_store.get_store().set(cache_key, result, ttl=60)
+    except Exception:
+        pass
+    return envelope(data=result)
 
 
 @app.get("/api/stock/{code}/related_news")
