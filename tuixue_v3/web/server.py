@@ -905,6 +905,9 @@ def envelope(data: Any = None, error: str | None = None, **extra) -> dict:
 # 前端据此显示降级状态而非空白/零值。
 _STALE_CACHE: dict[str, dict] = {}
 _STALE_CACHE_LOCK = threading.Lock()
+# R-fix-2026-08-01: _STALE_CACHE 上限 — 之前无 LRU, per-code key (stock_kline:{code} 等)
+# 5540 股票 × 多个 endpoint 会无限增长, 几十 MB 内存泄漏
+_STALE_MAX = 2000
 _STALE_TTL = {
     "market_overview": 300,       # 5 分钟
     "dashboard_signal": 600,      # 10 分钟
@@ -921,6 +924,15 @@ _STALE_TTL = {
 def _stale_save(key: str, data: Any):
     """保存陈旧数据缓存，供后续降级使用。"""
     with _STALE_CACHE_LOCK:
+        # 超出上限时按 LRU 淘汰 (ts 最早)
+        if key not in _STALE_CACHE and len(_STALE_CACHE) >= _STALE_MAX:
+            try:
+                victim = min(_STALE_CACHE, key=lambda k: _STALE_CACHE[k]["ts"])
+                _STALE_CACHE.pop(victim, None)
+            except Exception:
+                # 极端情况下(max entries 同时插入)直接清一半,避免 min 慢
+                while len(_STALE_CACHE) >= _STALE_MAX:
+                    _STALE_CACHE.pop(next(iter(_STALE_CACHE)), None)
         _STALE_CACHE[key] = {"data": data, "ts": time.time()}
 
 
