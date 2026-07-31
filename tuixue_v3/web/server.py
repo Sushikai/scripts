@@ -2651,6 +2651,31 @@ _DASH_BG_LOCK = _th_dash.Lock()
 _DASH_BG_RUNNING = False
 
 
+def _cache_obj(raw):
+    """把 CacheStore 取回值统一还原成 dict/list。
+
+    CacheStore.set() 自带 JSON 编码,直接存 dict 即可。历史上多处传了
+    json.dumps().encode(),取回是字符串 "b'{...}'",json.loads 必抛 →
+    缓存永不命中、每次请求全量重建。这里兼容存量脏值,还原不了就返 None。
+    """
+    if raw is None or isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="ignore")
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if s[:2] in ("b'", 'b"'):
+        try:
+            s = s[2:-1].encode().decode("unicode_escape")
+        except Exception:
+            return None
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
+
 def _bg_dashboard_signal() -> None:
     """R-T6x (2026-07-22): 后台异步刷 dashboard signal。
     TTL 过期后,请求立即返旧数据,不阻塞用户。Redis 写回让下次访问秒开。
@@ -2671,8 +2696,7 @@ def _bg_dashboard_signal() -> None:
                 _dashboard_cache["signal"] = sig
                 _dashboard_cache["ts"] = time.time()
                 try:
-                    cache_store.get_store().set(_DASH_REDIS_KEY,
-                        _json_dash.dumps(sig, ensure_ascii=False).encode(), ttl=300)
+                    cache_store.get_store().set(_DASH_REDIS_KEY, sig, ttl=300)
                 except Exception:
                     pass
         except Exception as e:
@@ -2911,10 +2935,11 @@ async def api_dashboard_signal(request: _Request, force: bool = False):
         try:
             cached = cache_store.get_store().get(_DASH_REDIS_KEY)
             if cached:
-                sig = _json_dash.loads(cached)
-                _dashboard_cache["signal"] = sig
-                _dashboard_cache["ts"] = now
-                return _response(data=sig)
+                sig = _cache_obj(cached)
+                if sig is not None:
+                    _dashboard_cache["signal"] = sig
+                    _dashboard_cache["ts"] = now
+                    return _response(data=sig)
         except Exception as e:
             log.debug(f"dashboard signal redis get fail: {e}")
 
@@ -2928,11 +2953,12 @@ async def api_dashboard_signal(request: _Request, force: bool = False):
         try:
             cached = cache_store.get_store().get(_DASH_REDIS_KEY)
             if cached:
-                sig = _json_dash.loads(cached)
-                _dashboard_cache["signal"] = sig
-                _dashboard_cache["ts"] = now
-                # Redis 命中但本机超期 → 后台刷
-                return _response(data=sig)
+                sig = _cache_obj(cached)
+                if sig is not None:
+                    _dashboard_cache["signal"] = sig
+                    _dashboard_cache["ts"] = now
+                    # Redis 命中但本机超期 → 后台刷
+                    return _response(data=sig)
         except Exception as e:
             log.debug(f"dashboard signal redis get fail: {e}")
 
@@ -2964,7 +2990,7 @@ async def api_dashboard_signal(request: _Request, force: bool = False):
     _dashboard_cache["ts"] = now
     _stale_save("dashboard_signal", sig)
     try:
-        cache_store.get_store().set(_DASH_REDIS_KEY, _json_dash.dumps(sig, ensure_ascii=False).encode(), ttl=300)
+        cache_store.get_store().set(_DASH_REDIS_KEY, sig, ttl=300)
     except Exception as e:
         log.debug(f"dashboard signal redis set fail: {e}")
     return _response(data=sig)
@@ -2984,10 +3010,11 @@ async def api_dashboard_hot_sectors(force: bool = False):
         try:
             cached = cache_store.get_store().get("tuixue:dashboard:hot:v1")
             if cached:
-                hot = _json_dash.loads(cached)
-                _dashboard_cache["hot"] = hot
-                _dashboard_cache["ts"] = now
-                return envelope(data=hot)
+                hot = _cache_obj(cached)
+                if hot is not None:
+                    _dashboard_cache["hot"] = hot
+                    _dashboard_cache["ts"] = now
+                    return envelope(data=hot)
         except Exception as e:
             log.debug(f"hot_sectors redis get fail: {e}")
 
@@ -3106,7 +3133,7 @@ async def api_dashboard_hot_sectors(force: bool = False):
     _dashboard_cache["hot"] = out
     _dashboard_cache["ts"] = now
     try:
-        cache_store.get_store().set("tuixue:dashboard:hot:v1", _json_dash.dumps(out, ensure_ascii=False).encode(), ttl=300)
+        cache_store.get_store().set("tuixue:dashboard:hot:v1", out, ttl=300)
     except Exception as e:
         log.debug(f"hot_sectors redis set fail: {e}")
     return envelope(data=out)
@@ -10213,14 +10240,23 @@ async def api_watchlist_list():
     """列出全部自选股 + 实时行情 + 最新 AI 建议(同日有效)。
     R-T5x (2026-07-21): Redis 跨 worker 共享 8s 缓存 — bench 20 并发秒开
     """
-    import json as _json_wl
     _WL_KEY = "tuixue:watchlist:v1"
     # 1) Redis 快速检查 (跨 4 worker 共享, < 5ms)
+    # 注意: CacheStore 自带 JSON 编解码,存 dict 即可。曾传 json.dumps().encode()
+    # 进去,取出来变成字符串 "b'{...}'" → json.loads 必抛 → 缓存永不命中,
+    # 每次请求都全量重建 (P95 13s)。
     try:
         cached = cache_store.get_store().get(_WL_KEY)
-        if cached:
-            data = _json_wl.loads(cached)
-            return envelope(data=data)
+        if isinstance(cached, dict) and cached.get("items") is not None:
+            return envelope(data=cached)
+    except Exception:
+        pass
+    # 1.5) TTL 刚过期时先返陈旧值 — 否则多 worker 同时重建
+    try:
+        stale = cache_store.get_store().get_swr(_WL_KEY)
+        if isinstance(stale, dict) and stale.get("items") is not None:
+            asyncio.create_task(_warm_watchlist_async(_WL_KEY))
+            return envelope(data=stale)
     except Exception:
         pass
     try:
@@ -10228,13 +10264,23 @@ async def api_watchlist_list():
         result = {"items": items, "count": len(items)}
         # 2) 写 Redis 60s — 加长避免 4 worker 频繁 race (实测 20s 时 30% 请求撞冷启 1s+)
         try:
-            cache_store.get_store().set(_WL_KEY, _json_wl.dumps(result, ensure_ascii=False).encode(), ttl=60)
+            cache_store.get_store().set(_WL_KEY, result, ttl=60)
         except Exception:
             pass
         return envelope(data=result)
     except Exception as e:
         log.exception("watchlist list")
         return envelope(error=str(e), status_code=500)
+
+
+async def _warm_watchlist_async(cache_key: str):
+    """返陈旧值后台重建自选股快照,下次请求即命中新值。"""
+    try:
+        items = await asyncio.wait_for(
+            asyncio.to_thread(_watchlist.list_with_ai_snapshot), timeout=30)
+        cache_store.get_store().set(cache_key, {"items": items, "count": len(items)}, ttl=60)
+    except Exception as e:
+        log.debug(f"watchlist 后台重建失败: {e}")
 
 
 @app.get("/api/trade_dates")
@@ -10687,8 +10733,10 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
         try:
             rcache = cache_store.get_store().get(f"tuixue:dragons:{cache_key}:v1")
             if rcache:
-                cached = {"data": _json_dash.loads(rcache), "ts": now}
-                _DRAGONS_CACHE[cache_key] = cached
+                _decoded = _cache_obj(rcache)
+                if _decoded is not None:
+                    cached = {"data": _decoded, "ts": now}
+                    _DRAGONS_CACHE[cache_key] = cached
         except Exception as e:
             log.debug(f"dragons redis get fail: {e}")
     # R50-SPEED: refresh=1 强制刷新也要快速 — 有缓存时先回陈旧+后台刷新,绝不阻塞
@@ -10712,7 +10760,7 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
                         _DRAGONS_CACHE[cache_key] = {"data": fresh, "ts": datetime.datetime.now()}
                         # R-T5x: 同步写 Redis
                         try:
-                            cache_store.get_store().set(f"tuixue:dragons:{cache_key}:v1", _json_dash.dumps(fresh, ensure_ascii=False).encode(), ttl=180)
+                            cache_store.get_store().set(f"tuixue:dragons:{cache_key}:v1", fresh, ttl=180)
                         except Exception:
                             pass
                         log.info(f"dragons 后台刷新完成 (date={date})")
@@ -10745,7 +10793,7 @@ async def api_dragons(date: str | None = None, refresh: bool = False):
         _DRAGONS_CACHE[cache_key] = {"data": result, "ts": datetime.datetime.now()}
         # R-T5x (2026-07-21): 写 Redis 共享 (TTL=180s = fresh 窗口)
         try:
-            cache_store.get_store().set(f"tuixue:dragons:{cache_key}:v1", _json_dash.dumps(result, ensure_ascii=False).encode(), ttl=180)
+            cache_store.get_store().set(f"tuixue:dragons:{cache_key}:v1", result, ttl=180)
         except Exception as e:
             log.debug(f"dragons redis set fail: {e}")
         return envelope(data=result)
@@ -10764,7 +10812,9 @@ def _warm_dragons_from_redis():
         for d in ("today",):
             cached = store.get(f"tuixue:dragons:dragons_{d}:v1")
             if cached:
-                _DRAGONS_CACHE[f"dragons_{d}"] = {"data": _json_dash.loads(cached), "ts": datetime.datetime.now()}
+                _decoded = _cache_obj(cached)
+                if _decoded is not None:
+                    _DRAGONS_CACHE[f"dragons_{d}"] = {"data": _decoded, "ts": datetime.datetime.now()}
     except Exception as e:
         log.debug(f"dragons redis warm fail: {e}")
 

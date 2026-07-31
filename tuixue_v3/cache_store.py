@@ -47,6 +47,21 @@ PING_BG_INTERVAL = 30.0
 PING_FAIL_THRESHOLD = 3
 USE_REDIS_ENV = "TUIXUE_USE_REDIS"
 
+# 负缓存默认 TTL — loader 返 None 时短暂记住,防持续打下游
+DEFAULT_NEG_TTL = 30
+# SWR: 陈旧值可用窗口 = ttl × _STALE_RATIO
+_STALE_RATIO = 5
+# 陈旧值走进程内字典而非后端 — 避免每次 set() 双写后端 (热路径成本翻倍)
+_STALE_MAX = 5000
+
+# singleflight — 同一 key 并发只跑 1 次 loader
+_inflight: dict[str, threading.Event] = {}
+_inflight_values: dict[str, tuple[Any, float]] = {}
+_inflight_lock = threading.Lock()
+# 完成值保留窗口 (供 barrier 释放后的线程直接取,避免二次 loader)
+_INFLIGHT_VALUE_TTL = 5.0
+_INFLIGHT_VALUE_MAX = 2000
+
 # SQLite fallback 路径 (与 cache.db 分离,独立维护)
 _FALLBACK_DB = Path(__file__).resolve().parent / "data" / "cache_store_fallback.db"
 
@@ -259,6 +274,9 @@ class CacheStore:
     ):
         self.prefix = prefix
         self.fallback = _SqliteFallback(fallback_db) if fallback_db else None
+        # SWR 陈旧值 (key → (value, expires_at)) — 每实例独立,不跨 store 串味
+        self._stale_store: dict[str, tuple[Any, float]] = {}
+        self._stale_lock = threading.Lock()
         self._redis: "redis.Redis | None" = None
         self._redis_available = False
         self._ping_fail_count = 0
@@ -416,7 +434,7 @@ class CacheStore:
         self._record_miss()
         return None
 
-    def set(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
+    def _set_raw(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
         k = self._k(key)
         v = self._encode(value)
         ok = False
@@ -451,6 +469,123 @@ class CacheStore:
             self._record_sqlite()
             ok = True
         return ok
+
+    # ── D3: 一致性能力 (singleflight / negative cache / SWR / key 规范化) ──
+    _NEG_SENTINEL = "__tx3_neg__"
+
+    def get_swr(self, key: str) -> Any | None:
+        """stale-while-revalidate 读:TTL 已过期时仍返旧值 (ttl × _STALE_RATIO 内)。
+
+        调用方拿到陈旧值后应自行触发后台刷新;这里只负责"永不空手而归"。
+        """
+        v = self.get(key)
+        if v is not None:
+            return None if v == self._NEG_SENTINEL else v
+        k = self._k(key)
+        with self._stale_lock:
+            hit = self._stale_store.get(k)
+        if hit is None:
+            return None
+        val, expires_at = hit
+        if systime.time() > expires_at:
+            with self._stale_lock:
+                self._stale_store.pop(k, None)
+            return None
+        return val
+
+    def _stale_put(self, key: str, value: Any, ttl: int) -> None:
+        if value is None or ttl <= 0:
+            return
+        k = self._k(key)
+        now = systime.time()
+        with self._stale_lock:
+            self._stale_store[k] = (value, now + ttl * _STALE_RATIO)
+            if len(self._stale_store) > _STALE_MAX:
+                for dead in [kk for kk, (_, exp) in self._stale_store.items() if exp < now]:
+                    self._stale_store.pop(dead, None)
+                # 仍超限 → 按最晚过期保留,淘汰到 80%
+                if len(self._stale_store) > _STALE_MAX:
+                    keep = sorted(self._stale_store.items(), key=lambda x: -x[1][1])
+                    self._stale_store.clear()
+                    self._stale_store.update(dict(keep[: int(_STALE_MAX * 0.8)]))
+
+    def set(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
+        ok = self._set_raw(key, value, ttl)
+        if ok:
+            self._stale_put(key, value, ttl)
+        return ok
+
+    def get_or_set(self, key: str, loader, ttl: int = DEFAULT_TTL,
+                   neg_ttl: int = DEFAULT_NEG_TTL) -> Any:
+        """singleflight 读穿:并发同 key 只跑 1 次 loader,其余等结果。
+
+        loader 返 None 时写负缓存 (neg_ttl 秒),防持续 miss 打爆下游。
+        """
+        cached = self.get(key)
+        if cached is not None:
+            return None if cached == self._NEG_SENTINEL else cached
+
+        k = self._k(key)
+        with _inflight_lock:
+            done = _inflight.get(k)
+            if done is None:
+                # 本线程当 leader
+                done = threading.Event()
+                _inflight[k] = done
+                leader = True
+            else:
+                leader = False
+
+        if not leader:
+            done.wait(timeout=30)
+            with _inflight_lock:
+                hit = _inflight_values.get(k)
+            if hit is not None:
+                return hit[0]
+            # leader 的值已过保留窗口 — 回落读缓存
+            cached = self.get(key)
+            return None if cached == self._NEG_SENTINEL else cached
+
+        try:
+            value = loader()
+        except Exception:
+            with _inflight_lock:
+                _inflight.pop(k, None)
+            done.set()
+            raise
+
+        try:
+            if value is None:
+                if neg_ttl > 0:
+                    self._set_raw(key, self._NEG_SENTINEL, neg_ttl)
+            else:
+                self.set(key, value, ttl)
+        finally:
+            now = systime.time()
+            with _inflight_lock:
+                _inflight.pop(k, None)
+                _inflight_values[k] = (value, now)
+                # 定期清理过期值,防无界增长
+                if len(_inflight_values) > _INFLIGHT_VALUE_MAX:
+                    for dead in [kk for kk, (_, t) in _inflight_values.items()
+                                 if now - t > _INFLIGHT_VALUE_TTL]:
+                        _inflight_values.pop(dead, None)
+            done.set()
+        return value
+
+    @staticmethod
+    def _normalize_key(key: str) -> str:
+        """大小写 / 前后空格 / 重复 prefix 归一化。"""
+        k = str(key).strip().lower()
+        while k.startswith(DEFAULT_PREFIX):
+            k = k[len(DEFAULT_PREFIX):]
+        return k
+
+    def set_normalized(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
+        return self.set(self._normalize_key(key), value, ttl)
+
+    def get_normalized(self, key: str) -> Any | None:
+        return self.get(self._normalize_key(key))
 
     def set_nx(self, key: str, value: Any, ttl: int = DEFAULT_TTL) -> bool:
         """SETNX: 原子 — 仅当 key 不存在时设置。返回 True=设置成功, False=key 已存在。
@@ -876,6 +1011,8 @@ class K:
     OPTIMIZER_BEST   = "optim:best"           # JSON {params, score, summary, completed_at} — 替换前端 ⭐ 优化策略
     OPTIMIZER_LOCK   = "optim:lock"           # String "1" — 防多 worker 同时跑
     OPTIMIZER_STREAM = "optim:stream"         # List 最近 50 条 progress 消息 (SSE fallback 给 polling)
+    # 2026-08-01: 公司画像 (营业范围/主营构成/概念板块/行业地位) — 6h Redis 缓存
+    STOCK_PROFILE = "stock_profile:{code}"    # TTL 21600s (6h) — 4 段: 营业范围/主营/行业地位/概念
 
 
 def ttl_until_midnight() -> int:
