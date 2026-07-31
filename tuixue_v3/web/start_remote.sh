@@ -661,7 +661,6 @@ if [ -n "$TUNNEL_URL" ]; then
             if ! check_tunnel "$local_url"; then
                 # 用文件计数 (跨进程隔离 OK)
                 echo "$(($(cat "$TUNNELS_DIR/.dead_count" 2>/dev/null || echo 0) + 1))" > "$TUNNELS_DIR/.dead_count"
-                local dc
                 dc=$(cat "$TUNNELS_DIR/.dead_count" 2>/dev/null || echo 0)
                 sup_log "dead check #$dc url=$local_url"
                 if [ "$dc" -ge 2 ]; then
