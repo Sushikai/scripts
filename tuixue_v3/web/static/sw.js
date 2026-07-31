@@ -143,7 +143,8 @@
 // v257 (2026-07-31): 得鑫每只股票加 score + score_breakdown (组合加权基础) + 卡片分数 chip
 // v260 (2026-08-01): 修复 dragon-name flex crush (min-width:0→2.5em + dragon-head flex-wrap)
 // v264 (2026-08-01): 5 处硬编码 hex 颜色 → var(--ink-inverse/--cat-institution/--up/--down) (visual token 化)
-const CACHE = 'tuixue-v3-shell-v265';
+// v266 (2026-08-01): 修复 loadStockDetail inflight dedup 时序 — 早清导致 await 期间重复进入双发 /core+/full (server 6 连接池爆)
+const CACHE = 'tuixue-v3-shell-v266';
 const PRECACHE = [
   '/',
   '/static/app.js',

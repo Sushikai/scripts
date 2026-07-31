@@ -717,13 +717,32 @@ function _stockSignal() {
 
 async function loadStockDetail(code, date) {
   code = code.trim().padStart(6, '0');
+  const _switching = currentStockCode !== code;
   currentStockCode = code;
   // 2026-07-18 修: app.js 也读 _currentStockCode (下划线),两变量同步赋值防再发
   window._currentStockCode = code;
+  // R-fix-2026-08-01: inflight dedup 必须 *最早期* 设置 — 不只是"切股时清",
+  // 还必须在 await 之前设 placeholder,让 Call 2 在 await 期间进入时能看到 inflight。
+  // 原版 bug: await _setQuickbarEnabled() 期间第二次进入,两边都通过早期清,双发 /core+/full,
+  // server 6 连接池 ×4 workers 被拖爆,客户端 P95 飙到 1.2s+。
+  // 关键:同 code+date 的二次进入必须返回同一 promise,而不是再跑副作用。
+  // 但精确 inflightKey(dateParam + useFresh) 在 _setQuickbarEnabled 后才能算 — 用 caller 的 date 占位,
+  // 同 code+date 占位必同 key,够防连点/watcher 三路同时调。
+  const _pendingKey = code + ':' + (date || '') + ':pending';
+  if (_stockDetailInflight && _stockDetailInflightKey === _pendingKey) {
+    return _stockDetailInflight;
+  }
+  if (_switching) {
+    _stockDetailInflight = null;
+    _stockDetailInflightKey = '';
+  }
+  // 立刻设 placeholder 占位 — Call 2 在 await 期间进入时会撞上 early return
+  let _inflightResolve;
+  const _inflightPromise = new Promise((res) => { _inflightResolve = res; });
+  _stockDetailInflightKey = _pendingKey;
+  _stockDetailInflight = _inflightPromise;
   // R81 (Batch 9): 切股时把旧 inflight 标记成 stale — api() 走 inflight dedup 自动挡,
   // 但这里多一道显式清,防 stale render。currentStockCode 检查在 render 路径已有 (L787/L832)
-  _stockDetailInflight = null;
-  _stockDetailInflightKey = '';
   // 切股:停旧轮询,新轮询在首次 render 后启动,避免抢数据
   _stopStockPoll();
   // 2026-07-21: 卡死修复 — 先 abort 上一次加载仍在飞行的请求 (core/full/kline/intraday...),
@@ -787,7 +806,9 @@ async function loadStockDetail(code, date) {
     _hideStockSkeleton();  // R72 (Batch 8)
   }
 
-  // R5: inflight dedup — 同 (code,date) 短时间内重复调,共用一个 promise
+  // R5: 精确 inflight dedup — 已在早期 _switching 守卫 (line 723-728),同 code 重复进入
+  // 走上方已经设的 _stockDetailInflight 自动 dedup。这里用精确 dateParam 再做一次双保险,
+  // 因为 _setQuickbarEnabled 之后才能拿到 stock-date input 的真实值,可能跟 caller 传入 date 不同。
   const inflightKey = code + ':' + dateParam + ':' + (useFresh ? 'F' : 'T');
   if (_stockDetailInflight && _stockDetailInflightKey === inflightKey) {
     return _stockDetailInflight;
@@ -881,9 +902,19 @@ async function loadStockDetail(code, date) {
     }
   } finally {
     _hideStockSkeleton();  // R72 (Batch 8): 兜底清 skeleton (避免永久闪烁)
+    // R-fix-2026-08-01: 解锁 placeholder,让早期 early-return 进来的 awaiter 拿到 _promise 解析
+    if (typeof _inflightResolve === 'function') {
+      _inflightResolve(_promise);
+      _inflightResolve = null;
+    }
     // R5: 200ms 后清 inflight key,允许同 key 在失败重试时复用
     setTimeout(() => {
       if (_stockDetailInflightKey === inflightKey) {
+        _stockDetailInflightKey = '';
+        _stockDetailInflight = null;
+      } else if (_stockDetailInflightKey === _pendingKey) {
+        // R-fix-2026-08-01: inflightKey 没在 await 后被提升(早期 placeholder 早 return 路径),
+        // 也清掉 placeholder,允许失败重试
         _stockDetailInflightKey = '';
         _stockDetailInflight = null;
       }
