@@ -1461,9 +1461,13 @@ def _fetch_5min_for_code(code: str, start_date: str, end_date: str) -> list[dict
     # 1) Redis 缓存
     try:
         from .. import cache_store as _cs
-        cached = _cs.get(cache_key)
+        cached = _cs.get_store().get(cache_key)
         if cached is not None:
-            return _json.loads(cached)
+            # R-fix-2026-08-01: cache_store.get() 返 dict (已 JSON decode),老版返 string
+            if isinstance(cached, str):
+                # 兼容旧版 raw string
+                cached = _json.loads(cached)
+            return cached
     except Exception:
         pass
 
