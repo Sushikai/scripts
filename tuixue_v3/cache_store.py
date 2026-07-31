@@ -468,6 +468,10 @@ class CacheStore:
             self.fallback.delete(k)
             self._record_sqlite()
             ok = True
+        # R-fix-2026-08-01: 同时清 _stale_store — 否则 delete 后 get_swr 仍返旧值,
+        # 在 watchlist 删除后用户仍看到旧自选股(几秒 stale 窗口)
+        with self._stale_lock:
+            self._stale_store.pop(k, None)
         return ok
 
     # ── D3: 一致性能力 (singleflight / negative cache / SWR / key 规范化) ──
