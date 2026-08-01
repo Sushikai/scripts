@@ -1888,9 +1888,16 @@
 
 <script src="/static/core.js?v=__JS_V__" defer></script>
 <script src="/static/app.js?v=__JS_V__" defer></script>
-<script src="/static/zt-frontend.js?v=__JS_V__" defer></script>
-<script src="/static/dexin-frontend.js?v=__JS_V__" defer></script>
-<script src="/static/view-dash.js?v=__JS_V__" defer></script>
+<!-- Sprint 6: defer above is for HTML parse-blocking, but zt/dexin/view-dash are view-specific and only needed once that view activates.
+     rel=prefetch + as=script lets the browser start the network fetch during initial parse, so the file is warm in disk cache by the time showView asks for it.
+     Without parsing cost at boot — only counted when showView injects them. -->
+<link rel="prefetch" href="/static/zt-frontend.js?v=__JS_V__" as="script" fetchpriority="low">
+<link rel="prefetch" href="/static/dexin-frontend.js?v=__JS_V__" as="script" fetchpriority="low">
+<link rel="prefetch" href="/static/view-dash.js?v=__JS_V__" as="script" fetchpriority="low">
+<!-- Sprint 6: most-visited views — stock/dragons/watchlist/review — prefetch these in idle time after first view-enter
+     (view-others chain depends on view-stock, view-weekly/strategy are less common so left for showView-driven prefetch) -->
+<link rel="prefetch" href="/static/view-stock.js?v=__JS_V__" as="script" fetchpriority="low">
+<link rel="prefetch" href="/static/virtual-list.js?v=__JS_V__" as="script" fetchpriority="low">
 <script>
 // R17: 主页 smart-back — 从其他页(全A/板块层/选股)跳过来时,左上角显示"← 全A"等
 (function setupSmartBack() {

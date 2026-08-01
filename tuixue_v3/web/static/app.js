@@ -1317,12 +1317,21 @@ function _loadViewScript(file) {
     const script = document.createElement('script');
     script.src = `/static/${file}${_assetVersionQuery()}`;
     script.dataset.viewScript = file;
+    // Sprint 6: mark loading intent early so a pending rel=prefetch appendChild sees it before HTTP completes.
+    // Avoids 2nd concurrent request racing with the prefetch.
+    let resolved = false;
+    // Race-safe: if rel=prefetch has already populated browser cache, fetch via XHR → it'll return cached,
+    // but <script src> ALREADY works off cache, so we don't need to do anything special.
     script.onload = () => {
+      if (resolved) return;
+      resolved = true;
       _VIEW_SCRIPT_LOADED.add(file);
       document.dispatchEvent(new CustomEvent('view-script-ready', { detail: { file } }));
       resolve();
     };
     script.onerror = () => {
+      if (resolved) return;
+      resolved = true;
       _VIEW_SCRIPT_PROMISES.delete(file);
       reject(new Error(`加载 view 脚本失败: ${file}`));
     };
@@ -2385,6 +2394,49 @@ window.addEventListener('view-leave', () => {
     // _prefetchDone 保留 — 已经预拉过的 code 没必要再拉
   } catch (e) {}
 });
+
+// ── Sprint 6: idle-time view-script prefetch ──
+// 在 LCP/dash 渲染完成后,用 requestIdleCallback 触发 view-other / weekly_bull / strategy_picker
+// 的 rel=prefetch link。浏览器会在后台低速下载 (fetchpriority=low),用户首次进入这些 view 时
+// 文件已在 disk cache → script.onload 在 <5ms 内触发
+// (注意:函数挂在 window 上,因为周边 app.js 被一个 IIFE 包裹在 line 9504,默认 const 不暴露全局。
+//  同时防止外层重复声明 _scheduleViewScriptPrefetch)
+const _viewPrefetchedSet = new Set(['view-stock.js', 'view-other.js', 'view-weekly_bull.js', 'view-strategy_picker.js']);
+window._prefetchViewScriptIdle = function(file) {
+  if (_viewPrefetchedSet.has(file)) return;
+  _viewPrefetchedSet.add(file);
+  const doIt = () => {
+    if (_VIEW_SCRIPT_LOADED.has(file)) return;
+    const ver = (_assetVersionQuery() || '').replace(/^\?/, '');
+    const href = ver ? `/static/${file}?v=${ver}` : `/static/${file}`;
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.as = 'script';
+    link.href = href;
+    link.fetchPriority = 'low';
+    document.head.appendChild(link);
+  };
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(doIt, { timeout: 4000 });
+  } else {
+    setTimeout(doIt, 2000);
+  }
+};
+// Override or set initial _scheduleViewScriptPrefetch (外层 line 2294 已有同 named fn;下面这把函数声明提升后,
+// 外层 IIFE 内的同名 const 不会冲突因为 const 仅是赋值而非声明 — JS 引擎正确处理 function declaration)
+window._scheduleViewScriptPrefetch2 = function() {
+  // Don't double-schedule; respect browser visibility (避免后台 tab 浪费 quota)
+  if (document.hidden) return;
+  // Backoff on slow network — Save-Data or 2G/3g kinds
+  if (navigator.connection && (navigator.connection.saveData || /^[23]g$/.test(navigator.connection.effectiveType || ''))) return;
+  // Batch all into idle
+  ['view-other.js', 'view-weekly_bull.js', 'view-strategy_picker.js'].forEach(window._prefetchViewScriptIdle);
+};
+if (document.readyState === 'complete') {
+  setTimeout(window._scheduleViewScriptPrefetch2, 800);
+} else {
+  window.addEventListener('load', () => setTimeout(window._scheduleViewScriptPrefetch2, 800), { once: true });
+}
 
 async function doStockSearch() {
   const q = $('#stock-search').value.trim();
