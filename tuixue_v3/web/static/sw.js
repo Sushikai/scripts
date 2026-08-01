@@ -148,7 +148,9 @@
 // v270 (Sprint 2, 2026-08-01): 加 virtual-list.js + 启动空闲 prefetch view-stock/other.js (避开 stock view 慢轮)
 // v271 (Sprint 4, 2026-08-01): SWR 扩展 — 黑名单 6 SSE + 4 随机/敏感,白名单其余 80+ JSON GET;
 //                              5 档 TTL: realtime 10s / stock 15s / ai 4h / meta 5min / default 60s (二次访问 P95 -80%)
-const CACHE = 'tuixue-v3-shell-v271';
+// v274 (release): 去掉 v272/v273 调试日志
+// v282 (Sprint 4 fix): cache.put 必须 r.clone() 在 .then() 同步拿到,否则 r 已被 respondWith 管线消费 (Response body already used bug)
+const CACHE = 'tuixue-v3-shell-v282-FIX-CLONE';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -310,7 +312,6 @@ self.addEventListener('fetch', (event) => {
       event.respondWith(
         caches.open(CACHE).then(async (cache) => {
           const cached = await cache.match(req);
-          // 新鲜度检查: cache 在 TTL 内则直接返,否则等网络
           const ttlMs = _freshnessMs(url.pathname);
           if (cached) {
             const cachedTime = new Date(cached.headers.get('date') || 0).getTime();
@@ -318,11 +319,13 @@ self.addEventListener('fetch', (event) => {
             if (age < ttlMs) return cached;
           }
           const fetchPromise = fetch(req).then((r) => {
+            // Sprint 4 fix: clone BEFORE returning r (response body is single-use —
+            // returning r triggers event.respondWith pipeline which consumes body;
+            // by the time cache.put runs, .clone() throws "Response body is already used")
+            const toCache = r.clone();
             if (r.ok && r.status === 200) {
-              // R98: 先 match 再 put,如果已存在就 skip (避免相同 query URL 重复写)
-              cache.match(req).then(existing => {
-                if (!existing) cache.put(req, r.clone()).catch(() => {});
-              }).catch(() => {});
+              // Fire cache.put with the CLONE (fire-and-forget)
+              cache.put(req, toCache).then(() => {/* cached */}).catch(() => {/* ignore quota/vary */});
             }
             return r;
           }).catch(() => null);
