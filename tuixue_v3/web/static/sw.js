@@ -150,7 +150,8 @@
 //                              5 档 TTL: realtime 10s / stock 15s / ai 4h / meta 5min / default 60s (二次访问 P95 -80%)
 // v274 (release): 去掉 v272/v273 调试日志
 // v282 (Sprint 4 fix): cache.put 必须 r.clone() 在 .then() 同步拿到,否则 r 已被 respondWith 管线消费 (Response body already used bug)
-const CACHE = 'tuixue-v3-shell-v282-FIX-CLONE';
+// v283 (Sprint 5): CSS — 48 backdrop-filter blur 再降 50% (Sprint 1 v269 上叠加)+ 6 站外非 chart card 加 content-visibility:auto
+const CACHE = 'tuixue-v3-shell-v283-sprint5';
 const PRECACHE = [
   '/',
   '/static/app.js',

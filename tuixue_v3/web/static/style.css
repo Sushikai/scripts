@@ -128,9 +128,9 @@ input, select, textarea { font: inherit; color: inherit; }
   top: 0; left: 0; right: 0;
   z-index: 50;
   background: var(--topbar-bg);
-  backdrop-filter: saturate(150%) blur(12px);
-  -webkit-backdrop-filter: saturate(150%) blur(12px);
-  border-bottom: 1px solid var(--line);
+  backdrop-filter: saturate(125%) blur(5px)
+  -webkit-backdrop-filter: saturate(125%) blur(5px)
+  border-bottom: 1px solid var(--line)
   padding-top: var(--safe-top);
   transition: background-color .35s var(--ease-soft), border-color .25s var(--ease-soft);
 }
@@ -223,8 +223,8 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--glass-bg);
   border: 1px solid var(--line);
   color: var(--ink-2);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(3px)
+  -webkit-backdrop-filter: blur(3px)
   transition: background .3s, color .3s, border-color .3s;
   user-select: none;
   white-space: nowrap;
@@ -542,9 +542,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .card {
   position: relative;
   background: var(--glass-bg);
-  backdrop-filter: saturate(150%) blur(10px);
-  -webkit-backdrop-filter: saturate(150%) blur(10px);
-  border: 1px solid var(--line);
+  backdrop-filter: saturate(125%) blur(4px)
+  -webkit-backdrop-filter: saturate(125%) blur(4px)
+  border: 1px solid var(--line)
   border-radius: var(--radius-lg);
   padding: 14px 16px;
   box-shadow: var(--glass-shadow);
@@ -569,8 +569,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .card:has(> .review-table-wrap),
 .card:has(> * .review-table-wrap) {
   background: var(--bg-1);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: none
+  -webkit-backdrop-filter: none
 }
 /* 个股页紧凑: 更小 card padding */
 .view-stock .card {
@@ -1063,8 +1063,8 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--glass-bg);
   color: var(--ink);
   border-color: var(--line-2);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(3px)
+  -webkit-backdrop-filter: blur(3px)
 }
 .btn-secondary:hover {
   background: var(--bg-1);
@@ -1614,9 +1614,9 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   background:
     linear-gradient(135deg, hsla(212, 80%, 60%, .08), hsla(196, 76%, 58%, .04)),
     var(--glass-bg-strong);
-  backdrop-filter: saturate(150%) blur(12px);
-  -webkit-backdrop-filter: saturate(150%) blur(12px);
-  border: 1px solid var(--line);
+  backdrop-filter: saturate(125%) blur(5px)
+  -webkit-backdrop-filter: saturate(125%) blur(5px)
+  border: 1px solid var(--line)
   border-radius: var(--radius-xl);
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1856,8 +1856,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   position: relative;
   padding: 10px 12px;
   background: var(--glass-bg);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(4px)
+  -webkit-backdrop-filter: blur(4px)
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   display: flex; flex-direction: column;
@@ -1972,8 +1972,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   display: flex; gap: 4px;
   padding: 4px;
   background: var(--glass-bg);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(3px)
+  -webkit-backdrop-filter: blur(3px)
   border: 1px solid var(--line);
   border-radius: var(--radius-full);
   margin-top: 32px;
@@ -2076,9 +2076,9 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   width: var(--sidebar-w);
   z-index: 40;
   background: var(--glass-bg-strong);
-  backdrop-filter: saturate(150%) blur(12px);
-  -webkit-backdrop-filter: saturate(150%) blur(12px);
-  border-right: 1px solid var(--line);
+  backdrop-filter: saturate(125%) blur(5px)
+  -webkit-backdrop-filter: saturate(125%) blur(5px)
+  border-right: 1px solid var(--line)
   padding: 18px 14px 24px;
   flex-direction: column;
   gap: 4px;
@@ -2221,9 +2221,9 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   bottom: 0; left: 0; right: 0;
   z-index: 50;
   background: var(--topbar-bg);
-  backdrop-filter: saturate(150%) blur(12px);
-  -webkit-backdrop-filter: saturate(150%) blur(12px);
-  border-top: 1px solid var(--line);
+  backdrop-filter: saturate(125%) blur(5px)
+  -webkit-backdrop-filter: saturate(125%) blur(5px)
+  border-top: 1px solid var(--line)
   padding: 4px 0 calc(4px + var(--safe-bottom));
   display: grid;
   grid-template-columns: repeat(9, 1fr);
@@ -2651,8 +2651,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .mkt-card {
   padding: 14px 16px;
   background: var(--glass-bg);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(3px)
+  -webkit-backdrop-filter: blur(3px)
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   display: flex; flex-direction: column;
@@ -2967,8 +2967,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   max-height: 70vh;
   overflow-y: auto;
   background: var(--glass-bg-strong);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(5px)
+  -webkit-backdrop-filter: blur(5px)
   border: 1px solid var(--line-2);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
@@ -3030,8 +3030,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 .rule-modal-backdrop {
   position: fixed; inset: 0;
   background: hsla(220, 30%, 15%, .4);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px)
+  -webkit-backdrop-filter: blur(2px)
   z-index: 999;
   display: flex;
   align-items: center;
@@ -3041,8 +3041,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
 }
 .rule-modal {
   background: var(--glass-bg-strong);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(5px)
+  -webkit-backdrop-filter: blur(5px)
   border: 1px solid var(--line-2);
   border-radius: var(--radius-lg);
   max-width: 580px;
@@ -3996,8 +3996,8 @@ th.sortable:hover .sort-arrow { opacity: 1; }
   border: 1px solid hsla(217, 50%, 75%, .55);
   color: var(--ink-2);
   font-size: 13px;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px)
+  -webkit-backdrop-filter: blur(2px)
   box-shadow: 0 1px 3px hsla(217, 50%, 35%, .08);
 }
 .auto-review-banner .arb-icon {
@@ -5135,9 +5135,9 @@ hr {
   z-index: 200;
   padding: 12px 20px;
   background: var(--glass-bg-strong);
-  backdrop-filter: saturate(150%) blur(12px);
-  -webkit-backdrop-filter: saturate(150%) blur(12px);
-  border: 1px solid var(--line-2);
+  backdrop-filter: saturate(125%) blur(5px)
+  -webkit-backdrop-filter: saturate(125%) blur(5px)
+  border: 1px solid var(--line-2)
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-lg);
   font-size: 13px;
@@ -5185,8 +5185,8 @@ hr {
   inset: 0;
   z-index: 200;
   background: rgba(15, 23, 42, .42);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px)
+  -webkit-backdrop-filter: blur(2px)
   display: grid;
   place-items: center;
   animation: fadeIn .15s var(--ease-soft);
@@ -5426,8 +5426,8 @@ button:active:not(:disabled) { transform: scale(0.97); }
   font-size: 12px;
   z-index: 9999;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(4px)
+  -webkit-backdrop-filter: blur(4px)
   animation: dp-in 0.18s ease-out;
 }
 @keyframes dp-in {
@@ -5527,8 +5527,8 @@ button:active:not(:disabled) { transform: scale(0.97); }
 .sidebar-backdrop {
   position: fixed; inset: 0;
   background: rgba(15, 23, 42, 0.42);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px)
+  -webkit-backdrop-filter: blur(2px)
   z-index: 39;
   animation: fade-in 0.18s ease-out;
 }
@@ -6083,7 +6083,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
                                white-space: nowrap; }
 .scr-table tbody tr { content-visibility: auto; contain-intrinsic-size: 32px; }
 .scr-table th { position: sticky; top: 0; z-index: 3; background: var(--bg-2);
-                backdrop-filter: blur(4px); font-weight: 600; color: var(--ink-2);
+                backdrop-filter: blur(2px) font-weight: 600; color: var(--ink-2);
                 cursor: pointer; user-select: none; }
 .scr-table th.left { text-align: left; }
 .scr-table th .arr { display: inline-block; width: 9px; margin-left: 3px; opacity: .45;
@@ -7014,11 +7014,23 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .view-all_stocks .stocks-table .down { color: var(--down); font-weight: 600; }
 .view-all_stocks .stocks-table .dim  { color: var(--ink-3); }
 
-/* R7: 个股页离屏 card 延迟布局,减少首屏渲染压力 */
+/* R7 (2026-07-18): 个股页离屏 card 延迟布局,减少首屏渲染压力 */
+/* Sprint 5 (2026-08-01): 扩展到全站非 chart card,降 mobile FCP/LCP long-tasks */
 #q-streak-host, #q-weekly-bull-card, #q-recovery-card, #q-strategy-match-card,
 #flow-card, #crash-panel, #ai-panel {
   content-visibility: auto;
   contain-intrinsic-size: 120px;
+}
+
+/* Sprint 5: 复盘页 + 自选页 + 全部页表外 panel/card 离屏渲染 */
+.view-dash #hot-sectors-card,
+.view-dash #index-trend-card,
+.view-dash #sector-trend-card,
+.view-dash .card.mt-32,
+.view-weekly_bull .card,
+.view-dragons .card {
+  content-visibility: auto;
+  contain-intrinsic-size: 80px;
 }
 
 /* —— 行入场动画 (fade-in-up) — content-visibility:auto 时离屏行自动跳过 —— */
@@ -7378,8 +7390,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   right: 0;
   z-index: 50;
   background: var(--glass-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(4px)
+  -webkit-backdrop-filter: blur(4px)
   border: 1px solid var(--line-2);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
@@ -7555,8 +7567,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   width: 42px;
   height: 42px;
   background: var(--glass-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(4px)
+  -webkit-backdrop-filter: blur(4px)
   border: 1px solid var(--line-2);
   border-radius: 50%;
   box-shadow: var(--shadow-md);
@@ -7831,8 +7843,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   bottom: 0;
   z-index: 90;
   background: rgba(255, 255, 255, .92);
-  backdrop-filter: blur(10px) saturate(180%);
-  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  backdrop-filter: blur(4px) saturate(140%)
+  -webkit-backdrop-filter: blur(4px) saturate(140%)
   border-top: 1px solid var(--line);
   padding: 6px max(8px, var(--safe-bottom)) 6px;
   box-shadow: 0 -4px 16px rgba(15,23,42,.06);
@@ -7886,8 +7898,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
   inset: 0;
   z-index: 200;
   background: rgba(15,23,42,.5);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px)
+  -webkit-backdrop-filter: blur(2px)
   opacity: 0;
   pointer-events: none;
   transition: opacity .25s;
@@ -9154,7 +9166,7 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 /* R20: dexin 单股判定 modal — 跨模块跳转用 (全 A / dash / 自选) */
 .dexin-check-modal {
   position: fixed; inset: 0; z-index: 9999;
-  background: rgba(15, 23, 42, .55); backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, .55); backdrop-filter: blur(2px)
   display: flex; align-items: center; justify-content: center;
   padding: 20px; animation: dexinFadeIn .15s ease-out;
 }
