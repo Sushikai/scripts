@@ -1,0 +1,115 @@
+{
+  "_doc": "Sprint 10: per-route 性能预算。nav_ms p95 与 RUM sample 数。grep _check_budget() in web/tests/perf_budget_check.py",
+  "_baseline_date": "2026-08-01",
+  "_baseline_source": "Sprint 9 RUM summary over 1000+ round sweep (12 view × 50 cycle)",
+  "routes": {
+    "/": {
+      "nav_ms_p95_max": 500,
+      "lcp_p95_max": 4000,
+      "fcp_p95_max": 1500,
+      "cls_max": 0.1,
+      "_baseline": "nav 31ms / lcp 3392ms (cold) / fcp 112ms / cls 0.0001"
+    },
+    "/view/dash": {
+      "nav_ms_p95_max": 3000,
+      "lcp_p95_max": 2500,
+      "inp_p95_max": 300,
+      "fcp_p95_max": 1500,
+      "cls_max": 0.15,
+      "_baseline": "nav 286ms median / p95 2505ms (含 cold-cache 离群; 真实 p50 35ms)"
+    },
+    "/view/stock": {
+      "nav_ms_p95_max": 500,
+      "lcp_p95_max": 2000,
+      "inp_p95_max": 200,
+      "fcp_p95_max": 1500,
+      "cls_max": 0.1,
+      "_baseline": "nav 42ms / lcp 0 (SPA) / inp 0 / fcp 0 / cls 0.0"
+    },
+    "/view/watchlist": {
+      "nav_ms_p95_max": 500,
+      "lcp_p95_max": 1500,
+      "inp_p95_max": 200,
+      "fcp_p95_max": 1000,
+      "cls_max": 0.25,
+      "_baseline": "nav 49ms / lcp 88ms / inp 0 / fcp 88ms / cls 0.19 (cards 渐入)"
+    },
+    "/view/dragons": {
+      "nav_ms_p95_max": 500,
+      "lcp_p95_max": 1500,
+      "inp_p95_max": 200,
+      "fcp_p95_max": 1000,
+      "cls_max": 0.1,
+      "_baseline": "nav 36ms / lcp 0 / inp 0 / fcp 0 / cls 0.0"
+    },
+    "/view/all_stocks": {
+      "nav_ms_p95_max": 800,
+      "lcp_p95_max": 2500,
+      "inp_p95_max": 300,
+      "fcp_p95_max": 1500,
+      "cls_max": 0.15,
+      "_baseline": "nav 43ms / lcp 0 / inp 40ms / fcp 0 / cls 0.0005 (5540 行懒加载)"
+    },
+    "/view/review": {
+      "nav_ms_p95_max": 700,
+      "lcp_p95_max": 2000,
+      "inp_p95_max": 300,
+      "fcp_p95_max": 1500,
+      "cls_max": 0.1,
+      "_baseline": "nav 101ms / lcp 0 / inp 0 / fcp 0 / cls 0.0008 (复盘表渲染密集)"
+    },
+    "/view/dexin": {
+      "nav_ms_p95_max": 500,
+      "lcp_p95_max": 1500,
+      "inp_p95_max": 200,
+      "fcp_p95_max": 1000,
+      "cls_max": 0.25,
+      "_baseline": "nav 39ms / lcp 0 / inp 0 / fcp 0 / cls 0.19 (4 阶段选股 cards)"
+    },
+    "/view/screener": {
+      "nav_ms_p95_max": 600,
+      "lcp_p95_max": 1500,
+      "inp_p95_max": 200,
+      "fcp_p95_max": 1000,
+      "cls_max": 0.1,
+      "_baseline": "nav 34ms / lcp 0 / inp 0 / fcp 0 / cls 0.0"
+    },
+    "/view/laws": {
+      "nav_ms_p95_max": 400,
+      "lcp_p95_max": 1000,
+      "inp_p95_max": 100,
+      "fcp_p95_max": 800,
+      "cls_max": 0.05,
+      "_baseline": "nav 37ms / lcp 0 / inp 0 / fcp 0 / cls 0.0 (静态心法)"
+    },
+    "/view/optimize": {
+      "nav_ms_p95_max": 500,
+      "lcp_p95_max": 1500,
+      "inp_p95_max": 200,
+      "fcp_p95_max": 1000,
+      "cls_max": 0.1,
+      "_baseline": "nav 36ms / lcp 0 / inp 0 / fcp 0 / cls 0.0"
+    },
+    "/view/sources": {
+      "nav_ms_p95_max": 400,
+      "lcp_p95_max": 1000,
+      "inp_p95_max": 100,
+      "fcp_p95_max": 800,
+      "cls_max": 0.05,
+      "_baseline": "nav 38ms / lcp 0 / inp 0 / fcp 0 / cls 0.0008"
+    },
+    "/view/weekly_bull": {
+      "nav_ms_p95_max": 400,
+      "lcp_p95_max": 1000,
+      "inp_p95_max": 100,
+      "fcp_p95_max": 800,
+      "cls_max": 0.05,
+      "_baseline": "nav 34ms / lcp 0 / inp 0 / fcp 0 / cls 0.0"
+    }
+  },
+  "_global_guards": {
+    "min_samples_per_route": 1,
+    "min_total_samples": 30,
+    "consecutive_fail_rollback": 3
+  }
+}
