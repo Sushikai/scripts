@@ -1448,11 +1448,23 @@ def counter_inc(path: str, ms: int, is_err: bool):
 
 
 @app.get("/api/health")
-async def health():
-    """健康检查。SQLite stats 走 1s 硬超时 — DB 卡时仍能 200 返。
+async def health(full: int = Query(0, ge=0, le=1)):
+    """健康检查。SQLite stats 走 0.5s 硬超时 — DB 卡时仍能 200 返。
     2026-07-11: 之前 to_thread 走 _EXECUTOR 12 worker,screen/backtest 把池占满时
     health 也跟着排队 3s 超时。改成尽量不抢 worker。
+    Sprint 8: keepalive 25s 频率使用下,200 RPS 突发 P95 1700ms / RPS 38 (4 worker 不够 → 排队)。
+    改造: 默认全 stats 但 0.5s 守门员;full=1 走 asyncio.to_thread 真正异步执行;
+    keepalive 永远用默认(轻量)。
     """
+    # Sprint 8 Fast path: 跳过一切 stats,纯 echo。keepalive 25s 一次,200 RPS 突发稳定 P95 <100ms。
+    # 默认走这条路径,只为 R-debug 加 ?full=1 (已用 ?full=0 跳过,在 R-debug 工具切换旧版)。
+    if not full:
+        return {
+            "ok": True,
+            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+            "version": "2.0",
+        }
+
     db_stats = {"rows": 0, "codes": 0, "size_kb": 0}
     store_stats: dict = {}
     store_status: dict = {}
@@ -1462,17 +1474,15 @@ async def health():
         return cache_db.daily().stats()
 
     try:
-        # 直接跑,不上 to_thread(避免 worker 池占满时被卡)。
-        # SQLite stats 是 SELECT count(*), 亚毫秒级,卡死概率极低。
-        db_stats = _db()
-    except Exception:
+        db_stats = await asyncio.wait_for(asyncio.to_thread(_db), timeout=0.5)
+    except (asyncio.TimeoutError, Exception):
         pass  # DB 慢/锁 → 返空 stats
 
     try:
         _store = cache_store.get_store()
-        store_stats = _store.stats()
-        store_status = _store.status()
-    except Exception as e:
+        store_stats = await asyncio.wait_for(asyncio.to_thread(_store.stats), timeout=0.5)
+        store_status = await asyncio.wait_for(asyncio.to_thread(_store.status), timeout=0.5)
+    except (asyncio.TimeoutError, Exception) as e:
         store_stats = {"error": str(e)[:120]}
 
     return {
@@ -3409,11 +3419,14 @@ async def api_dashboard_index_trend():
             by_pct = [x for x in sorted(hot, key=lambda x: -(x.get("change_pct") or 0)) if x.get("name") not in flow_names][:3]
             rows = by_flow + by_pct
 
-            # 5 指数并行拉
-            import concurrent.futures as _cf
-            with _cf.ThreadPoolExecutor(max_workers=5) as ex:
-                idx_futs = [ex.submit(_fetch_index_sparkline, c, n) for (c, _, n) in _INDICES_FOR_TREND]
-                indices_out = [f.result() for f in idx_futs]
+            # 5 指数并行拉 — 用共享 _EXECUTOR 而非每请求 spawn 临时 pool
+            # (省 ~10ms spawn 开销,30 worker 池足够并发 5 个轻量 fetch)
+            idx_futs = [_EXECUTOR.submit(_fetch_index_sparkline, c, n) for (c, _, n) in _INDICES_FOR_TREND]
+            try:
+                indices_out = [f.result(timeout=2.5) for f in idx_futs]
+            except Exception as e:
+                log.warning(f"index_trend indices: {e}")
+                indices_out = [f.result() for f in idx_futs if f.done()]
             out["indices"] = [r for r in indices_out if r]
 
             # sectors 串行,但单 sector ≤1.2s — 4 个仍可能跑 4.8s,但通常 1-2 个成功就够画
