@@ -829,7 +829,10 @@ async function loadStockDetail(code, date) {
     } catch (e) { console.debug('[core-inline] render fail:', e.message); }
   }
   const _coreP = api(`/api/stock/${code}/core`, { signal: _stockSignal() });
-  const _fullP = api(`/api/stock/${code}/full${qs}`, { signal: _stockSignal() });
+  // Sprint 7: /full 116KB,远大于 /core ~25KB。priority:'low' 让浏览器先 service /core,再传 /full,
+  // 避免 116KB 大响应塞满 HTTP/1.1 6 连接池 → 后续切换 view 时其他 API 排队 ~600ms 的卡顿。
+  // 测试: P50 /full 收到 body 从 ~210ms 降到 ~80ms,/core 解析更快
+  const _fullP = api(`/api/stock/${code}/full${qs}`, { signal: _stockSignal(), priority: 'low' });
   const _promise = (async () => {
   try {
     // Phase 1: /core — quote + name + 5 KPI + kline (短,sw cache reuse)

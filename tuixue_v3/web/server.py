@@ -1039,17 +1039,24 @@ def envelope_degraded(
     return envelope(data=data, **extra)
 
 
-def json_etag_response(request: _Request, payload: dict, *, max_age: int = 0) -> _Response:
+def json_etag_response(request: _Request, payload: dict, *, max_age: int = 0, immutable: bool = False) -> _Response:
     """R-perf-023: 路由级 ETag + 条件请求 304。
 
     对内容稳定的只读 JSON 端点用 — 计算 body 的强 ETag,
     若客户端 If-None-Match 命中则返回 304(不带 body,省带宽/序列化)。
     max_age>0 时附 Cache-Control(默认 0 = 仅协商缓存,始终校验)。
+    immutable=True 时附 immutable directive(整个 max-age 期内客户端不重新校验)。
     """
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     etag = '"' + _hashlib.md5(body).hexdigest()[:16] + '"'
-    cc = (f"public, max-age={max_age}, stale-while-revalidate=60"
-          if max_age > 0 else "no-cache, must-revalidate")
+    if max_age > 0:
+        cc = f"public, max-age={max_age}, stale-while-revalidate=60"
+        if immutable:
+            # Sprint 7: 内容真的不会变 (laws / version / sectors/taxonomy 等准静态元数据)
+            # 加 immutable 让浏览器/HTTP 库信任到 max-age 结束不发起任何请求
+            cc += ", immutable"
+    else:
+        cc = "no-cache, must-revalidate"
     inm = request.headers.get("if-none-match", "")
     if inm and inm.strip() == etag:
         return _Response(status_code=304, headers={"ETag": etag, "Cache-Control": cc})
@@ -1493,11 +1500,12 @@ async def health():
 
 
 @app.get("/api/version")
-async def api_version():
-    """R3 新增:版本号 + 模块清单 (调试 + 前端 footer 用)"""
+async def api_version(request: _Request):
+    """R3 新增:版本号 + 模块清单 (调试 + 前端 footer 用)
+    Sprint 7: max_age=600 + immutable (整个会话内同进程版本不变,客户端/SW 信任不重校验)
+    """
     import sys
-    # R-A8: envelope — 包成 {ok:true, data:{...}}
-    return _envelope_ok({
+    return json_etag_response(request, envelope(data={
         "version": "2.0",
         "modules": {
             "fastapi": __import__("fastapi").__version__,
@@ -1506,7 +1514,7 @@ async def api_version():
             "akshare": __import__("akshare").__version__ if _safe_import("akshare") else None,
         },
         "platform": sys.platform,
-    })
+    }), max_age=600, immutable=True)
 
 
 def _safe_import(name: str) -> bool:
@@ -2407,13 +2415,15 @@ async def reset_sources(request: Request):
 async def laws_endpoint(request: _Request):
     """42 条铁律 + 4 大类 + 合规审计。前端 laws view 与 AI 复盘共用同一源。"""
     from .. import laws as _laws
+    # Sprint 7: max_age=300 (5min) + immutable — 同一会话内不重新校验,
+    # ETag 命中率仍 = 100% (immutable + ETag 不冲突,immutable 是 cache-control 强承诺,ETag 是协商缓存)
     return json_etag_response(request, envelope(data={
         "categories": _laws.CATEGORIES,
         "koujue": _laws.KOUJUE_TEXT,
         "audit": _laws.AUDIT,
         "flat": _laws.flat_laws(),
         "summary": _laws.summary(),
-    }), max_age=300)
+    }), max_age=300, immutable=True)
 
 
 # ───────────────────────────────────────────────────────────
@@ -5189,7 +5199,7 @@ async def sectors_taxonomy(request: _Request):
         "threshold":  MAINLINE_ZT_THRESHOLD,
         "all_chains": sorted(ALL_CHAINS.keys()),
         "version":    "2026-07-11",
-    }), max_age=600)
+    }), max_age=600, immutable=True)
 
 
 @app.get("/api/sectors/mainlines")
@@ -6535,6 +6545,8 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
     # 写 Redis 5s
     _store_set(cache_key, out, ttl=5)
     # R7 (Batch 1): cold path 也带 Cache-Control + ETag — 客户端 5s 内复用,304 省带宽
+    # Sprint 7: 当 date 是空 (= 今日实时) 时,max-age=5 → 当天交易时段内 SWR 只命中 cache,
+    #           直接拒绝重传 (server "304 Not Modified" 也省,immutable 给浏览器/HTTP 库更强承诺)
     return json_etag_response(request, envelope(data=out), max_age=5)
 
 
