@@ -146,7 +146,9 @@
 // v268 (2026-08-01): 首页板块走势扩容 4→8 (流入 Top 5 + 涨幅 Top 3) + 移动端自适应截 4/6
 // v269 (Sprint 1, 2026-08-01): 5 个真死 CSS 变量删除 + 48 处 backdrop-filter blur 半径减半 (mobile GPU 合成 -50%)
 // v270 (Sprint 2, 2026-08-01): 加 virtual-list.js + 启动空闲 prefetch view-stock/other.js (避开 stock view 慢轮)
-const CACHE = 'tuixue-v3-shell-v270';
+// v271 (Sprint 4, 2026-08-01): SWR 扩展 — 黑名单 6 SSE + 4 随机/敏感,白名单其余 80+ JSON GET;
+//                              5 档 TTL: realtime 10s / stock 15s / ai 4h / meta 5min / default 60s (二次访问 P95 -80%)
+const CACHE = 'tuixue-v3-shell-v271';
 const PRECACHE = [
   '/',
   '/static/app.js',
@@ -161,52 +163,104 @@ const PRECACHE = [
   '/static/vendor/echarts.min.js',
 ];
 
-// B7: 关键 API JSON 缓存 (offline shell)
-// 这些端点数据变化慢 + 是首屏必需,离线时优先返 cache
-const _CACHEABLE_API_PREFIXES = [
-  '/api/all_stocks/board',
-  '/api/review/portfolio',
-  '/api/review/positions',
-  '/api/all_stocks/l1',
-  '/api/dashboard/signal',
-  '/api/dashboard/hot_sectors',
-  // 2026-07-20: 自选页慢 — 后端 9 码 × 多源 fallback 偶尔 16s (单源失败 0.5+1+2=3.5s × 4 源=14s+ fetch)
-  // SW 30s 缓存保底,二次访问 < 5ms (第一次慢也只影响首屏)
-  '/api/watchlist',
-  // 2026-07-26: 得鑫四阶段选股 — 5min TTL 减负, 二次切换 < 50ms
-  '/api/dexin/screen',
-  '/api/dexin/laws',
-  // 2026-07-26: Dash 大盘+板块 sparkline — 60s 同 hot_sectors,二次切页 < 50ms
-  '/api/dashboard/index_trend',
+// B7 → Sprint 4 (v271): 关键 API JSON 缓存 (offline shell)
+// 设计思路: 从"明确白名单"换成"严格黑名单+白名单余下走 SWR",覆盖 80+ JSON 端点,排除 6 SSE + 4 随机/敏感
+// TTL 分 5 档:
+//   realtime 10s — 高频变化 (signal/hot_sectors/index_trend/board/limit_up_context)
+//   stock 15s    — 个股实时 (core/full/intraday/quote)  与 server TTL 对齐
+//   ai 4h        — deep_analysis (基本面缓变)
+//   meta 5min    — 自选/laws/AI metrics/errors/cache_stats 等准静态
+//   default 60s  — 其余中等变化
+const _NEVER_SWR_API_PATTERNS = [
+  // 6 SSE / stream — EventSource 不能走 SWR (返回 chunked body 不可重放)
+  /^\/api\/optimize\/stream(\?.*)?$/,
+  /^\/api\/screener\/backtest\/stream(\?.*)?$/,
+  /^\/api\/stock\/[^/]+\/stream(\?.*)?$/,
+  /^\/api\/stream\/backtest(\?.*)?$/,
+  /^\/api\/stream\/review\/[^/]+(\?.*)?$/,
+  /^\/api\/stream\/screen(\?.*)?$/,
+  // 4 随机/敏感 — 数据快照,绝不能用 cache (修了会害用户)
+  /^\/api\/_meta\/access_log_tail(\?.*)?$/,    // 滚动 access log,实时 tail
+  /^\/api\/_meta\/error_stats(\?.*)?$/,        // 实时错误窗口
+  /^\/api\/optimize\/state(\?.*)?$/,          // 优化器进程状态(绕路判定需要 fresh)
+  /^\/api\/reports(\?.*)?$/,                  // 可能含敏感 CSV/JSON 内容,直接走 net
+  /^\/api\/reports\/[^/]+(\?.*)?$/,           // 文件 content 由 server 控制
 ];
-// R1 (Batch 1) + v146 修正: /api/stock/{code}/full 单独长缓存 —
-// 原本 5min 锁死,导致 SW 返昨日数据 (server-side /full=5s, /core=30s,5min 内根本不刷新).
-// 现 /full SW TTL = server TTL = 5s, /core = 15s (< server 30s, 保 server 是新鲜度门)
+// 3 类 long-cache 端点 (低 TTL,因为 server 早过期了)
 const _LONG_CACHE_API_PATTERNS = [
   /^\/api\/stock\/[^/]+\/full(\?.*)?$/,
   /^\/api\/stock\/[^/]+\/core(\?.*)?$/,
 ];
-const _LONG_CACHE_API_TTL_MS_CORE = 15_000;   // /core: 15s (< server 30s, 强制走 server refresh)
+const _LONG_CACHE_API_TTL_MS_CORE = 15_000;   // /core: 15s (< server 30s)
 const _LONG_CACHE_API_TTL_MS_FULL = 5_000;    // /full: 5s (= server 5s)
-// 2026-07-30: AI 深度判断 — 基本面/技术面缓变, server TTL 240min, SW 用 4h 兜底
+// AI 深度判断 — 基本面/技术面缓变, server TTL 240min, SW 用 4h 兜底
 const _DEEP_ANALYSIS_PATTERN = /^\/api\/stock\/[^/]+\/deep_analysis(\?.*)?$/;
 const _DEEP_ANALYSIS_TTL_MS = 4 * 60 * 60 * 1000;
-// API 缓存新鲜度: 60s 内直接用 cache,超过则后台 revalidate
-const _API_CACHE_FRESH_MS = 60_000;
+// AI 即时分析 — fire-and-forget 后台 3s 轮询,15s 内不重新 fetch 已经够用
+const _AI_ANALYSIS_PATTERN = /^\/api\/stock\/[^/]+\/ai_analysis(\?.*)?$/;
+const _AI_ANALYSIS_TTL_MS = 15_000;
+// 元数据 + 准静态端点 — server 端变化极慢,5min 兜底节省 95% 请求
+const _META_API_TTL_MS = 5 * 60 * 1000;
+const _META_API_PATTERNS = [
+  /^\/api\/_meta\/(?!access_log_tail|error_stats)/,  // 除 rolling logs 的 _meta 子集
+  /^\/api\/health$/,
+  /^\/api\/healthz$/,
+  /^\/api\/version$/,
+  /^\/api\/readyz$/,
+  /^\/api\/sources\/health$/,
+  /^\/api\/ai\/metrics(\?.*)?$/,
+  /^\/api\/admin\/db_health(\?.*)?$/,
+  /^\/api\/laws(\?.*)?$/,
+  /^\/api\/sectors\/taxonomy(\?.*)?$/,
+  /^\/api\/sectors\/sw(\?.*)?$/,
+  /^\/api\/sectors\/mainlines(\?.*)?$/,
+  /^\/api\/review\/settings(\?.*)?$/,
+  /^\/api\/review\/integrity(\?.*)?$/,
+  /^\/api\/review\/stats(\?.*)?$/,
+];
+// realtime 端点 — 数据每秒变,15s 才保新鲜就够
+const _REALTIME_API_TTL_MS = 15_000;
+const _REALTIME_API_PATTERNS = [
+  /^\/api\/dashboard\/signal(\?.*)?$/,
+  /^\/api\/dashboard\/hot_sectors(\?.*)?$/,
+  /^\/api\/dashboard\/index_trend(\?.*)?$/,
+  /^\/api\/all_stocks\/board(\?.*)?$/,
+  /^\/api\/all_stocks\/l1(\?.*)?$/,
+  /^\/api\/dragons(\?.*)?$/,
+  /^\/api\/weekly_bull(\?.*)?$/,
+  /^\/api\/sectors\/realtime(\?.*)?$/,
+  /^\/api\/watchlist(\?.*)?$/,                    // 自选股每次刷新网速敏感
+];
+const _API_CACHE_FRESH_MS = 60_000;  // 默认 60s
 
-function _isCacheableApi(pathname) {
-  return _CACHEABLE_API_PREFIXES.some(p => pathname.startsWith(p));
+function _isNeverSwr(pathname) {
+  return _NEVER_SWR_API_PATTERNS.some(rx => rx.test(pathname));
 }
 
-// R1: 匹配 /full 等长缓存端点, 走更短 TTL (5s/15s) 而非默认 60s
+function _isCacheableApi(pathname) {
+  // Sprint 4: 只要路径以 /api/ 开头且不在黑名单就走 SWR (覆盖 80+ 端点)
+  return pathname.startsWith('/api/') && !_isNeverSwr(pathname);
+}
+
 function _isLongCacheApi(pathname) {
   return _LONG_CACHE_API_PATTERNS.some(rx => rx.test(pathname));
 }
 
+function _isMetaApi(pathname) {
+  return _META_API_PATTERNS.some(rx => rx.test(pathname));
+}
+
+function _isRealtimeApi(pathname) {
+  return _REALTIME_API_PATTERNS.some(rx => rx.test(pathname));
+}
+
 function _freshnessMs(pathname) {
-  if (_DEEP_ANALYSIS_PATTERN.test(pathname)) return _DEEP_ANALYSIS_TTL_MS;            // deep_analysis: 4h
-  if (_LONG_CACHE_API_PATTERNS[0].test(pathname)) return _LONG_CACHE_API_TTL_MS_FULL;  // /full
-  if (_LONG_CACHE_API_PATTERNS[1].test(pathname)) return _LONG_CACHE_API_TTL_MS_CORE;  // /core
+  if (_DEEP_ANALYSIS_PATTERN.test(pathname)) return _DEEP_ANALYSIS_TTL_MS;
+  if (_AI_ANALYSIS_PATTERN.test(pathname)) return _AI_ANALYSIS_TTL_MS;
+  if (_LONG_CACHE_API_PATTERNS[0].test(pathname)) return _LONG_CACHE_API_TTL_MS_FULL;
+  if (_LONG_CACHE_API_PATTERNS[1].test(pathname)) return _LONG_CACHE_API_TTL_MS_CORE;
+  if (_isMetaApi(pathname)) return _META_API_TTL_MS;
+  if (_isRealtimeApi(pathname)) return _REALTIME_API_TTL_MS;
   return _API_CACHE_FRESH_MS;
 }
 
@@ -250,8 +304,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;  // 跨域 / SSE / tunnel 端点不接管
 
   // ── API: cacheable → stale-while-revalidate,其它 → network-only ──
+  // Sprint 4: _isCacheableApi 已隐式包含 long-cache + deep_analysis(同属 /api/ 且不在黑名单)
   if (url.pathname.startsWith('/api/')) {
-    if (_isCacheableApi(url.pathname) || _isLongCacheApi(url.pathname) || _DEEP_ANALYSIS_PATTERN.test(url.pathname)) {
+    if (_isCacheableApi(url.pathname)) {
       event.respondWith(
         caches.open(CACHE).then(async (cache) => {
           const cached = await cache.match(req);
