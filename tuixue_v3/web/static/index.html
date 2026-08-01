@@ -1888,6 +1888,8 @@
 
 <script src="/static/core.js?v=__JS_V__" defer></script>
 <script src="/static/app.js?v=__JS_V__" defer></script>
+<!-- Sprint 9: Web Vitals + per-route RUM 收集器,小 (~3KB) 直接 defer 不 prefetch -->
+<script src="/static/tx-telemetry.js?v=__JS_V__" defer></script>
 <!-- Sprint 6: defer above is for HTML parse-blocking, but zt/dexin/view-dash are view-specific and only needed once that view activates.
      rel=prefetch + as=script lets the browser start the network fetch during initial parse, so the file is warm in disk cache by the time showView asks for it.
      Without parsing cost at boot — only counted when showView injects them. -->

@@ -1208,6 +1208,8 @@ function showView(name, opts) {
     });
   }
   $$('.view').forEach(v => v.hidden = (v.dataset.view !== name));
+  // Sprint 9: per-route RUM — 切 view 时打点当前 vitals → /view/{name}
+  try { if (typeof window._txSetRoute === 'function') window._txSetRoute(name + (location.search || '')); } catch (e) {}
   $$('.tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.jump === name));
   $$('.toptab').forEach(b => b.classList.toggle('active', b.dataset.jump === name));
   $$('.sidebar-item').forEach(b => b.classList.toggle('active', b.dataset.jump === name));

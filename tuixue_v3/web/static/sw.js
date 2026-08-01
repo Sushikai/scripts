@@ -154,12 +154,15 @@
 // v284 (Sprint 6): HTML — 5 个 view 专用脚本 (zt/dexin/view-dash/stock/virtual-list) 改 rel=prefetch fetchpriority=low,首屏不阻塞解析;
 //                  app.js 加 _scheduleViewScriptPrefetch idle 拉 view-other/weekly_bull/strategy_picker;
 //                  修 _loadViewScript 二次竞态 (idle prefetch 与 _loadViewScript 重入)
-const CACHE = 'tuixue-v3-shell-v284-sprint6';
+// Sprint 9: Web Vitals + per-route RUM (tx-telemetry.js 3KB,30s 一次 sendBeacon → /api/_perf)
+const CACHE = 'tuixue-v3-shell-v285-sprint9';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
+// Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [
   '/',
   '/static/app.js',
   '/static/core.js',
+  '/static/tx-telemetry.js',
   '/static/view-dash.js',
   '/static/view-stock.js',
   '/static/view-other.js',

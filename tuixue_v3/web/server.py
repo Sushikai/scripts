@@ -393,6 +393,20 @@ async def _trace_id_middleware(request: Request, call_next):
 _ACCESS_LOG_PATH = os.environ.get("TUIXUE_ACCESS_LOG", str(Path(__file__).parent.parent / "access.log"))
 _ACCESS_LOG_LOCK = threading.Lock()
 
+# Sprint 9: 前端 RUM (LCP/INP/CLS) 收集 — append-only JSONL
+_RUM_LOG_PATH = os.environ.get("TUIXUE_RUM_LOG", str(Path(__file__).parent.parent / "rum.log"))
+_RUM_LOCK = threading.Lock()
+_RUM_LOG = None
+def _rum_init():
+    """lazy 初始化 RUM file handle,进程内单例"""
+    global _RUM_LOG
+    if _RUM_LOG is None:
+        try:
+            _RUM_LOG = open(_RUM_LOG_PATH, "a", buffering=8192, encoding="utf-8")
+        except Exception as e:
+            log.warning(f"Sprint 9: RUM log open failed: {e}")
+_rum_init()
+
 # ───────────────────────────────────────────────────────────
 # R51 (2026-07-19): 请求超时中间件 — 任一端点超过 25s 返回 503
 # 之前有些慢端点(dragons 15s/screener 8s/backtest 300s)没有整体超时守卫,
@@ -1766,6 +1780,110 @@ async def meta_access_log_tail(lines: int = Query(50, ge=1, le=1000)):
     except FileNotFoundError:
         items = []
     return _envelope_ok({"items": items, "count": len(items)})
+
+
+@app.post("/api/_perf")
+async def api_perf_report(req: _Request):
+    """Sprint 9: 前端 per-route RUM 收集端点
+    接收 tx-telemetry.js 批量上报的 LCP/INP/CLS/FCP + 路由维度,append 到 _RUM_LOG。
+    1000 轮样本落 reports/perf/ 用作 sprint 基线比对。
+    """
+    try:
+        body = await req.body()
+        if not body:
+            return _envelope_ok({"ok": True, "n": 0})
+        items = json.loads(body)
+        if isinstance(items, dict):
+            items = [items]
+        n = 0
+        lines = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            # 限长防单条 spam
+            lines.append(json.dumps({
+                "ts": it.get("ts") or int(time.time() * 1000),
+                "route": str(it.get("route", ""))[:64],
+                "lcp": int(it.get("lcp", 0) or 0),
+                "fcp": int(it.get("fcp", 0) or 0),
+                "inp": int(it.get("inp", 0) or 0),
+                "cls": float(it.get("cls", 0) or 0),
+                "ttfb": int(it.get("ttfb", 0) or 0),
+                "nav_dur": int(it.get("nav_dur", 0) or 0),
+                "nav_ms": int(it.get("nav_ms", 0) or 0),
+                "samples": int(it.get("samples", 1) or 1),
+            }, ensure_ascii=False))
+            n += 1
+        if lines:
+            with _RUM_LOCK:
+                # 4 worker 各自 file handle 不共享,每次 open+append+close 走文件
+                try:
+                    with open(_RUM_LOG_PATH, "a", encoding="utf-8") as f:
+                        f.write("\n".join(lines) + "\n")
+                except Exception as e:
+                    log.warning(f"Sprint 9: RUM append failed: {e}")
+        return _envelope_ok({"ok": True, "n": n})
+    except Exception as e:
+        return _envelope_err(CODE_INTERNAL, str(e)[:120], n=0)
+
+
+@app.get("/api/_meta/rum_summary")
+async def meta_rum_summary(window_sec: int = Query(3600, ge=1, le=86400),
+                            top_n: int = Query(20, ge=1, le=100)):
+    """Sprint 9: RUM log 聚合 — 按 route 维度算 p50/p95 nav_ms + LCP/INP/CLS 均值
+    给 R-debug + CI 性能预算用,5000 行 tail 内做统计避免大文件
+    """
+    try:
+        now = time.time()
+        cutoff = now - window_sec
+        by_route: dict = {}
+        n_total = 0
+        try:
+            with _RUM_LOCK:
+                with open(_RUM_LOG_PATH, "r", encoding="utf-8") as f:
+                    lines = f.readlines()[-5000:]
+        except FileNotFoundError:
+            return _envelope_ok({"by_route": [], "n": 0, "window_sec": window_sec})
+        for ln in lines:
+            try:
+                it = json.loads(ln)
+            except Exception:
+                continue
+            ts_ms = int(it.get("ts", 0) or 0)
+            if ts_ms < cutoff * 1000:
+                continue
+            r = it.get("route", "?")
+            cur = by_route.setdefault(r, {"n": 0, "nav_ms": [], "lcp": [], "inp": [], "cls": [], "fcp": []})
+            cur["n"] += 1
+            if it.get("nav_ms"): cur["nav_ms"].append(int(it["nav_ms"]))
+            if it.get("lcp"): cur["lcp"].append(int(it["lcp"]))
+            if it.get("inp"): cur["inp"].append(int(it["inp"]))
+            if it.get("cls") is not None: cur["cls"].append(float(it["cls"]))
+            if it.get("fcp"): cur["fcp"].append(int(it["fcp"]))
+            n_total += 1
+        out = []
+        for r, c in by_route.items():
+            def _p(arr, q):
+                if not arr: return 0
+                arr2 = sorted(arr)
+                idx = min(int(len(arr2) * q), len(arr2) - 1)
+                return arr2[idx]
+            out.append({
+                "route": r,
+                "n": c["n"],
+                "nav_ms_p50": _p(c["nav_ms"], 0.5),
+                "nav_ms_p95": _p(c["nav_ms"], 0.95),
+                "lcp_p50": _p(c["lcp"], 0.5),
+                "lcp_p95": _p(c["lcp"], 0.95),
+                "inp_p50": _p(c["inp"], 0.5),
+                "inp_p95": _p(c["inp"], 0.95),
+                "fcp_p50": _p(c["fcp"], 0.5),
+                "cls_max": round(max(c["cls"]) if c["cls"] else 0.0, 4),
+            })
+        out.sort(key=lambda x: -x["n"])
+        return _envelope_ok({"by_route": out[:top_n], "n": n_total, "window_sec": window_sec})
+    except Exception as e:
+        return _envelope_err(CODE_INTERNAL, str(e)[:120], by_route=[])
 
 
 @app.post("/api/_meta/cache_clear")
