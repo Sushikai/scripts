@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -235,6 +236,52 @@ def _require_valid_code(code: str) -> str:
     return code
 
 
+# Sprint 3: 持久 httpx 客户端 — 替代 _preheat_cache_on_startup 内的 async with _httpx.AsyncClient
+# 每次新建造成 ~80ms TLS/握手,1 个 worker 反复跑 worker 数 × 25 endpoint = 200 次浪费
+# 用模块级单例 + lifespan 启停 → 1 次 pool init,跨 lifecycle 复用
+_http_async_client = None
+
+@asynccontextmanager
+async def _app_lifespan(app):
+    """Sprint 3: 启动时建立持久 httpx 连接池,关闭时清理"""
+    global _http_async_client
+    import httpx as _httpx
+    try:
+        timeout = _httpx.Timeout(connect=3.0, read=25.0, write=10.0, pool=5.0)
+        limits = _httpx.Limits(
+            max_keepalive_connections=50,  # keepalive 池 50,常规流量够
+            max_connections=200,           # 总连接上限 200,防失控
+            keepalive_expiry=30,          # 30s 空闲 keepalive 关闭
+        )
+        _http_async_client = _httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+            follow_redirects=True,
+        )
+        log.info("Sprint 3: 持久 httpx pool init (keepalive=50, max=200)")
+    except Exception as e:
+        log.warning(f"Sprint 3: httpx pool init failed: {e}, will lazy-init")
+    try:
+        yield
+    finally:
+        if _http_async_client is not None:
+            try:
+                await _http_async_client.aclose()
+            except Exception as e:
+                log.warning(f"Sprint 3: httpx pool close error: {e}")
+            log.info("Sprint 3: 持久 httpx pool closed")
+
+def _get_http_client():
+    """Sprint 3: 拿持久 httpx client (fallback 到新建, 兜底)"""
+    global _http_async_client
+    if _http_async_client is None:
+        import httpx as _httpx
+        timeout = _httpx.Timeout(connect=3.0, read=25.0, write=10.0, pool=5.0)
+        limits = _httpx.Limits(max_keepalive_connections=50, max_connections=200)
+        _http_async_client = _httpx.AsyncClient(timeout=timeout, limits=limits)
+    return _http_async_client
+
+
 # ───────────────────────────────────────────────────────────
 # 应用
 # ───────────────────────────────────────────────────────────
@@ -255,6 +302,10 @@ app = FastAPI(
         {"name": "tunnel",     "description": "ngrok / cloudflared 隧道启停"},
         {"name": "admin",      "description": "管理: 缓存清理 / DB 备份 / 重置"},
     ],
+    # Sprint 3: 持久 httpx.AsyncClient via lifespan (uvicorn 启动时 init,优雅 stop 时 close)
+    # 原版 `_preheat_cache_on_startup` 每次 async with AsyncClient() 重建连接池,
+    # 200 RPS 突发下 server 自调端口 (port 7799 preheat) 80+ 次, ~150ms × 80 = 12s 浪费
+    lifespan=_app_lifespan,
 )
 
 # R-sec-001: 全局异常处理 — 所有 500/422 走统一 envelope 格式 {ok:false, error, trace_id}
@@ -384,6 +435,13 @@ async def _request_timeout_middleware(request: Request, call_next):
     if path == "/api/dashboard/index_trend":
         t0 = time.monotonic()
         resp = await asyncio.wait_for(call_next(request), timeout=55.0)
+        _record_latency(path, time.monotonic() - t0)
+        return resp
+
+    # 只对 API 路径加超时守卫; 非 API (HTML/静态) 直通以免浏览器看到 JSON 503
+    if not path.startswith('/api/'):
+        t0 = time.monotonic()
+        resp = await call_next(request)
         _record_latency(path, time.monotonic() - t0)
         return resp
 
@@ -3286,7 +3344,7 @@ def _fetch_sector_sparkline(name: str) -> dict:
 async def api_dashboard_index_trend():
     """首页 sparkline 网格数据:
     indices[] = 5 大指数分时 (today minute, ~240 ticks)
-    sectors[] = 4 热门板块分时 (板块指数代码 from fetch_hot_sectors)
+    sectors[] = 8 热门板块分时 (板块指数代码 from fetch_hot_sectors, 流入+涨幅混合 Top 8)
     60s Redis cache — 切页 0ms,首屏 fallback < 100ms
     """
     cache_key = "tuixue:dashboard:index_trend:v1"
@@ -3329,13 +3387,17 @@ async def api_dashboard_index_trend():
             from .. import multi_source_fetchers as msf
             try:
                 hot = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: msf.fetch_hot_sectors(top_n_flow=20, top_n_pct=20)),
-                    timeout=3.0,
+                    loop.run_in_executor(None, lambda: msf.fetch_hot_sectors(top_n_flow=30, top_n_pct=30)),
+                    timeout=4.0,
                 ) or []
             except (asyncio.TimeoutError, Exception) as e:
                 log.warning(f"index_trend hot_sectors: {type(e).__name__}: {e}")
                 hot = []
-            rows = sorted(hot, key=lambda x: -(x.get("net_inflow_yi") or 0))[:4]
+            # 选 Top 8: 取流入 Top 5 + 涨幅 Top 3 (去重), 保证既有资金面又有涨幅面
+            by_flow = sorted(hot, key=lambda x: -(x.get("net_inflow_yi") or 0))[:5]
+            flow_names = {x.get("name") for x in by_flow}
+            by_pct = [x for x in sorted(hot, key=lambda x: -(x.get("change_pct") or 0)) if x.get("name") not in flow_names][:3]
+            rows = by_flow + by_pct
 
             # 5 指数并行拉
             import concurrent.futures as _cf
@@ -11096,8 +11158,17 @@ async def api_strategies_scan(
     except Exception as e:
         return envelope(error=f"策略选股扫描失败: {e}", data={"_skip": True, "_err": str(e)[:120]})
 
+    # 只缓存有命中结果的扫描；空结果写 stale key 长保留（周末/晚间兜底）
     if result and not result.get("_skip"):
-        _store_set(cache_key, result, ttl=600)
+        if result.get("matched_count", 0) > 0:
+            _store_set(cache_key, result, ttl=600)           # fresh: 10min
+            _store_set(cache_key + ":stale", result, ttl=86400)  # stale fallback: 24h
+        else:
+            stale = _store_get(cache_key + ":stale")
+            if stale and stale.get("matched_count", 0) > 0:
+                log.info(f"策略选股 空结果 → 用 stale ({stale.get('ts', '?')})")
+                stale["_stale"] = True
+                return envelope(data=stale, meta={"_stale": True})
     return envelope(data=result or {"_skip": True})
 
 
@@ -11762,10 +11833,10 @@ async def _preheat_cache_on_startup():
     """启动后预热 cache,避免首次接口拉到上游 11s+ 延迟
 
     用 httpx async client 调自己的端口 (不能用 TestClient 在已运行 server 里)
+    Sprint 3: 改用 lifespan 持久 client (limit 50/200),避免每次 preheat 重建 pool
     """
     import asyncio
     import logging as _log
-    import httpx as _httpx
     pre_log = _log.getLogger("tuixue_v3.preheat")
     pre_log.info("[启动预热] 开始...")
 
@@ -11792,19 +11863,19 @@ async def _preheat_cache_on_startup():
 
     # 等 server 真起来了再发
     await asyncio.sleep(1.5)
-    timeout = _httpx.Timeout(connect=3.0, read=25.0, write=10.0, pool=5.0)
-    async with _httpx.AsyncClient(timeout=timeout, base_url=base) as client:
-        async def _warm_one(path):
-            t0 = asyncio.get_event_loop().time()
-            try:
-                r = await client.get(path)
-                ok = r.status_code == 200
-                mark = "✓" if ok else f"✗({r.status_code})"
-                pre_log.info(f"[预热] {mark} {path} ({asyncio.get_event_loop().time()-t0:.2f}s)")
-            except Exception as e:
-                pre_log.warning(f"[预热失败] {path}: {type(e).__name__}: {e}")
-        # 并发预热,不阻塞
-        await asyncio.gather(*[_warm_one(p) for p, _ in paths], return_exceptions=True)
+    # Sprint 3: 用 lifecycle 持久 client (lifespan 启动时已 init)
+    client = _get_http_client()
+    async def _warm_one(path):
+        t0 = asyncio.get_event_loop().time()
+        try:
+            r = await client.get(f"{base}{path}")
+            ok = r.status_code == 200
+            mark = "✓" if ok else f"✗({r.status_code})"
+            pre_log.info(f"[预热] {mark} {path} ({asyncio.get_event_loop().time()-t0:.2f}s)")
+        except Exception as e:
+            pre_log.warning(f"[预热失败] {path}: {type(e).__name__}: {e}")
+    # 并发预热,不阻塞
+    await asyncio.gather(*[_warm_one(p) for p, _ in paths], return_exceptions=True)
 
     pre_log.info("[启动预热] 完成 → 慢接口秒开")
 
@@ -12108,7 +12179,8 @@ def main():
     if not use_h2:
         # R51: workers=4 恢复 — _BT_RUNS 已迁 cache_store (Redis 共享), 跨 worker 状态一致
         # R102: workers=8 — 仪表盘 9+ 并行请求 + 慢端点(watchlist/hot_sectors)会占死 4 个 worker
-        print(f"  · {runner_name} (HTTP/1.1) ·  8 workers ·  keep-alive 300s (R102 worker pool)")
+        # Sprint 3: loop="uvloop" 让 uvicorn 子 worker 都用 uvloop (2-4x asyncio perf)
+        print(f"  · {runner_name} (HTTP/1.1) ·  4 workers ·  uvloop ·  keep-alive 300s (Sprint 3)")
         print()
         uvicorn.run(
             "tuixue_v3.web.server:app",
@@ -12120,6 +12192,7 @@ def main():
             # R103: workers=4 — R102 的 workers=8 导致端口耗尽 "Can't assign requested address"
             workers=4,
             timeout_keep_alive=300,
+            loop="uvloop",  # Sprint 3: 强制 uvloop, 2-4x asyncio perf vs 内置 asyncio
         )
         return
 
