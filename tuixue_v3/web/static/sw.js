@@ -145,12 +145,14 @@
 // v264 (2026-08-01): 5 处硬编码 hex 颜色 → var(--ink-inverse/--cat-institution/--up/--down) (visual token 化)
 // v268 (2026-08-01): 首页板块走势扩容 4→8 (流入 Top 5 + 涨幅 Top 3) + 移动端自适应截 4/6
 // v269 (Sprint 1, 2026-08-01): 5 个真死 CSS 变量删除 + 48 处 backdrop-filter blur 半径减半 (mobile GPU 合成 -50%)
-const CACHE = 'tuixue-v3-shell-v269';
+// v270 (Sprint 2, 2026-08-01): 加 virtual-list.js + 启动空闲 prefetch view-stock/other.js (避开 stock view 慢轮)
+const CACHE = 'tuixue-v3-shell-v270';
 const PRECACHE = [
   '/',
   '/static/app.js',
   '/static/core.js',
   '/static/view-dash.js',
+  '/static/virtual-list.js',
   '/static/style.css',
   '/static/index.html',
   '/static/sw.js',

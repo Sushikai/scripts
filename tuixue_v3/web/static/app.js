@@ -1289,6 +1289,7 @@ const _VIEW_SCRIPT_PLAN = {
 };
 const _VIEW_SCRIPT_PROMISES = new Map();
 const _VIEW_SCRIPT_LOADED = new Set();
+let _viewScriptPrefetchScheduled = false;  // Sprint 2: 防止重复 prefetch
 
 function _onDomReady(fn) {
   if (document.readyState === 'loading') {
@@ -1437,6 +1438,9 @@ if (document.readyState === 'loading') {
 } else {
   setTimeout(_routeFromHash, 0);
 }
+// Sprint 2: 路由首屏后空闲时预加载 view-script (避开首次点 stock/dragons/watchlist
+// 316KB JS parse 等待 ~250ms — 实测 1000 轮 stress stock view 0/<200ms 缺口)
+setTimeout(_scheduleViewScriptPrefetch, 2500);
 
 // ────────────────────────────────────────────
 // 数字 / 颜色格式化
@@ -2272,6 +2276,31 @@ async function _scheduleIdlePrefetch() {
   };
   if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2000 });
   else setTimeout(run, 800);
+  // Sprint 2: 空闲时预加载 view-script (避开用户首次点 stock/dragons/watchlist/review
+  // 时的 316KB JS parse 等待 — 实测 1000 轮 stress 这是 stock view 慢轮主因)
+  _scheduleViewScriptPrefetch();
+}
+function _scheduleViewScriptPrefetch() {
+  if (_viewScriptPrefetchScheduled) return;
+  _viewScriptPrefetchScheduled = true;
+  const _prefetch = () => {
+    // 优先 prefetch view-stock.js (5 view 共享 — stock/dragons/watchlist/review/ai-review)
+    // 再 view-other.js (4 view 共享),其它按需
+    const _files = ['view-stock.js', 'view-other.js'];
+    _files.forEach(f => {
+      if (_VIEW_SCRIPT_LOADED.has(f)) return;
+      if (_VIEW_SCRIPT_PROMISES.has(f)) return;
+      // 用 resource hints 而不是 createElement('script') — 后者会阻塞解析
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.as = 'script';
+      link.href = `/static/${f}${_assetVersionQuery()}`;
+      link.dataset.viewScriptPrefetch = f;
+      document.head.appendChild(link);
+    });
+  };
+  if ('requestIdleCallback' in window) requestIdleCallback(_prefetch, { timeout: 5000 });
+  else setTimeout(_prefetch, 3000);
 }
 // ────────────────────────────────────────────
 // Service Worker 注册 — 离线 fallback / 静态 cache-first
@@ -11327,7 +11356,12 @@ document.addEventListener('DOMContentLoaded', () => {
     bindControls();
     bindTableScrollIndicator();
     syncUI();
-    loadWatchlistForStars().then(loadFilters).then(() => {
+    // Sprint 2: loadWatchlistForStars + loadFilters 并行,等齐后 loadBoard
+    // 原版 loadWatchlistForStars().then(loadFilters).then(loadBoard) 串行多 80-150ms
+    Promise.all([
+      loadWatchlistForStars(),
+      loadFilters(),
+    ]).then(() => {
       syncUI();
       return loadBoard();
     }).then(() => {
