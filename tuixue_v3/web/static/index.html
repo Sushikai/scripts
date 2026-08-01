@@ -27,8 +27,7 @@
 <link rel="stylesheet" href="/static/tokens.css" />
 <link rel="stylesheet" href="/static/style.css?v=__CSS_V__" />
   <link rel="preload" as="script" href="/static/core.js?v=__JS_V__" fetchpriority="high">
-  <link rel="preload" as="script" href="/static/virtual-list.js?v=__JS_V__" fetchpriority="low">
-  <!-- Sprint 2: virtual-list.js 工具 (供后续 sprint 集成) -->
+  <!-- R-fix-2026-08-01: virtual-list.js 暂未集成,删 preload 避免 Chrome 警告 + 节省带宽 -->
   <!-- R2: ECharts 懒加载 — 333KB 不阻塞首屏,由 _ensureECharts 动态注入 -->
 </head>
 <body>
@@ -1899,7 +1898,6 @@
 <!-- Sprint 6: most-visited views — stock/dragons/watchlist/review — prefetch these in idle time after first view-enter
      (view-others chain depends on view-stock, view-weekly/strategy are less common so left for showView-driven prefetch) -->
 <link rel="prefetch" href="/static/view-stock.js?v=__JS_V__" as="script" fetchpriority="low">
-<link rel="prefetch" href="/static/virtual-list.js?v=__JS_V__" as="script" fetchpriority="low">
 <script>
 // R17: 主页 smart-back — 从其他页(全A/板块层/选股)跳过来时,左上角显示"← 全A"等
 (function setupSmartBack() {

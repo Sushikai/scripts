@@ -155,7 +155,9 @@
 //                  app.js 加 _scheduleViewScriptPrefetch idle 拉 view-other/weekly_bull/strategy_picker;
 //                  修 _loadViewScript 二次竞态 (idle prefetch 与 _loadViewScript 重入)
 // Sprint 9: Web Vitals + per-route RUM (tx-telemetry.js 3KB,30s 一次 sendBeacon → /api/_perf)
-const CACHE = 'tuixue-v3-shell-v285-sprint9';
+// v286 (2026-08-01): ZT 策略前端重写 — 详细策略全景 KPI + 退场优先级 + 跨月稳定性 + 实时推票评分因子拆解
+// v287 (2026-08-01): 删 virtual-list.js 的 preload + prefetch (Sprint 2 未集成, Chrome preload-not-used 警告 + 浪费带宽)
+const CACHE = 'tuixue-v3-shell-v287-clean-preload';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [
