@@ -229,9 +229,9 @@ try_ngrok() {
     # 用户首次点 Visit Site 后,policy 每响应再 Set-Cookie 续期
     local policy_file="$ROOT/tuixue_v3/web/.tunnels/ngrok_policy.yml"
     if [ -f "$policy_file" ]; then
-        ngrok http "$PORT" --traffic-policy-file="$policy_file" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+        ngrok http "127.0.0.1:$PORT" --traffic-policy-file="$policy_file" --log "$logfile" --log-level=info > /dev/null 2>&1 &
     else
-        ngrok http "$PORT" --log "$logfile" --log-level=info > /dev/null 2>&1 &
+        ngrok http "127.0.0.1:$PORT" --log "$logfile" --log-level=info > /dev/null 2>&1 &
     fi
     local pid=$!
     TUNNEL_PID="$pid"
