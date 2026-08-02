@@ -188,10 +188,17 @@ class TestFromLhbSeatData(unittest.TestCase):
         self.assertAlmostEqual(f.block_trade_premium, 0.0, places=4)
 
     def test_empty_seats(self):
+        """空席位 + 0 调研 + 无大宗 → has_data=False"""
         f = from_lhb_seat_data("x", [])
-        self.assertTrue(f.has_data)
+        self.assertFalse(f.has_data)
         self.assertEqual(f.institution_net_buy, 0.0)
         self.assertEqual(f.hot_money_net_buy, 0.0)
+
+    def test_investigate_only(self):
+        """只传调研次数 → has_data=True (有数据)"""
+        f = from_lhb_seat_data("x", [], investigate_count_30d=3)
+        self.assertTrue(f.has_data)
+        self.assertEqual(f.investigate_density_30d, 3)
 
 
 class TestToDictList(unittest.TestCase):

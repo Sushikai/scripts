@@ -237,7 +237,7 @@ def from_lhb_seat_data(
         block_trade_premium=round(premium, 4),
         investigate_density_30d=compute_investigate_density(investigate_count_30d),
         lhb_reversal_5d=0.0,  # 需历史价, 由调用方填充
-        has_data=True,
+        has_data=bool(seats) or bool(block_trades) or investigate_count_30d > 0,
     )
 
 
