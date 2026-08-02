@@ -370,6 +370,15 @@ def bootstrap_from_legacy():
             schema_version="v1", tags=["legacy"],
         )
 
+    # 2026-08-02 Ship 2: Tushare Pro 接入 (免费层兜底 + token 启用付费)
+    try:
+        from tuixue_v3 import tushare_source
+        for src in tushare_source.get_sources():
+            if not registry.get(src.name):
+                registry.register(src)
+    except ImportError:
+        logger.debug("tushare_source 未找到,跳过 Tushare 接入")
+
     logger.info(
         f"Legacy bootstrap 完成: "
         f"daily={len(getattr(lc, '_DAILY_SOURCES', []))}, "
