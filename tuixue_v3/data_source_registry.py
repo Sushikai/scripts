@@ -388,6 +388,15 @@ def bootstrap_from_legacy():
     except ImportError:
         logger.debug("sina_source 未找到,跳过新浪接入")
 
+    # 2026-08-02 Ship 6: 多市场扩展 (港股/北证/ETF)
+    try:
+        from tuixue_v3 import multi_market_source
+        for src in multi_market_source.get_sources():
+            if not registry.get(src.name):
+                registry.register(src)
+    except ImportError:
+        logger.debug("multi_market_source 未找到,跳过多市场接入")
+
     logger.info(
         f"Legacy bootstrap 完成: "
         f"daily={len(getattr(lc, '_DAILY_SOURCES', []))}, "
