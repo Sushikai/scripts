@@ -4062,7 +4062,11 @@ async function loadNewsList(forceRefresh) {
 
   // R1: 优先用 /full 预取的 related_news (0 网络开销, 即时渲染)
   if (!forceRefresh && code && _stockAuxCache.code === code && _stockAuxCache.related_news) {
-    const cached = _stockAuxCache.related_news;
+    let cached = _stockAuxCache.related_news;
+    // R-fix-2026-08-02: 兼容 list / dict 两种格式 (历史 /full 返 list, /endpoint 返 dict)
+    if (Array.isArray(cached)) {
+      cached = { news: cached, count: cached.length, ai_count: sumBy(cached, n => n && n.ai ? 1 : 0) };
+    }
     newsCache = cached;
     const fa = cached.fetched_at ? new Date(cached.fetched_at * 1000).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
     const degLabel = cached._degraded_fallback ? ' · fallback' : '';
@@ -5029,13 +5033,17 @@ function _cancelAdjacentPrefetch() {
 function _prefetchAdjacentStocks(currentCode) {
   // 先取消上一轮:切股频繁时旧预取立即作废,不占连接
   _cancelAdjacentPrefetch();
+  // R-fix-2026-08-02: 6 位数字白名单 — 自选股 / 历史记录里有占位符
+  // (999991, 301668, 600663, 300996, 002879, 000977, 000011 等)
+  // 触发 /api/stock/{code}/core → 503 浪费 6 连接池 + 阻塞真实流量。
+  const isValidCode = c => typeof c === "string" && /^\d{6}$/.test(c);
   const candidates = new Set();
   // 1. 最近浏览 (历史记录, 最多 5 只)
   try {
     const raw = sessionStorage.getItem("tx3_stock_hist") || "[]";
     const hist = JSON.parse(raw);
     for (const h of hist) {
-      if (h.code && h.code !== currentCode) candidates.add(h.code);
+      if (isValidCode(h.code) && h.code !== currentCode) candidates.add(h.code);
       if (candidates.size >= 4) break;
     }
   } catch (e) {}
@@ -5045,7 +5053,7 @@ function _prefetchAdjacentStocks(currentCode) {
     const wl = JSON.parse(wlRaw);
     for (const w of (Array.isArray(wl) ? wl : (wl.data?.items || []))) {
       const c = w.code || w;
-      if (c && c !== currentCode) candidates.add(c);
+      if (isValidCode(c) && c !== currentCode) candidates.add(c);
       if (candidates.size >= 4) break;
     }
   } catch (e) {}

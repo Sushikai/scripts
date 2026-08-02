@@ -104,8 +104,13 @@ function txReconnectEventSource(es, opts = {}) {
 window.TX = window.TX || { core: {}, view: { dash: {}, stock: {}, other: {}, all_stocks: {}, screener: {} } };
 const TX = window.TX;
 
-const $  = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+// R-fix-2026-08-02: 暴露 $ 和 $$ 到 window,让 app.js / view 文件能跨 script 复用
+// 之前用 const $ 是 script-lexical 顶层 (modern browser 跨 script 不共享),
+// app.js line 901 var toastEl = $('#toast') 抛 ReferenceError: $ is not defined
+window.$  = (sel, root = document) => root.querySelector(sel);
+window.$$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const $  = window.$;
+const $$ = window.$$;
 
 // R-A7 (2026-07-19): snake_case → camelCase key 转换 (顶层 + 嵌套 dict)
 // 后端 Python 用 snake_case 是 PEP8 规范,前端 JS 用 camelCase 是 JS 社区规范
@@ -454,6 +459,7 @@ var API_TIMEOUTS = {
   '/api/review/trades/':   200_000, // 复盘 AI 单次 55s+ (2026-07-10)
   '/api/review/next_picks': 60_000, // 次日选股 (live screen,沙箱慢,2026-07-12)
   '/api/stream/review/':   210_000, // SSE 复盘
+  '/api/dexin/screen':     70_000,  // 得鑫量变 (cold ~25s 候选池+批量日线, push2 限频可到 50s; warm 0.01s, 2026-07-26)
 };
 
 function _timeoutFor(path) {
@@ -1192,7 +1198,7 @@ function _enhanceAllTables(root) {
   root = root || document;
   // 限定主内容,避免改到 sw / 离线提示里的 table
   const main = document.querySelector('main.canvas') || document.body;
-  main.querySelectorAll('table.data-table, table.scr-table, table.stocks-table, table.bt-win-table, table.bt-trade-table, table.bd-cats, table#review-table, table#wl-table, table#scr-table, table#as-stocks-table, table#seats-table, table#holders-table, table#dragons-all-table, table#bt-monthly, table#sector-zt-table, table#sector-5d-table, table#flow-detail-table, table#snap-tbl').forEach(_enhanceTableA11y);
+  main.querySelectorAll('table.data-table, table.scr-table, table.stocks-table, table.bt-win-table, table.bt-trade-table, table.bd-cats, table#review-table, table#wl-table, table#scr-table, table#as-stocks-table, table#seats-table, table#holders-table, table#dragons-all-table, table#dragons-yesterday-table, table#bt-monthly, table#sector-zt-table, table#sector-5d-table, table#flow-detail-table, table#snap-tbl').forEach(_enhanceTableA11y);
 }
 // 首屏跑一次 + 视图切换后跑一次 (有些表是动态渲染的,得在 DOM 就绪后增强)
 _enhanceAllTables();

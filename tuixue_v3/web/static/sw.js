@@ -157,7 +157,16 @@
 // Sprint 9: Web Vitals + per-route RUM (tx-telemetry.js 3KB,30s 一次 sendBeacon → /api/_perf)
 // v286 (2026-08-01): ZT 策略前端重写 — 详细策略全景 KPI + 退场优先级 + 跨月稳定性 + 实时推票评分因子拆解
 // v287 (2026-08-01): 删 virtual-list.js 的 preload + prefetch (Sprint 2 未集成, Chrome preload-not-used 警告 + 浪费带宽)
-const CACHE = 'tuixue-v3-shell-v287-clean-preload';
+// v288 (2026-08-01): 策略选股修复 + 龙头页 3 策略标注 + sp_hit 选股器命中
+//   - view-strategy_picker.js 默认 min_matched=2 + warming 轮询
+//   - view-other.js 龙头卡片 ma5Badge/spBadge + 全涨停表 13 列 (策略列)
+//   - 增 .dragon-ma5-badge / .dragon-sp-badge / .chip-mini / .sp-mark 样式
+// v289 (2026-08-02): 综合推荐 Meta Strategy (ZT+策略选股+龙头+得鑫) 前端卡片 + /api/meta/recommend
+// v293 (2026-08-02): 综合策略选股 7维加权融合 + 10000次进化算法 + 实时进度 + 持有3天胜率微调
+// v294 (2026-08-02): 修 $ is not defined — core.js `const $` 不跨 script 共享,改 window.$ = ...
+//                    app.js line 901 var toastEl = $('#toast') 抛 ReferenceError,导致整个 JS 初始化失败,
+//                    个股页 hero 全空、tab 全不渲染 (尤其北证 830799 整页空白)。修后实测 stock page 立即出数据。
+const CACHE = 'tuixue-v3-shell-v294-dollar-fix';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [
