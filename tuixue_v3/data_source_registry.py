@@ -379,6 +379,15 @@ def bootstrap_from_legacy():
     except ImportError:
         logger.debug("tushare_source 未找到,跳过 Tushare 接入")
 
+    # 2026-08-02 Ship 3: 新浪 hq.sinajs (HTTPS + Referer)
+    try:
+        from tuixue_v3 import sina_source
+        for src in sina_source.get_sources():
+            if not registry.get(src.name):
+                registry.register(src)
+    except ImportError:
+        logger.debug("sina_source 未找到,跳过新浪接入")
+
     logger.info(
         f"Legacy bootstrap 完成: "
         f"daily={len(getattr(lc, '_DAILY_SOURCES', []))}, "
