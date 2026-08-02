@@ -56,19 +56,15 @@ async def probe_stock(page, code, round_num):
     issues = []
 
     # Load (with retry on transient connection errors)
-    # CRITICAL: page.goto with only-hash URL doesn't trigger domcontentloaded on subsequent calls.
-    # Use real reload via window.location to ensure full page init each stock.
+    # Use unique URL per stock (cache-buster query) to force fresh navigation each time.
+    # Only-hash goto is treated as same-page hashchange — no domcontentloaded, no script rerun.
     last_err = None
     for attempt in range(3):
         try:
-            # Always start fresh at root so app.js re-runs and re-binds hash routing
-            await page.evaluate(f"window.location.href = '{BASE}/#stock={code}'")
-            # Wait for fresh load — page reloads from same context so wait for load event
-            try:
-                await page.wait_for_event("framenavigated", timeout=15000)
-            except Exception:
-                pass
-            await page.wait_for_load_state("domcontentloaded", timeout=30000)
+            await page.goto(f"{BASE}/?_={code}", wait_until="domcontentloaded", timeout=30000)
+            # Set hash after fresh load to trigger stock routing
+            await page.evaluate(f"location.hash = '#stock={code}'")
+            await asyncio.sleep(1)  # let hashchange listener + showView run
             break
         except Exception as e:
             last_err = e
