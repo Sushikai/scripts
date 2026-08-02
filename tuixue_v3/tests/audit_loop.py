@@ -56,10 +56,19 @@ async def probe_stock(page, code, round_num):
     issues = []
 
     # Load (with retry on transient connection errors)
+    # CRITICAL: page.goto with only-hash URL doesn't trigger domcontentloaded on subsequent calls.
+    # Use real reload via window.location to ensure full page init each stock.
     last_err = None
     for attempt in range(3):
         try:
-            await page.goto(f"{BASE}/#stock={code}", wait_until="domcontentloaded", timeout=30000)
+            # Always start fresh at root so app.js re-runs and re-binds hash routing
+            await page.evaluate(f"window.location.href = '{BASE}/#stock={code}'")
+            # Wait for fresh load — page reloads from same context so wait for load event
+            try:
+                await page.wait_for_event("framenavigated", timeout=15000)
+            except Exception:
+                pass
+            await page.wait_for_load_state("domcontentloaded", timeout=30000)
             break
         except Exception as e:
             last_err = e
@@ -69,8 +78,8 @@ async def probe_stock(page, code, round_num):
         return {"code": code, "issues": issues, "console_errors": page_errors[:5]}
     await asyncio.sleep(2)  # Initial wait for /core to arrive (subsequent checks wait inline)
 
-    # Hero state — wait until #stock-title is not the literal placeholder "个股"
-    # (loadStockDetail replaces it once /core JSON arrives)
+    # Hero state — wait until #stock-title exists, is not "个股" placeholder,
+    # AND tab buttons are rendered (proves app.js + view-stock.js loaded)
     hero = await page.evaluate("""async () => {
       const get = (sel) => {
         const el = document.querySelector(sel);
@@ -78,11 +87,12 @@ async def probe_stock(page, code, round_num):
         const text = (el.textContent || '').trim();
         return {sel, exists: true, text: text.slice(0, 50)};
       };
-      // Wait up to 8s for #stock-title to leave the placeholder
+      // Wait up to 20s for: app.js loaded ($ defined) AND tab buttons > 5 AND title not placeholder
       const start = Date.now();
-      while (Date.now() - start < 8000) {
+      while (Date.now() - start < 20000) {
         const t = (document.querySelector('#stock-title')?.textContent || '').trim();
-        if (t && t !== '个股') break;
+        const tabBtns = document.querySelectorAll('button[data-tab]').length;
+        if (typeof window.$ === 'function' && t && t !== '个股' && tabBtns >= 5) break;
         await new Promise(r => setTimeout(r, 200));
       }
       return [

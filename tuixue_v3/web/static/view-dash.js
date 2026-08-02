@@ -155,12 +155,13 @@ var _dashTrendCharts = {};   // tile.id → echarts instance
 var _dashTrendResizeHooked = false;
 
 function _paintIndexTrend(d) {
-  // 顶卡「板块·实时分时」: 5 大指数作为盘面整体走势代理(板块 tick 数据源 evening 不稳)
-  // 底卡「板块·今日分时」: 4 热门板块 tick 折线(tick 可用时才出图)
+  // 顶卡「大盘·实时分时」: 5 大指数作为盘面整体走势代理
+  // 底卡「板块·今日分时」: 8 热门板块 tick 折线 (流入 Top 5 + 涨幅 Top 3), 移动端截 4
   const indices = d.indices || [];
   const sectors = d.sectors || [];
+  const maxSectors = window.innerWidth <= 480 ? 4 : (window.innerWidth <= 768 ? 6 : sectors.length);
   _paintTrendGrid('#index-trend-grid', indices, 'index-trend', (it, i) => `idx-${i}`);
-  _paintTrendGrid('#sector-trend-grid', sectors.slice(0, 4), 'sector-trend', (it, i) => `sec-${i}`);
+  _paintTrendGrid('#sector-trend-grid', sectors.slice(0, maxSectors), 'sector-trend', (it, i) => `sec-${i}`);
 }
 
 function _paintTrendGrid(sel, items, _ns, keyFn) {
@@ -451,4 +452,234 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   tk.click();
 });
+
+// ── 实时新闻情报卡 (Phase 6d) ─────────────────────────────
+var _NEWS_CACHE_KEY = 'tx3_news_cache';
+var _newsFilterCluster = '';
+var _newsPollTimer = null;
+
+function _newsCacheSave(data) {
+  try { localStorage.setItem(_NEWS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch(e) {}
+}
+function _newsCacheLoad() {
+  try {
+    var raw = localStorage.getItem(_NEWS_CACHE_KEY);
+    if (!raw) return null;
+    var p = JSON.parse(raw);
+    if (Date.now() - p.ts > 120000) { localStorage.removeItem(_NEWS_CACHE_KEY); return null; }
+    return p.data;
+  } catch(e) { return null; }
+}
+
+async function _dashRefreshNews() {
+  // Phase 0: localStorage 快照
+  var cached = _newsCacheLoad();
+  if (cached) {
+    if (cached.impact) _paintNewsImpact(cached.impact);
+    if (cached.news) _paintNewsFeed(cached.news);
+    if (cached.stocks) _paintNewsStocks(cached.stocks);
+  }
+  // Phase 1: async fetch
+  try {
+    var impactR = await _fetchWithTimeout('/api/dashboard/news_impact', { timeout: 10000 });
+    var impactEnv = await impactR.json();
+    if (impactEnv.ok && impactEnv.data) {
+      _paintNewsImpact(impactEnv.data);
+      var cached2 = _newsCacheLoad() || {};
+      cached2.impact = impactEnv.data;
+      _newsCacheSave(cached2);
+    }
+  } catch(e) { console.debug('[dash] news_impact refresh failed:', e.message); }
+
+  try {
+    var liveR = await _fetchWithTimeout('/api/news/live', { timeout: 10000 });
+    var liveEnv = await liveR.json();
+    if (liveEnv.ok && liveEnv.data) {
+      _paintNewsFeed(liveEnv.data.news || []);
+      _paintNewsStocks(liveEnv.data.news || []);
+      // 更新 filter chips
+      _paintNewsFilterChips(liveEnv.data.news || []);
+      // 更新时间戳
+      var el = document.getElementById('news-updated-at');
+      if (el && liveEnv.data.fetched_at) {
+        var d = new Date(liveEnv.data.fetched_at * 1000);
+        el.textContent = '· ' + d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ':' + d.getSeconds().toString().padStart(2,'0');
+      }
+      var cached3 = _newsCacheLoad() || {};
+      cached3.news = liveEnv.data.news || [];
+      cached3.stocks = liveEnv.data.news || [];
+      _newsCacheSave(cached3);
+    }
+  } catch(e) { console.debug('[dash] news_live refresh failed:', e.message); }
+}
+
+function _paintNewsFilterChips(news) {
+  var bar = document.getElementById('news-filter-bar');
+  if (!bar) return;
+  // 统计各 cluster 新闻数
+  var counts = {};
+  var total = 0;
+  (news || []).forEach(function(n) {
+    var ai = n.ai;
+    if (!ai || !ai.score || ai.score < 3) return;
+    total++;
+    var clusters = ai.clusters || [];
+    clusters.forEach(function(c) {
+      counts[c] = (counts[c] || 0) + 1;
+    });
+  });
+  var chips = '<span class="news-chip' + (_newsFilterCluster === '' ? ' active' : '') + '" data-cluster="">全部<span class="chip-count">' + total + '</span></span>';
+  Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; }).slice(0, 8).forEach(function(c) {
+    var active = _newsFilterCluster === c ? ' active' : '';
+    chips += '<span class="news-chip' + active + '" data-cluster="' + escapeHtml(c) + '">' + escapeHtml(c) + '<span class="chip-count">' + counts[c] + '</span></span>';
+  });
+  bar.innerHTML = chips;
+  // bind clicks
+  bar.querySelectorAll('.news-chip').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      _newsFilterCluster = this.dataset.cluster || '';
+      bar.querySelectorAll('.news-chip').forEach(function(c) { c.classList.remove('active'); });
+      this.classList.add('active');
+      _paintNewsFeed(news);
+    });
+  });
+}
+
+function _paintNewsImpact(data) {
+  var strip = document.getElementById('news-impact-strip');
+  if (!strip) return;
+  var clusters = data.clusters || [];
+  if (!clusters.length) { strip.innerHTML = ''; return; }
+  var maxScore = clusters[0].impact_score || 1;
+  strip.innerHTML = clusters.map(function(c) {
+    var w = Math.max(8, (c.impact_score / Math.max(maxScore, 1)) * 100);
+    var cls = c.bullish > c.bearish ? 'bullish' : (c.bearish > c.bullish ? 'bearish' : 'mixed');
+    var label = (c.name || '').length > 6 ? c.name.slice(0, 6) + '..' : c.name;
+    return '<span class="news-impact-bar ' + cls + '" style="flex:' + w.toFixed(0) + ' 0 ' + w.toFixed(0) + 'px" title="' + escapeHtml(c.name) + ' · 评分' + c.impact_score + ' · ' + c.news_count + '条 · 利好' + c.bullish + '/利空' + c.bearish + '" data-cluster="' + escapeHtml(c.name) + '">' + escapeHtml(label) + ' ' + c.impact_score.toFixed(0) + '</span>';
+  }).join('');
+  // click to filter
+  strip.querySelectorAll('.news-impact-bar').forEach(function(bar) {
+    bar.addEventListener('click', function() {
+      _newsFilterCluster = this.dataset.cluster || '';
+      var chips = document.querySelectorAll('#news-filter-bar .news-chip');
+      chips.forEach(function(c) {
+        c.classList.toggle('active', c.dataset.cluster === _newsFilterCluster);
+      });
+      if (_newsFilterCluster && !document.querySelector('#news-filter-bar .news-chip.active')) {
+        // cluster not in chip list, add it
+        var allChips = document.getElementById('news-filter-bar');
+        if (allChips) allChips.querySelector('.news-chip[data-cluster=""]').classList.add('active');
+        _newsFilterCluster = '';
+      }
+      _paintNewsFeed(_newsCacheLoad() ? (_newsCacheLoad().news || []) : []);
+    });
+  });
+}
+
+function _paintNewsFeed(news) {
+  var feed = document.getElementById('news-feed');
+  if (!feed) return;
+  var filtered = (news || []).filter(function(n) {
+    if (!n.ai || !n.ai.score || n.ai.score < 3) return false;
+    if (!_newsFilterCluster) return true;
+    var clusters = n.ai.clusters || [];
+    return clusters.indexOf(_newsFilterCluster) >= 0;
+  });
+  if (!filtered.length) {
+    feed.innerHTML = '<div class="hs-empty">暂无相关新闻</div>';
+    return;
+  }
+  feed.innerHTML = filtered.slice(0, 30).map(function(n) {
+    var ai = n.ai || {};
+    var score = ai.score || 0;
+    var sc = score >= 7 ? 's2' : (score >= 4 ? 's1' : 's0');
+    var impactCls = score >= 7 ? 'high-impact' : (score >= 4 ? 'mid-impact' : 'low-impact');
+    var dir = ai.direction || '中性';
+    var dirCls = dir === '利好' ? 'bullish' : (dir === '利空' ? 'bearish' : 'neutral');
+    var chains = (ai.chains || []).slice(0, 3);
+    var clusters = (ai.clusters || []).slice(0, 2);
+    var tags = clusters.map(function(c) { return '<span class="news-tag cluster">' + escapeHtml(c) + '</span>'; }).join('')
+             + chains.map(function(c) { return '<span class="news-tag">' + escapeHtml(c) + '</span>'; }).join('');
+    var reason = ai.reason ? '<span class="news-reason">' + escapeHtml(ai.reason) + '</span>' : '';
+    var stocks = (ai.stocks || []).slice(0, 3).map(function(s) {
+      return '<span class="news-tag" style="cursor:pointer;color:var(--accent)" data-code="' + escapeHtml(s) + '" onclick="event.stopPropagation();gotoStock(\'' + escapeHtml(s) + '\')">' + escapeHtml(s) + '</span>';
+    }).join('');
+    return '<div class="news-item ' + impactCls + '">'
+      + '<span class="news-score ' + sc + '">' + score.toFixed(1) + '</span>'
+      + '<span class="news-dir ' + dirCls + '">' + escapeHtml(dir) + '</span>'
+      + '<span class="news-title"><a href="' + escapeHtml(n.url || '#') + '" target="_blank" rel="noopener">' + escapeHtml(n.title || '') + '</a></span>'
+      + '<span class="news-meta">' + escapeHtml(n.ctime_str || '') + '</span>'
+      + (tags ? '<span class="news-tags">' + tags + stocks + '</span>' : '')
+      + reason
+      + '</div>';
+  }).join('');
+}
+
+function _paintNewsStocks(news) {
+  var grid = document.getElementById('news-stocks-grid');
+  if (!grid) return;
+  // 按股票聚合: {code: {name, bullish_score, bearish_score, news_count, max_score, direction}}
+  var stocks = {};
+  (news || []).forEach(function(n) {
+    var ai = n.ai;
+    if (!ai || !ai.stocks || !ai.stocks.length) return;
+    var score = ai.score || 0;
+    var dir = ai.direction || '中性';
+    ai.stocks.forEach(function(s) {
+      if (!stocks[s]) stocks[s] = { code: s, name: '', bullish: 0, bearish: 0, count: 0, maxScore: 0 };
+      stocks[s].count++;
+      stocks[s].maxScore = Math.max(stocks[s].maxScore, score);
+      if (dir === '利好') stocks[s].bullish += score;
+      else if (dir === '利空') stocks[s].bearish += score;
+    });
+  });
+  var list = Object.values(stocks).sort(function(a, b) { return b.maxScore - a.maxScore || b.count - a.count; }).slice(0, 20);
+  if (!list.length) {
+    grid.innerHTML = '<div class="hs-empty">等待 AI 标注涉及股票 …</div>';
+    return;
+  }
+  grid.innerHTML = list.map(function(s) {
+    var net = s.bullish - s.bearish;
+    var dirCls = net > 2 ? 'bullish' : (net < -2 ? 'bearish' : 'neutral');
+    var dirLabel = net > 2 ? '利好' : (net < -2 ? '利空' : '中性');
+    return '<div class="news-stock-item" data-code="' + escapeHtml(s.code) + '" title="' + s.count + '条新闻提及 · 最高评分' + s.maxScore.toFixed(0) + '">'
+      + '<span class="ns-code">' + escapeHtml(s.code) + '</span>'
+      + '<span class="ns-score">' + s.count + '条</span>'
+      + '<span class="ns-dir news-dir ' + dirCls + '">' + dirLabel + '</span>'
+      + '</div>';
+  }).join('');
+  // click → 跳转个股
+  grid.querySelectorAll('.news-stock-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var code = this.dataset.code;
+      if (code && /^\d{6}$/.test(code)) gotoStock(code);
+    });
+  });
+  // refresh button
+  var refreshBtn = document.getElementById('news-stocks-refresh');
+  if (refreshBtn) {
+    refreshBtn.onclick = function() { _dashRefreshNews(); };
+  }
+}
+
+function _startNewsPoll() {
+  if (_newsPollTimer) clearInterval(_newsPollTimer);
+  // 交易时段 30s, 非交易时段 120s
+  var now = new Date();
+  var isTrading = now.getDay() >= 1 && now.getDay() <= 5;
+  var h = now.getHours(), m = now.getMinutes();
+  var t = h * 60 + m;
+  var inHours = (t >= 570 && t <= 690) || (t >= 780 && t <= 900); // 9:30-11:30 or 13:00-15:00
+  isTrading = isTrading && inHours;
+  var interval = isTrading ? 30000 : 120000;
+  _newsPollTimer = setInterval(function() { _dashRefreshNews(); }, interval);
+}
+
+// wire into _dashLoadPhased — extend to include news refresh
+var _origDashLoadPhased = _dashLoadPhased;
+_dashLoadPhased = function() {
+  _origDashLoadPhased();
+  _dashRefreshNews();
+  _startNewsPoll();
+};
 

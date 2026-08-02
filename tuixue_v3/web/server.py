@@ -58,6 +58,7 @@ news_lookup = _LazyModule("news_lookup")
 ai_chat = _LazyModule("ai_chat")
 _review = _LazyModule("review")
 _watchlist = _LazyModule("watchlist")
+concept_taxonomy = _LazyModule("concept_taxonomy")
 from .. import cache_store
 from ._constants import (
     API_DEFAULT_TIMEOUT, API_HEALTH_TIMEOUT, API_VERSION_TIMEOUT, API_META_TIMEOUT,
@@ -236,6 +237,69 @@ def _require_valid_code(code: str) -> str:
     return code
 
 
+# ── 新闻后台轮询 ─────────────────────────────────────────────
+_NEWS_POLLER_STOP = False
+
+
+async def _news_poller_loop():
+    """后台循环:交易时段每 60s 抓一次新闻,非交易时段每 300s。"""
+    global _NEWS_POLLER_STOP
+    log.info("news poller started")
+    while not _NEWS_POLLER_STOP:
+        try:
+            interval = news_lookup.get_poll_interval()
+            await asyncio.sleep(interval)
+            if _NEWS_POLLER_STOP:
+                break
+            # 抢分布式锁 — 只有一个 worker 执行抓取
+            if not news_lookup.try_acquire_poll_lock():
+                continue
+            # 抓取 + 更新缓存
+            cache = await to_thread(news_lookup.fetch_live_news)
+            news_count = len(cache.get("news") or [])
+            ai_count = len(cache.get("ai") or {})
+            pending = news_count - ai_count
+            log.info(f"news poller: {news_count} 条新闻, {ai_count} 已有 AI, {pending} 待分析")
+            # 有新新闻时触发 AI 分析(fire-and-forget)
+            if pending > 0:
+                _maybe_trigger_news_ai(pending)
+            # 清除 L0 缓存让下次请求拿最新数据
+            _cache_news.invalidate_full(confirm="YES")
+        except Exception as e:
+            log.warning(f"news poller round failed: {e}")
+    log.info("news poller stopped")
+
+
+def _maybe_trigger_news_ai(pending: int):
+    """如果有未分析的新闻且 AI 未在运行,触发后台分析。"""
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if not api_key:
+        return
+    # 检查是否已有 AI 分析在跑
+    if not cache_store.get_store().set_nx("news:ai_lock", int(time.time()), ttl=120):
+        return
+    log.info(f"news poller: 触发 AI 分析 {pending} 条")
+
+    def _run():
+        try:
+            cache = news_lookup.load_cache()
+            news = cache.get("news") or []
+            ai = cache.get("ai") or {}
+            pending_news = [n for n in news if n["id"] not in ai]
+            if not pending_news:
+                return
+            model = ai_client.default_model()
+            base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
+            new_ai = _analyze_news_with_ai(pending_news, api_key, model, base_url)
+            if new_ai:
+                news_lookup.save_ai_analysis(new_ai)
+                log.info(f"news poller AI done: {len(new_ai)} analyzed")
+        except Exception as e:
+            log.warning(f"news poller AI failed: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 # Sprint 3: 持久 httpx 客户端 — 替代 _preheat_cache_on_startup 内的 async with _httpx.AsyncClient
 # 每次新建造成 ~80ms TLS/握手,1 个 worker 反复跑 worker 数 × 25 endpoint = 200 次浪费
 # 用模块级单例 + lifespan 启停 → 1 次 pool init,跨 lifecycle 复用
@@ -262,8 +326,18 @@ async def _app_lifespan(app):
     except Exception as e:
         log.warning(f"Sprint 3: httpx pool init failed: {e}, will lazy-init")
     try:
+        # 启动新闻后台轮询
+        news_poller_task = asyncio.create_task(_news_poller_loop())
         yield
     finally:
+        # 停止新闻轮询
+        global _NEWS_POLLER_STOP
+        _NEWS_POLLER_STOP = True
+        news_poller_task.cancel()
+        try:
+            await news_poller_task
+        except asyncio.CancelledError:
+            pass
         if _http_async_client is not None:
             try:
                 await _http_async_client.aclose()
@@ -420,7 +494,7 @@ async def _request_timeout_middleware(request: Request, call_next):
     path = request.url.path
 
     # 白名单: 策略选股/周线擒牛/回测等长任务 (各自内部有更细的超时控制)
-    _long_paths = ("/api/strategies/scan", "/api/strategies/text", "/api/weekly_bull", "/api/screener/backtest", "/api/dragons")
+    _long_paths = ("/api/strategies/scan", "/api/strategies/text", "/api/weekly_bull", "/api/screener/backtest", "/api/dragons", "/api/meta/")
     if path.startswith(_long_paths):
         t0 = time.monotonic()
         resp = await call_next(request)
@@ -4798,34 +4872,39 @@ async def news_list(refresh: bool = Query(False, description="是否强制刷新
 @app.post("/api/news/analyze")
 async def news_analyze():
     """
-    跑 AI 分析(增量:只分析尚未评分的新闻)。
-    返回 {"analyzed": N, "total": M}
+    跑 AI 分析（fire-and-forget：立即返回，AI 在后台运行）。
+    用 Redis 锁 "news:ai_lock" 防重复触发。
+    前端轮询 GET /api/news/ai_status 跟踪进度。
     """
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
     if not api_key:
-        return envelope(error="MINIMAX_API_KEY 未配置", data={"analyzed": 0, "total": 0})
-    model   = ai_client.default_model()
-    base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
+        return envelope(error="MINIMAX_API_KEY 未配置", data={"status": "no_key"})
+
+    # 检查是否已在运行
+    store = cache_store.get_store()
+    if not store.set_nx("news:ai_lock", int(time.time()), ttl=120):
+        return envelope(data={"status": "already_running", "message": "AI 分析正在后台运行"})
 
     def _run():
-        cache = news_lookup.load_cache()
-        news = cache.get("news") or []
-        ai = cache.get("ai") or {}
-        # 增量:跳过已有评分的
-        pending = [n for n in news if n["id"] not in ai]
-        if not pending:
-            return {"analyzed": 0, "total": len(news), "skipped": len(news)}
-        log.info(f"news AI analyze: {len(pending)} 条待评 (已有 {len(ai)})")
-        new_ai = _analyze_news_with_ai(pending, api_key, model, base_url)
-        if new_ai:
-            news_lookup.save_ai_analysis(new_ai)
-        return {"analyzed": len(new_ai), "total": len(news), "skipped": len(news) - len(pending)}
+        try:
+            cache = news_lookup.load_cache()
+            news = cache.get("news") or []
+            ai = cache.get("ai") or {}
+            pending = [n for n in news if n["id"] not in ai]
+            if not pending:
+                return
+            model = ai_client.default_model()
+            base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1/text/chatcompletion_v2")
+            log.info(f"news AI analyze (bg): {len(pending)} 条待评")
+            new_ai = _analyze_news_with_ai(pending, api_key, model, base_url)
+            if new_ai:
+                news_lookup.save_ai_analysis(new_ai)
+                log.info(f"news AI analyze (bg) done: {len(new_ai)} analyzed")
+        except Exception as e:
+            log.warning(f"news AI analyze (bg) failed: {e}")
 
-    try:
-        result = await asyncio.wait_for(to_thread(_run), timeout=120)
-    except asyncio.TimeoutError:
-        return envelope(error="news AI 超时 120s", data={"analyzed": 0, "_degraded": "ai_timeout"})
-    return envelope(data=result)
+    threading.Thread(target=_run, daemon=True).start()
+    return envelope(data={"status": "started", "message": "AI 分析已在后台启动"})
 
 
 @app.post("/api/news/refresh")
@@ -4859,6 +4938,208 @@ async def news_refresh():
     except asyncio.TimeoutError:
         return envelope(error="news refresh 超时", data={"fetched": 0, "analyzed": 0, "_degraded": "timeout"})
     return envelope(data=result)
+
+
+# ── 实时新闻端点 (Phase 6a) ─────────────────────────────────
+
+@app.get("/api/news/live")
+async def news_live():
+    """
+    实时新闻 — 秒返缓存最新数据（含 AI 评分 + L3/L4 板块标注）。
+    L0 20s TTLCache, P95 < 50ms。
+    """
+    l0 = _cache_news.get(("news_live",))
+    if l0 is not None:
+        l0["_cache_hit"] = True
+        l0["_cache_level"] = "l0_mem"
+        return envelope(data=l0)
+
+    def _load():
+        cache = news_lookup.load_cache()
+        news = cache.get("news") or []
+        ai = cache.get("ai") or {}
+        out = []
+        for n in news:
+            item = dict(n)
+            ai_data = ai.get(n["id"])
+            if ai_data:
+                item["ai"] = ai_data
+                # 补 L1 cluster（如果 AI 标注了 chains）
+                chains = ai_data.get("chains") or []
+                if chains:
+                    l3_to_cluster = concept_taxonomy.L3_TO_CLUSTER
+                    clusters = list(dict.fromkeys(
+                        l3_to_cluster.get(c, "") for c in chains if l3_to_cluster.get(c)
+                    ))
+                    item["ai"]["clusters"] = clusters
+            else:
+                item["ai"] = None
+            out.append(item)
+        out.sort(key=lambda x: x.get("ctime") or 0, reverse=True)
+        return {
+            "fetched_at": cache.get("fetched_at") or 0,
+            "analyzed_at": cache.get("analyzed_at") or 0,
+            "news": out,
+            "count": len(out),
+            "ai_count": sum(1 for n in out if n.get("ai")),
+        }
+    try:
+        result = await asyncio.wait_for(to_thread(_load), timeout=10)
+    except asyncio.TimeoutError:
+        return envelope(error="news live 超时", data={"news": [], "count": 0, "_degraded": "timeout"})
+    _cache_news.set(("news_live",), result)
+    return envelope(data=result)
+
+
+@app.get("/api/news/sector/{cluster_name:path}")
+async def news_by_sector(cluster_name: str):
+    """
+    按 L1 板块筛选新闻（如 /api/news/sector/AI算力全链条）。
+    cluster_name 匹配 concept_taxonomy.CLUSTER_ORDER 中的 16 大板块。
+    """
+    l0_key = ("news_sector", cluster_name)
+    l0 = _cache_news.get(l0_key)
+    if l0 is not None:
+        return envelope(data=l0)
+
+    def _load():
+        cache = news_lookup.load_cache()
+        news = cache.get("news") or []
+        ai = cache.get("ai") or {}
+        out = []
+        for n in news:
+            item = dict(n)
+            ai_data = ai.get(n["id"])
+            if not ai_data:
+                continue
+            chains = ai_data.get("chains") or []
+            l3_to_cluster = concept_taxonomy.L3_TO_CLUSTER
+            item_clusters = list(dict.fromkeys(
+                l3_to_cluster.get(c, "") for c in chains if l3_to_cluster.get(c)
+            ))
+            if cluster_name not in item_clusters:
+                continue
+            item["ai"] = ai_data
+            item["ai"]["clusters"] = item_clusters
+            out.append(item)
+        out.sort(key=lambda x: (x.get("ai") or {}).get("score", 0), reverse=True)
+        return {"cluster": cluster_name, "news": out, "count": len(out)}
+    try:
+        result = await asyncio.wait_for(to_thread(_load), timeout=10)
+    except asyncio.TimeoutError:
+        return envelope(error="sector news 超时", data={"cluster": cluster_name, "news": [], "count": 0, "_degraded": "timeout"})
+    _cache_news.set(l0_key, result)
+    return envelope(data=result)
+
+
+@app.get("/api/dashboard/news_impact")
+async def dashboard_news_impact():
+    """
+    首页专用：按 L1 板块聚合新闻影响力。
+    返回 top 8 板块的 impact score, 利好/利空 计数, top news, 涉及 stocks。
+    L0 30s TTLCache。
+    """
+    l0 = _cache_news.get(("news_impact",))
+    if l0 is not None:
+        return envelope(data=l0)
+
+    def _load():
+        cache = news_lookup.load_cache()
+        news = cache.get("news") or []
+        ai = cache.get("ai") or {}
+        l3_to_cluster = concept_taxonomy.L3_TO_CLUSTER
+
+        # 按 cluster 聚合
+        clusters: dict[str, dict] = {}
+        for n in news:
+            ai_data = ai.get(n["id"])
+            if not ai_data:
+                continue
+            score = float(ai_data.get("score", 0) or 0)
+            if score < 3:  # 低影响过滤
+                continue
+            direction = ai_data.get("direction", "中性")
+            chains = ai_data.get("chains") or []
+            for c in chains:
+                cl = l3_to_cluster.get(c, "")
+                if not cl:
+                    continue
+                if cl not in clusters:
+                    clusters[cl] = {
+                        "name": cl, "total_score": 0.0, "news_count": 0,
+                        "bullish": 0, "bearish": 0, "neutral": 0,
+                        "top_news": [], "chains": set(), "stocks": set(),
+                    }
+                b = clusters[cl]
+                b["total_score"] += score
+                b["news_count"] += 1
+                if direction == "利好":
+                    b["bullish"] += 1
+                elif direction == "利空":
+                    b["bearish"] += 1
+                else:
+                    b["neutral"] += 1
+                b["chains"].add(c)
+                for s in (ai_data.get("stocks") or [])[:3]:
+                    b["stocks"].add(s)
+                # 保留 top 5 高分新闻
+                b["top_news"].append({
+                    "id": n["id"], "title": n["title"][:80],
+                    "score": score, "direction": direction,
+                    "reason": ai_data.get("reason", "")[:40],
+                })
+                if len(b["top_news"]) > 5:
+                    b["top_news"].sort(key=lambda x: -x["score"])
+                    b["top_news"] = b["top_news"][:5]
+
+        # 计算 impact_score = avg_score * news_count / max_count（归一化）
+        result_list = []
+        for cl, b in clusters.items():
+            avg = b["total_score"] / b["news_count"] if b["news_count"] else 0
+            result_list.append({
+                "name": cl,
+                "impact_score": round(avg, 1),
+                "news_count": b["news_count"],
+                "bullish": b["bullish"],
+                "bearish": b["bearish"],
+                "neutral": b["neutral"],
+                "top_news": sorted(b["top_news"], key=lambda x: -x["score"])[:3],
+                "chains": sorted(b["chains"]),
+                "stocks_mentioned": sorted(b["stocks"])[:10],
+            })
+        result_list.sort(key=lambda x: -x["impact_score"])
+        return {
+            "clusters": result_list[:8],
+            "updated_at": int(time.time()),
+            "total_news": len(news),
+            "analyzed_news": len(ai),
+        }
+    try:
+        result = await asyncio.wait_for(to_thread(_load), timeout=10)
+    except asyncio.TimeoutError:
+        return envelope(error="news impact 超时", data={"clusters": [], "_degraded": "timeout"})
+    _cache_news.set(("news_impact",), result)
+    return envelope(data=result)
+
+
+# ── AI 分析状态轮询 (fire-and-forget 配套) ──────────────────
+
+@app.get("/api/news/ai_status")
+async def news_ai_status():
+    """查询 AI 分析是否在运行 + 分析进度。"""
+    store = cache_store.get_store()
+    lock_val = store.get("news:ai_lock")
+    running = lock_val is not None
+    cache = news_lookup.load_cache()
+    news_count = len(cache.get("news") or [])
+    ai_count = len(cache.get("ai") or {})
+    return envelope(data={
+        "running": running,
+        "news_total": news_count,
+        "ai_done": ai_count,
+        "ai_pending": news_count - ai_count,
+        "analyzed_at": cache.get("analyzed_at") or 0,
+    })
 
 
 @app.get("/api/stock/{code}/sector")
@@ -5438,6 +5719,10 @@ _zt_screener.register(app)
 # 得鑫量变术 四阶段量化选股
 from . import dexin_screener as _dexin_screener
 _dexin_screener.register(app)
+
+# 综合推荐 Meta Strategy (ZT + 策略选股 + 龙头 + 得鑫)
+from . import meta_strategy as _meta_strategy
+_meta_strategy.register(app)
 
 
 
@@ -6869,7 +7154,17 @@ async def _build_stock_full(code: str, date: str) -> dict:
     profile     = results[12] or {}
 
     # 6) news 过滤 (按 sector + code 命中)
-    related_news = _filter_news_for_stock(news_raw, code, sector)
+    related_news_list = _filter_news_for_stock(news_raw, code, sector)
+    # R-fix-2026-08-02: 兼容 /api/stock/{code}/related_news 端点格式 (dict 含 news/count 等)
+    # 前端 _stockAuxCache 期望 dict 而不是裸 list,否则 "暂无相关新闻" 误判
+    related_news = {
+        "code": code,
+        "news": related_news_list,
+        "count": len(related_news_list),
+        "fetched_at": (news_raw or {}).get("fetched_at") if isinstance(news_raw, dict) else None,
+        "analyzed_at": (news_raw or {}).get("analyzed_at") if isinstance(news_raw, dict) else None,
+        "ai_count": sum(1 for n in related_news_list if isinstance(n, dict) and n.get("ai")),
+    }
 
     # 7) 补 sectorName 给 lu_ctx (如子包未带 sector,基于 sector 字段补一次)
     sector_name = (sector or {}).get("sw") or (sector or {}).get("csrc") or (sector or {}).get("gics") or ""
@@ -7459,9 +7754,19 @@ AI_SYSTEM_PROMPT = _build_ai_system_prompt()
 
 # ── 新闻 AI 分析:批量送 MiniMax ───────────────────────────────
 def _build_news_ai_system() -> str:
-    """系统 prompt:要求按 JSON 输出每条新闻的资金引爆潜力评分"""
+    """系统 prompt:要求按 JSON 输出每条新闻的资金引爆潜力评分（含 L3 产业链标注）。"""
     from .sector_classify import sw_industry_choices_text, SW_31
     choices = sw_industry_choices_text()
+
+    # 注入 L3 产业链列表供 AI 标注 chains 字段
+    from .concept_taxonomy import CONCEPT_L3, CLUSTER_ORDER
+    chain_lines = []
+    for l3_name, info in sorted(CONCEPT_L3.items()):
+        cl = info.get("cluster", "")
+        desc = info.get("desc", "")
+        chain_lines.append(f"  - {l3_name} ({cl}): {desc}")
+    chains_text = "\n".join(chain_lines)
+
     return f"""你是 A 股游资操盘手,专精"政策/产业新闻 → 资金板块流入"传导链分析。
 
 任务:对每条财经新闻评估【资金引爆潜力】,输出标准化 JSON。
@@ -7469,15 +7774,20 @@ def _build_news_ai_system() -> str:
 sectors 字段必须从以下【申万 31 一级行业】中选择(严格匹配):
 {choices}
 
+chains 字段从以下【L3 产业链】中选择(可选多条,无匹配可空数组):
+{chains_text}
+
 其它字段:
 - score (0-10):资金引爆潜力。8+ 重大政策/突发利空/产业革命;5-7 中等利好;<5 弱
 - direction: "利好" / "利空" / "中性"
+- sectors: 受影响的申万 31 行业列表
+- chains: 受影响的 L3 产业链列表(从上方列表中选,最多 3 个)
 - stocks: 涉及的 A 股代码列表(6 位),不确定不写
 - reason: 1 句话(≤35 字)讲为什么能引爆资金,提到具体传导路径
 
 输出严格 JSON 格式:
 {{"items": [
-  {{"id":"<原样回填>", "score":7.5, "direction":"利好", "sectors":["电力设备"], "stocks":["300750"], "reason":"..."}},
+  {{"id":"<原样回填>", "score":7.5, "direction":"利好", "sectors":["电力设备"], "chains":["光伏","储能"], "stocks":["300750"], "reason":"..."}},
   ...
 ]}}
 
@@ -7550,15 +7860,43 @@ def _analyze_news_batch(batch: list[dict], api_key: str, model: str, base_url: s
     if not items:
         return {}
 
+    # 建立 id→原始新闻 映射，供 keyword 匹配补 chains
+    batch_map = {n["id"]: n for n in batch}
+
     out: dict[str, dict] = {}
     for it in items:
         if "id" not in it:
             continue
+        # 注入原始 title/intro 供 concept_taxonomy keyword 匹配
+        src = batch_map.get(it["id"], {})
+        it["_title"] = src.get("title", "")
+        it["_intro"] = src.get("intro", "")
         sectors = [s for s in (it.get("sectors") or []) if s in SW_31]
+
+        # AI 标注的 chains
+        ai_chains = [c for c in (it.get("chains") or []) if c in concept_taxonomy.CONCEPT_L3]
+
+        # keyword 匹配补 chains（从 title/intro 提取）
+        title = it.get("_title") or ""
+        intro = it.get("_intro") or ""
+        kw_matched = concept_taxonomy.match_concepts(f"{title} {intro}")
+        kw_chains = [l3 for l3, _ in kw_matched]
+
+        # 合并去重
+        all_chains = list(dict.fromkeys(ai_chains + kw_chains))[:5]
+
+        # 反查 L1 clusters
+        l3_to_cluster = concept_taxonomy.L3_TO_CLUSTER
+        clusters = list(dict.fromkeys(
+            l3_to_cluster.get(c, "") for c in all_chains if l3_to_cluster.get(c)
+        ))
+
         out[it["id"]] = {
             "score":     float(it.get("score", 0) or 0),
             "direction": it.get("direction", "中性"),
             "sectors":   sectors,
+            "chains":    all_chains,
+            "clusters":  clusters,
             "stocks":    it.get("stocks", []) or [],
             "reason":    (it.get("reason", "") or "")[:60],
         }
@@ -11244,6 +11582,115 @@ from . import strategy_picker as _spicker
 
 # 全市场扫描 Redis 10min cache
 _SPICKER_KEY = "strategy_picker:v1"
+# 全量预热结果(供龙头页 /api/strategies/codes 复用): code → analyze_one 完整结果
+_SPICKER_CODES_KEY = "strategy_picker:codes:v1"
+# 预热元信息(最后成功时间 / 进度)
+_SPICKER_META_KEY = "strategy_picker:meta:v1"
+
+import threading as _th_spicker
+_SP_BG_LOCK = _th_spicker.Lock()
+_SP_BG_RUNNING = False
+_SP_BG_TRIGGER = 0  # 用于响应 refresh=1 / cold-start 主动触发一次
+
+
+def _spicker_signature(wb_min: int, rl_near: bool, ma5: bool, mode: str, min_matched: int) -> str:
+    return f"{wb_min}:{int(rl_near)}:{int(ma5)}:{mode}:{min_matched}"
+
+
+def _spicker_load_meta() -> dict:
+    try:
+        v = cache_store.get_store().get(_SPICKER_META_KEY)
+        if isinstance(v, dict):
+            return v
+        return _cache_obj(v) or {}
+    except Exception:
+        return {}
+
+
+def _spicker_save_meta(meta: dict) -> None:
+    try:
+        cache_store.get_store().set(_SPICKER_META_KEY, meta, ttl=86400)
+    except Exception:
+        pass
+
+
+def _bg_strategies_scan(force: bool = False) -> None:
+    """R-FIX 2026-07-30: 后台异步预热全市场策略扫描。
+
+    关键设计:
+    - 请求路径绝不触发同步扫描(用户体验保证) — 端点只读 Redis
+    - 8 worker 只有一个跑(leader 选举在 startup 块内)
+    - 全量预热一次后写 2 份缓存:
+        a) 默认签名 (1,True,True,or,2) — 给 /api/strategies/scan 用
+        b) 全量 (code → analyze_one) — 给龙头页 /api/strategies/codes 复用
+    - 间隔: 盘中 5min, 盘后 30min (不浪费资源)
+    - force=True 跳过 running check 立即跑(给 refresh=1 路径用)
+    """
+    global _SP_BG_RUNNING
+    if not force and _SP_BG_RUNNING:
+        return
+    with _SP_BG_LOCK:
+        if not force and _SP_BG_RUNNING:
+            return
+        _SP_BG_RUNNING = True
+
+    def _run():
+        global _SP_BG_RUNNING, _SP_BG_TRIGGER
+        t0 = time.time()
+        try:
+            log.info("[spicker-bg] start full-market scan...")
+            result = _spicker.scan_strategies(
+                None,  # 全市场
+                wb_min=1, rl_near=True, ma5_breakout=True,
+                mode="or", min_matched=2, max_workers=8,
+            )
+            # 1) 写默认签名 (UI 默认参数)
+            default_key = f"{_SPICKER_KEY}:{_spicker_signature(1, True, True, 'or', 2)}"
+            _store_set(default_key, result, ttl=300)
+            # 2) 写全量 codes map (龙头页 + 自定义参数回退)
+            codes_map = {}
+            by_strategy = result.get("by_strategy") or {}
+            for sig in (result.get("signals") or []):
+                codes_map[sig["code"]] = {
+                    "wb": (sig.get("wb") or {}).get("count", 0),
+                    "rl": bool((sig.get("rl") or {}).get("near_support")),
+                    "ma5": bool((sig.get("ma5") or {}).get("ok")),
+                    "matched_count": sig.get("matched_count", 0),
+                    "matched_keys": sig.get("matched_keys", []),
+                    "score": (sig.get("score") or {}).get("total", 0),
+                }
+            try:
+                cache_store.get_store().set(_SPICKER_CODES_KEY, codes_map, ttl=300)
+            except Exception:
+                pass
+            meta = {
+                "ts": time.time(),
+                "took_s": round(time.time() - t0, 1),
+                "total_scanned": result.get("total_scanned"),
+                "with_kline": result.get("with_kline"),
+                "matched_count": result.get("matched_count"),
+                "per_strategy": {k: len(v) for k, v in by_strategy.items()},
+            }
+            _spicker_save_meta(meta)
+            log.info(f"[spicker-bg] ✓ done: {result.get('matched_count')} matched in {meta['took_s']}s")
+        except Exception as e:
+            log.warning(f"[spicker-bg] failed: {e}")
+        finally:
+            _SP_BG_RUNNING = False
+            try:
+                if _SP_BG_TRIGGER > 0:
+                    _SP_BG_TRIGGER -= 1
+            except Exception:
+                pass
+
+    _th_spicker.Thread(target=_run, name="spicker-bg", daemon=True).start()
+
+
+def _schedule_spicker_recheck() -> None:
+    """用户主动 refresh=1 → 触发后台扫描(非同步),并把信号数置为 warming。"""
+    global _SP_BG_TRIGGER
+    _SP_BG_TRIGGER += 1
+    _th_spicker.Thread(target=lambda: _bg_strategies_scan(force=True), daemon=True).start()
 
 
 @app.get("/api/strategies/scan")
@@ -11251,8 +11698,8 @@ async def api_strategies_scan(
     wb_min: int = 1,
     rl_near: bool = True,
     ma5: bool = True,
-    mode: str = "and",
-    min_matched: int = 1,
+    mode: str = "or",
+    min_matched: int = 2,
     refresh: bool = False,
 ):
     """3 大策略全市场扫描 — 周线擒牛 + 1/3 回升位 + 5日线放量
@@ -11261,58 +11708,71 @@ async def api_strategies_scan(
       wb_min: 周线至少命中 N/5 (0-5, 默认 1)
       rl_near: 是否要求接近 1/3 回升位 (默认 true)
       ma5: 是否要求 5日线放量 (默认 true)
-      mode: and (全满足, 默认) / or (任一)
-      min_matched: 最少满足数 (1-3, 默认 1)
-      refresh=1: 强制刷新
+      mode: and (全满足) / or (任一), 默认 or
+      min_matched: 最少满足数 (1-3, 默认 2)
+      refresh=1: 强制后台刷新(不阻塞)
+
+    设计: 请求路径永远不触发同步扫描。命中 Redis 直接返;
+    未命中 → 立即返 _warming=True + 踢一次后台扫描 + 前端轮询。
     """
     from . import error_stats as _es
     _es.record("/api/strategies/scan")
 
-    # 1) L0 Redis 10min cache — hit 直接返
-    cache_key = f"{_SPICKER_KEY}:{wb_min}:{int(rl_near)}:{int(ma5)}:{mode}:{min_matched}"
-    if not refresh:
-        cached = _store_get(cache_key, ttl=600)  # 10min
-        if cached:
-            cached["_cache_hit"] = True
-            return envelope(data=cached, meta={"_cache": "redis"})
+    sig = _spicker_signature(wb_min, rl_near, ma5, mode, min_matched)
+    cache_key = f"{_SPICKER_KEY}:{sig}"
 
-    # 2) cold scan (cap 150, 8 workers, kline 复用, ~15-30s)
+    if refresh:
+        _schedule_spicker_recheck()
+
+    # 1) 命中 Redis 直接返(永远秒开)
+    cached = _store_get(cache_key, ttl=600)
+    if cached and cached.get("matched_count", 0) > 0:
+        cached["_cache_hit"] = True
+        return envelope(data=cached, meta={"_cache": "redis"})
+
+    # 2) 未命中或空结果 — 触发后台扫描,返 _warming 状态
+    meta = _spicker_load_meta()
+    if not _SP_BG_RUNNING:
+        _schedule_spicker_recheck()
+
+    # 旧 stale 兜底(若有)
+    stale = _store_get(cache_key + ":stale", ttl=86400)
+    if stale and stale.get("matched_count", 0) > 0:
+        stale["_stale"] = True
+        stale["_warming"] = True
+        return envelope(data=stale, meta={"_stale": True, "_warming": True})
+
+    # 没有任何数据 → warming 占位
+    return envelope(data={
+        "_warming": True,
+        "ts": meta.get("ts", 0),
+        "expected_total": meta.get("total_scanned", 5534),
+        "expected_matched": meta.get("matched_count", 0),
+        "hint": "首次预热中, 请稍后 5-30s 重试或点刷新",
+    }, meta={"_warming": True})
+
+
+@app.get("/api/strategies/codes")
+async def api_strategies_codes():
+    """龙头页用: 返回 {code: {wb, rl, ma5, matched_count, matched_keys, score}} 映射。
+
+    来源: 后台预热写入的 _SPICKER_CODES_KEY (Redis 共享, 5min TTL)。
+    未预热就绪时返 _warming=True + 空 map(前端显示「未扫描」而不是「未命中」)。
+    """
+    from . import error_stats as _es
+    _es.record("/api/strategies/codes")
     try:
-        result = await asyncio.wait_for(
-            to_thread(
-                _spicker.scan_strategies,
-                None,
-                wb_min,
-                rl_near,
-                ma5,
-                mode,
-                min_matched,
-                8,  # max_workers
-            ),
-            timeout=50,
-        )
-    except asyncio.TimeoutError:
-        stale = _store_get(cache_key, ttl=86400)
-        if stale:
-            log.warning(f"策略选股 50s 超时 → 用 stale ({stale.get('ts', '?')})")
-            stale["_stale"] = True
-            return envelope(data=stale, meta={"_stale": True})
-        return envelope(error="策略选股扫描超时 (无 stale 兜底)", data={"_skip": True})
-    except Exception as e:
-        return envelope(error=f"策略选股扫描失败: {e}", data={"_skip": True, "_err": str(e)[:120]})
-
-    # 只缓存有命中结果的扫描；空结果写 stale key 长保留（周末/晚间兜底）
-    if result and not result.get("_skip"):
-        if result.get("matched_count", 0) > 0:
-            _store_set(cache_key, result, ttl=600)           # fresh: 10min
-            _store_set(cache_key + ":stale", result, ttl=86400)  # stale fallback: 24h
-        else:
-            stale = _store_get(cache_key + ":stale")
-            if stale and stale.get("matched_count", 0) > 0:
-                log.info(f"策略选股 空结果 → 用 stale ({stale.get('ts', '?')})")
-                stale["_stale"] = True
-                return envelope(data=stale, meta={"_stale": True})
-    return envelope(data=result or {"_skip": True})
+        v = cache_store.get_store().get(_SPICKER_CODES_KEY)
+        data = _cache_obj(v) or {}
+    except Exception:
+        data = {}
+    meta = _spicker_load_meta()
+    return envelope(data={
+        "codes": data,
+        "ts": meta.get("ts", 0),
+        "ready": bool(data),
+        "_warming": not data,
+    }, meta={"ready": bool(data)})
 
 
 @app.get("/api/strategies/text")
@@ -12179,6 +12639,11 @@ def _startup_dependency_check() -> None:
             log.info("[启动预热] 已跳过 (--no-preheat)")
         else:
             asyncio.create_task(_preheat_cache_on_startup())
+            # 2b) 策略选股全市场后台预热(R-FIX 2026-07-30)
+            try:
+                _bg_strategies_scan(force=True)
+            except Exception as _e:
+                log.warning(f"[spicker-bg] 启动触发失败: {_e}")
         # P1-5 · tunnel 自愈
         # 2026-07-26: ngrok 现由 launchd com.kaikai.tuixue.ngrok (KeepAlive) 独占管理,
         # tunnel_keepalive.sh 只监视 + 写 tunnel_url.txt。in-server heal-loop 会跟它抢
@@ -12724,6 +13189,213 @@ async def api_stream_review(request: Request, trade_id: int):
 # /api/hotspot 已删除 (2026-07-14 应用户要求)
 # 数据源 web/rotation.py 也已删除
 # ═══════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════
+# 综合策略选股 · Comprehensive Strategy
+# ═══════════════════════════════════════════════════════════════
+from . import comprehensive_strategy as _comp
+
+_COMP_SCAN_KEY = "comprehensive:scan:v1"
+_COMP_SCAN_META_KEY = "comprehensive:scan:meta:v1"
+_COMP_OPT_RUNNING = False
+_COMP_OPT_LOCK = _th_spicker.Lock()
+_COMP_FINETUNE_RUNNING = False
+_COMP_FINETUNE_LOCK = _th_spicker.Lock()
+
+
+@app.get("/api/comprehensive/scan")
+async def api_comprehensive_scan(refresh: int = 0):
+    """综合策略全市场扫描。
+
+    GET /api/comprehensive/scan          → 读缓存
+    GET /api/comprehensive/scan?refresh=1 → 触发后台刷新 + 返回 warming 状态
+    """
+    store = cache_store.get_store()
+    if refresh:
+        meta = _comp_load_meta()
+        meta["refresh_queued"] = True
+        meta["refresh_ts"] = time.time()
+        _comp_save_meta(meta)
+        _th_spicker.Thread(target=_bg_comprehensive_scan, daemon=True).start()
+        # 返回 warming 状态
+        cached = _cache_obj(store.get(_COMP_SCAN_KEY))
+        if cached and isinstance(cached, dict) and cached.get("signals"):
+            return envelope(data={**cached, "_refreshing": True})
+        return envelope(data={"_warming": True, "ts": time.time(),
+                              "msg": "综合策略扫描已触发,请稍后刷新"})
+
+    # 读缓存
+    try:
+        cached = _cache_obj(store.get(_COMP_SCAN_KEY))
+        if cached and isinstance(cached, dict) and cached.get("signals"):
+            meta = _comp_load_meta()
+            cached["_meta"] = meta
+            return envelope(data=cached)
+    except Exception:
+        pass
+
+    # 缓存 miss → 同步跑一次 (带超时保护)
+    try:
+        result = await asyncio.wait_for(
+            to_thread(_comp.scan_comprehensive, None, None, 8),
+            timeout=25.0
+        )
+        if result and result.get("signals"):
+            try:
+                store.set(_COMP_SCAN_KEY, result, ttl=300)
+            except Exception:
+                pass
+            return envelope(data=result)
+    except (asyncio.TimeoutError, Exception) as e:
+        log.warning(f"[comprehensive] sync scan failed/timed out: {e}")
+
+    # 为空也写缓存防穿透
+    empty = {"signals": [], "total_scanned": 0, "matched_count": 0, "ts": time.time(), "took_ms": 0}
+    try:
+        store.set(_COMP_SCAN_KEY, empty, ttl=120)
+    except Exception:
+        pass
+    return envelope(data={**empty, "_empty": True})
+
+
+@app.get("/api/comprehensive/progress")
+async def api_comprehensive_progress():
+    """获取优化/扫描的实时进度 (SSE 兼容)。
+
+    前端每 2s 轮询此端点获取进度条更新。
+    返回 {phase, iter, total, best_score, best_params, hold3_wr, ...}
+    """
+    store = cache_store.get_store()
+    try:
+        data = _cache_obj(store.get(_comp.PROGRESS_CACHE_KEY))
+        if data and isinstance(data, dict):
+            data["_ts"] = time.time()
+            return envelope(data=data)
+    except Exception:
+        pass
+    return envelope(data={"phase": "idle", "iter": 0, "total": 0, "best_score": 0,
+                          "msg": "无进行中的任务"})
+
+
+@app.post("/api/comprehensive/optimize")
+async def api_comprehensive_optimize(
+    iterations: int = _comp.COMPREHENSIVE_OPT_ITERATIONS,
+    weight_only: int = 0,
+    sample: int = 300,
+):
+    """启动综合策略 10K 迭代优化。
+
+    POST /api/comprehensive/optimize?iterations=10000&weight_only=0
+    返回 {task_id, status: "started"}。
+    进度通过 /api/comprehensive/progress 实时获取。
+    """
+    global _COMP_OPT_RUNNING, _COMP_FINETUNE_RUNNING
+    store = cache_store.get_store()
+
+    if weight_only:
+        if _COMP_FINETUNE_RUNNING:
+            return envelope(data={"status": "already_running", "type": "finetune"}, ok=False)
+        _COMP_FINETUNE_RUNNING = True
+        task_id = f"comp-finetune-{int(time.time())}"
+        def _run():
+            global _COMP_FINETUNE_RUNNING
+            try:
+                _comp.finetune_weights(
+                    base_params=_comp.DEFAULT_COMPREHENSIVE_PARAMS,
+                    iterations=iterations,
+                    sample=sample,
+                )
+            except Exception as e:
+                log.error(f"[comprehensive] finetune failed: {e}")
+                traceback.print_exc()
+            finally:
+                _COMP_FINETUNE_RUNNING = False
+        _th_spicker.Thread(target=_run, name="comp-finetune", daemon=True).start()
+        return envelope(data={"task_id": task_id, "status": "started", "type": "finetune",
+                              "iterations": iterations})
+
+    if _COMP_OPT_RUNNING:
+        return envelope(data={"status": "already_running", "type": "optimize"}, ok=False)
+    _COMP_OPT_RUNNING = True
+    task_id = f"comp-opt-{int(time.time())}"
+    def _run_full():
+        global _COMP_OPT_RUNNING
+        try:
+            _comp.run_comprehensive_optimization(
+                iterations=iterations,
+                sample=sample,
+            )
+        except Exception as e:
+            log.error(f"[comprehensive] optimize failed: {e}")
+            traceback.print_exc()
+        finally:
+            _COMP_OPT_RUNNING = False
+    _th_spicker.Thread(target=_run_full, name="comp-optimize", daemon=True).start()
+    return envelope(data={"task_id": task_id, "status": "started", "type": "optimize",
+                          "iterations": iterations})
+
+
+@app.get("/api/comprehensive/result")
+async def api_comprehensive_result():
+    """获取最近一次优化/微调的最终结果。"""
+    store = cache_store.get_store()
+    try:
+        data = _cache_obj(store.get(_comp.RESULT_CACHE_KEY))
+        if data and isinstance(data, dict):
+            return envelope(data=data)
+    except Exception:
+        pass
+    return envelope(data={"status": "no_result"}, ok=False)
+
+
+def _comp_load_meta() -> dict:
+    try:
+        v = cache_store.get_store().get(_COMP_SCAN_META_KEY)
+        if isinstance(v, dict):
+            return v
+        return _cache_obj(v) or {}
+    except Exception:
+        return {}
+
+
+def _comp_save_meta(meta: dict) -> None:
+    try:
+        cache_store.get_store().set(_COMP_SCAN_META_KEY, meta, ttl=3600)
+    except Exception:
+        pass
+
+
+def _bg_comprehensive_scan() -> None:
+    """后台综合策略扫描 (异步, ~10-20s)。"""
+    t0 = time.time()
+    store = cache_store.get_store()
+    try:
+        log.info("[comprehensive-bg] start full-market scan...")
+        # 加载最优参数 (从上次优化结果)
+        params = _comp.DEFAULT_COMPREHENSIVE_PARAMS
+        try:
+            opt_result = _cache_obj(store.get(_comp.RESULT_CACHE_KEY))
+            if opt_result and isinstance(opt_result, dict):
+                bp = opt_result.get("best_merged_params") or opt_result.get("best_params")
+                if bp:
+                    params = bp
+        except Exception:
+            pass
+
+        result = _comp.scan_comprehensive(None, params, max_workers=8)
+        store.set(_COMP_SCAN_KEY, result, ttl=300)
+        meta = {
+            "ts": time.time(),
+            "took_s": round(time.time() - t0, 1),
+            "total_scanned": result.get("total_scanned"),
+            "matched_count": result.get("matched_count"),
+            "params_used": result.get("params_used", {}),
+        }
+        _comp_save_meta(meta)
+        log.info(f"[comprehensive-bg] done: {result.get('matched_count')} matched in {meta['took_s']}s")
+    except Exception as e:
+        log.warning(f"[comprehensive-bg] failed: {e}")
 
 
 if __name__ == "__main__":

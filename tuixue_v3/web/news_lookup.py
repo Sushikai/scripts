@@ -1,8 +1,9 @@
 """
 新闻模块：
 - sina lid=2516 (财经要闻) + lid=2517 (7x24快讯) 双源抓取，去重合并
-- 缓存 → Redis (cache_store.tx3:news:cache) TTL 30min，跨进程共享
+- 缓存 → Redis (cache_store.tx3:news:cache) TTL 动态（交易时段 90s / 非交易时段 300s），跨进程共享
 - AI 分析交给 server.py 调用 MiniMax M3，结果回写到 cache.ai
+- 后台 poller 每 60s 自动刷新（交易时段），非交易时段 300s
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +23,14 @@ log = logging.getLogger("tuixue_v3.web.news")
 # 兼容旧逻辑:启动时若 Redis 没数据,从 data/news_cache.json 灌入一次
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _LEGACY_CACHE_FILE = DATA_DIR / "news_cache.json"
-CACHE_TTL = 30 * 60  # 30 分钟
-FETCH_TIMEOUT = 5   # 2026-07-11: 8→5,sina 单 lid 5s 足够
+CACHE_TTL_TRADING = 90     # 交易时段 90s（实时）
+CACHE_TTL_OFFHOURS = 300   # 非交易时段 5min（省资源）
+FETCH_TIMEOUT = 5          # sina 单 lid 5s 足够
+FETCH_TIMEOUT_LIVE = 4     # live poll 用更短超时，避免累积延迟
 DEFAULT_NUM = 30
+LIVE_NUM = 40              # live poll 多取一些保证覆盖
+POLL_INTERVAL_TRADING = 60
+POLL_INTERVAL_OFFHOURS = 300
 
 # 走 cache_store (Redis 主用 + SQLite fallback)
 from .. import cache_store as _cs
@@ -36,6 +42,41 @@ LIDS = {
     2516: "财经要闻",
     2517: "7x24快讯",
 }
+
+# A 股交易时段: 周一至周五 9:30-11:30, 13:00-15:00
+_MORNING_START = dtime(9, 30)
+_MORNING_END = dtime(11, 30)
+_AFTERNOON_START = dtime(13, 0)
+_AFTERNOON_END = dtime(15, 0)
+
+
+def _is_trading_time() -> bool:
+    """判断当前是否在 A 股交易时段内（含周末判断）。"""
+    now = datetime.now()
+    if now.weekday() >= 5:  # 周六日
+        return False
+    t = now.time()
+    return (_MORNING_START <= t <= _MORNING_END) or (_AFTERNOON_START <= t <= _AFTERNOON_END)
+
+
+def get_cache_ttl() -> int:
+    """返回当前应使用的 cache TTL（秒）。"""
+    return CACHE_TTL_TRADING if _is_trading_time() else CACHE_TTL_OFFHOURS
+
+
+def get_poll_interval() -> int:
+    """返回当前应使用的 poll 间隔（秒）。"""
+    return POLL_INTERVAL_TRADING if _is_trading_time() else POLL_INTERVAL_OFFHOURS
+
+
+# ── Poll lock（防多 worker 重复抓取）──────────────────────────
+POLL_LOCK_KEY = "news:poll_lock"
+
+
+def try_acquire_poll_lock() -> bool:
+    """尝试获取 poll 锁，返回 True 表示抢到。锁 TTL 略短于 poll interval。"""
+    ttl = get_poll_interval() - 5
+    return _store.set_nx(POLL_LOCK_KEY, int(time.time()), ttl=ttl)
 
 
 def _hash_id(title: str) -> str:
@@ -144,7 +185,7 @@ def _load_cache() -> dict:
         try:
             legacy = json.loads(_LEGACY_CACHE_FILE.read_text())
             if legacy and isinstance(legacy, dict) and legacy.get("news"):
-                _store.set(K.NEWS, legacy, ttl=CACHE_TTL)
+                _store.set(K.NEWS, legacy, ttl=get_cache_ttl())
                 log.info(f"已从老 news_cache.json 灌入 {len(legacy.get('news', []))} 条")
                 return legacy
         except Exception as e:
@@ -158,26 +199,26 @@ def load_cache() -> dict:
 
 
 def _save_cache(cache: dict) -> None:
-    _store.set(K.NEWS, cache, ttl=CACHE_TTL)
+    _store.set(K.NEWS, cache, ttl=get_cache_ttl())
 
 
 def get_cached_news(force_refresh: bool = False, num: int = DEFAULT_NUM) -> dict:
     """
-    取新闻缓存（30 分钟内复用，否则刷新抓取，但 AI 不在抓取时强制跑）
+    取新闻缓存（TTL 内复用，否则刷新抓取，AI 不在抓取时强制跑）
     返回 {"fetched_at", "analyzed_at", "news": [...], "ai": {id: {...}}, "_stale": bool}
 
-    2026-07-11: 若 fetch_news 失败且旧 cache 非空,标记 _stale=True 返旧 cache,
-    保证 sina 全挂时仍能返非空列表,不写新 fetched_at 避免污染 TTL。
-    2026-07-11: 缓存层从 data/news_cache.json 改走 Redis (cache_store.tx3:news:cache)
+    TTL 动态: 交易时段 90s / 非交易时段 300s。
+    若 fetch_news 失败且旧 cache 非空,标记 _stale=True 返旧 cache。
     """
+    ttl = get_cache_ttl()
     with _lock:
         cache = _load_cache()
         age = time.time() - (cache.get("fetched_at") or 0)
-        if not force_refresh and age < CACHE_TTL and cache.get("news"):
-            log.info(f"news 缓存命中 (age={age:.0f}s)")
+        if not force_refresh and age < ttl and cache.get("news"):
+            log.info(f"news 缓存命中 (age={age:.0f}s, ttl={ttl}s)")
             return cache
 
-        log.info(f"news 抓取刷新 (age={age:.0f}s, force={force_refresh})")
+        log.info(f"news 抓取刷新 (age={age:.0f}s, ttl={ttl}s, force={force_refresh})")
         news = fetch_news(num)
         if not news and cache.get("news"):
             # 抓取失败 → 保留旧 cache, 标 stale
@@ -195,6 +236,15 @@ def get_cached_news(force_refresh: bool = False, num: int = DEFAULT_NUM) -> dict
             cache["analyzed_at"] = 0
         _save_cache(cache)
         return cache
+
+
+def fetch_live_news() -> dict:
+    """
+    轻量版实时抓取：更短超时，更多条数，用于后台 poller。
+    调用 get_cached_news 但 force_refresh=True，返回完整 cache dict。
+    与 get_cached_news 共享同一把 _lock，不会并发抓取。
+    """
+    return get_cached_news(force_refresh=True, num=LIVE_NUM)
 
 
 def save_ai_analysis(ai_map: dict[str, dict]) -> None:

@@ -31,7 +31,7 @@ CACHE_TTL_LAYER = 600.0         # AI 层详情
 CACHE_TTL_SEAT_BD = 600.0       # 8 类席位分类
 CACHE_TTL_INTRADAY = 60.0       # 单股分时
 CACHE_TTL_SECTOR = 3600.0       # 个股板块
-CACHE_TTL_NEWS = 300.0          # 新闻
+CACHE_TTL_NEWS = 30.0           # 新闻 L0 (Redis 层 90s/300s, L0 更短保证跨 worker 鲜度)
 
 # cache_store.py Redis 默认 TTL
 REDIS_TTL_DAILY = 4 * 3600       # 日线 4h

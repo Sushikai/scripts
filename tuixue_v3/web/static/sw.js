@@ -166,7 +166,12 @@
 // v294 (2026-08-02): 修 $ is not defined — core.js `const $` 不跨 script 共享,改 window.$ = ...
 //                    app.js line 901 var toastEl = $('#toast') 抛 ReferenceError,导致整个 JS 初始化失败,
 //                    个股页 hero 全空、tab 全不渲染 (尤其北证 830799 整页空白)。修后实测 stock page 立即出数据。
-const CACHE = 'tuixue-v3-shell-v294-dollar-fix';
+// v295 (2026-08-02): 个股页 503/JSON 格式报错 101 轮修复
+//   1) api() 解析失败时,5xx 不抛"非 JSON"格式错,改成 envelope 兜底 (status + _degraded 提示)
+//   2) loadStockDetail core/full 拆 catch — /core 成功时 /full 失败显示降级横幅而非错误卡
+//   3) catch 里加 last-known sessionStorage 兜底 + 用户友好文案 ("上游服务繁忙")
+//   4) stock 端点 maxRetries: 1 (从 2 降),retry 链等待从 40s 缩到 20s
+const CACHE = 'tuixue-v3-shell-v295-503-fix';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [

@@ -594,7 +594,18 @@ async function api(path, opts) {
   }
   let env;
   try { env = await r.json(); }
-  catch { clearTimeout(_bar); _hideTopProgress(); throw new Error(`HTTP ${r.status} (非 JSON)`); }
+  catch (parseErr) {
+    clearTimeout(_bar); _hideTopProgress();
+    // R101-fix: 5xx (ngrok tunnel 抖动/上游超时返回 HTML 空 body) → 之前抛 "HTTP 503 (非 JSON)"
+    // 让前端以为数据格式坏了,实际是上游过载。现在:5xx 时强制走 envelope 兜底路径,
+    // 让调用方拿到 status + _degraded=true 提示,而非格式错误。error.message 保留 HTTP code
+    // 但前缀改成 "上游超时/降级",方便上层 catch 区分(老 toast 仍认 Error)。
+    const e = new Error(`上游 ${r.status} 降级 (非 JSON)`);
+    e.status = r.status;
+    e._degraded = true;
+    e._parseFail = true;
+    throw e;
+  }
   if (!env.ok) { clearTimeout(_bar); _hideTopProgress(); throw new Error(env.error || `HTTP ${r.status}`); }
   clearTimeout(_bar); _hideTopProgress();
   return env.data;
@@ -1228,6 +1239,7 @@ function showView(name, opts) {
   if (name === 'review')    Promise.resolve().then(() => { try { _reviewOnViewEnter(); } catch (e) { console.warn('review enter:', e); } });
   if (name === 'ai-review') Promise.resolve().then(() => { try { _airvOnViewEnter(); } catch (e) { console.warn('airv enter:', e); } });
   if (name === 'watchlist') Promise.resolve().then(() => { try { _watchlistOnViewEnter(); } catch (e) { console.warn('wl enter:', e); } });
+  if (name === 'strategy_picker') Promise.resolve().then(() => { try { if (typeof loadComprehensive === 'function') loadComprehensive(false); } catch (e) { console.warn('comp enter:', e); } });
   // R-fix-2026-07-16: 进入 stock view → 清空 hero 残留 (上次查询的 name/price/tags 卡在 DOM)
   // 不在 _currentStockCode 已设置时清空 (切到同一只股不要刷掉)
   if (name === 'stock' && !window._currentStockCode && typeof _resetStockHero === 'function') {
@@ -1288,6 +1300,10 @@ const _VIEW_SCRIPT_PLAN = {
   'ai-review': ['view-stock.js', 'view-other.js'],
   weekly_bull: ['view-weekly_bull.js'],
   strategy_picker: ['view-strategy_picker.js'],
+  // Sprint 6 fix: 这些 view 之前靠 <script defer> 加载,改为懒加载后需显式声明
+  screener: ['zt-frontend.js'],
+  dexin: ['dexin-frontend.js'],
+  dash: ['view-dash.js'],
 };
 const _VIEW_SCRIPT_PROMISES = new Map();
 const _VIEW_SCRIPT_LOADED = new Set();
@@ -1359,6 +1375,16 @@ function _routeFromHash() {
   const hNoQuery = h.includes('?') ? h.split('?')[0] : h;
   let name = viewParam || (hNoQuery ? hNoQuery.split('=')[0] : '');
   let arg = hNoQuery.includes('=') ? hNoQuery.split('=')[1] : '';
+  // R-fix-2026-08-02: #stock?code=XXXXXX 从 hash query 解析 code (arg 为空则补)
+  if (!arg && h.includes('?')) {
+    const hq = new URLSearchParams(h.split('?')[1]);
+    const c = hq.get('code');
+    if (c && name === 'stock') arg = c;
+  }
+  // R-fix-2026-08-02: 某些浏览器把 ?code= 从 hash 抽到 location.search
+  if (!arg && name === 'stock' && _sp.get('code')) {
+    arg = _sp.get('code');
+  }
   // R-opt-2026-07-19: ?code=XXXXXX (search param) → 路由到个股页,仅当无 hash 时
   if (!name && !h && _sp.get('code')) {
     name = 'stock';

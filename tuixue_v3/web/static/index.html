@@ -254,6 +254,28 @@
       <p class="caption dim">东财板块指数 · 1min K · 60s SW cache</p>
     </article>
 
+    <!-- 实时新闻情报卡 (Phase 6d) -->
+    <article class="card mt-32" id="live-news-card">
+      <div class="card-eyebrow">情报 · 实时新闻</div>
+      <h3 class="card-h">影响市场的实时消息 <span class="news-updated" id="news-updated-at"></span></h3>
+      <div class="news-filter-bar" id="news-filter-bar">
+        <span class="news-chip active" data-cluster="">全部</span>
+      </div>
+      <div class="news-impact-strip" id="news-impact-strip"></div>
+      <div class="news-feed" id="news-feed">
+        <div class="hs-empty">加载中 …</div>
+      </div>
+      <div class="news-stocks-module" id="news-stocks-module">
+        <div class="news-stocks-head">
+          <span class="news-stocks-title">利好/利空个股 实时扫描</span>
+          <span class="news-stocks-refresh" id="news-stocks-refresh" title="刷新">↻</span>
+        </div>
+        <div class="news-stocks-grid" id="news-stocks-grid">
+          <div class="hs-empty">等待 AI 分析 …</div>
+        </div>
+      </div>
+    </article>
+
     <article class="card mt-32">
       <div class="card-eyebrow">快捷入口</div>
       <h3 class="card-h">个股深查</h3>
@@ -1156,9 +1178,10 @@
                 <th class="sortable" data-sort="seal">封成比<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="change_pct">今日涨幅<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="score">总分<span class="sort-arrow"></span></th>
+                <th>策略</th>
                 <th>提示</th>
               </tr></thead>
-              <tbody><tr><td colspan="12" class="empty">加载中 …</td></tr></tbody>
+              <tbody><tr><td colspan="13" class="empty">加载中 …</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1278,6 +1301,10 @@
       <p class="caption dim" id="sp-status" style="margin: .75rem 0">未加载</p>
       <div id="sp-list"></div>
     </article>
+
+    <!-- 综合策略选股 · 7维加权融合 -->
+    <div id="comp-card-host" style="margin-top:16px;"></div>
+    <p class="caption dim" id="comp-status" style="margin:.5rem 0">点击「刷新」加载综合策略</p>
   </section>
 
   <!-- ─── SECTOR · 板块详情 (从 STEP 2 进入) ─── -->
