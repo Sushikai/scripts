@@ -48,7 +48,10 @@ async def probe_stock(page, code, round_num):
 
     def on_console(m):
         if m.type == "error":
-            page_errors.append(m.text[:200])
+            page_errors.append(m.text[:500])
+    def on_pageerror(e):
+        page_errors.append(f"PAGEERROR: {str(e)[:500]}")
+    page.on("pageerror", on_pageerror)
 
     page.on("response", on_response)
     page.on("console", on_console)
@@ -61,7 +64,12 @@ async def probe_stock(page, code, round_num):
     last_err = None
     for attempt in range(3):
         try:
-            await page.goto(f"{BASE}/?_={code}", wait_until="domcontentloaded", timeout=30000)
+            # wait_until="load" ensures all defer scripts (core.js, app.js) executed
+            await page.goto(f"{BASE}/?_={code}", wait_until="load", timeout=30000)
+            # Verify $ is defined before setting hash (catches script race early)
+            ready = await page.evaluate("() => typeof window.$ === 'function'")
+            if not ready:
+                await asyncio.sleep(2)
             # Set hash after fresh load to trigger stock routing
             await page.evaluate(f"location.hash = '#stock={code}'")
             await asyncio.sleep(1)  # let hashchange listener + showView run
@@ -83,9 +91,9 @@ async def probe_stock(page, code, round_num):
         const text = (el.textContent || '').trim();
         return {sel, exists: true, text: text.slice(0, 50)};
       };
-      // Wait up to 20s for: app.js loaded ($ defined) AND tab buttons > 5 AND title not placeholder
+      // Wait up to 30s for: app.js loaded ($ defined) AND tab buttons > 5 AND title not placeholder
       const start = Date.now();
-      while (Date.now() - start < 20000) {
+      while (Date.now() - start < 30000) {
         const t = (document.querySelector('#stock-title')?.textContent || '').trim();
         const tabBtns = document.querySelectorAll('button[data-tab]').length;
         if (typeof window.$ === 'function' && t && t !== '个股' && tabBtns >= 5) break;
@@ -158,6 +166,7 @@ async def probe_stock(page, code, round_num):
 
     page.remove_listener("response", on_response)
     page.remove_listener("console", on_console)
+    page.remove_listener("pageerror", on_pageerror)
     return {"code": code, "issues": issues, "console_errors": page_errors[:5]}
 
 
