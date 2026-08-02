@@ -171,7 +171,12 @@
 //   2) loadStockDetail core/full 拆 catch — /core 成功时 /full 失败显示降级横幅而非错误卡
 //   3) catch 里加 last-known sessionStorage 兜底 + 用户友好文案 ("上游服务繁忙")
 //   4) stock 端点 maxRetries: 1 (从 2 降),retry 链等待从 40s 缩到 20s
-const CACHE = 'tuixue-v3-shell-v295-503-fix';
+// v296 (2026-08-03): ngrok free plan ERR_NGROK_6024 永久 bypass
+//   - fetch handler 起点注入 ngrok-skip-browser-warning: 1 header
+//   - 自定义 UA 'tuixue-v3-mobile/1.0' 备用 (Safari 路径兜底)
+//   - _isNgrokInterstitial 检测响应头拦截 6024 HTML 入 cache,免下次再喂
+//   - 同源检查仍生效,跨域 (SSE/tunnel) 不接管
+const CACHE = 'tuixue-v3-shell-v296-ngrok-bypass';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [
@@ -325,11 +330,47 @@ self.addEventListener('message', (event) => {
   }
 });
 
+// ngrok free plan: ERR_NGROK_6024 (browser abuse interstitial) 只接受 3 种 bypass
+//   1) ngrok-skip-browser-warning: 1 请求头  (官方推荐)
+//   2) 自定义 User-Agent (非默认浏览器 UA)
+//   3) 付费账户
+// iPhone Safari 默认 UA 不在白名单 → 每次首次访问都要手动点 "Visit Site"
+// SW 在 fetch 时注入 skip header,免费计划下 iPhone/Chrome/Android 全部无感访问
+const _ngrokHost = /\.ngrok-free\.dev$|\.ngrok\.io$|\.ngrok\.app$/;
+function _maybeInjectNgrokHeader(req) {
+  try {
+    const u = new URL(req.url);
+    if (u.hostname.endsWith('localhost') || u.hostname.endsWith('127.0.0.1')) return req;
+    if (!_ngrokHost.test(u.hostname)) return req;
+    const h = new Headers(req.headers);
+    if (!h.has('ngrok-skip-browser-warning')) h.set('ngrok-skip-browser-warning', '1');
+    if (!h.has('User-Agent') || /Safari/.test(h.get('User-Agent') || '')) {
+      // 备用 bypass: 自定义 UA,部分 ngrok 版本也认这个
+      h.set('User-Agent', 'tuixue-v3-mobile/1.0');
+    }
+    return new Request(req, { headers: h });
+  } catch { return req; }
+}
+
+// 检测响应是不是 ngrok 6024 interstitial HTML (200 + "Visit Site"),若是则拒绝缓存
+function _isNgrokInterstitial(r) {
+  try {
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('text/html')) return false;
+    // ngrok interstitial 头: ngrok-skip-browser-warning + ngrok-error-code
+    if (r.headers.get('ngrok-error-code') || /ngrok-skip-browser-warning/i.test(r.headers.get('ngrok-header') || '')) return true;
+  } catch {}
+  return false;
+}
+
 self.addEventListener('fetch', (event) => {
-  const req = event.request;
+  let req = event.request;
   if (req.method !== 'GET') return;          // POST/PUT 不拦截
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;  // 跨域 / SSE / tunnel 端点不接管
+
+  // ngrok free plan bypass — 注入 skip header 让首次访问免点 "Visit Site"
+  req = _maybeInjectNgrokHeader(req);
 
   // ── API: cacheable → stale-while-revalidate,其它 → network-only ──
   // Sprint 4: _isCacheableApi 已隐式包含 long-cache + deep_analysis(同属 /api/ 且不在黑名单)
@@ -371,7 +412,7 @@ self.addEventListener('fetch', (event) => {
       caches.match(req).then((hit) => {
         if (hit) return hit;
         return fetch(req).then((r) => {
-          if (r.ok && r.status === 200) {
+          if (r.ok && r.status === 200 && !_isNgrokInterstitial(r)) {
             const copy = r.clone();
             caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }
@@ -386,7 +427,7 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate' || url.pathname === '/') {
     event.respondWith(
       fetch(req).then((r) => {
-        if (r.ok) {
+        if (r.ok && !_isNgrokInterstitial(r)) {
           const copy = r.clone();
           caches.open(CACHE).then((c) => c.put('/', copy)).catch(() => {});
         }
