@@ -138,17 +138,21 @@ async def probe_stock(page, code, round_num):
             continue
 
         # Pane check
-        pane = await page.evaluate(f"""() => {{
-          const p = document.querySelector('[data-tab-pane="{tab_id}"]');
-          if (!p) return {{exists: false}};
-          return {{
-            exists: true,
-            textLen: (p.textContent || '').length,
-            childCount: p.children.length,
-            canvasCount: p.querySelectorAll('canvas').length,
-            tableCount: p.querySelectorAll('table').length,
-          }};
-        }}""")
+        try:
+            pane = await page.evaluate(f"""() => {{
+              const p = document.querySelector('[data-tab-pane="{tab_id}"]');
+              if (!p) return {{exists: false}};
+              return {{
+                exists: true,
+                textLen: (p.textContent || '').length,
+                childCount: p.children.length,
+                canvasCount: p.querySelectorAll('canvas').length,
+                tableCount: p.querySelectorAll('table').length,
+              }};
+            }}""")
+        except Exception as e:
+            issues.append({"code": code, "issue": f"pane-eval-fail: {tab_id} - {str(e)[:60]}"})
+            continue
         if not pane.get("exists"):
             issues.append({"code": code, "issue": f"pane-missing: {tab_id}"})
             continue
