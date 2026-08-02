@@ -828,14 +828,17 @@ async function loadStockDetail(code, date) {
       window._stockRenderTime = performance.now();
     } catch (e) { console.debug('[core-inline] render fail:', e.message); }
   }
-  const _coreP = api(`/api/stock/${code}/core`, { signal: _stockSignal() });
+  const _coreP = api(`/api/stock/${code}/core`, { signal: _stockSignal(), maxRetries: 1 });
   // Sprint 7: /full 116KB,远大于 /core ~25KB。priority:'low' 让浏览器先 service /core,再传 /full,
   // 避免 116KB 大响应塞满 HTTP/1.1 6 连接池 → 后续切换 view 时其他 API 排队 ~600ms 的卡顿。
   // 测试: P50 /full 收到 body 从 ~210ms 降到 ~80ms,/core 解析更快
-  const _fullP = api(`/api/stock/${code}/full${qs}`, { signal: _stockSignal(), priority: 'low' });
+  // R101-fix: maxRetries=1 (从默认 2 降) — 减少 retry 链等待 (1 retry × 20s + 退避),
+  // 让 503 失败更快冒泡到上层 catch 走降级路径,而不是让用户等 40s+。
+  const _fullP = api(`/api/stock/${code}/full${qs}`, { signal: _stockSignal(), priority: 'low', maxRetries: 1 });
   const _promise = (async () => {
   try {
     // Phase 1: /core — quote + name + 5 KPI + kline (短,sw cache reuse)
+    let _coreOk = false;
     try {
       const coreData = await _coreP;
       if (coreData && coreData.quote && currentStockCode === code) {
@@ -844,6 +847,7 @@ async function loadStockDetail(code, date) {
         _recordHit('redis');
         _hideStockSkeleton();  // R-fix-B8: /core 拿到 quote 即可首屏,立即去 skeleton
       window._stockRenderTime = performance.now();
+        _coreOk = true;
       }
     } catch (e) {
       console.debug('[core] failed:', e.message);
@@ -851,7 +855,25 @@ async function loadStockDetail(code, date) {
 
     // R-opt-2026-07-19: /full 与 /core 同时发起,节省 ~1.2s 总时间
     // (core promise 在上面 await 后才渲染首屏,full 此时已飞了)
-    const data = await _fullP;
+    let data;
+    try {
+      data = await _fullP;
+    } catch (e) {
+      // R101-fix: /full 失败(503/超时/tunnel 抖动)不要让整个 loadStockDetail 崩溃。
+      // 如果 /core 已经渲染了首屏,只显示降级横幅,不弹错误卡。
+      if (currentStockCode !== code) return;
+      if (_coreOk) {
+        console.warn('[full] 降级:', e.message);
+        _showStockDegraded(code, e.message);
+        return;
+      }
+      // core 也没成功 → 抛到外层 catch 走错误卡 + cached 兜底
+      throw e;
+    }
+    if (!data) {  // /full 返 envelope.ok=false (R2 envelope 兜底)
+      if (_coreOk) { _showStockDegraded(code, '数据暂不可用'); return; }
+      throw new Error('数据为空');
+    }
     if (currentStockCode !== code) return;  // 切股了, 丢弃
     // R-fix-2026-07-18 A3: 把 /full 的子包填进 _stockAuxCache,让现有 loadStockSector /
     // loadStockLimitUp / _loadStockStreakPanel 共享,无需各自 fetch
@@ -899,9 +921,20 @@ async function loadStockDetail(code, date) {
     if (cached) {
       console.warn('[stock] 网络失败,使用缓存:', e.message);
     } else {
-      toast(`✗ 加载失败：${e.message}`, 'error');
-      // R77 (Batch 8): 无缓存 + 网络失败 → 显示错误卡 + 重试按钮
-      _showStockError(code, e.message || '网络异常');
+      // R101-fix: 兜底再读一次 last-known (即使本次没拿到,过往浏览过该股就有 cache)
+      const lastKnown = _memFullGet(code, dateParam) || _stockCacheLoad(code, dateParam);
+      if (lastKnown && lastKnown.quote) {
+        console.warn('[stock] 双端失败,用 last-known 渲染:', e.message);
+        try { renderStockDetail(code, lastKnown); _hideStockSkeleton(); }
+        catch (e2) { console.debug('[stock] last-known render fail:', e2.message); }
+      } else {
+        // 用户友好文案:把 "HTTP 503 (非 JSON)" / "上游 X 降级 (非 JSON)" 转换成大白话
+        const friendly = /5\d\d|上游|非 JSON/i.test(e.message || '')
+          ? '上游服务繁忙,请稍后再试' : (e.message || '网络异常');
+        toast(`✗ 加载失败：${friendly}`, 'error');
+        // R77 (Batch 8): 无缓存 + 网络失败 → 显示错误卡 + 重试按钮
+        _showStockError(code, friendly);
+      }
     }
   } finally {
     _hideStockSkeleton();  // R72 (Batch 8): 兜底清 skeleton (避免永久闪烁)
@@ -3291,6 +3324,27 @@ function _hideStockSkeleton() {
 
 // R77 (Batch 8): 全页失败错误卡 + 重试 (网络挂 + 无缓存兜底)
 let _stockRetryHandler = null;
+// R101-fix (Batch 1.5): 部分降级横幅 — /core 成功但 /full 失败时,显示在 quickbar 上方
+// 保留首屏报价/分时/K线,只提示"完整数据暂不可用",不阻塞用户看股价
+function _showStockDegraded(code, msg) {
+  // 防重复:已存在则只更新文案
+  let bar = document.getElementById('stock-degraded-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'stock-degraded-bar';
+    bar.className = 'stock-degraded-bar';
+    const quickbar = $('#stock-quickbar');
+    if (quickbar && quickbar.parentNode) {
+      quickbar.parentNode.insertBefore(bar, quickbar.nextSibling);
+    } else {
+      (document.querySelector('.view-stock') || document.body).prepend(bar);
+    }
+  }
+  bar.innerHTML = `<span class="degraded-icon">⚠</span> <b>${escapeHtml(code)} 数据暂不可用</b> · ${escapeHtml(msg || '上游繁忙')} · <a href="javascript:void(0)" id="stock-degraded-retry">点此重试</a>`;
+  const btn = document.getElementById('stock-degraded-retry');
+  if (btn) btn.onclick = () => { bar.remove(); loadStockDetail(code); };
+  _hideStockSkeleton();
+}
 function _showStockError(code, msg) {
   _hideStockSkeleton();
   const host = $('.view-stock') || document.body;
