@@ -673,9 +673,13 @@ function renderDragons(data) {
       const concept = z.taxonomy?.l3 || z.taxonomy?.l2 || '—';
       const score = z.score_total != null ? String(z.score_total) : '—';
       const changePct = Number.isFinite(Number(z.change_pct)) ? Number(z.change_pct) : null;
+      // 2026-08-03: 昨日表中"今升"chip — 今日又涨停(is_zt_today=true),在涨幅数字后加标识
+      const isPromotedTodayChip = z.is_zt_today
+        ? ' <span class="dragon-promoted-today-chip" title="今日再次涨停,连板升级">今升</span>'
+        : '';
       const changeCell = changePct == null
-        ? '<span class="dim">—</span>'
-        : `<b class="${changePct >= 0 ? 'good' : 'bad'}">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</b>`;
+        ? `<span class="dim">—</span>${isPromotedTodayChip}`
+        : `<b class="${changePct >= 0 ? 'good' : 'bad'}">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</b>${isPromotedTodayChip}`;
       const peCell = z.pe_ttm != null
         ? (z.pe_ttm < 0 ? `<span class="bad">${Number(z.pe_ttm).toFixed(1)}</span>` : Number(z.pe_ttm).toFixed(1))
         : '<span class="dim">—</span>';

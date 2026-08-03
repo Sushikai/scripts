@@ -176,7 +176,7 @@
 //   - 自定义 UA 'tuixue-v3-mobile/1.0' 备用 (Safari 路径兜底)
 //   - _isNgrokInterstitial 检测响应头拦截 6024 HTML 入 cache,免下次再喂
 //   - 同源检查仍生效,跨域 (SSE/tunnel) 不接管
-const CACHE = 'tuixue-v3-shell-v304-ths-font';
+const CACHE = 'tuixue-v3-shell-v305-yest-today-chip';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [

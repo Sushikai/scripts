@@ -8560,6 +8560,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .sp-mark.sp-lv2 { background: rgba(255,193,7,0.28); color: #ffc107; }
 /* 2026-08-03: 龙头表 今日涨幅 cell 旁的"昨升"chip — streak≥2 提示 */
 .dragon-promoted-chip { display: inline-block; padding: 1px 5px; font-size: 9.5px; line-height: 14px; font-weight: 600; border-radius: 3px; margin-left: 3px; vertical-align: middle; background: rgba(229,64,74,.14); color: var(--up); border: 1px solid rgba(229,64,74,.3); cursor: help; }
+/* 2026-08-03: 昨日表中"今升"chip — 今日又涨停 (is_zt_today=true),金色描边 */
+.dragon-promoted-today-chip { display: inline-block; padding: 1px 5px; font-size: 9.5px; line-height: 14px; font-weight: 600; border-radius: 3px; margin-left: 3px; vertical-align: middle; background: rgba(255,193,7,.16); color: #ffc107; border: 1px solid rgba(255,193,7,.45); cursor: help; }
 .ai-detail-wb, .ai-detail-rl { margin: 4px 0 4px 0; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--ink-2); }
 .ai-detail-wb .chip, .ai-detail-rl .chip { cursor: pointer; }
 
