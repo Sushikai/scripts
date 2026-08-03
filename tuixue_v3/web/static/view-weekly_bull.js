@@ -147,7 +147,7 @@ function renderWeeklyBull() {
     '<span class="wb-sort" data-wb-sort="count">命中' + sortArrow('count') + '</span>' +
     '<span class="wb-sort-col wb-sort-detail">信号详情</span></div>';
 
-  const cards = signals.map(s => {
+  const cardHtml = (s) => {
     const code = escapeHtml(s.code || '');
     const name = escapeHtml(s.name || '');
     const wk = s.weekly_last || {};
@@ -168,11 +168,12 @@ function renderWeeklyBull() {
     return '<div class="card wb-card" data-code="' + code + '" style="--wb-accent:' + colorTok + '">' +
       '<div class="wb-card-row">' +
         '<div class="wb-card-main">' +
-          '<div class="wb-card-head">' +
+          '<div class="card-head">' +
             '<a href="#" class="stock-link wb-code-link" data-code="' + code + '" data-patterns="' + escapeHtml((s.matched || []).join(',')) + '">' + code + '</a>' +
             '<span class="wb-stock-name">' + name + '</span>' +
             (wk.close != null ? '<span class="wb-close">¥' + Number(wk.close).toFixed(2) + '</span>' : '') +
             (chg != null ? '<span>' + _wbPct(chg) + '</span>' : '') +
+            '<button class="wl-toggle-btn" data-wl-code="' + code + '" data-wl-name="' + name + '" title="加入自选">⭐</button>' +
           '</div>' +
           '<div class="wb-card-chips">' + chips + '</div>' +
           '<div class="wb-card-reasons">' + reasonsHtml + '</div>' +
@@ -184,9 +185,37 @@ function renderWeeklyBull() {
         '</div>' +
       '</div>' +
     '</div>';
-  }).join('');
-  listHost.innerHTML = sortBar + cards;
+  };
 
+  // 2026-08-03: 命中过多(>50)时分批渲染,避免 12K+ px / 105 cards 撑死 DOM
+  const WB_RENDER_LIMIT = 50;
+  const totalCount = signals.length;
+  let rendered = Math.min(WB_RENDER_LIMIT, totalCount);
+  const moreBarHtml = () => rendered < totalCount
+    ? '<div class="wb-more-bar" id="wb-more-bar">' +
+        '<button class="btn btn-mini" id="wb-show-more">再显示 ' + Math.min(WB_RENDER_LIMIT, totalCount - rendered) + ' 条 (已显示 ' + rendered + '/' + totalCount + ')</button>' +
+      '</div>'
+    : '';
+  listHost.innerHTML = sortBar + signals.slice(0, rendered).map(cardHtml).join('') + moreBarHtml();
+  _wbBind(listHost, signals.slice(0, rendered));
+  const bindMore = () => {
+    const btn = listHost.querySelector('#wb-show-more');
+    if (!btn) return;
+    btn.onclick = () => {
+      const next = Math.min(rendered + WB_RENDER_LIMIT, totalCount);
+      const batch = signals.slice(rendered, next);
+      const bar = listHost.querySelector('#wb-more-bar');
+      bar.insertAdjacentHTML('beforebegin', batch.map(cardHtml).join(''));
+      rendered = next;
+      bar.outerHTML = moreBarHtml();
+      _wbBind(listHost, batch);
+      bindMore();
+    };
+  };
+  bindMore();
+}
+
+function _wbBind(listHost, _signals) {
   listHost.querySelectorAll('.wb-sort').forEach(th => {
     th.onclick = () => {
       const k = th.dataset.wbSort;
@@ -199,15 +228,13 @@ function renderWeeklyBull() {
   listHost.querySelectorAll('a.stock-link').forEach(a => {
     a.onclick = (e) => {
       e.preventDefault();
-      const code = a.dataset.code;
-      const pats = a.dataset.patterns || '';
-      location.hash = '#stock=' + encodeURIComponent(code) + (pats ? '&from=wb&s=' + encodeURIComponent(pats) : '');
+      gotoStock(a.dataset.code);
     };
   });
   listHost.querySelectorAll('.card[data-code]').forEach(el => {
     el.addEventListener('click', (e) => {
       if (e.target.closest('a,button,.chip,.wb-sort')) return;
-      location.hash = '#stock=' + encodeURIComponent(el.dataset.code);
+      gotoStock(el.dataset.code);
     });
   });
   listHost.querySelectorAll('.chip.wb-mini').forEach(c => {
@@ -219,6 +246,17 @@ function renderWeeklyBull() {
       if (location.hash !== newHash) history.replaceState(null, '', newHash);
       renderWeeklyBull();
     };
+  });
+  // R1000-B1: 自选按钮
+  listHost.querySelectorAll('.wl-toggle-btn').forEach(function (btn) {
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      window.wlToggle(btn.dataset.wlCode, btn.dataset.wlName).then(function () {
+        window.wlRefreshBtn(btn);
+      });
+    };
+    window.wlRefreshBtn(btn);
   });
 }
 

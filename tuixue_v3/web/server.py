@@ -237,6 +237,13 @@ def _require_valid_code(code: str) -> str:
     return code
 
 
+def _tencent_mkt(code: str) -> str:
+    """腾讯行情 mkt 前缀。8/92/43 开头 → 北证 bj (830xxx/920xxx/4xxx 新三板),其余按启发式 (6/9/5→sh,其他→sz)。"""
+    if code.startswith(("8", "92", "43")):
+        return "bj"
+    return "sh" if code.startswith(("6", "9", "5")) else "sz"
+
+
 # ── 新闻后台轮询 ─────────────────────────────────────────────
 _NEWS_POLLER_STOP = False
 
@@ -3597,16 +3604,37 @@ async def api_dashboard_index_trend():
         async def _do():
             loop = asyncio.get_event_loop()
             from .. import multi_source_fetchers as msf
+            # 2026-08-03: 优先读 hot_sectors 端点的 Redis 缓存(30s TTL),零成本拿到 sectors 名字 + 涨跌
+            hot = []
             try:
-                hot = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: msf.fetch_hot_sectors(top_n_flow=30, top_n_pct=30)),
-                    timeout=4.0,
-                ) or []
-            except (asyncio.TimeoutError, Exception) as e:
-                log.warning(f"index_trend hot_sectors: {type(e).__name__}: {e}")
-                hot = []
+                cached_hot = cache_store.get_store().get("tuixue:dashboard:hot:v1")
+                if cached_hot:
+                    decoded = _cache_obj(cached_hot)
+                    if decoded and isinstance(decoded, dict):
+                        ml = decoded.get("mainline", [])
+                        # mainline 每条都有 name/change_pct/net_inflow_yi
+                        # 这里需要 raw 元单位给排序用,所以退回 fetch_hot_sectors (但愿命中)
+                        hot = ml
+            except Exception as e:
+                _dbg(f"hot redis get fail: {e}")
+            if not hot:
+                try:
+                    hot = await asyncio.wait_for(
+                        loop.run_in_executor(None, lambda: msf.fetch_hot_sectors(top_n_flow=30, top_n_pct=30)),
+                        timeout=4.0,
+                    ) or []
+                except (asyncio.TimeoutError, Exception) as e:
+                    log.warning(f"index_trend hot_sectors: {type(e).__name__}: {e}")
+                    hot = []
             # 选 Top 8: 取流入 Top 5 + 涨幅 Top 3 (去重), 保证既有资金面又有涨幅面
-            by_flow = sorted(hot, key=lambda x: -(x.get("net_inflow_yi") or 0))[:5]
+            # 2026-08-03: fetch_hot_sectors(THS) 返回 net_inflow 单位是亿, 不是元。
+            # 端点 mainline 缓存的 net_inflow_yi 也是亿(同源)。优先用 mainline 形态(net_inflow_yi)。
+            def _flow_val(s):
+                v = s.get("net_inflow")
+                if v is None:
+                    v = s.get("net_inflow_yi")
+                return v or 0
+            by_flow = sorted(hot, key=_flow_val, reverse=True)[:5]
             flow_names = {x.get("name") for x in by_flow}
             by_pct = [x for x in sorted(hot, key=lambda x: -(x.get("change_pct") or 0)) if x.get("name") not in flow_names][:3]
             rows = by_flow + by_pct
@@ -3640,7 +3668,10 @@ async def api_dashboard_index_trend():
                 if r.get("change_pct") is None:
                     cp = src_sector.get("change_pct")
                     r["change_pct"] = float(cp) if cp is not None else None
-                    r["net_inflow_yi"] = src_sector.get("net_inflow_yi")
+                    # 2026-08-03: fetch_hot_sectors(THS 源) net_inflow 已经是 亿(同 mainline);
+                    # mainline 缓存字段是 net_inflow_yi (亿); 都直接用,不再 /1e8
+                    raw_flow = src_sector.get("net_inflow") or src_sector.get("net_inflow_yi")
+                    r["net_inflow_yi"] = float(raw_flow) if raw_flow is not None else None
                 sectors_out.append(r)
             out["sectors"] = sectors_out
             _dbg(f"OK: indices={len(out['indices'])} sectors={len(out['sectors'])}")
@@ -3770,7 +3801,7 @@ async def stock_kline(code: str, days: int = Query(120, ge=22, le=400)):
 def _fetch_sparkline_tencent(code: str, days: int) -> list:
     """腾讯 fqkline 拉最近 N 日 K — 单次拿全 A 不卡,但 sandbox DNS 可能挂"""
     import requests as _req
-    mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
+    mkt = _tencent_mkt(code)
     url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
     params = {"param": f"{mkt}{code},day,,,{days+5},qfq"}
     try:
@@ -4292,7 +4323,7 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
 
     TIMEOUT = 12     # 总超时 12s,并行各源共享
     EARLY_EXIT_TICKS = 200  # ≥200 tick 即认为粒度够好,提前返回
-    mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
+    mkt = _tencent_mkt(code)
     lock = threading.Lock()
     done_early = threading.Event()
     results = []  # [{source, ticks, prev_close}, ...]
@@ -4330,6 +4361,9 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
 
     # ── 1) akshare ──
     def _ak_worker():
+        # BSE (8/92/43 开头) akshare 走 SSE 拉 tick 会撞 secid 拼错 → RemoteDisconnected 卡死 25s+
+        if code.startswith(("8", "92", "43")):
+            return
         try:
             import akshare as ak
             if is_today:
@@ -4454,6 +4488,9 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
 
     # ── 4) efinance 5min K 兜底 ──
     def _ef_worker():
+        # BSE codes → efinance secid 启发式拼成 0.920799 这种错号 → hang 30s+
+        if code.startswith(("8", "92", "43")):
+            return
         try:
             import threading as _thr
             bx = {"df": None}
@@ -4562,7 +4599,7 @@ def _fetch_intraday_today_tencent_first(code: str) -> dict | None:
     today_str = datetime.now().strftime("%Y-%m-%d")
     try:
         import requests as _req
-        mkt = "sh" if code.startswith(("6", "9", "5")) else "sz"
+        mkt = _tencent_mkt(code)
         url = "http://web.ifzq.gtimg.cn/appstock/app/minute/query"
         r = _req.get(url, params={"code": f"{mkt}{code}"}, timeout=5,
                      headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
@@ -12766,6 +12803,21 @@ def _startup_dependency_check() -> None:
 def main():
     import uvicorn
     import argparse
+    # launchd 起的进程只给 256 个 fd (launchctl limit maxfiles),4 worker 各自
+    # 稳态就占 130-220 个 (上游 HTTPS 连接池 + SQLite + socket)。audit/仪表盘
+    # 并发一冲就撞顶 → socket.socketpair() 抛 OSError(9) → 连接直接 RST,
+    # 客户端看到 ERR_CONNECTION_RESET 而 access.log 里一条 5xx 都没有。
+    # 在 fork worker 之前抬高,子进程继承。
+    try:
+        import resource
+        _soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        _want = 16384 if _hard == resource.RLIM_INFINITY else min(16384, _hard)
+        if _soft < _want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (_want, _hard))
+            print(f"  · RLIMIT_NOFILE {_soft} → {_want}")
+    except Exception as _e:  # pragma: no cover - 平台差异
+        print(f"  · RLIMIT_NOFILE 抬高失败 ({_e}),高并发下可能 ERR_CONNECTION_RESET")
+
     # 加载 ~/.hermes/env.sh (MINIMAX_API_KEY 等)
     _env_sh = Path.home() / ".hermes" / "env.sh"
     if _env_sh.exists():
@@ -13401,6 +13453,111 @@ async def api_comprehensive_result():
     return envelope(data={"status": "no_result"}, ok=False)
 
 
+@app.get("/api/comprehensive/compare")
+async def api_comprehensive_compare():
+    """2026-08-03: 昨日推荐 vs 今日推荐 + 实时涨幅。
+
+    返回:
+      {
+        today: [{code, name, score, sector, current_price, change_pct, change_pct_color}],
+        yesterday: [{code, name, score, sector, prev_close, current_price, change_pct, change_pct_color}],
+        summary: {today_count, yesterday_count, yesterday_avg_change, yesterday_winners}
+      }
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    store = cache_store.get_store()
+    today_key = _dt.now().strftime("%Y%m%d")
+    yesterday_key = (_dt.now() - _td(days=1)).strftime("%Y%m%d")
+
+    def _load_daily(d):
+        try:
+            v = _cache_obj(store.get(f"{_COMP_SCAN_KEY}:daily:{d}"))
+            return v if isinstance(v, dict) else None
+        except Exception:
+            return None
+
+    today_snap = _load_daily(today_key)
+    yesterday_snap = _load_daily(yesterday_key)
+
+    # 实时行情批量拉取 (取实时价 + 涨跌幅)
+    def _fetch_quotes(codes: list[str]) -> dict[str, dict]:
+        from concurrent.futures import ThreadPoolExecutor
+        from .. import lib_common as lc
+
+        def _one(code):
+            try:
+                df = lc.fetch_daily(code, days=5)
+                if df is None or df.empty:
+                    return code, {}
+                last = df.iloc[-1]
+                prev = df.iloc[-2] if len(df) >= 2 else last
+                return code, {
+                    "current_price": float(last.get("收盘", 0) or 0),
+                    "prev_close": float(prev.get("收盘", 0) or 0),
+                    "change_pct": round((float(last.get("收盘", 0) or 0) / float(prev.get("收盘", 1) or 1) - 1) * 100, 2) if float(prev.get("收盘", 1) or 0) > 0 else 0,
+                }
+            except Exception:
+                return code, {}
+
+        out = {}
+        if codes:
+            with ThreadPoolExecutor(max_workers=min(8, len(codes))) as ex:
+                for c, q in ex.map(_one, codes):
+                    if q:
+                        out[c] = q
+        return out
+
+    def _enrich(snap: dict | None) -> list[dict]:
+        if not snap:
+            return []
+        sigs = snap.get("signals") or []
+        codes = [s.get("code") for s in sigs if s.get("code")]
+        quotes = _fetch_quotes(codes)
+        out = []
+        for s in sigs:
+            code = s.get("code")
+            q = quotes.get(code, {})
+            cp = q.get("current_price", 0) or 0
+            prev = q.get("prev_close", 0) or 0
+            chg = q.get("change_pct", 0) or 0
+            out.append({
+                "code": code,
+                "name": s.get("name", ""),
+                "score": s.get("composite", s.get("score", 0)),
+                "sector": s.get("sector", ""),
+                "current_price": cp,
+                "prev_close": prev,
+                "change_pct": chg,
+            })
+        return out
+
+    today_list = _enrich(today_snap)
+    yesterday_list = _enrich(yesterday_snap)
+    # 昨日推荐按涨跌幅排序 (赢家在前)
+    yesterday_list.sort(key=lambda x: -(x.get("change_pct") or 0))
+
+    y_avg = round(sum((x.get("change_pct") or 0) for x in yesterday_list) / max(len(yesterday_list), 1), 2)
+    y_winners = sum(1 for x in yesterday_list if (x.get("change_pct") or 0) > 0)
+
+    return envelope(data={
+        "today_date": today_key,
+        "yesterday_date": yesterday_key,
+        "today": today_list,
+        "yesterday": yesterday_list,
+        "summary": {
+            "today_count": len(today_list),
+            "yesterday_count": len(yesterday_list),
+            "yesterday_avg_change": y_avg,
+            "yesterday_winners": y_winners,
+            "yesterday_win_rate": round(y_winners / max(len(yesterday_list), 1) * 100, 1),
+        },
+        "meta": {
+            "today_ready": today_snap is not None,
+            "yesterday_ready": yesterday_snap is not None,
+        },
+    })
+
+
 def _comp_load_meta() -> dict:
     try:
         v = cache_store.get_store().get(_COMP_SCAN_META_KEY)
@@ -13419,7 +13576,11 @@ def _comp_save_meta(meta: dict) -> None:
 
 
 def _bg_comprehensive_scan() -> None:
-    """后台综合策略扫描 (异步, ~10-20s)。"""
+    """后台综合策略扫描 (异步, ~10-20s)。
+
+    2026-08-03: 每次扫描完后写一份「当日快照」(comprehensive:scan:daily:YYYYMMDD, TTL=14 天),
+    给昨日推荐对比表用。
+    """
     t0 = time.time()
     store = cache_store.get_store()
     try:
@@ -13437,6 +13598,20 @@ def _bg_comprehensive_scan() -> None:
 
         result = _comp.scan_comprehensive(None, params, max_workers=8)
         store.set(_COMP_SCAN_KEY, result, ttl=300)
+        # 2026-08-03: 当日快照 — 按本地日期归档
+        try:
+            from datetime import datetime as _dt
+            today_key = _dt.now().strftime("%Y%m%d")
+            daily_key = f"{_COMP_SCAN_KEY}:daily:{today_key}"
+            snap = {
+                "date": today_key,
+                "ts": time.time(),
+                "matched_count": result.get("matched_count", 0),
+                "signals": (result.get("signals") or [])[:30],  # 仅存 top 30
+            }
+            store.set(daily_key, snap, ttl=86400 * 14)  # 14 天
+        except Exception as e:
+            log.warning(f"[comprehensive-bg] daily snapshot err: {e}")
         meta = {
             "ts": time.time(),
             "took_s": round(time.time() - t0, 1),
