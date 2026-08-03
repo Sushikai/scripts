@@ -961,6 +961,10 @@ _cache_seat_bd = TTLCache(default_ttl=CACHE_TTL_SEAT_BD)
 _cache_intraday = TTLCache(default_ttl=CACHE_TTL_INTRADAY)
 # R-opt-2026-07-19: /core L0 进程内 30s — 跳开 Redis 不可用, 冷启用户二次访问同 worker 秒返
 _cache_core    = TTLCache(default_ttl=30.0)   # /core 完整响应 (per-worker)
+# 2026-08-03: /full L0 进程内 10s — Redis 5s 太短,用户切回/重渲就又冷启;
+# 全字段(kline/fund/seats/sector/lu/strong/seat_bd/news/ai/intraday)里有 80%
+# 是日线/分类/新闻类(分钟级新鲜就够),只 quote/price 真需要秒级
+_cache_full    = TTLCache(default_ttl=30.0)   # /full 完整响应 (per-worker) — 10→30s 让用户切股来回不卡
 # R61 (Batch 7): sector per-code L0 1h — 板块分类极少变 (sw/csrc/cics/gics 字典级别稳定)
 _cache_sector = TTLCache(default_ttl=CACHE_TTL_SECTOR)
 # R62 (Batch 7): news L0 5min — 同 worker 重复刷新闻列表秒开 (新闻数据已用 SQLite 持久化)
@@ -4816,31 +4820,35 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
         result["ticks"] = _ticks_clean
         result["ticks_n"] = len(_ticks_clean)
         # 2026-07-19: 注入支撑/压力位 (1/3 回升位 + A/B + 5日线) — 复用 weekly_bull + recovery_level 缓存
-        try:
-            # 复用模块级别已导入的 _recovery (line ~9301)
-            rl = _recovery.analyze_recovery(code, stock_kline_loader) or {}
-            # 5 日线 MA5: 直接复用 stock_kline_loader
-            ma5_series = []
+        # R-aug-03: 之前在 async handler 里同步调 stock_kline_loader,北证/异常上游
+        # 会阻塞 event loop 25s+ 至 503。改为 to_thread + 8s 超时,失败回退空 support。
+        # BSE (8/92/43 开头) 上游对支持位计算基本不可用,直接跳过省 8s
+        if not code.startswith(("8", "92", "43")):
+            def _compute_support():
+                rl = _recovery.analyze_recovery(code, stock_kline_loader) or {}
+                ma5_series = []
+                try:
+                    daily = stock_kline_loader(code, 10) or []
+                    ma5_series = [k.get("ma5") for k in daily if k.get("ma5") is not None]
+                except Exception:
+                    pass
+                support = {}
+                if rl.get("has_signal"):
+                    support = {
+                        "A": rl.get("A"), "B": rl.get("B"),
+                        "level_1_3": rl.get("level_1_3"),
+                        "level_1_2": rl.get("level_1_2"),
+                        "level_2_3": rl.get("level_2_3"),
+                    }
+                if ma5_series:
+                    support["daily_ma5"] = ma5_series
+                return support
             try:
-                daily = stock_kline_loader(code, 10) or []
-                ma5_series = [k.get("ma5") for k in daily if k.get("ma5") is not None]
-            except Exception:
+                support_levels = await asyncio.wait_for(to_thread(_compute_support), timeout=8.0)
+                if support_levels:
+                    result["support_levels"] = support_levels
+            except (asyncio.TimeoutError, Exception):
                 pass
-            support_levels = {}
-            if rl.get("has_signal"):
-                support_levels = {
-                    "A": rl.get("A"),
-                    "B": rl.get("B"),
-                    "level_1_3": rl.get("level_1_3"),
-                    "level_1_2": rl.get("level_1_2"),
-                    "level_2_3": rl.get("level_2_3"),
-                }
-            if ma5_series:
-                support_levels["daily_ma5"] = ma5_series
-            if support_levels:
-                result["support_levels"] = support_levels
-        except Exception:
-            pass
         _cache_intraday.set(l0_key, result)
         # 历史日走 30min, 今日走 5min (盘中变化) — R51 同样的双 TTL 思路
         from datetime import datetime
@@ -6992,11 +7000,22 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
 
     cache_key = cache_store.K.STOCK_FULL.format(code=code)
     if not fresh:
-        cached = _store_get(cache_key, ttl=5)
+        # 2026-08-03: 优先 L0 进程内 30s (跨 worker 不共享,但同 worker 用户秒返),
+        # 避免 5s Redis 缓存一过期用户切股就重跑 13 个子任务 (~2s)
+        # 注: SSE stream 每 1s 推 quote_patch 实时增量,30s L0 不会让用户看到旧价
+        if not date:
+            _ck_full = ("full", code)
+            cached_l0 = _cache_full.get(_ck_full)
+            if cached_l0:
+                cached_l0["_cache_hit"] = True
+                cached_l0["_cache_level"] = "l0_mem"
+                return json_etag_response(request, envelope(data=cached_l0), max_age=5)
+        cached = _store_get(cache_key, ttl=30)
         if cached:
             cached["_cache_hit"] = True
-            # R7 (Batch 1): Cache-Control max-age=5 + swr=60 — 客户端 (含 SW / 浏览器)
-            # 5s 内直接用本地缓存,5-60s 内 stale 返 + 后台 revalidate
+            cached["_cache_level"] = "l1_redis"
+            if not date:
+                _cache_full.set(("full", code), cached)
             return json_etag_response(request, envelope(data=cached), max_age=5)
 
     # Single-flight: 同一 code 5s 窗口内并发合并 (避免雪崩打 akshare)
@@ -7007,8 +7026,10 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
         raise
     out["_cache_hit"] = False
 
-    # 写 Redis 5s
-    _store_set(cache_key, out, ttl=5)
+    # 写 L0 + L1 (L0 30s 给同 worker, L1 30s 给跨 worker)
+    if not date and out and not out.get("_partial"):
+        _cache_full.set(("full", code), out)
+    _store_set(cache_key, out, ttl=30)
     # R7 (Batch 1): cold path 也带 Cache-Control + ETag — 客户端 5s 内复用,304 省带宽
     # Sprint 7: 当 date 是空 (= 今日实时) 时,max-age=5 → 当天交易时段内 SWR 只命中 cache,
     #           直接拒绝重传 (server "304 Not Modified" 也省,immutable 给浏览器/HTTP 库更强承诺)
@@ -9090,9 +9111,17 @@ async def _deep_llm_verdict(code: str, data: dict, timeout: float = 20.0) -> dic
     profile = fund.get("profile", {}) or {}
     financials = fund.get("financials", []) or []
     jump = fund.get("earnings_jump", {}) or {}
+    sector_pe = fund.get("sector_pe", {}) or {}
+    biz_breakdown = fund.get("biz_breakdown", {}) or {}
+    concepts_pack = fund.get("concepts_pack", {}) or {}
+
+    stock_name = profile.get("name") or "-"
+    current_price = tech.get("current_price") or "-"
 
     lines = [
         "你是 A 股深度分析助手。基于下方多维数据,给出该股的综合判定与操作建议。",
+        "",
+        f"【个股】 {code} {stock_name}  当前价 ¥{current_price}",
         "",
         "【公司概况】",
         f"  行业(SW): {profile.get('industry_sw', '-')}",
@@ -9100,6 +9129,20 @@ async def _deep_llm_verdict(code: str, data: dict, timeout: float = 20.0) -> dic
         f"  员工: {profile.get('emp_num', '-')}",
         f"  业务摘要: {(profile.get('business_summary') or profile.get('business_scope') or '-')[:200]}",
     ]
+    # 所属概念 — 让 LLM 知道"这票属于哪个题材"
+    concepts = concepts_pack.get("concepts") or []
+    if concepts:
+        concept_names = [c.get("name", "") for c in concepts[:6] if c.get("name")]
+        if concept_names:
+            lines.append(f"  所属概念: {', '.join(concept_names)}")
+    # 主营产品 / 行业 — 让 LLM 抓到"卖什么"
+    by_product = biz_breakdown.get("by_product") or []
+    if by_product:
+        top3 = by_product[:3]
+        prod_str = " · 主要产品:" + "、".join(
+            f"{p.get('name','')}({p.get('ratio_pct','-')}%)" for p in top3 if p.get("name")
+        )
+        lines.append(prod_str)
     if financials:
         lines.append("【近几期业绩】")
         for f in financials[:4]:
@@ -9112,17 +9155,32 @@ async def _deep_llm_verdict(code: str, data: dict, timeout: float = 20.0) -> dic
             )
     if jump and jump.get("jump"):
         lines.append(f"【业绩跳变】⚠ {', '.join(jump.get('reasons', [])[:3])}")
+    # 同行 PE 偏离 — 估值锚
+    if sector_pe and sector_pe.get("has_data"):
+        lines.append(
+            f"【同行PE】 行业: {sector_pe.get('industry', '-')}  "
+            f"个股市盈率(动): {sector_pe.get('pe_ttm', '-')}  "
+            f"行业中位: {sector_pe.get('industry_median_pe', '-')}  "
+            f"偏离: {sector_pe.get('deviation_pct', '-')}%"
+        )
 
     lines.append("【技术位置】")
     lines.append(
         f"  趋势: {tech.get('trend_label', '-')}  "
         f"60日位置: {tech.get('pct_position_60d', '-')}%  "
         f"52周位置: {tech.get('pct_position_252d', '-')}%  "
-        f"60日高点回撤: {tech.get('pullback_from_60d_high_pct', '-')}%"
+        f"60日高点回撤: {tech.get('pullback_from_60d_high_pct', '-')}%  "
+        f"距52周低: {tech.get('distance_to_252d_low_pct', '-')}%"
     )
     lines.append(
         f"  MA5乖离: {tech.get('bias_ma5', '-')}%  "
         f"MA20乖离: {tech.get('bias_ma20', '-')}%  "
+        f"MA60乖离: {tech.get('bias_ma60', '-')}%  "
+        f"20日波动: {tech.get('volatility_20d_pct', '-')}%"
+    )
+    lines.append(
+        f"  MA5>MA20: {'是' if tech.get('ma5_above_ma20') else '否'}  "
+        f"MA20>MA60: {'是' if tech.get('ma20_above_ma60') else '否'}  "
         f"突破带: {'是' if tech.get('breakout_zone') else '否'}  "
         f"支撑带: {'是' if tech.get('support_zone') else '否'}"
     )
@@ -9165,17 +9223,23 @@ async def _deep_llm_verdict(code: str, data: dict, timeout: float = 20.0) -> dic
         model=ai_client.default_model(),
         timeout=timeout,
         attempts=(1, 2),
-        max_tokens_alts=(600, 1200),
+        # 2026-08-04: LLM 端点 MiniMax-M3 reasoning_content 1-2k + content 0.5k, 慢 (15-20s) 易 timeout, 多 1 次重试
+        # 2026-08-04: prompt 加了 code/name/价/概念/产品/同业 PE/更多 MA,V2 prompt 增大,
+        # 而 MiniMax-M3 走 reasoning_content (1-2k) + content (0.5k), max_tokens 太低会 finish=length
+        max_tokens_alts=(2500, 4000),
     )
     try:
-        _text, parsed, _info = await asyncio.get_event_loop().run_in_executor(
-            _SCORING_EXECUTOR, ai_client.call, spec
+        loop = asyncio.get_event_loop()
+        # 2026-08-04: 用 default executor (None), 跟 server.py 其他 LLM 调用一致;
+        # _SCORING_EXECUTOR 在 ai_scoring.py 里, server.py 没 import, 触发 NameError → 每次都 fallback
+        _text, parsed, _info = await loop.run_in_executor(
+            None, ai_client.call, spec
         )
         if parsed and isinstance(parsed, dict):
             parsed["ts_updated"] = time.time()
             return parsed
     except Exception as e:
-        log.warning(f"_deep_llm_verdict {code} LLM fail: {e}")
+        log.warning(f"_deep_llm_verdict {code} LLM fail: {type(e).__name__}: {e}")
 
     return _deep_default_no_action()
 
@@ -9194,14 +9258,22 @@ async def _deep_analysis_task(code: str, run_id: str) -> None:
             log.warning(f"_deep_analysis_task {code} LLM timeout/error: {e}")
             verdict = _deep_default_no_action()
         result.update(verdict)
+        # 2026-08-04: LLM 真正的成功才有 recommendation_action / profit_taking_score, fallback 是 "继续持有"
+        # 兜底 result 短期缓存 (5min) 防止反复 fallback 凝结; 真正成功的用 24h
+        is_degraded = (
+            verdict.get("recommendation_action") == "继续持有"
+            and verdict.get("profit_taking_score") == 50
+            and verdict.get("conviction") == 0
+        )
+        cache_ttl = 300 if is_degraded else 86400
         # 1) 写 run_id → result key (供前端轮询)
         try:
             cache_store.get_store().set(res_key, result, ttl=1800)
         except Exception:
             pass
-        # 2) 写主缓存 (24h TTL — 跟 stock_ai_verdict 一致)
+        # 2) 写主缓存 (兜底短期; 真 verdict 长期)
         try:
-            cache_store.get_store().set(cache_key, result, ttl=86400)
+            cache_store.get_store().set(cache_key, result, ttl=cache_ttl)
         except Exception:
             pass
         # 3) 释放锁
@@ -9209,7 +9281,7 @@ async def _deep_analysis_task(code: str, run_id: str) -> None:
             cache_store.get_store().delete(lock_key)
         except Exception:
             pass
-        log.info(f"_deep_analysis_task {code} done, run_id={run_id}")
+        log.info(f"_deep_analysis_task {code} done, run_id={run_id}, degraded={is_degraded}, ttl={cache_ttl}")
     except Exception as e:
         # 失败也要释放锁 + 写一个 degraded result 给前端轮询
         try:

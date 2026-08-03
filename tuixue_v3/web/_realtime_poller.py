@@ -117,11 +117,12 @@ class RealtimePoller:
                 # key 复用 server.py 里 cached() 的约定:("quote", code)
                 self._cache.set(("quote", code), q)
                 # R1 (2026-07-19): 同步写 Redis, 4 worker 全部可见
+                # 2026-08-03: ttl 跟进程内 _cache_quote 对齐到 15s,避免两层 TTL 不一致
                 try:
                     from .. import cache_store as _cs
                     store = _cs.get_store()
                     if store:
-                        store.set(_cs.K.QUOTE.format(code=code), q, ttl=5)
+                        store.set(_cs.K.QUOTE.format(code=code), q, ttl=self.ttl_seconds)
                 except Exception:
                     pass
         except Exception as e:

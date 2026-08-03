@@ -22,7 +22,7 @@ API_BACKTEST_STREAM_TIMEOUT = 600.0 # SSE 回测流
 # TTLCache 默认 TTL (秒) — server.py _cache_* 实例
 # ────────────────────────────────────────────────────────────
 CACHE_TTL_SPOT = 60.0           # 全市场股票列表
-CACHE_TTL_QUOTE = 5.0           # 实时行情 (盘口活)
+CACHE_TTL_QUOTE = 15.0          # 实时行情 (5→15s,2026-08-03 用户体感"越点越慢")
 CACHE_TTL_KLINE = 300.0         # 日线
 CACHE_TTL_FUND = 60.0           # 资金流
 CACHE_TTL_OVERVIEW = 15.0       # 大盘指数
@@ -36,7 +36,7 @@ CACHE_TTL_NEWS = 30.0           # 新闻 L0 (Redis 层 90s/300s, L0 更短保证
 # cache_store.py Redis 默认 TTL
 REDIS_TTL_DAILY = 4 * 3600       # 日线 4h
 REDIS_TTL_INTRADAY = 30 * 60     # 分时 30min
-REDIS_TTL_QUOTE = 5              # 行情 5s
+REDIS_TTL_QUOTE = 15             # 行情 5→15s (跟进程内 L0 对齐,避免两层 TTL 不一致)
 REDIS_TTL_FUND = 60              # 资金流 60s
 REDIS_TTL_SEAT_BD = 24 * 3600    # 席位分类 24h
 REDIS_TTL_KLINE = 5 * 60         # K线 5min
