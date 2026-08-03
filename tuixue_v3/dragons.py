@@ -231,9 +231,10 @@ def _score_recovery(rl_hit: dict | None) -> tuple[float, str]:
 # 工具: 拉涨停股日线 (并行, 5s 总超时)
 # ═══════════════════════════════════════════
 def _fetch_tech_data(codes: list[str]) -> dict[str, dict]:
-    """返回 {code: {volume_ratio, ma5_dist_pct, wb_hit, rl_hit}}
+    """返回 {code: {volume_ratio, ma5_dist_pct, wb_hit, rl_hit, ma5_hit, sp_hit}}
     2026-07-08: 严格只用 SQLite 缓存 (cache_db), 跳过未命中 (不再回退 dl.fetch_daily)
     2026-07-19: +wb_hit (周线擒牛) + rl_hit (1/3 回升位) — 注入 stock_kline_loader
+    2026-07-30: wb/rl/ma5 覆盖全部涨停股 (~100 只, 纯本地 0.3s) + sp_hit 选股器命中
     """
     out: dict[str, dict] = {}
     if not codes:
@@ -286,6 +287,30 @@ def _fetch_tech_data(codes: list[str]) -> dict[str, dict]:
             log.debug(f"rl {code} 失败: {e}")
             return code, None
 
+    def _ma5_one(code: str):
+        try:
+            if _loader is None:
+                return code, None
+            daily = _loader(code, 10) or []
+            if not daily or len(daily) < 6:
+                return code, None
+            from .web.strategy_picker import p_ma5_breakout
+            ok, reason = p_ma5_breakout(daily)
+            return code, {"ok": ok, "reason": reason}
+        except Exception as e:
+            log.debug(f"ma5 {code} 失败: {e}")
+            return code, None
+
+    # 选股器后台预热命中映射(零网络, Redis 共享)
+    sp_codes: dict[str, dict] = {}
+    try:
+        from .web import server as _srv2
+        raw = _srv2._store_get("strategy_picker:codes:v1", ttl=600) or {}
+        if isinstance(raw, dict):
+            sp_codes = raw
+    except Exception:
+        pass
+
     ex = ThreadPoolExecutor(max_workers=min(16, max(1, len(codes))))
     try:
         # 1) 技术面 (优先, fast)
@@ -298,11 +323,12 @@ def _fetch_tech_data(codes: list[str]) -> dict[str, dict]:
                     tech_map[code] = data
             except Exception:
                 continue
-        # 2) 周线擒牛 + 回升位 (并行, 3s 总超时) — Top 30 节省时间
-        top_codes = codes[:30]
-        futs_wb = {ex.submit(_wb_one, c): c for c in top_codes}
-        futs_rl = {ex.submit(_rl_one, c): c for c in top_codes}
-        all_extra = list(futs_wb.keys()) + list(futs_rl.keys())
+        # 2) 周线擒牛 + 回升位 + MA5 放量 (并行, 3s 总超时) — 全部涨停股覆盖 (R-FIX 2026-07-30)
+        # 全部 ~100 只纯本地加载,~300ms 总成本,无回源
+        futs_wb = {ex.submit(_wb_one, c): c for c in codes}
+        futs_rl = {ex.submit(_rl_one, c): c for c in codes}
+        futs_ma5 = {ex.submit(_ma5_one, c): c for c in codes}
+        all_extra = list(futs_wb.keys()) + list(futs_rl.keys()) + list(futs_ma5.keys())
         for fut in all_extra:
             try:
                 code, data = fut.result(timeout=3)
@@ -311,10 +337,22 @@ def _fetch_tech_data(codes: list[str]) -> dict[str, dict]:
                 tech_map.setdefault(code, {})
                 if fut in futs_wb:
                     tech_map[code]["wb_hit"] = data
-                else:
+                elif fut in futs_rl:
                     tech_map[code]["rl_hit"] = data
+                else:
+                    tech_map[code]["ma5_hit"] = data
             except Exception:
                 continue
+        # 3) 选股器命中标记 — 直接合并 Redis 缓存,0 网络
+        if sp_codes:
+            for c in tech_map:
+                sp_info = sp_codes.get(c)
+                if sp_info:
+                    tech_map[c]["sp_hit"] = {
+                        "matched_count": sp_info.get("matched_count", 0),
+                        "matched_keys": sp_info.get("matched_keys", []),
+                        "score": sp_info.get("score", 0),
+                    }
         out.update(tech_map)
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
@@ -467,6 +505,12 @@ def score_dragons(date_str: str | None = None) -> dict:
     log.info(f"[dragons] 技术面已收 {len(tech_map)}/{len(codes)}")
 
     # 5) 评分
+    spot_map: dict[str, dict] = {}
+    try:
+        spot_map = msf.fetch_spot_a_full(8) or {}
+    except Exception as e:
+        log.debug(f"[dragons] 今日涨幅 spot 失败 (降级): {e}")
+
     scored: list[dict] = []
     seal_degraded_count = 0
     for z in zt_pool:
@@ -478,12 +522,21 @@ def score_dragons(date_str: str | None = None) -> dict:
         limit_order_amount = float(z.get("limit_order_amount", 0) or 0)
         amount = float(z.get("amount", 0) or 0)
         turnover_pct = float(z.get("turnover_pct", 0) or 0)
+        spot_change_pct = None
+        try:
+            spot_value = (spot_map.get(code) or {}).get("涨跌幅")
+            if spot_value is not None:
+                spot_change_pct = round(float(spot_value), 2)
+        except (TypeError, ValueError):
+            pass
         first_time = str(z.get("first_time", ""))
         burst_count = int(z.get("burst_count", 0) or 0)
         tech = tech_map.get(code, {})
         vol_ratio = tech.get("volume_ratio")
         ma5_dist = tech.get("ma5_dist_pct")
         seal_ratio_pct = (limit_order_amount / amount * 100) if amount > 0 else None
+        # 2026-08-03: 市盈率(动) — 走 spot_map, 用户要求"龙头表加 PE 列"
+        pe_ttm = (spot_map.get(code) or {}).get("市盈率")
 
         s_streak, note_streak = _score_streak(streak, seal_ratio_pct)
         s_funding, note_funding = _score_funding(lhb_map.get(code))
@@ -521,6 +574,8 @@ def score_dragons(date_str: str | None = None) -> dict:
             "first_time": first_time,
             "burst_count": burst_count,
             "turnover_pct": round(turnover_pct, 1),
+            "change_pct": spot_change_pct,
+            "pe_ttm": round(float(pe_ttm), 2) if pe_ttm is not None else None,
             "is_mainline": any(m and (m in sector or sector in m) for m in mainline_names),
             "taxonomy": classify_sector_name(sector),
             "seat_aliases": (lhb_map.get(code) or {}).get("labels", [])[:5],
@@ -530,6 +585,8 @@ def score_dragons(date_str: str | None = None) -> dict:
                 "reasons": wb_reasons,
             },
             "rl_hit": tech.get("rl_hit") or {},
+            "ma5_hit": tech.get("ma5_hit") or {},
+            "sp_hit": tech.get("sp_hit"),
             "score_breakdown": {
                 "连板强度": {"pts": s_streak, "note": note_streak, "max": 30},
                 "资金认可": {"pts": s_funding, "note": note_funding, "max": 30},
@@ -549,6 +606,8 @@ def score_dragons(date_str: str | None = None) -> dict:
     scored.sort(key=lambda x: x["score_total"], reverse=True)
     for i, s in enumerate(scored, 1):
         s["rank"] = i
+        # 2026-08-03: 昨日升板标记 — streak ≥ 2 表示昨天已涨停 1 板,今天再板就是"昨日升板"延续
+        s["was_zt_yesterday"] = (s.get("streak") or 0) >= 2
 
     # 6) 整体情绪 (用户规则: 涨停家数 + 最高连板)
     max_streak = max((z.get("streak", 1) or 1) for z in zt_pool) if zt_pool else 0
@@ -606,13 +665,6 @@ def score_dragons(date_str: str | None = None) -> dict:
             log.warning(f"[dragons] 昨日涨停池失败: {e}")
     yesterday_all = []
     # v234b (2026-07-28): 补"今日表现"字段 — change_pct (今日涨幅) / is_zt_today (今日是否涨停) / change_type (连板/晋级/晋级失败/大面/震荡)
-    # 需要今日 spot 数据, 但 score_dragons 主体已用过 to_thread 拉过 zt_pool; 这里另起一次小 fetch, 失败降级
-    y_spot_map: dict[str, dict] = {}
-    try:
-        y_spot_map = msf.fetch_spot_a_full(8) or {}
-    except Exception as e:
-        log.debug(f"[dragons] 昨日表补 spot 失败 (降级): {e}")
-
     for z in yesterday_all_raw:
         seal_pct = (float(z.get("limit_order_amount", 0) or 0)
                     / max(float(z.get("amount", 1) or 1), 1) * 100)
@@ -624,15 +676,20 @@ def score_dragons(date_str: str | None = None) -> dict:
             + min(20, seal_pct * 0.4 if seal_pct > 0 else 0)
             + (15 if 30 <= y_mcap <= 300 else 5), 1)
         y_code = str(z.get("code", "")).zfill(6)
-        y_spot = y_spot_map.get(y_code) or {}
+        y_spot = spot_map.get(y_code) or {}
+        y_change_pct = None
         try:
-            y_change_pct = float(y_spot.get("涨跌幅", 0) or 0)
-        except Exception:
-            y_change_pct = 0.0
+            spot_value = y_spot.get("涨跌幅")
+            if spot_value is not None:
+                y_change_pct = float(spot_value)
+        except (TypeError, ValueError):
+            pass
         # 涨停判定: 涨幅 ≥ 9.5% (主板 10% / 创板 20% / 北证 30%, 但实际多数在 9.5-11%)
-        is_zt_today = y_change_pct >= 9.5
+        is_zt_today = y_change_pct is not None and y_change_pct >= 9.5
         # 进阶分类 (3 段式)
-        if is_zt_today:
+        if y_change_pct is None:
+            y_change_type = "未知"
+        elif is_zt_today:
             # 今日涨停 → 晋级 (streak 至少 +1)
             y_change_type = "晋级" if (y_streak + 1) >= 2 else "连板"
         elif y_change_pct >= 5.0:
@@ -654,9 +711,10 @@ def score_dragons(date_str: str | None = None) -> dict:
             "taxonomy": classify_sector_name(z.get("name") or z.get("sector", "")),
             "score_total": y_score,
             # v234b 新增字段
-            "change_pct": round(y_change_pct, 2),
+            "change_pct": round(y_change_pct, 2) if y_change_pct is not None else None,
             "is_zt_today": is_zt_today,
             "change_type": y_change_type,
+            "pe_ttm": y_spot.get("市盈率"),  # 2026-08-03: 龙头表加 PE 列
         })
     log.info(f"[dragons] 昨日涨停 {len(yesterday_all)} 只 ({yesterday_date})")
 

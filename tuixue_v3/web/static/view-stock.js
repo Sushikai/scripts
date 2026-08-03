@@ -33,9 +33,14 @@ function _newChartToken(key) {
 function _isChartTokenStale(key, tk) {
   return _chartToken[key] !== tk;
 }
-
-// ────────────────────────────────────────────
-// BACKTEST — 含回撤可视化
+// 2026-08-03: 模拟盘买卖点日期归一化 (kline='YYYY-MM-DD', marker='YYYYMMDD')
+function _paperDateNorm(s) {
+  if (!s) return '';
+  s = String(s).trim();
+  if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return s;
+}
 // ────────────────────────────────────────────
 // 2026-07-15: 统计层回测 (KPI/分位/场景/板块) — 独立按钮,共享同一面板
 $('#bt-stats-run')?.addEventListener('click', async () => {
@@ -2915,6 +2920,43 @@ async function drawKlineChart() {
         }];
       })(),
     },
+    // 2026-08-03: 模拟盘买卖点标记 (B 买入 / S 卖出),读 sessionStorage.paper_markers
+    markPoint: (() => {
+      const codeNow = window._currentStockCode || window.currentStockCode;
+      if (!codeNow) return { data: [], symbol: 'pin', symbolSize: 36 };
+      let markers = null;
+      try { markers = JSON.parse(sessionStorage.getItem('paper_markers') || '{}'); } catch (_) {}
+      const m = markers && markers[codeNow];
+      if (!m) return { data: [], symbol: 'pin', symbolSize: 36 };
+      const idxB = dates.indexOf(_paperDateNorm(m.buy_date));
+      const idxS = m.sell_date ? dates.indexOf(_paperDateNorm(m.sell_date)) : -1;
+      const pts = [];
+      if (idxB >= 0 && m.buy_price > 0) {
+        pts.push({
+          name: 'B', coord: [idxB, +m.buy_price],
+          symbol: 'pin', symbolSize: 38,
+          itemStyle: { color: '#ff5252' },
+          label: {
+            show: true, formatter: 'B', color: '#fff', fontSize: 11, fontWeight: 700,
+            offset: [0, -10], backgroundColor: '#ff5252',
+            borderRadius: 4, padding: [1, 5],
+          },
+        });
+      }
+      if (idxS >= 0 && m.sell_price > 0) {
+        pts.push({
+          name: 'S', coord: [idxS, +m.sell_price],
+          symbol: 'pin', symbolSize: 38,
+          itemStyle: { color: '#26a69a' },
+          label: {
+            show: true, formatter: 'S', color: '#fff', fontSize: 11, fontWeight: 700,
+            offset: [0, 14], backgroundColor: '#26a69a',
+            borderRadius: 4, padding: [1, 5],
+          },
+        });
+      }
+      return { data: pts, symbol: 'pin', symbolSize: 38, animation: false };
+    })(),
   });
   // MA 叠加（主图）— 2026-07-17: 加 endLabel 把 MA10/20/60 名直接打在每条线的右端,不占顶部空间
   if (ind.ma) {

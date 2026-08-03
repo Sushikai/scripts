@@ -5097,6 +5097,12 @@ ol.law-list li > strong {
 }
 .caption.dim { color: var(--ink-3); }
 .dim { color: var(--ink-3); }
+/* 全局 涨/跌 色 — 配合 <b class="good|bad"> / span / td 使用 */
+.good { color: var(--up); }
+.bad  { color: var(--down); }
+/* 兼容旧版 <span class="up"> / <span class="down"> 写法 */
+.up   { color: var(--up); }
+.down { color: var(--down); }
 .center { text-align: center; }
 .empty {
   padding: 28px;
@@ -8552,6 +8558,8 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 .sp-mark { display: inline-block; padding: 1px 6px; font-size: 10px; line-height: 16px; border-radius: 4px; font-weight: 600; margin-left: 2px; background: rgba(255,193,7,0.18); color: #ffc107; border: 1px solid #ffc10766; }
 .sp-mark.sp-lv3 { background: var(--up); color: #fff; border-color: var(--up); }
 .sp-mark.sp-lv2 { background: rgba(255,193,7,0.28); color: #ffc107; }
+/* 2026-08-03: 龙头表 今日涨幅 cell 旁的"昨升"chip — streak≥2 提示 */
+.dragon-promoted-chip { display: inline-block; padding: 1px 5px; font-size: 9.5px; line-height: 14px; font-weight: 600; border-radius: 3px; margin-left: 3px; vertical-align: middle; background: rgba(229,64,74,.14); color: var(--up); border: 1px solid rgba(229,64,74,.3); cursor: help; }
 .ai-detail-wb, .ai-detail-rl { margin: 4px 0 4px 0; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--ink-2); }
 .ai-detail-wb .chip, .ai-detail-rl .chip { cursor: pointer; }
 

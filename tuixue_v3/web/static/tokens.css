@@ -120,8 +120,8 @@
   --text-tiny:   11px;
   --text-sm:     12px;
   --text-sm2:    12.5px;
-  --text-base:   13px;       /* body 默认 */
-  --text-md:     13.5px;     /* 紧凑大屏默认 (ticker 等) */
+  --text-base:   12px;       /* body 默认 — 同花顺风 */
+  --text-md:     12.5px;     /* 紧凑大屏默认 (ticker 等) */
   --text-md2:    14px;
   --text-lg:     14.5px;
   --text-xl:     15px;
@@ -173,8 +173,10 @@
   --radius-full: 9999px;
 
   /* ─── 字体 (主题无关) ─── */
-  --font-display: 'Fraunces', 'Source Serif Pro', ui-serif, Georgia, serif;
-  --font-body:    'Manrope', system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+  /* 2026-08-03: 改同花顺风 — PingFang SC 优先 (macOS) + Microsoft YaHei (Win) + 系统中文兜底,
+     字号压到 12px,既保留信息密度又清晰 (实测 Webkit/Blink 在 12px 中文渲染最锐) */
+  --font-display: 'PingFang SC', 'Microsoft YaHei', '微软雅黑', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Hiragino Sans GB', 'Source Han Sans CN', sans-serif;
+  --font-body:    'PingFang SC', 'Microsoft YaHei', '微软雅黑', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Hiragino Sans GB', 'Source Han Sans CN', sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
   /* ─── 动效 ─── */

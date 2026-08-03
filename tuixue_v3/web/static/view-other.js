@@ -50,7 +50,7 @@ $('#run-optimize')?.addEventListener('click', async () => {
     try {
       const r = JSON.parse(ev.data);
       $('#optimize-status').textContent = `完成 · 用时 ${r.elapsed_sec || '?'}s · trials=${r.total_trials || '?'}`;
-      toast('调优完成，已写入报告目录', 'success');
+      toast('✓ 调优完成，已写入报告目录', 'success');
       loadReports();
     } catch {
       $('#optimize-status').textContent = '完成';
@@ -162,7 +162,9 @@ var _DRAGONS_SORT_KEYS = {
   market_cap:  s => s.market_cap_yi ?? 0,
   turnover:    s => s.turnover_pct ?? 0,
   seal:        s => s.seal_ratio_pct ?? -1,
+  change_pct:  s => s.change_pct ?? -Infinity,
   score:       s => s.score_total ?? 0,
+  pe:          s => s.pe_ttm ?? -Infinity,
 };
 function _sortDragonsAll(list, key, dir) {
   const fn = _DRAGONS_SORT_KEYS[key];
@@ -188,7 +190,9 @@ var _YEST_SORT_KEYS = {
   market_cap:  z => z.market_cap_yi ?? 0,
   turnover:    z => z.turnover_pct ?? 0,
   seal:        z => z.seal_ratio_pct ?? -1,
+  change_pct:  z => z.change_pct ?? -Infinity,
   score:       z => z.score_total ?? 0,
+  pe:          z => z.pe_ttm ?? -Infinity,
   delta:       z => z.delta ?? -Infinity,
   status:      z => _YEST_STATUS_ORDER[z.statusKey] ?? 0,
 };
@@ -363,6 +367,16 @@ function renderDragons(data) {
       const rlBadge = rl.has_signal
         ? `<span class="dragon-rl-badge ${rl.near_support ? 'rl-near' : ''}" title="${escapeHtml((rl.explanation || '').slice(0, 80))}">1/3位=${escapeHtml(String(rl.level_1_3 ?? '—'))}</span>`
         : '';
+      // MA5 放量 chip — R-FIX 2026-07-30
+      const ma5 = s.ma5_hit || {};
+      const ma5Badge = ma5.ok
+        ? `<span class="dragon-ma5-badge" title="${escapeHtml(ma5.reason || '')}">MA5放量</span>`
+        : '';
+      // 选股器命中 chip — 显示匹配策略数 (≥2 才显示, 1 太宽)
+      const sp = s.sp_hit || null;
+      const spBadge = sp && (sp.matched_count || 0) >= 2
+        ? `<span class="dragon-sp-badge sp-lv${Math.min(3, sp.matched_count || 0)}" title="选股器命中 ${sp.matched_count}/3: ${(sp.matched_keys || []).join('+')}">⭐选股 ${sp.matched_count}/3</span>`
+        : '';
       return `
         <div class="dragon-card${s.rank && s.rank <= 3 ? ' rank-top3' : ''}">
           <div class="dragon-head">
@@ -371,7 +385,7 @@ function renderDragons(data) {
             <span class="dragon-name">${escapeHtml(s.name)}</span>
             <button class="wl-toggle-btn dragon-wl-btn" data-wl-code="${escapeHtml(s.code)}" data-wl-name="${escapeHtml(s.name)}" title="加入自选">⭐</button>
             <span class="dragon-score">${escapeHtml(String(s.score_total))}</span>
-            ${wbBadge}${rlBadge}
+            ${wbBadge}${rlBadge}${ma5Badge}${spBadge}
           </div>
           <div class="dragon-meta">
             ${(() => {
@@ -421,13 +435,21 @@ function renderDragons(data) {
     }
   });
   if (allList.length === 0) {
-    allBody.innerHTML = '<tr><td colspan="11" class="empty">无数据</td></tr>';
+    allBody.innerHTML = '<tr><td colspan="14" class="empty">无数据</td></tr>';
   } else {
     allBody.innerHTML = sortedAll.map(s => {
       const sealTxt = s.seal_ratio_pct != null ? `${s.seal_ratio_pct.toFixed(1)}%` : '—';
       const warnTxt = (s.warnings || []).length ? escapeHtml(s.warnings.join('; ')) : '—';
       const bd = s.score_breakdown || {};
       const bdHtml = _renderAIAnalysisCards(bd, s);
+      const changePct = Number.isFinite(Number(s.change_pct)) ? Number(s.change_pct) : null;
+      // 2026-08-03: 今日涨幅 cell — 涨幅数字 + 昨升 chip (was_zt_yesterday)
+      const promotedChip = s.was_zt_yesterday
+        ? ' <span class="dragon-promoted-chip" title="昨日已涨停,今日继续连板">昨升</span>'
+        : '';
+      const changeCell = changePct == null
+        ? `<span class="dim">—</span>${promotedChip}`
+        : `<b class="${changePct >= 0 ? 'good' : 'bad'}">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</b>${promotedChip}`;
       const conceptCell = (() => {
         const tx = s.taxonomy || {};
         const parts = [];
@@ -435,6 +457,25 @@ function renderDragons(data) {
         if (tx.l2 && tx.l2 !== tx.l3) parts.push(`<span class="dim">${escapeHtml(tx.l2)}</span>`);
         return parts.length ? parts.join(' · ') : '<span class="dim">—</span>';
       })();
+      // 策略列 — 3 策略 chip + 选股器命中标记
+      const _wb = s.wb_hits || {};
+      const _rl = s.rl_hit || {};
+      const _ma5 = s.ma5_hit || {};
+      const _sp = s.sp_hit || null;
+      const stratChips = [
+        (_wb.count || 0) >= 1 ? `<span class="chip-mini strat-wb" title="周线擒牛 ${_wb.count}/5">周${_wb.count}</span>` : '',
+        _rl.has_signal ? `<span class="chip-mini strat-rl" title="1/3回升位 ${_rl.near_support ? '近位' : '远位'}">1/3${_rl.near_support ? '·近' : ''}</span>` : '',
+        _ma5.ok ? `<span class="chip-mini strat-ma5" title="${escapeHtml(_ma5.reason || 'MA5放量')}">MA5</span>` : '',
+      ].filter(Boolean).join('');
+      const spMark = _sp && (_sp.matched_count || 0) >= 2
+        ? `<span class="sp-mark sp-lv${Math.min(3, _sp.matched_count || 0)}" title="选股器命中 ${_sp.matched_count}/3: ${escapeHtml((_sp.matched_keys || []).join('+'))}">⭐${_sp.matched_count}</span>`
+        : '';
+      const stratCell = stratChips
+        ? `<div class="strat-cell">${stratChips}${spMark}</div>`
+        : (spMark ? `<div class="strat-cell">${spMark}</div>` : '<span class="dim">—</span>');
+      const peCell = s.pe_ttm != null
+        ? (s.pe_ttm < 0 ? `<span class="bad">${s.pe_ttm.toFixed(1)}</span>` : s.pe_ttm.toFixed(1))
+        : '<span class="dim">—</span>';
       return `<tr data-code="${escapeHtml(s.code)}" class="clickable ai-toggle">
         <td>${escapeHtml(String(s.rank))}</td>
         <td><a href="#" class="stock-link" data-code="${escapeHtml(s.code)}">${escapeHtml(s.code)}</a></td>
@@ -442,14 +483,17 @@ function renderDragons(data) {
         <td>${escapeHtml(s.sector || '—')}</td>
         <td><b style="color:${(s.streak || 0) >= 3 ? 'var(--up)' : (s.streak || 0) >= 2 ? 'var(--warn)' : 'var(--ink2)'}">${escapeHtml(String(s.streak))}板</b></td>
         <td>${conceptCell}</td>
+        <td>${changeCell}</td>
         <td>${escapeHtml(String(s.market_cap_yi))}亿</td>
         <td>${escapeHtml(String(s.turnover_pct))}%</td>
         <td>${escapeHtml(sealTxt)}</td>
         <td><b>${escapeHtml(String(s.score_total))}</b></td>
+        <td>${peCell}</td>
+        <td>${stratCell}</td>
         <td class="dim">${warnTxt}</td>
       </tr>
       <tr class="ai-detail-row" data-bd-code="${s.code}" hidden>
-        <td colspan="11">${bdHtml}</td>
+        <td colspan="14">${bdHtml}</td>
       </tr>`;
     }).join('');
   }
@@ -607,7 +651,7 @@ function renderDragons(data) {
 
   const yBody = $('#dragons-yesterday-table tbody');
   if (yestEnriched.length === 0) {
-    yBody.innerHTML = '<tr><td colspan="12" class="empty">无昨日涨停数据</td></tr>';
+    yBody.innerHTML = '<tr><td colspan="14" class="empty">无昨日涨停数据</td></tr>';
   } else {
     yBody.innerHTML = sortedYest.map((z, i) => {
       const sealTxt = z.seal_ratio_pct != null ? `${z.seal_ratio_pct.toFixed(1)}%` : '—';
@@ -628,6 +672,13 @@ function renderDragons(data) {
       // 列顺序必须与 #dragons-yesterday-table thead 严格一致 (test_dragons_tables_contract 锁住)
       const concept = z.taxonomy?.l3 || z.taxonomy?.l2 || '—';
       const score = z.score_total != null ? String(z.score_total) : '—';
+      const changePct = Number.isFinite(Number(z.change_pct)) ? Number(z.change_pct) : null;
+      const changeCell = changePct == null
+        ? '<span class="dim">—</span>'
+        : `<b class="${changePct >= 0 ? 'good' : 'bad'}">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</b>`;
+      const peCell = z.pe_ttm != null
+        ? (z.pe_ttm < 0 ? `<span class="bad">${Number(z.pe_ttm).toFixed(1)}</span>` : Number(z.pe_ttm).toFixed(1))
+        : '<span class="dim">—</span>';
       return `<tr data-code="${escapeHtml(z.code)}" data-streak="${yStreak}" data-delta="${z.delta ?? ''}" data-status="${z.statusKey}" data-rank="${i + 1}">
         <td>${i + 1}</td>
         <td><a href="#" class="stock-link" data-code="${escapeHtml(z.code)}">${escapeHtml(z.code)}</a></td>
@@ -635,10 +686,12 @@ function renderDragons(data) {
         <td>${escapeHtml(z.sector || '—')}</td>
         <td><b style="color:${yStreak >= 3 ? 'var(--up)' : yStreak >= 2 ? 'var(--warn)' : 'var(--ink2)'}">${yStreak}板</b></td>
         <td>${escapeHtml(concept)}</td>
+        <td>${changeCell}</td>
         <td>${escapeHtml(String(z.market_cap_yi ?? '—'))}亿</td>
         <td>${escapeHtml(String(z.turnover_pct ?? '—'))}%</td>
         <td>${escapeHtml(sealTxt)}</td>
         <td><b>${escapeHtml(score)}</b></td>
+        <td>${peCell}</td>
         <td>${deltaCell}</td>
         <td>${statusCell}</td>
       </tr>`;
@@ -703,7 +756,7 @@ async function loadDragons(refresh = false) {
     _dragonsLoaded = true;
   } catch (e) {
     $('#dragons-status').textContent = '加载失败: ' + (e.message || e);
-    toast('龙头加载失败');
+    toast('✗ 龙头加载失败', 'error');
   } finally {
     _dragonsLoading = false;
   }
@@ -810,7 +863,7 @@ $('#review-bulk-ai')?.addEventListener('click', async () => {
   await Promise.all(ws);
   btn.disabled = false;
   btn.textContent = original;
-  showToast(`✅ 全部完成 · 成功 ${okCnt} / 失败 ${failCnt}`, 'success', 4000);
+  showToast(`✓ 全部完成 · 成功 ${okCnt} / 失败 ${failCnt}`, 'success', 4000);
   // R15-fix: 一次性刷,账单不闪
   try { await _reviewLoadList(); } catch {}
   try { await _reviewRefreshIntegrity(); } catch {}
@@ -1055,7 +1108,7 @@ $('#tunnel-tg-btn')?.addEventListener('click', async () => {
     const label = data.url ? '公网' : 'LAN';
 
     if (data.tg_ok) {
-      toast(`✅ 已推到 Telegram · ${label} ${target.slice(8, 32)}…`, 'success', 3200);
+      toast(`✓ 已推到 Telegram · ${label} ${target.slice(8, 32)}…`, 'success', 3200);
       return;
     }
     // TG 不可用 → fallback：剪贴板 + 原生分享面板（移动端）
