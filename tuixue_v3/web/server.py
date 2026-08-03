@@ -4845,10 +4845,16 @@ async def news_list(refresh: bool = Query(False, description="是否强制刷新
         cache = news_lookup.get_cached_news(force_refresh=refresh)
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
+        # 2026-08-03: 兜底 — 旧 AI 缓存 (无 name 字段) 实时反查补齐,避免前端只显示代码
+        _name_backfill = _build_code_to_name_map()
         out = []
         for n in news:
             item = dict(n)
-            item["ai"] = ai.get(n["id"]) or None
+            a = ai.get(n["id"]) or None
+            if a and isinstance(a.get("stocks"), list) and a["stocks"] and isinstance(a["stocks"][0], str):
+                a = dict(a)
+                a["stocks"] = [{"code": (str(c).strip().zfill(6)), "name": _name_backfill.get(str(c).strip().zfill(6), "")} for c in a["stocks"]]
+            item["ai"] = a
             out.append(item)
         # 2026-07-16: 用户反馈「新闻好像抓的不是最新的,最新的放在前面」→ 改 ctime 倒序
         # (AI 评分排序会把几天前的重磅新闻顶上来,但用户更在意时效性)
@@ -4958,12 +4964,18 @@ async def news_live():
         cache = news_lookup.load_cache()
         news = cache.get("news") or []
         ai = cache.get("ai") or {}
+        _name_backfill = _build_code_to_name_map()
         out = []
         for n in news:
             item = dict(n)
             ai_data = ai.get(n["id"])
             if ai_data:
                 item["ai"] = ai_data
+                # 2026-08-03: 兜底补 stocks.name (旧 AI 缓存 / 未走新 enrich 路径)
+                if isinstance(ai_data.get("stocks"), list) and ai_data["stocks"] and isinstance(ai_data["stocks"][0], str):
+                    ai_data = dict(ai_data)
+                    ai_data["stocks"] = [{"code": (str(c).strip().zfill(6)), "name": _name_backfill.get(str(c).strip().zfill(6), "")} for c in ai_data["stocks"]]
+                    item["ai"] = ai_data
                 # 补 L1 cluster（如果 AI 标注了 chains）
                 chains = ai_data.get("chains") or []
                 if chains:
@@ -7811,6 +7823,46 @@ def _analyze_news_with_ai(news_list: list[dict], api_key: str, model: str, base_
     return out
 
 
+def _build_code_to_name_map() -> dict[str, str]:
+    """data_layer 全市场 → {code: name}。/_api/news 兜底补齐旧 AI 缓存的 name。
+    5min 内存缓存避免每请求打 Redis。
+    """
+    global _CODE_TO_NAME_CACHE
+    now = time.time()
+    if _CODE_TO_NAME_CACHE[1] and (now - _CODE_TO_NAME_CACHE[1]) < 300:
+        return _CODE_TO_NAME_CACHE[0]
+    try:
+        from .. import data_layer as _dl
+        mkt = _dl.fetch_stock_list_all() or []
+        code2name = {str(c).strip().zfill(6): (n or "").strip() for c, n in mkt if c}
+    except Exception:
+        code2name = {}
+    _CODE_TO_NAME_CACHE = (code2name, now)
+    return code2name
+
+
+_CODE_TO_NAME_CACHE: tuple[dict[str, str], float] = ({}, 0.0)
+
+
+def _enrich_stock_codes_with_names(stocks: list[str]) -> list[dict]:
+    """AI 返回的 stocks=['300750',...] 转为 [{code, name},...],name 查不到则为空。
+    data_layer.fetch_stock_list_all() 走 Redis 24h 缓存,O(1) 反查。
+    """
+    if not stocks:
+        return []
+    try:
+        from .. import data_layer as _dl
+        mkt = _dl.fetch_stock_list_all() or []
+        code2name = {str(c).strip().zfill(6): (n or "").strip() for c, n in mkt}
+    except Exception:
+        code2name = {}
+    out = []
+    for s in stocks:
+        c = str(s).strip().zfill(6)
+        out.append({"code": c, "name": code2name.get(c, "")})
+    return out
+
+
 def _analyze_news_batch(batch: list[dict], api_key: str, model: str, base_url: str) -> dict[str, dict]:
     """单批(≤15 条)→ {id: ai_dict}  (R1+R3 升级走 ai_client.call + parse_json_loose)"""
     from . import ai_client
@@ -7897,7 +7949,7 @@ def _analyze_news_batch(batch: list[dict], api_key: str, model: str, base_url: s
             "sectors":   sectors,
             "chains":    all_chains,
             "clusters":  clusters,
-            "stocks":    it.get("stocks", []) or [],
+            "stocks":    _enrich_stock_codes_with_names(it.get("stocks", []) or []),
             "reason":    (it.get("reason", "") or "")[:60],
         }
     return out
@@ -13396,6 +13448,56 @@ def _bg_comprehensive_scan() -> None:
         log.info(f"[comprehensive-bg] done: {result.get('matched_count')} matched in {meta['took_s']}s")
     except Exception as e:
         log.warning(f"[comprehensive-bg] failed: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
+# 模拟盘 (paper trading) — 涨停策略 2W 初始, 每日推进
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/api/paper/status")
+async def api_paper_status():
+    try:
+        from .paper_trading import get_account, get_positions, get_pending
+        return {"ok": True, "account": get_account(),
+                "positions": get_positions(), "pending": get_pending()}
+    except Exception as e:
+        log.warning(f"paper status err: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/paper/trades")
+async def api_paper_trades(limit: int = 200):
+    try:
+        from .paper_trading import get_trades
+        return {"ok": True, "trades": get_trades(limit)}
+    except Exception as e:
+        log.warning(f"paper trades err: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/paper/run")
+async def api_paper_run(req: dict | None = None, date: str = ""):
+    """手动触发当日模拟盘推进 (默认今天)。date 可走 query 或 body。"""
+    try:
+        from .paper_trading import daily_run
+        d = (req or {}).get("date") if req else None
+        if not d:
+            d = date or None
+        result = daily_run(d)
+        return {"ok": True, **result}
+    except Exception as e:
+        log.warning(f"paper run err: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/paper/reset")
+async def api_paper_reset(init_cash: float = 20000.0):
+    try:
+        from .paper_trading import reset_account
+        return {"ok": True, "account": reset_account(init_cash)}
+    except Exception as e:
+        log.warning(f"paper reset err: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 if __name__ == "__main__":

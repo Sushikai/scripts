@@ -176,7 +176,7 @@
 //   - 自定义 UA 'tuixue-v3-mobile/1.0' 备用 (Safari 路径兜底)
 //   - _isNgrokInterstitial 检测响应头拦截 6024 HTML 入 cache,免下次再喂
 //   - 同源检查仍生效,跨域 (SSE/tunnel) 不接管
-const CACHE = 'tuixue-v3-shell-v296-ngrok-bypass';
+const CACHE = 'tuixue-v3-shell-v300-stock-name';
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [
@@ -396,7 +396,24 @@ self.addEventListener('fetch', (event) => {
             }
             return r;
           }).catch(() => null);
-          return (cached && !navigator.onLine) ? cached : (await fetchPromise) || new Response(
+          const fresh = await fetchPromise;
+          if (fresh) return fresh;
+          // ── tunnel flapping 兜底: 即便 age > ttl,fetch 失败也返 stale cache ──
+          if (cached) {
+            const staleBody = await cached.clone().text();
+            const cachedDate = new Date(cached.headers.get('date') || 0).getTime();
+            const staleAge = Date.now() - (cachedDate || Date.now());
+            return new Response(staleBody, {
+              status: cached.status,
+              statusText: cached.statusText,
+              headers: {
+                ...Object.fromEntries(cached.headers.entries()),
+                'X-Stale': 'true',
+                'X-Stale-Age-Ms': String(staleAge),
+              }
+            });
+          }
+          return new Response(
             JSON.stringify({ ok: false, error: 'offline', cached: false }),
             { status: 503, headers: { 'content-type': 'application/json' } }
           );

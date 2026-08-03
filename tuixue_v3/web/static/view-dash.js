@@ -626,11 +626,17 @@ function _paintNewsStocks(news) {
     var score = ai.score || 0;
     var dir = ai.direction || '中性';
     ai.stocks.forEach(function(s) {
-      if (!stocks[s]) stocks[s] = { code: s, name: '', bullish: 0, bearish: 0, count: 0, maxScore: 0 };
-      stocks[s].count++;
-      stocks[s].maxScore = Math.max(stocks[s].maxScore, score);
-      if (dir === '利好') stocks[s].bullish += score;
-      else if (dir === '利空') stocks[s].bearish += score;
+      // 兼容旧 (string) + 新 ({code, name}) 两种格式
+      var code = (typeof s === 'string') ? s : (s && s.code) || '';
+      var name = (typeof s === 'object' && s) ? (s.name || '') : '';
+      if (!code) return;
+      if (!stocks[code]) stocks[code] = { code: code, name: name, bullish: 0, bearish: 0, count: 0, maxScore: 0 };
+      var st = stocks[code];
+      if (!st.name && name) st.name = name;
+      st.count++;
+      st.maxScore = Math.max(st.maxScore, score);
+      if (dir === '利好') st.bullish += score;
+      else if (dir === '利空') st.bearish += score;
     });
   });
   var list = Object.values(stocks).sort(function(a, b) { return b.maxScore - a.maxScore || b.count - a.count; }).slice(0, 20);
@@ -642,7 +648,9 @@ function _paintNewsStocks(news) {
     var net = s.bullish - s.bearish;
     var dirCls = net > 2 ? 'bullish' : (net < -2 ? 'bearish' : 'neutral');
     var dirLabel = net > 2 ? '利好' : (net < -2 ? '利空' : '中性');
+    var nameHtml = s.name ? '<span class="ns-name">' + escapeHtml(s.name) + '</span>' : '';
     return '<div class="news-stock-item" data-code="' + escapeHtml(s.code) + '" title="' + s.count + '条新闻提及 · 最高评分' + s.maxScore.toFixed(0) + '">'
+      + nameHtml
       + '<span class="ns-code">' + escapeHtml(s.code) + '</span>'
       + '<span class="ns-score">' + s.count + '条</span>'
       + '<span class="ns-dir news-dir ' + dirCls + '">' + dirLabel + '</span>'
