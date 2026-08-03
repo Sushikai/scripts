@@ -4803,7 +4803,9 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
             degraded_reason="intraday_error",
         )
     # R53: 写 L0;L1 Redis 复用 K.INTRADAY:{date}:{code} (TTL 30min 历史/盘中兜底)
-    if result and result.get("ticks"):
+    # 2026-08-04: 之前 if result.get("ticks") 才写缓存,空 ticks 多次重复 2-9s 上游
+    # fetch 直到收盘数据出现. 改为:有 ticks 都缓存 (含过滤后 0 tick 的 negative cache 5min)
+    if result and "ticks" in result:
         # R-aug-01 (2026-08-01): 日期防御 — 按精确日期过滤 tick,strip 日期前缀
         # 今日 (akshare/today) tick 只有 HH:MM:SS → allow_time_only=True
         # 历史 (sina/em hist_min) tick 有完整 YYYY-MM-DD HH:MM:SS → 严格匹配
@@ -4851,9 +4853,13 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
                 pass
         _cache_intraday.set(l0_key, result)
         # 历史日走 30min, 今日走 5min (盘中变化) — R51 同样的双 TTL 思路
+        # 2026-08-04: 0 tick 用 5min 短期 (negative cache), 避免反复重 fetch 9s
         from datetime import datetime
         is_today = (d == datetime.now().strftime("%Y-%m-%d"))
-        ttl = 300 if is_today else 1800
+        if len(_ticks_clean) == 0:
+            ttl = 300  # 5min negative cache
+        else:
+            ttl = 300 if is_today else 1800
         cache_key = f"intraday:{d}:{code}"
         try:
             cache_store.get_store().set(cache_key, result, ttl=ttl)
