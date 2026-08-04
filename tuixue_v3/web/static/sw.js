@@ -176,7 +176,7 @@
 //   - 自定义 UA 'tuixue-v3-mobile/1.0' 备用 (Safari 路径兜底)
 //   - _isNgrokInterstitial 检测响应头拦截 6024 HTML 入 cache,免下次再喂
 //   - 同源检查仍生效,跨域 (SSE/tunnel) 不接管
-const CACHE = 'tuixue-v3-shell-v313-intraday-datepicker-autoload';
+const CACHE = 'tuixue-v3-shell-v314-intraday-prefetch-fast';
 // 2026-08-04: 多 tab in-flight 请求去重 — 同一 URL 在 5s 内只发一次 fetch, 复用同一 Promise
 //   修 "两个 tab 同时打开, 一个 tab 刷不出来" (HTTP/1.1 6 连接池被占满)
 const _INFLIGHT = new Map();

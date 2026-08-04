@@ -4329,6 +4329,18 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
     is_today = (date_str == today_str)
     ymd = date_str.replace("-", "")
 
+    # 2026-08-04: 周末/节假日短路 — 用户点 streak 7-25 (周六) 时直接返"非交易日"避免 4s 浪费。
+    # 注意: 法定节假日 (春节/国庆) A 股也不交易,但 A 股有调休补班 — 暂用 weekday 做近似,
+    # 4 源全挂后 _STALE_TTL 兜底; 真正的节假日得靠 4 源 timeout 自动兜 (不会增加用户感知延迟)。
+    try:
+        _w = datetime.strptime(date_str, "%Y-%m-%d").weekday()
+        if _w >= 5:  # 周六/周日
+            out["note"] = f"{date_str} 非交易日 (周末)"
+            out["source"] = "non_trading_day"
+            return out
+    except ValueError:
+        pass
+
     TIMEOUT = 12     # 总超时 12s,并行各源共享
     EARLY_EXIT_TICKS = 200  # ≥200 tick 即认为粒度够好,提前返回
     mkt = _tencent_mkt(code)
@@ -4545,17 +4557,31 @@ def _fetch_intraday_for_date(code: str, date_str: str, prefer_source: str = "") 
     deadline = _time.time() + TIMEOUT
     for w in workers:
         w.start()
-    # 轮询:每 0.5s 检查 early-exit 信号或 deadline
+    # 2026-08-04 修: 早返回优化 — sina/tencent 任一返 ticks 即返回 (0.2-0.5s)。
+    # 旧版等所有线程 (akshare 2-3s 慢) 致 10 个 streak prefetch 串行拖到 30s+。
+    # 历史日: sina 5min=48 / tencent m1=240 ticks 都已经够用,不需要等 akshare/efinance。
+    # 唯一例外是 tencent_m1 < 48 ticks 时等 akshare 补 (极少,网络抖动时)。
+    _FAST_SUFFICIENT_TICKS = 48
+    _fast_done = threading.Event()
+    def _mark_fast_done():
+        with lock:
+            for r in results:
+                if r["source"] in ("sina_5m", "tencent_minute", "tencent_m1") and len(r["ticks"]) >= _FAST_SUFFICIENT_TICKS:
+                    _fast_done.set()
+                    break
+    # 0.1s 轮询 — 比 0.5s 灵敏 5 倍,fast 完成即退出
     while _time.time() < deadline:
-        if done_early.is_set():
+        if done_early.is_set() or _fast_done.is_set():
             break
-        # 检查是否所有线程已结束
+        _mark_fast_done()
+        if _fast_done.is_set():
+            break
         if all(not w.is_alive() for w in workers):
             break
-        _time.sleep(0.5)
-    # 确保至少等所有线程启动后的第一次检查
+        _time.sleep(0.1)
+    # 收尾: 给活线程最多 0.2s (sina/tencent 早已 done,这是兜底 akshare/efinance)
     for w in workers:
-        w.join(timeout=0.1)
+        w.join(timeout=0.2)
 
     # ── 选最佳: tick 数最多 = 粒度最细 ──
     if not results:
@@ -11834,6 +11860,15 @@ def _bg_strategies_scan(force: bool = False) -> None:
     def _run():
         global _SP_BG_RUNNING, _SP_BG_TRIGGER
         t0 = time.time()
+        # R-fix 2026-08-04: 跨 worker Redis lock — 8 worker + startup + refresh=1 同时触发,
+        # 旧版只有 per-process flag,会跑 8 次同样扫描 (~60s × 8 = 8min 浪费)
+        try:
+            lock_key = "strategy_picker:bg_lock"
+            if not cache_store.get_store().set_nx(lock_key, int(t0), ttl=180):
+                log.info("[spicker-bg] 其他 worker 已在跑 (lock held), 本次跳过")
+                return
+        except Exception:
+            pass
         try:
             log.info("[spicker-bg] start full-market scan...")
             result = _spicker.scan_strategies(
@@ -11841,9 +11876,23 @@ def _bg_strategies_scan(force: bool = False) -> None:
                 wb_min=1, rl_near=True, ma5_breakout=True,
                 mode="or", min_matched=2, max_workers=8,
             )
+            # 即使 0 matched 也写一个 _data_status 标记,前端可识别"已知暂时无数据"
+            # vs "上次有数据" vs "全新冷启动"
+            matched_n = result.get("matched_count", 0) or 0
+            with_kline = result.get("with_kline", 0) or 0
+            if matched_n == 0 and with_kline > 100:
+                result["_data_status"] = "upstream_empty"
             # 1) 写默认签名 (UI 默认参数)
             default_key = f"{_SPICKER_KEY}:{_spicker_signature(1, True, True, 'or', 2)}"
             _store_set(default_key, result, ttl=300)
+            # stale 兜底: 有数据写 24h, 空状态(上游挂了)写 60s
+            try:
+                if matched_n > 0:
+                    cache_store.get_store().set(default_key + ":stale", result, ttl=86400)
+                elif result.get("_data_status") == "upstream_empty":
+                    cache_store.get_store().set(default_key + ":stale", result, ttl=60)
+            except Exception:
+                pass
             # 2) 写全量 codes map (龙头页 + 自定义参数回退)
             codes_map = {}
             by_strategy = result.get("by_strategy") or {}
@@ -11927,6 +11976,12 @@ async def api_strategies_scan(
         cached["_cache_hit"] = True
         return envelope(data=cached, meta={"_cache": "redis"})
 
+    # 1b) 已知"上游挂了"状态: 直接返缓存 + 标注,前端显示文案而非纯空
+    if cached and cached.get("_data_status") == "upstream_empty":
+        cached["_cache_hit"] = True
+        cached["_data_warning"] = "upstream_degraded"
+        return envelope(data=cached, meta={"_cache": "redis", "_data_warning": "upstream_degraded"})
+
     # 2) 未命中或空结果 — 触发后台扫描,返 _warming 状态
     meta = _spicker_load_meta()
     if not _SP_BG_RUNNING:
@@ -11972,9 +12027,97 @@ async def api_strategies_codes():
     }, meta={"ready": bool(data)})
 
 
+@app.get("/api/strategies/params")
+async def api_strategies_params():
+    """2026-08-04: 返回当前策略选股器用的 OPTIMAL_PARAMS (训练来源+诊断指标)。"""
+    try:
+        from .. import zt_config as _zc
+        p = dict(_zc.OPTIMAL_PARAMS)
+    except Exception as e:
+        log.warning("api_strategies_params import err: %s", e)
+        return envelope(data={"params": {}, "ts": time.time(), "err": str(e)})
+    out = {"params": p, "ts": time.time()}
+    # 附加最近一次科学训练报告
+    try:
+        report_path = Path("/Users/kaikai/scripts/tuixue_v3/output/sci_report.json")
+        if report_path.exists():
+            data = json.loads(report_path.read_text())
+            out["training_report"] = {
+                "ts": data.get("ts"),
+                "in_sample_score": (data.get("in_sample") or {}).get("best_score"),
+                "out_of_sample_score": (data.get("out_of_sample_val") or {}).get("best_score"),
+                "oos_is_ratio": data.get("oos_is_ratio"),
+                "deflated_sharpe": data.get("deflated_sharpe"),
+                "decision": data.get("decision"),
+                "config": data.get("config"),
+            }
+    except Exception as e:
+        out["training_report_error"] = str(e)
+    return envelope(data=out)
+
+
+@app.get("/api/optimize/status")
+async def api_optimize_status():
+    """2026-08-04: 当前科学训练运行状态 — 实时前端展示。"""
+    log_path = Path("/Users/kaikai/scripts/tuixue_v3/sci_opt_v3.log")
+    if not log_path.exists():
+        # 兼容旧 log 名
+        for name in ("sci_opt_v3.log", "sci_opt_run2.log", "sci_opt_run.log"):
+            p = Path(f"/Users/kaikai/scripts/tuixue_v3/{name}")
+            if p.exists():
+                log_path = p
+                break
+    out = {"running": False, "ts": time.time(), "log_path": str(log_path)}
+    if not log_path.exists():
+        out["status"] = "no_log"
+        return envelope(data=out)
+    try:
+        # 检查进程是否在跑
+        import subprocess as _sp
+        ps_out = _sp.check_output(["pgrep", "-fl", "scientific_optimize"], text=True)
+        out["running"] = bool(ps_out.strip())
+        out["pid_lines"] = ps_out.strip().split("\n")[:3]
+    except Exception:
+        pass
+    try:
+        text = log_path.read_text()
+        # 提取关键状态
+        lines = text.strip().split("\n")
+        out["last_log_line"] = lines[-1] if lines else ""
+        out["last_log_ts"] = lines[-1].split(" [")[0][0:19] if lines else ""
+        # 找 Phase 进度
+        phase1_iter = 0
+        phase2_iter = 0
+        phase3_iter = 0
+        best_score = None
+        for line in lines:
+            if "iter " in line and "| best=" in line:
+                # iter 100/5000 | best=19.6
+                try:
+                    n = int(line.split("iter ")[1].split("/")[0])
+                    sc = float(line.split("best=")[1].split()[0])
+                    phase1_iter = max(phase1_iter, n)
+                    best_score = sc
+                except Exception:
+                    pass
+        out["phase1_iter"] = phase1_iter
+        out["phase2_iter"] = phase2_iter
+        out["phase3_iter"] = phase3_iter
+        out["best_so_far"] = best_score
+        # 找决策
+        for line in lines:
+            if "决策:" in line:
+                out["status"] = line.split("决策:")[1].strip()[:50]
+                break
+        if "status" not in out:
+            out["status"] = "running" if out["running"] else "stopped"
+    except Exception as e:
+        out["log_read_error"] = str(e)
+    return envelope(data=out)
+
+
 @app.get("/api/strategies/text")
 async def api_strategies_text():
-    """心法页策略文字 — 5 大周线信号 + 1/3 回升位 完整文字说明, 给 laws 页用"""
     return envelope(data={
         "groups": [
             {
@@ -12762,6 +12905,19 @@ async def _on_startup_preheat():
     except Exception as e:
         log.warning(f"[startup-deps] 校验异常: {e}")
 
+    # R-fix 2026-08-04: 启动期后台预热策略 + 综合扫描 — 避免首访用户触发 25s+ 阻塞
+    # 8 worker 各自都会跑(没 leader 选举),Redis SETNX 防重复写 — 见 _bg_strategies_scan / _bg_comprehensive_scan
+    def _kick_bg():
+        try:
+            _bg_strategies_scan(force=True)
+        except Exception as e:
+            log.warning(f"[startup-bg] spicker kick err: {e}")
+        try:
+            _bg_comprehensive_scan()
+        except Exception as e:
+            log.warning(f"[startup-bg] comprehensive kick err: {e}")
+    _th_spicker.Thread(target=_kick_bg, name="startup-bg", daemon=True).start()
+
 
 def _startup_dependency_check() -> None:
     """校验启动期关键依赖。任一缺失只 warn 不抛 — server 仍能跑(降级)。"""
@@ -13420,8 +13576,14 @@ _COMP_FINETUNE_LOCK = _th_spicker.Lock()
 async def api_comprehensive_scan(refresh: int = 0):
     """综合策略全市场扫描。
 
-    GET /api/comprehensive/scan          → 读缓存
-    GET /api/comprehensive/scan?refresh=1 → 触发后台刷新 + 返回 warming 状态
+    R-fix 2026-08-04: 永不阻塞 — 跟 /api/strategies/scan 一致:
+      命中缓存 → 直接返
+      未命中    → 触发后台扫描 + 返 _warming 占位
+      refresh=1 → 强制后台刷新 + 返 warming
+    旧版会在缓存 miss 时同步跑 25s+ 扫描,触发 503 + 前端长时间等待。
+
+    GET /api/comprehensive/scan          → 读缓存或 warming
+    GET /api/comprehensive/scan?refresh=1 → 触发后台刷新 + warming
     """
     store = cache_store.get_store()
     if refresh:
@@ -13430,45 +13592,60 @@ async def api_comprehensive_scan(refresh: int = 0):
         meta["refresh_ts"] = time.time()
         _comp_save_meta(meta)
         _th_spicker.Thread(target=_bg_comprehensive_scan, daemon=True).start()
-        # 返回 warming 状态
+        # 返回 warming 状态 — 如果已有缓存就附上,前端无缝刷新
         cached = _cache_obj(store.get(_COMP_SCAN_KEY))
         if cached and isinstance(cached, dict) and cached.get("signals"):
             return envelope(data={**cached, "_refreshing": True})
         return envelope(data={"_warming": True, "ts": time.time(),
                               "msg": "综合策略扫描已触发,请稍后刷新"})
 
-    # 读缓存
+    # 1) 命中缓存直接返(永远秒开)
     try:
         cached = _cache_obj(store.get(_COMP_SCAN_KEY))
         if cached and isinstance(cached, dict) and cached.get("signals"):
             meta = _comp_load_meta()
             cached["_meta"] = meta
             return envelope(data=cached)
+        # 1b) 已知"上游挂了"状态: 仍返缓存 + 标注,前端显示文案而非纯空
+        if cached and isinstance(cached, dict) and cached.get("_data_status") == "upstream_empty":
+            cached["_data_warning"] = "upstream_degraded"
+            return envelope(data=cached, meta={"_data_warning": "upstream_degraded"})
     except Exception:
         pass
 
-    # 缓存 miss → 同步跑一次 (带超时保护)
-    try:
-        result = await asyncio.wait_for(
-            to_thread(_comp.scan_comprehensive, None, None, 8),
-            timeout=25.0
-        )
-        if result and result.get("signals"):
-            try:
-                store.set(_COMP_SCAN_KEY, result, ttl=300)
-            except Exception:
-                pass
-            return envelope(data=result)
-    except (asyncio.TimeoutError, Exception) as e:
-        log.warning(f"[comprehensive] sync scan failed/timed out: {e}")
+    # 2) 未命中 → 触发后台扫描 + 返 _warming
+    # 2026-08-04: 综合扫描 ~30-60s 远超 HTTP 请求,必须异步
+    _th_spicker.Thread(target=_bg_comprehensive_scan, daemon=True).start()
 
-    # 为空也写缓存防穿透
-    empty = {"signals": [], "total_scanned": 0, "matched_count": 0, "ts": time.time(), "took_ms": 0}
+    # 3) 当日快照兜底(最近 14 天) — 用户体验"上次见过"先显出来
     try:
-        store.set(_COMP_SCAN_KEY, empty, ttl=120)
+        from datetime import datetime as _dt
+        today_key = _dt.now().strftime("%Y%m%d")
+        daily_key = f"{_COMP_SCAN_KEY}:daily:{today_key}"
+        daily_snap = _cache_obj(store.get(daily_key))
+        if daily_snap and isinstance(daily_snap, dict) and daily_snap.get("signals"):
+            daily_snap["_stale"] = True
+            daily_snap["_warming"] = True
+            return envelope(data=daily_snap, meta={"_stale": True, "_warming": True})
     except Exception:
         pass
-    return envelope(data={**empty, "_empty": True})
+
+    # 4) 旧 stale 兜底(若有)
+    stale = _store_get(_COMP_SCAN_KEY + ":stale", ttl=86400)
+    if stale and stale.get("signals"):
+        stale["_stale"] = True
+        stale["_warming"] = True
+        return envelope(data=stale, meta={"_stale": True, "_warming": True})
+
+    # 5) 没有任何数据 → warming 占位
+    meta = _comp_load_meta()
+    return envelope(data={
+        "_warming": True,
+        "ts": meta.get("ts", 0),
+        "expected_total": meta.get("total_scanned", 5534),
+        "expected_matched": meta.get("matched_count", 0),
+        "hint": "首次预热中, 请稍后 5-30s 重试或点刷新",
+    }, meta={"_warming": True})
 
 
 @app.get("/api/comprehensive/progress")
@@ -13688,9 +13865,18 @@ def _bg_comprehensive_scan() -> None:
 
     2026-08-03: 每次扫描完后写一份「当日快照」(comprehensive:scan:daily:YYYYMMDD, TTL=14 天),
     给昨日推荐对比表用。
+    2026-08-04: 跨 worker Redis lock 防 8 worker + startup + refresh=1 同时跑同一份扫描
     """
     t0 = time.time()
     store = cache_store.get_store()
+    # R-fix 2026-08-04: 跨 worker Redis lock — 综合扫描本身重,跑 N 次浪费 CPU + 上游额度
+    try:
+        lock_key = "comprehensive:bg_lock"
+        if not store.set_nx(lock_key, int(t0), ttl=180):
+            log.info("[comprehensive-bg] 其他 worker 已在跑 (lock held), 本次跳过")
+            return
+    except Exception:
+        pass
     try:
         log.info("[comprehensive-bg] start full-market scan...")
         # 加载最优参数 (从上次优化结果)
@@ -13705,7 +13891,18 @@ def _bg_comprehensive_scan() -> None:
             pass
 
         result = _comp.scan_comprehensive(None, params, max_workers=8)
+        matched_n = len(result.get("signals") or [])
+        # 即使 0 matched 也写一个 "_data_status: upstream_empty" 标记,前端可识别"已知暂时无数据"
+        # vs stale 兜底(上次有数据 vs 一直 0)
+        if matched_n == 0 and (result.get("skipped") or 0) > 100:
+            result["_data_status"] = "upstream_empty"  # 上游 webqt 静默挂掉时的常见状态
         store.set(_COMP_SCAN_KEY, result, ttl=300)
+        # 2026-08-04: stale 兜底 — 下次缓存 miss 时(过 5min TTL 或重启),用户至少看到上一次结果
+        # 改: 即使 0 matched 也写 stale(短 TTL),避免每次冷启动都触发 120s 全市场扫描
+        if result and result.get("signals"):
+            store.set(_COMP_SCAN_KEY + ":stale", result, ttl=86400)
+        elif result and result.get("_data_status") == "upstream_empty":
+            store.set(_COMP_SCAN_KEY + ":stale", result, ttl=60)  # 上游挂了 60s 后再试
         # 2026-08-03: 当日快照 — 按本地日期归档
         try:
             from datetime import datetime as _dt
