@@ -4811,12 +4811,17 @@ async def stock_intraday(code: str, date: str = Query("", description="YYYY-MM-D
     # fetch 直到收盘数据出现. 改为:有 ticks 都缓存 (含过滤后 0 tick 的 negative cache 5min)
     if result and "ticks" in result:
         # R-aug-01 (2026-08-01): 日期防御 — 按精确日期过滤 tick,strip 日期前缀
-        # 今日 (akshare/today) tick 只有 HH:MM:SS → allow_time_only=True
-        # 历史 (sina/em hist_min) tick 有完整 YYYY-MM-DD HH:MM:SS → 严格匹配
-        from datetime import datetime as _dt2
-        _is_today = (d == _dt2.now().strftime("%Y-%m-%d"))
+        # 2026-08-04 修: 4 个源 (sina_5m/tencent_minute/tencent_m1/efinance_5m) 都 upstream 预过滤 ymd
+        # 且输出 HH:MM:SS (无日期前缀);akshare/eastmoney/akshare_em 输出 YYYY-MM-DD HH:MM:SS。
+        # 允许 time-only 的是 sina/tencent_minute/tencent_m1/efinance — 它们必须用 allow_time_only=True
+        # 才能让历史日的 tick 通过日期过滤
+        _source = (result.get("source") or "").lower()
+        _allow_time_only = any(
+            tag in _source
+            for tag in ("sina", "tencent_m1", "tencent_minute", "efinance")
+        )
         _ticks_clean, _dates = _filter_intraday_ticks_for_date(
-            result["ticks"], d.replace("-", ""), allow_time_only=_is_today,
+            result["ticks"], d.replace("-", ""), allow_time_only=_allow_time_only,
         )
         if len(_ticks_clean) < len(result["ticks"]):
             log.warning(
