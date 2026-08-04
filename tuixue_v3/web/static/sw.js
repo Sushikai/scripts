@@ -176,7 +176,10 @@
 //   - 自定义 UA 'tuixue-v3-mobile/1.0' 备用 (Safari 路径兜底)
 //   - _isNgrokInterstitial 检测响应头拦截 6024 HTML 入 cache,免下次再喂
 //   - 同源检查仍生效,跨域 (SSE/tunnel) 不接管
-const CACHE = 'tuixue-v3-shell-v305-yest-today-chip';
+const CACHE = 'tuixue-v3-shell-v313-intraday-datepicker-autoload';
+// 2026-08-04: 多 tab in-flight 请求去重 — 同一 URL 在 5s 内只发一次 fetch, 复用同一 Promise
+//   修 "两个 tab 同时打开, 一个 tab 刷不出来" (HTTP/1.1 6 连接池被占满)
+const _INFLIGHT = new Map();
 // Sprint 6: PRECACHE 加 view-stock + view-other (前端 prefetch 兜底,首屏拉不到就走 SW cache)
 // Sprint 9: 加 tx-telemetry.js 让首屏即 ready
 const PRECACHE = [
@@ -374,51 +377,59 @@ self.addEventListener('fetch', (event) => {
 
   // ── API: cacheable → stale-while-revalidate,其它 → network-only ──
   // Sprint 4: _isCacheableApi 已隐式包含 long-cache + deep_analysis(同属 /api/ 且不在黑名单)
+  // 2026-08-04: 多 tab 同步显示 修复 — 同一 URL 在 5s 内已有 in-flight fetch, 复用同一 Promise
+  //   修 "两个 tab 同时打开, 一个 tab 刷不出来" (HTTP/1.1 6 连接池被占满 → 旧请求阻塞)
   if (url.pathname.startsWith('/api/')) {
     if (_isCacheableApi(url.pathname)) {
-      event.respondWith(
-        caches.open(CACHE).then(async (cache) => {
-          const cached = await cache.match(req);
-          const ttlMs = _freshnessMs(url.pathname);
-          if (cached) {
-            const cachedTime = new Date(cached.headers.get('date') || 0).getTime();
-            const age = Date.now() - (cachedTime || 0);
-            if (age < ttlMs) return cached;
+      const _dedupKey = req.url;
+      let inflight = _INFLIGHT.get(_dedupKey);
+      if (inflight) {
+        event.respondWith(inflight.then((r) => r.clone()));
+        return;
+      }
+      const _dedupPromise = (async () => {
+        const cache = await caches.open(CACHE);
+        const cached = await cache.match(req);
+        const ttlMs = _freshnessMs(url.pathname);
+        if (cached) {
+          const cachedTime = new Date(cached.headers.get('date') || 0).getTime();
+          const age = Date.now() - (cachedTime || 0);
+          if (age < ttlMs) return cached;
+        }
+        const fetchPromise = fetch(req).then((r) => {
+          const toCache = r.clone();
+          if (r.ok && r.status === 200) {
+            cache.put(req, toCache).then(() => {/* cached */}).catch(() => {/* ignore */});
           }
-          const fetchPromise = fetch(req).then((r) => {
-            // Sprint 4 fix: clone BEFORE returning r (response body is single-use —
-            // returning r triggers event.respondWith pipeline which consumes body;
-            // by the time cache.put runs, .clone() throws "Response body is already used")
-            const toCache = r.clone();
-            if (r.ok && r.status === 200) {
-              // Fire cache.put with the CLONE (fire-and-forget)
-              cache.put(req, toCache).then(() => {/* cached */}).catch(() => {/* ignore quota/vary */});
+          return r;
+        }).catch(() => null);
+        const fresh = await fetchPromise;
+        if (fresh) return fresh;
+        if (cached) {
+          const staleBody = await cached.clone().text();
+          const cachedDate = new Date(cached.headers.get('date') || 0).getTime();
+          const staleAge = Date.now() - (cachedDate || Date.now());
+          return new Response(staleBody, {
+            status: cached.status,
+            statusText: cached.statusText,
+            headers: {
+              ...Object.fromEntries(cached.headers.entries()),
+              'X-Stale': 'true',
+              'X-Stale-Age-Ms': String(staleAge),
             }
-            return r;
-          }).catch(() => null);
-          const fresh = await fetchPromise;
-          if (fresh) return fresh;
-          // ── tunnel flapping 兜底: 即便 age > ttl,fetch 失败也返 stale cache ──
-          if (cached) {
-            const staleBody = await cached.clone().text();
-            const cachedDate = new Date(cached.headers.get('date') || 0).getTime();
-            const staleAge = Date.now() - (cachedDate || Date.now());
-            return new Response(staleBody, {
-              status: cached.status,
-              statusText: cached.statusText,
-              headers: {
-                ...Object.fromEntries(cached.headers.entries()),
-                'X-Stale': 'true',
-                'X-Stale-Age-Ms': String(staleAge),
-              }
-            });
-          }
-          return new Response(
-            JSON.stringify({ ok: false, error: 'offline', cached: false }),
-            { status: 503, headers: { 'content-type': 'application/json' } }
-          );
-        })
-      );
+          });
+        }
+        return new Response(
+          JSON.stringify({ ok: false, error: 'offline', cached: false }),
+          { status: 503, headers: { 'content-type': 'application/json' } }
+        );
+      })();
+      _INFLIGHT.set(_dedupKey, _dedupPromise);
+      // 5s 后清理 in-flight 槽,避免 Map 内存泄漏
+      _dedupPromise.finally(() => {
+        setTimeout(() => _INFLIGHT.delete(_dedupKey), 5_000);
+      });
+      event.respondWith(_dedupPromise.then((r) => r.clone()));
     }
     return;
   }

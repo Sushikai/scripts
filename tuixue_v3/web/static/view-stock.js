@@ -3514,7 +3514,7 @@ function initIntraDayPicker(code) {
     label.textContent = v + ' ' + weekdayCN(v);
   };
   refreshLabel();
-  pick.onchange = refreshLabel;
+  pick.onchange = () => { refreshLabel(); autoLoadIntraDay(); };
   load.onclick = () => autoLoadIntraDay();
   const todayBtn = $('#intra-day-today');
   if (todayBtn) todayBtn.onclick = () => { pick.value = todayStr(); refreshLabel(); autoLoadIntraDay(); };
@@ -4688,6 +4688,13 @@ async function loadStockLimitUp(code, sectorName) {
     }
     if (res._degraded) {
       host.innerHTML = `<p class="caption dim">⚠ 连板数据暂不可达 (${escapeHtml(res._degraded)})</p>`;
+      return;
+    }
+    // 2026-08-04: 预拉缓存可能装的是 _prefetchStockAux timeout 兜底对象 {error: "..."},
+    // _degraded 不在它身上。继续往下走 res.today 是 undefined → 后续 .slice() 抛 PAGEERROR。
+    // 显式拦下任何 error 字段 + 缺关键字段 的"残缺"响应,显示降级提示
+    if (res.error || (!res.today && !res.recent_5d && !res.sector_today)) {
+      host.innerHTML = `<p class="caption dim">⚠ 连板数据暂不可达${res.error ? ` (${escapeHtml(res.error)})` : ' (空数据)'}</p>`;
       return;
     }
     const today = res.today;
