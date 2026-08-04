@@ -965,6 +965,10 @@ _cache_core    = TTLCache(default_ttl=30.0)   # /core 完整响应 (per-worker)
 # 全字段(kline/fund/seats/sector/lu/strong/seat_bd/news/ai/intraday)里有 80%
 # 是日线/分类/新闻类(分钟级新鲜就够),只 quote/price 真需要秒级
 _cache_full    = TTLCache(default_ttl=30.0)   # /full 完整响应 (per-worker) — 10→30s 让用户切股来回不卡
+# 2026-08-04: "看过的股票"持久化队列 — 用户最近看过的 10 只股票 /full 10min 长缓存,
+# 切回/重开页面秒返,跟 30s 短 L0 互补 (30s 内切回靠 L0,30s-10min 切回靠这里)
+_cache_full_long = TTLCache(default_ttl=600.0, max_size=10)  # 看过的股票 10min 缓存, 容量 10 只
+_recent_full_codes: list[str] = []  # 保持插入顺序,LRU
 # R61 (Batch 7): sector per-code L0 1h — 板块分类极少变 (sw/csrc/cics/gics 字典级别稳定)
 _cache_sector = TTLCache(default_ttl=CACHE_TTL_SECTOR)
 # R62 (Batch 7): news L0 5min — 同 worker 重复刷新闻列表秒开 (新闻数据已用 SQLite 持久化)
@@ -7016,6 +7020,15 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
                 cached_l0["_cache_hit"] = True
                 cached_l0["_cache_level"] = "l0_mem"
                 return json_etag_response(request, envelope(data=cached_l0), max_age=5)
+        # 2026-08-04: 看过 10 只股票长缓存 (10min) — 30s 之外重开页面秒返
+        if not date:
+            cached_long = _cache_full_long.get(code)
+            if cached_long:
+                cached_long["_cache_hit"] = True
+                cached_long["_cache_level"] = "l0_mem_long"
+                # L0 短缓存顺便填上, 后续 30s 走 L0
+                _cache_full.set(_ck_full, cached_long)
+                return json_etag_response(request, envelope(data=cached_long), max_age=5)
         cached = _store_get(cache_key, ttl=30)
         if cached:
             cached["_cache_hit"] = True
@@ -7035,7 +7048,19 @@ async def stock_full(request: _Request, code: str, fresh: int = Query(0, ge=0, l
     # 写 L0 + L1 (L0 30s 给同 worker, L1 30s 给跨 worker)
     if not date and out and not out.get("_partial"):
         _cache_full.set(("full", code), out)
-    _store_set(cache_key, out, ttl=30)
+        # 2026-08-04: 看过的股票入长缓存队列 (10 只), 30s 后切回也能秒返
+        _cache_full_long.set(code, out)
+        with _RECENT_LOCK:
+            if code in _recent_full_codes:
+                _recent_full_codes.remove(code)
+            _recent_full_codes.append(code)
+            while len(_recent_full_codes) > 10:
+                evicted = _recent_full_codes.pop(0)
+                _cache_full_long.invalidate(evicted)
+        # 2026-08-04: Redis TTL 30s → 600s 配合长缓存队列 (10 只看过的股票 10min 跨 worker 秒返)
+        _store_set(cache_key, out, ttl=600)
+    else:
+        _store_set(cache_key, out, ttl=30)
     # R7 (Batch 1): cold path 也带 Cache-Control + ETag — 客户端 5s 内复用,304 省带宽
     # Sprint 7: 当 date 是空 (= 今日实时) 时,max-age=5 → 当天交易时段内 SWR 只命中 cache,
     #           直接拒绝重传 (server "304 Not Modified" 也省,immutable 给浏览器/HTTP 库更强承诺)
