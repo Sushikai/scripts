@@ -176,7 +176,91 @@
 //   - 自定义 UA 'tuixue-v3-mobile/1.0' 备用 (Safari 路径兜底)
 //   - _isNgrokInterstitial 检测响应头拦截 6024 HTML 入 cache,免下次再喂
 //   - 同源检查仍生效,跨域 (SSE/tunnel) 不接管
-const CACHE = 'tuixue-v3-shell-v314-intraday-prefetch-fast';
+// v318 (2026-08-05): 龙头页 sector/concept chip 渲染 — _renderSectorChips + dragon-chips CSS
+//                    top10 卡 + all 表 sector 列改 chip 堆叠,跨板块/多概念可见
+// v322 (2026-08-05): _CLUSTER_COLORS 16 cluster 颜色表 (通信/半导体/AI算力/新能源等) 替代旧 6 cluster 硬编码
+//                    — chip-concept 现在按真实 cluster (通信板块 #5b8def, 半导体 #8b5cf6 等) 染色
+// v325 (2026-08-05): 板块 trend-tile 改 120 日 K 线 + day 兜底加 3 波峰 (像真 K 线走势)
+// v326 (2026-08-05): 参数寻优页加 ⭐今日推票卡 (复用 /api/zt/live_pick)
+// v328 (2026-08-06): 推票卡用 source=optimized (10000 轮最佳参数) — 与涨停溢价页完全不同的票
+// v329 (2026-08-06): 板块分时 fallback 改 5 种 shape (单边/V/M/双峰/平台) + net_inflow_yi 区分 —
+//                    修复 "43 个图都一模一样" bug (原 V-shape 用 cp 太小, 视觉雷同)
+// v333 (2026-08-06): 全行业板块指标契约修复 — 当前日涨幅/资金流始终透传, 日期轴统一 MM-DD
+//                    日线图移动端保留 64px 高度, 防止日期标签被 44px 规则覆盖
+// v335 (2026-08-06): 龙头页 all 表分批 RAF 注入 + top10 bd 默认折叠 + smart-back 真实"返回上一跳转位置"
+//                    + 龙头页移动端 ≤480 紧凑化 (chip/卡片/表格 padding 全面压缩)
+// v336 (2026-08-06): 全 A 风向页砍 7 层筛选为单一模糊搜索框 — 后端 /api/all_stocks/board?q= 智能判定
+//                    搜股票名 → 命中股 + 同板块 peer (primary 排首位), 搜代码/板块/概念 同样支持
+//                    前端 index.html filter card 简化: 仅搜索框 + 排序 + 列显隐 + 重置/刷新 + q_resolution
+// v338 (2026-08-06): 个股页新闻加 ★ 重点 高亮 (AI 评分 ≥ 7 + 利好/利空; 中性不上重点)
+// v339 (2026-08-06): 自选表单点利空/利好标注 (后端 _batch_news_impact 60s 缓存 + 前端 wl-news-impact chip 点跳新闻)
+// v340 (2026-08-06): 参数寻优页加 📊 逐月回测明细卡 (cache_store 直读 50ms, 9 个月 trade/win/avg/total/dd)
+// v341 (2026-08-07): 参数寻优页加 🗓 单月回测卡 (9 月份按钮 + 跑 trade 明细表, code/name/买日/卖日/买价/卖价/收益/trigger/连板/板块/续板)
+// v342 (2026-08-08): KPI 卡加复利口径 (equity/annualized/eq-dd) + 月度表列加 (复利) 标签
+// v343 (2026-08-08): Dashboard 板块 sparkline grid → ECharts treemap 热力图 (|涨幅|=面积, 红涨/绿跌)
+//                    + 龙头页「昨日涨停」改取「上上个交易日」 (_prev_trade_date x2)
+// v344 (2026-08-08): treemap refresh failed 日志升级 console.debug → console.warn (完整 stack)
+// v345 (2026-08-08): 修 treemap 渲染 0 数据 bug — echarts 是 lazy load, 首屏调用前可能 undefined
+//                    _paintIndexTreemap 加 _ensureDashEcharts() 异步守卫
+//                    + .treemap-empty[hidden] 加 !important (display:flex 覆盖了 hidden 属性)
+// v346 (2026-08-08): treemap 性能优化
+//                    - 关 animation/transitionDuration, setOption notMerge=false (diff 而非全量重画)
+//                    - tooltip enterable=false/hideDelay=0/transitionDuration=0
+//                    - 补回 resize hook (RAF 节流) + tx-theme-change 触发 resize
+//                    + 色阶改 3 档阶梯式查表 (5 档 → 3 档, 颜色跳跃更明显)
+//                    + click 跳转 l2= → q= (走 all_stocks 后端智能判定, 板块成分股能刷出)
+// v347 (2026-08-08): treemap 信息更丰富
+//                    + 格内标签 3 行 (板块名 / 涨幅 / 资金净流入亿), 字号缩到 10-11px 让更多格显示得下
+//                    + label align/verticalAlign=center (修左侧大片空白, 文字原先靠左上)
+//                    + tooltip 补 板块代码 / 涨幅排名 / 流入排名
+//                    + 色阶 3 档 → 5 档 (阈值 0.5/1.5/3/5%), 修普涨日全场同色
+// v348 (2026-08-08): 修 treemap 点击后刷不出该板块股票
+// v349 (2026-08-09): 个股专业终端 P0 · 时间维度地基 — K线 period=d/w/m/1m/5m
+//                    + adjust=qfq/hfq/none + 拖到边沿自动追加老 K线
+//                    + 分时加 slider + 对比昨收叠加线
+//                    根因: q= 走 _search_candidates 模糊搜索, "共享≥2字子串" 兜底把
+//                    「医疗服务」匹到「AI服务器/智算服务器」→ 刷出浪潮信息/深科技。
+//                    修: 后端 all_stocks.py — ① 子串兜底收紧为 kw⊂q 或 q⊂kw 两个方向;
+//                    ② _search_candidates 命中已知板块名时 (名称来自 dashboard
+//                    index_trend 的 bk_code 映射) 直拉东财 clist 成分股注入 kw 索引。
+//                    前端保持 q= 单参数, 无新增字段。
+// v350 (2026-08-09): 个股专业终端 P0 · 移动 + 横屏 + 全屏沉浸
+//                    - CSS max-height 50vh → min(50vh, 60dvh) 横屏不再被截
+//                    - 加 .tx-stock-fullscreen 类 (隐藏 sidebar/topbar/ticker, 留图区)
+//                    - chart-tabs 加 scroll-snap + -webkit-overflow-scrolling (iOS 滑动手势)
+//                    - JS Fullscreen API + screen.orientation.lock('landscape') 自动横屏
+//                    - ResizeObserver 单源替代 window resize listener
+//                    - index.html viewport user-scalable=no + K线工具栏加 ⛶ 全屏按钮
+// v351 (2026-08-09): 个股专业终端 P0 · 10 tab 全面深化
+//                    - 4 个 ECharts 实例 (equity/flow/kline/intraDay) setOption 改 notMerge:false diff
+//                    - 砸盘 tab 加 _crashCached 5min 防重发
+//                    - K线 dataZoom 无限延伸走 before=oldestLoadedDate 追加老数据
+// v352 (2026-08-09): 个股专业终端 P0 · 性能 + TradingView 视觉
+//                    - _stockAuxCache 加 streak_history + vol_5d_avg (后端一直发前端从不读 → 渲染 chip)
+//                    - 字号/颜色/tabular-nums 走统一 token
+// v356 (2026-08-09): 龙头表 角色列无官方归类时显示「未收录」badge (BK1661/1662/1158 三板块均未收录)
+//                    + view-other.js `_dragonRoleBadge(role, src)` 新增 src 参数, 留位给后续 KNOWN_L4 命中
+//                    + style.css .role-badge.unknown (虚线边框, 灰色文字) — 区分"明确非龙头"与"未收录"
+//                    + role_source 字段从 dragons.py `_tax_with_role` 透出 (em:BKxxxx | unmapped | known)
+// 2026-08-09: R3.3 — K线图交互修复 (用户反馈):
+//   1) 左右滑动数据不会重新加载 → drawKlineChart 重建后丢失 dataZoom 窗口,
+//      prepend 老数据时窗口被重置成 0-100% → 视觉"没动"。保存 start/end (或
+//      startValue/endValue) 重建后 dispatchAction 恢复;prepend 时按偏移补偿。
+//   2) 最低最高没法动 / 最低点数据被截断 → 全期间 priceHi/priceLo 锁死 min/max,
+//      dataZoom 切到子区间时左/右轴不变 (clipping bar 贴轴)。改 min:'dataMin' /
+//      max:'dataMax' / scale:true 让 ECharts 按可见区间 fit。
+//   + R3.2: 量比/总市值/PE/PB 永不消失
+// v359 (2026-08-09): R31 资金流向数据源修复 — f62/PRIME_INFLOW 主力净流入 (替代错误 f184)
+//   + 单股历史: push2his 资金流日线 (curl_cffi 浏览器指纹) 60 天真实分单
+//   + 全市场: bulk 扫描带回 main_fund_inflow_wan, dashboard 资金动向 Top10 净流入/净流出
+//   + 前端 fmtWan 万元→亿/万, SSE 空 today 不再覆盖真实资金值
+// v360 (2026-08-09): R3.3 K线 prepend 抗上游失败 — _degraded 不算"历史拉尽",
+//   失败一次不再永久锁死拖左加载; 服务端超时降级先切预计算缓存兜底
+// v361 (2026-08-09): R32 游资足迹 · 席位关联个股 — 该股龙虎榜席位近 8 交易日
+//   活跃营业部排行其它操作 + 关联个股 chip 跳转 (/api/stock/{code}/seat_related)
+// v362 (2026-08-09): R33 主力成本估算 + 今日 vs 5日均 强度对比 — 加权净流入价估算
+//   成本 + 东财 datacenter 官方持仓成本 (PRIME_COST 1/20/60 日) 兜底 + 双向强度条
+const CACHE = 'tuixue-v3-shell-v362-kline-dz-20260809';
 // 2026-08-04: 多 tab in-flight 请求去重 — 同一 URL 在 5s 内只发一次 fetch, 复用同一 Promise
 //   修 "两个 tab 同时打开, 一个 tab 刷不出来" (HTTP/1.1 6 连接池被占满)
 const _INFLIGHT = new Map();
@@ -189,6 +273,7 @@ const PRECACHE = [
   '/static/tx-telemetry.js',
   '/static/view-dash.js',
   '/static/view-stock.js',
+  '/static/stock-pro-modules.js',
   '/static/view-other.js',
   '/static/virtual-list.js',
   '/static/style.css',

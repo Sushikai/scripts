@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
 <meta name="theme-color" content="var(--bg-page)" media="(prefers-color-scheme: dark)" />
 <meta name="theme-color" content="var(--bg-1)" media="(prefers-color-scheme: light)" />
 <script>
@@ -96,30 +96,35 @@
     <span>涨停溢价</span>
     <span class="sb-num">07</span>
   </div>
+  <div class="sidebar-item" tabindex="0" role="button" data-jump="yaogu">
+    <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M8 2l2 4 4 .5-3 2.5.5 4L8 11l-3.5 2 .5-4-3-2.5L6 6z"/></svg></span>
+    <span>妖股</span>
+    <span class="sb-num">08</span>
+  </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="optimize">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="8" cy="8" r="6"/><path d="M8 4v4M5 6.5l3 1.5 3-1.5"/></svg></span>
     <span>调优</span>
-    <span class="sb-num">08</span>
+    <span class="sb-num">09</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="laws">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 2h8v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M6 5h4M6 8h4M6 11h2"/></svg></span>
     <span>心法</span>
-    <span class="sb-num">09</span>
+    <span class="sb-num">10</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="weekly_bull">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2 12l3-3 3 2 5-5"/><path d="M2 14h12"/></svg></span>
     <span>周线擒牛</span>
-    <span class="sb-num">10</span>
+    <span class="sb-num">11</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="strategy_picker">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="6" cy="6" r="3"/><circle cx="11" cy="11" r="3"/><path d="M2 14h12"/></svg></span>
     <span>策略选股</span>
-    <span class="sb-num">11</span>
+    <span class="sb-num">12</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="review">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 4h10M3 8h10M3 12h7"/><circle cx="13" cy="12" r="2"/></svg></span>
     <span>复盘</span>
-    <span class="sb-num">12</span>
+    <span class="sb-num">13</span>
   </div>
   <div class="sidebar-item" tabindex="0" role="button" data-jump="sources">
     <span class="sb-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="8" cy="5" r="2.5"/><path d="M3 14a5 5 0 0 1 10 0"/></svg></span>
@@ -236,6 +241,15 @@
       <p class="caption dim" id="hot-sectors-sub">—</p>
     </article>
 
+    <!-- R7 Round 7: 资金进攻强度 + 板块龙虎榜 -->
+    <article class="card mt-32" id="attack-signal-card">
+      <div class="card-eyebrow">资金 · 实时进攻信号</div>
+      <h3 class="card-h">主力扫货 Top 5 · 砸盘风险 Top 5 · 板块资金流强度</h3>
+      <div class="atk-grid" id="attack-signal-grid">
+        <div class="hs-empty">加载中 …</div>
+      </div>
+    </article>
+
     <article class="card mt-32" id="index-trend-card">
       <div class="card-eyebrow">板块 · 实时分时</div>
       <h3 class="card-h">5 大指数(板块整体走势)</h3>
@@ -243,6 +257,24 @@
         <div class="hs-empty">加载中 …</div>
       </div>
       <p class="caption dim">60s SW cache · 首次切页秒出</p>
+    </article>
+
+    <!-- R31: 资金动向 Top10 — 全市场主力净流入/流出排行 -->
+    <article class="card mt-32" id="capital-flow-card">
+      <div class="card-eyebrow flex-between">
+        <span>资金动向 · 全市场 Top10</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.4rem">
+          <div class="cf-toggle">
+            <button class="cf-btn active" data-cf-dir="in">净流入</button>
+            <button class="cf-btn" data-cf-dir="out">净流出</button>
+          </div>
+          <button class="btn btn-mini" id="cf-refresh" title="刷新">🔄</button>
+        </div>
+      </div>
+      <div class="cf-grid" id="cf-grid">
+        <div class="hs-empty">加载中 …</div>
+      </div>
+      <p class="caption dim" id="cf-meta">—</p>
     </article>
 
     <article class="card mt-32" id="sector-trend-card">
@@ -335,10 +367,11 @@
       <div class="view-actions" id="stock-tags-host"></div>
     </header>
 
-    <article class="card mt-16">
-      <div class="searchbar">
+    <article class="card mt-16" id="stock-quickbar">
+      <div class="searchbar" id="stock-searchbar">
         <input id="stock-search" class="search-input" placeholder="代码 / 名称（如 600519 / 平安）" aria-label="股票代码或名称"/>
         <button class="btn btn-primary" id="stock-go">查询 ↗</button>
+        <button class="btn-mini" id="stock-search-toggle" title="加载股票后收起搜索框" hidden>收起 ▴</button>
       </div>
       <div id="stock-search-results" class="search-results"></div>
       <div class="stock-history" id="stock-history" hidden>
@@ -348,11 +381,8 @@
         </div>
         <div class="sh-list" id="sh-list"></div>
       </div>
-    </article>
-
-    <!-- 个股自查工具栏 — 日期选择 + 一键复盘 + 一键自选 + 一键跳转 (2026-07-11) -->
-    <article class="card mt-16" id="stock-quickbar">
-      <div class="quickbar-row">
+      <!-- R-2026-08-09: 搜索 + 日期 + 复盘/自选/固定链接 合并到同一卡 -->
+      <div class="quickbar-row" style="margin-top:.5rem">
         <label class="qb-field">
           <span class="qb-label">日期</span>
           <input type="date" id="stock-date" class="qb-input" />
@@ -365,11 +395,6 @@
         <button class="btn btn-secondary" id="stock-watch-btn" disabled title="加入自选股池">自选</button>
         <button class="btn btn-ghost" id="stock-jump-stock" disabled title="固定链接 · 方便分享 / 浏览器后退" hidden>↗ 固定链接</button>
       </div>
-    </article>
-
-    <article class="card mt-16" id="stock-mytrades-card" hidden>
-      <div class="card-eyebrow" style="color:var(--accent)">我的交易</div>
-      <div id="stock-mytrades-list"></div>
     </article>
 
     <!-- Hero 价格区 + 12 卡 Bento -->
@@ -422,279 +447,92 @@
       </div>
     </div>
 
-
-    <!-- 当日明细 + 涨停/跌停价 + 连板历史 -->
-    <article class="card mt-16" id="stock-limit-up-card">
-      <div class="card-eyebrow">涨停 · 连板梯队 + 板块联动</div>
-      <div id="stock-limit-up-body">
-        <p class="caption dim">查询股票后将显示连板 / 5 日涨停 / 板块涨停清单</p>
-      </div>
-    </article>
-
-    <!-- 2026-08-01: 公司画像 — 营业范围 / 主要产品 / 行业地位 / 多板块重合 (4 段) -->
-    <article class="card mt-16" id="stock-profile-card">
-      <div class="card-eyebrow flex-between">
-        <span>🏢 公司画像 · 营业范围 / 产品 / 行业地位 / 多板块</span>
-        <span class="profile-meta caption dim" id="profile-meta-row"></span>
-      </div>
-      <div id="stock-profile-body">
-        <!-- 行 1: 营业范围 + 简介 (≤200 字 + 展开) -->
-        <section class="prof-row" id="prof-scope">
-          <div class="prof-row-h">📋 营业范围 / 简介</div>
-          <div id="prof-scope-text" class="prof-text">—</div>
-        </section>
-
-        <!-- 行 2: 主要产品 (按收入占比横条) -->
-        <section class="prof-row" id="prof-products">
-          <div class="prof-row-h flex-between">
-            <span>📦 主要产品 (按收入占比)</span>
-            <span class="prof-report-date caption dim" id="prof-report-date"></span>
-          </div>
-          <div id="prof-products-bars" class="prof-bars"></div>
-          <div id="prof-regions-text" class="caption dim mt-4"></div>
-        </section>
-
-        <!-- 行 3: 行业地位 + 核心竞争力 (1-3 句话) -->
-        <section class="prof-row" id="prof-position">
-          <div class="prof-row-h">👑 行业地位 / 核心竞争力</div>
-          <div id="prof-position-text" class="prof-text">—</div>
-        </section>
-
-        <!-- 行 4: 多板块重合 (概念 chip) -->
-        <section class="prof-row" id="prof-concepts">
-          <div class="prof-row-h flex-between">
-            <span>🔗 多板块重合 · 概念归属 <span id="prof-concept-count" class="caption dim"></span></span>
-            <span id="prof-precise-note" class="caption dim"></span>
-          </div>
-          <div id="prof-concepts-chips" class="prof-chips"></div>
-        </section>
-      </div>
-    </article>
-
-    <!-- 2026-07-30: AI 深度判断 (适不适合卖/持/买) + 公司业务 + 业绩跳变 + 持仓盈亏 + 同行 PE 偏离 -->
-    <article class="card mt-16" id="stock-deep-analy-card">
-      <div class="card-eyebrow flex-between">
-        <span>🔬 AI 深度判断 · 卖 / 持 / 买 建议</span>
-        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
-          <span class="deep-status" id="deep-status">—</span>
-          <button class="btn-mini" id="deep-refresh" title="强制重新拉数据 (≈8s)" hidden>🔄 强刷</button>
-          <button class="btn-mini" id="deep-history" title="历史归档 (下期)" hidden>📜 历史</button>
+    <!-- R-2026-08-09 v3: 干 掉 14 卡 Bento 段,全部塞进 Hero 价格行下方的 1 行 chip strip  -->
+    <!-- 主力净流入 · 大数字 -->
+    <div class="qh-strip-wrap mt-16">
+      <div class="qh-strip" id="qh-strip">
+        <!-- 主: 主力净流 (大数) -->
+        <div class="qchip qchip-main" id="qc-main-card">
+          <span class="qchip-label">主力净流</span>
+          <span class="qchip-value qchip-value-lg" id="q-main">—</span>
+          <span class="qchip-sub" id="q-main-sub">分单 …</span>
         </div>
-      </div>
-
-      <!-- 行 1: 建议动作 chip + 减仓概率 0-100 -->
-      <div class="deep-advice" id="deep-advice">
-        <span class="deep-action" id="deep-action-chip">分析中…</span>
-        <span class="deep-score" id="deep-score">—/100</span>
-        <span class="deep-pending" id="deep-pending"></span>
-      </div>
-
-      <!-- 行 2: 公司业务范畴 (≤200 字) -->
-      <section id="deep-profile" class="deep-section">
-        <h4 class="deep-section-h">公司业务</h4>
-        <p id="deep-profile-text" class="deep-text">—</p>
-        <div id="deep-profile-meta" class="deep-meta"></div>
-      </section>
-
-      <!-- 行 3: 盈亏情况 + 业绩跳变 -->
-      <section id="deep-earnings" class="deep-section">
-        <div class="deep-section-h flex-between">
-          <h4 class="deep-section-h-inner">盈亏情况 · 近 4 季</h4>
-          <span id="deep-jump-chip" class="deep-jump" hidden>⚠ 业绩跳变</span>
+        <!-- 活跃度 (综合信号) -->
+        <div class="qchip" id="qc-activity-chip">
+          <span class="qchip-label">活跃度</span>
+          <span class="qchip-value" id="q-turnover-sub">—</span>
+          <span class="qchip-sub"><span id="q-turnover">—</span> · 换手</span>
         </div>
-        <div class="table-wrap">
-          <table class="data-table deep-tbl">
-            <thead><tr><th>期</th><th>营收(亿)</th><th>同比</th><th>净利(亿)</th><th>同比</th><th>EPS</th><th>ROE</th></tr></thead>
-            <tbody id="deep-earnings-body"><tr><td colspan="7" class="empty">—</td></tr></tbody>
-          </table>
+        <!-- 量比 -->
+        <div class="qchip">
+          <span class="qchip-label">量比</span>
+          <span class="qchip-value" id="q-volratio">—</span>
+          <span class="qchip-sub">vs 5 日均</span>
         </div>
-      </section>
-
-      <!-- 行 4: 持仓盈亏 (无持仓显示灰底提示) -->
-      <section id="deep-holding" class="deep-section">
-        <h4 class="deep-section-h">持仓盈亏</h4>
-        <div id="deep-holding-view" class="deep-text">—</div>
-      </section>
-
-      <!-- 行 5: 技术位置 + 同业 PE -->
-      <section id="deep-tech" class="deep-section">
-        <h4 class="deep-section-h">技术位置 · 同行估值</h4>
-        <div id="deep-tech-view" class="deep-tech-grid">—</div>
-      </section>
-
-      <!-- 行 6: AI 200 字总结 -->
-      <section id="deep-summary" class="deep-summary-section">
-        <h4 class="deep-section-h">AI 总结</h4>
-        <p id="deep-summary-text" class="deep-summary-text">—</p>
-      </section>
-    </article>
-
-    <div class="quote-bento mt-16">
-      <!-- 主格 2x2: 主力净流 + 当日明细 -->
-      <div class="quote-cell large" id="qc-main-card">
-        <span class="qc-dot" id="qc-dot-main"></span>
-        <span class="qc-icon" id="qc-icon-main">资</span>
-        <span class="qc-label">主力净流入 · 万</span>
-        <span class="qc-value large" id="q-main">—</span>
-        <span class="qc-sub" id="q-main-sub">今日 4 单合计</span>
-      </div>
-
-      <!-- 12 中格/小格 — 按交易优先级排序 -->
-      <div class="quote-cell" id="qc-turnover-card">
-        <span class="qc-icon" id="qc-icon-turnover">换</span>
-        <span class="qc-label">换手率</span>
-        <span class="qc-value" id="q-turnover">—<span class="qc-unit">%</span></span>
-        <span class="qc-sub" id="q-turnover-sub">活跃度</span>
-      </div>
-
-      <div class="quote-cell" id="qc-volratio-card">
-        <span class="qc-icon" id="qc-icon-volratio">量</span>
-        <span class="qc-label">量比</span>
-        <span class="qc-value" id="q-volratio">—</span>
-        <span class="qc-sub">vs 5 日均量</span>
-      </div>
-
-      <div class="quote-cell" id="qc-amp-card">
-        <span class="qc-icon" id="qc-icon-amp">波</span>
-        <span class="qc-label">振幅</span>
-        <span class="qc-value" id="q-amp">—<span class="qc-unit">%</span></span>
-        <span class="qc-sub">日内波动</span>
-      </div>
-
-      <div class="quote-cell" id="qc-lu-card">
-        <span class="qc-icon" id="qc-icon-lu">+</span>
-        <span class="qc-label">涨停价</span>
-        <span class="qc-value" id="q-lu">—</span>
-        <span class="qc-sub">今日 +10%</span>
-      </div>
-
-      <div class="quote-cell" id="qc-ld-card">
-        <span class="qc-icon" id="qc-icon-ld">−</span>
-        <span class="qc-label">跌停价</span>
-        <span class="qc-value" id="q-ld">—</span>
-        <span class="qc-sub">今日 -10%</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">5d</span>
-        <span class="qc-label">5 日涨跌</span>
-        <span class="qc-value" id="q-5d">—</span>
-        <span class="qc-sub">短期趋势</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">20d</span>
-        <span class="qc-label">20 日涨跌</span>
-        <span class="qc-value" id="q-20d">—</span>
-        <span class="qc-sub">中期趋势</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">值</span>
-        <span class="qc-label">总市值</span>
-        <span class="qc-value" id="q-mcap">—<span class="qc-unit">亿</span></span>
-        <span class="qc-sub" id="q-mcap-sub">流通 —</span>
-      </div>
-
-      <div class="quote-cell" id="qc-pe-card">
-        <span class="qc-icon">PE</span>
-        <span class="qc-label">市盈率 · PE</span>
-        <span class="qc-value" id="q-pe">—</span>
-        <span class="qc-sub" id="q-pe-sub">动 · 当前</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">PB</span>
-        <span class="qc-label">市净率 · PB</span>
-        <span class="qc-value" id="q-pb">—</span>
-        <span class="qc-sub" id="q-pb-sub">净资产倍数</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">⤧</span>
-        <span class="qc-label">当日 高 / 低</span>
-        <span class="qc-value" id="q-hl">—</span>
-        <span class="qc-sub" id="q-hl-sub">开 / 昨收</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">成</span>
-        <span class="qc-label">成交量</span>
-        <span class="qc-value" id="q-vol">—<span class="qc-unit">万手</span></span>
-        <span class="qc-sub" id="q-amt">成交额 —</span>
-      </div>
-
-      <div class="quote-cell">
-        <span class="qc-icon">席</span>
-        <span class="qc-label">龙虎席位</span>
-        <span class="qc-value" id="q-seats">0<span class="qc-unit">条</span></span>
-        <span class="qc-sub" id="q-seats-sub">近 10 日</span>
+        <!-- 振幅 -->
+        <div class="qchip">
+          <span class="qchip-label">振幅</span>
+          <span class="qchip-value" id="q-amp">—</span>
+          <span class="qchip-sub">日内</span>
+        </div>
+        <!-- 5 日 / 20 日 -->
+        <div class="qchip">
+          <span class="qchip-label">5d / 20d</span>
+          <span class="qchip-value" id="q-5d">—</span>
+          <span class="qchip-sub">短/中期</span>
+        </div>
+        <!-- 高 / 低 -->
+        <div class="qchip">
+          <span class="qchip-label">高 / 低</span>
+          <span class="qchip-value" id="q-hi">—</span>
+          <span class="qchip-sub">低 <span id="q-lo">—</span></span>
+        </div>
+        <!-- 开 / 昨收 -->
+        <div class="qchip">
+          <span class="qchip-label">开 / 昨收</span>
+          <span class="qchip-value" id="q-open">—</span>
+          <span class="qchip-sub">昨 <span id="q-prev">—</span></span>
+        </div>
+        <!-- 涨停 / 跌停 -->
+        <div class="qchip">
+          <span class="qchip-label">涨停 / 跌停</span>
+          <span class="qchip-value" id="q-lu">—</span>
+          <span class="qchip-sub">跌 <span id="q-ld">—</span></span>
+        </div>
+        <!-- 总市值 / 流通 -->
+        <div class="qchip">
+          <span class="qchip-label">总市值</span>
+          <span class="qchip-value" id="q-mcap">—</span>
+          <span class="qchip-sub">流通 <span id="q-cmcap">—</span></span>
+        </div>
+        <!-- PE / PB -->
+        <div class="qchip">
+          <span class="qchip-label">PE / PB</span>
+          <span class="qchip-value" id="q-pe">—</span>
+          <span class="qchip-sub">PB <span id="q-pb">—</span></span>
+        </div>
+        <!-- 成交量 / 成交额 -->
+        <div class="qchip">
+          <span class="qchip-label">成交量</span>
+          <span class="qchip-value" id="q-vol">—</span>
+          <span class="qchip-sub">额 <span id="q-amt">—</span></span>
+        </div>
+        <!-- 龙虎席位 -->
+        <div class="qchip">
+          <span class="qchip-label">龙虎席位</span>
+          <span class="qchip-value" id="q-seats">0</span>
+          <span class="qchip-sub" id="q-seats-sub">近 10 日</span>
+        </div>
       </div>
     </div>
 
-    <div class="grid-4 mt-16">
-      <article class="card mt-16" id="stock-sector-card">
-        <div class="card-eyebrow">板块 · 情绪 + 最新新闻</div>
-        <!-- 行 1: 市场规则 (市场/前缀/涨跌幅/门槛) -->
-        <div id="q-sector-board" class="kv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px 14px"></div>
-        <!-- 行 2: 板块 chips -->
-        <div id="q-sector-industries" class="stock-tags" style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:6px"></div>
-        <!-- 行 3: 板块情绪 4 KPI -->
-        <div id="q-sector-sentiment" class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-top:.75rem"></div>
-        <p class="caption dim" id="q-sector-source" style="margin:.5rem 0 0"></p>
-        <!-- 行 4: 最新 1 条新闻 (跳新闻 tab 看全部) -->
-        <div id="q-related-news" style="margin-top:.5rem"></div>
-      </article>
-    </div>
-
-    <article class="card mt-16">
-      <div class="card-eyebrow">连板 · 近期涨停 / 强势股</div>
-      <div id="q-streak-host"><p class="caption dim" style="margin: 0">无近 10 日涨停记录</p></div>
-    </article>
-
-    <!-- 2026-07-19: 买点策略 3 大卡 (周线擒牛 + 1/3回升位 + 5日线5原则) -->
-    <article class="card mt-16" id="q-weekly-bull-card" hidden>
-      <div class="card-eyebrow flex-between">
-        <span>买点 1 · 周线擒牛 · 5 大信号</span>
-        <a class="caption dim" data-jump="weekly_bull">查看全市场 →</a>
-      </div>
-      <p class="caption dim" style="margin:.25rem 0 .5rem">主力可以骗你一天两天,但很难骗你几周。周线里藏的是大资金真正的动作。</p>
-      <div id="q-weekly-bull-body" class="card-body">加载中…</div>
-    </article>
-
-    <article class="card mt-16" id="q-recovery-card" hidden>
-      <div class="card-eyebrow">买点 2 · 1/3 回升位 · 计算策略</div>
-      <p class="caption dim" style="margin:.25rem 0 .5rem">上一轮上涨的谷底 A → 山顶 B, (B-A)/3 + A ＝ 1/3 回升位, 历史回踩的关键支撑区。</p>
-      <div id="q-recovery-body" class="card-body">加载中…</div>
-    </article>
-
-    <article class="card mt-16" id="q-ma5-rules-card" hidden>
-      <div class="card-eyebrow flex-between">
-        <span>买点 3 · 5 日均线 · 短线 5 原则</span>
-        <a class="caption dim" data-jump="laws">心法页 →</a>
-      </div>
-      <p class="caption dim" style="margin:.25rem 0 .5rem">盘面只留一根 5 日均线 · 5 句话覆盖短线全流程 · 老前辈 20 年心得</p>
-      <div id="q-ma5-rules-body"><span class="dim">加载中…</span></div>
-      <p class="caption dim" style="margin:.5rem 0 0">心法 · 均线向上只做多,均线拐头向下宁愿空仓 — 盘面只留一根均线,把简单方法反复做到位</p>
-    </article>
-
-    <!-- 2026-07-19: 策略匹配度 — 3 策略综合评分 (复刻策略选股器评分系统) -->
-    <article class="card mt-16" id="q-strategy-match-card" hidden>
-      <div class="card-eyebrow">策略匹配度 · 3 策略综合评分</div>
-      <p class="caption dim" style="margin:.25rem 0 .5rem">基于周线擒牛 + 1/3 回升位 + 5日线放量的综合评分,与<a class="dim" data-jump="strategy_picker" style="text-decoration:underline;cursor:pointer">策略选股器</a>同源。</p>
-      <div id="q-sm-body" class="card-body">
-        <span class="dim">加载中…</span>
-      </div>
-    </article>
-
-    <!-- 每个 tab 一个独立 card → title 永远跟显示在一起 (顶级 UX) -->
-
+    <!-- R-2026-08-09: 第 3 卡 — 📈 专业终端 super card (分时 / K线 / 资金 / 游资 / 散户 / 砸盘 / AI) -->
     <!-- 1) 分时 (默认) -->
     <!-- 图表区: 分时/K线/资金/游资等 — 紧凑底部展示 -->
     <div class="chart-unified mt-16">
       <div class="chart-tabs" id="stock-tabs">
-        <button class="chart-tab active" data-tab="intraday">分时</button>
-        <button class="chart-tab" data-tab="kline">K 线</button>
+        <button class="chart-tab" data-tab="intraday">分时</button>
+        <button class="chart-tab active" data-tab="kline">K 线</button>
         <span class="chart-tab-sep"></span>
         <button class="chart-tab" data-tab="flow">资金流向</button>
         <button class="chart-tab" data-tab="seats">游资席位</button>
@@ -717,11 +555,14 @@
           <button class="btn btn-mini" id="intra-day-next" title="下一个交易日" aria-label="下一个交易日">下一天 ›</button>
           <button class="btn btn-mini" id="intra-day-today" title="回到今天">今天</button>
           <button class="btn btn-mini" id="intra-day-load" title="加载该日分时">加载</button>
+          <button class="btn btn-mini" id="intra-day-overlay" title="叠加昨收价对比线" data-overlay="off">对比昨收</button>
           <span class="dim" id="intra-day-label" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
       </div>
-      <div id="intra-day-kpi" class="kpi-grid" style="margin-top:.5rem"></div>
+      <div id="intra-day-kpi" class="kpi-grid kpi-strip" style="margin-top:.5rem"></div>
       <div id="intra-day-chart" style="margin-top:.5rem"></div>
+      <!-- R30: 分时形态识别 + 大单节点 -->
+      <div class="intra-pattern" id="intra-pattern" hidden></div>
       <p class="caption dim" id="intra-day-note" style="margin-top:.5rem"></p>
     </article>
 
@@ -732,12 +573,31 @@
         <div class="kt-group">
           <span class="kt-label">周期</span>
           <div class="kt-pills" id="kline-period">
+            <button class="kt-pill" data-period="1m">1分</button>
+            <button class="kt-pill" data-period="5m">5分</button>
+            <button class="kt-pill active" data-period="d" data-days="120">日</button>
+            <button class="kt-pill" data-period="w">周</button>
+            <button class="kt-pill" data-period="m">月</button>
+          </div>
+        </div>
+        <div class="kt-group">
+          <span class="kt-label">范围</span>
+          <div class="kt-pills" id="kline-range">
             <button class="kt-pill" data-days="22">1M</button>
             <button class="kt-pill" data-days="66">3M</button>
-            <button class="kt-pill active" data-days="120">近 120 日</button>
-            <button class="kt-pill" data-days="132">6M</button>
+            <button class="kt-pill active" data-days="120">6M</button>
             <button class="kt-pill" data-days="250">1Y</button>
-            <button class="kt-pill" data-days="400">2Y</button>
+            <button class="kt-pill" data-days="500">2Y</button>
+            <button class="kt-pill" data-days="1200">5Y</button>
+            <button class="kt-pill" data-days="2500">全部</button>
+          </div>
+        </div>
+        <div class="kt-group">
+          <span class="kt-label">复权</span>
+          <div class="kt-pills" id="kline-adjust">
+            <button class="kt-pill" data-fqt="none">不复权</button>
+            <button class="kt-pill active" data-fqt="qfq">前复权</button>
+            <button class="kt-pill" data-fqt="hfq">后复权</button>
           </div>
         </div>
         <div class="kt-group">
@@ -754,19 +614,62 @@
             <span class="kr-date">—</span>
             <span class="kr-ohlc">—</span>
           </span>
+          <button class="kt-icon-btn" id="kline-loadmore" title="向左拖到边沿自动加载,点此手动加载更早数据">⟨ 更早</button>
+          <button class="kt-icon-btn" id="stock-fs-btn" title="全屏横屏沉浸 (专业终端)">⛶</button>
         </div>
       </div>
 
       <div class="kpi-grid" id="kline-kpi" style="margin-top:.5rem"></div>
+      <!-- R29: K 线形态识别 · MA 排列 + 趋势 + 支撑/压力 -->
+      <div class="kline-pattern" id="kline-pattern" hidden></div>
       <div id="kline-chart" class="kline-chart-area"></div>
     </article>
 
     <!-- 3) 资金流向 -->
     <article class="card chart-pane" data-tab-pane="flow" hidden>
-      <div class="card-eyebrow">资金流向 · 主力 / 超大 / 大 / 中 / 小单</div>
+      <div class="card-eyebrow flex-between">
+        <span>资金流向 · 主力 / 超大 / 大 / 中 / 小单 · 5min 分时 + 累计趋势 + 相对大盘</span>
+        <div class="flow-period-chips" id="flow-period-chips" style="display:flex;gap:4px">
+          <button class="chip-mini active" data-period="5">5min</button>
+          <button class="chip-mini" data-period="15">15min</button>
+          <button class="chip-mini" data-period="30">30min</button>
+          <button class="chip-mini" data-period="60">60min</button>
+        </div>
+      </div>
       <p class="caption dim" id="flow-empty" style="margin: 0 0 .5rem">请先在上方搜索一只股票</p>
       <div class="kpi-grid" id="flow-kpi"></div>
-      <div id="flow-chart" style="height:220px; margin-top:1rem"></div>
+      <!-- R21: 今日盘口单子构成 (双向堆叠) + 多周期动量条 -->
+      <div class="flow-today-comp mt-12" id="flow-today-comp" hidden></div>
+      <div class="flow-momentum mt-12" id="flow-momentum" hidden></div>
+      <div id="flow-chart" style="height:240px; margin-top:1rem"></div>
+      <div class="flow-relative-bar mt-12" id="flow-relative-bar" hidden>
+        <div class="frb-label">相对沪深300 强度</div>
+        <div class="frb-bar"><span class="frb-stock" id="frb-stock"></span></div>
+        <div class="frb-num" id="frb-num">—</div>
+      </div>
+      <div class="flow-streak-row mt-12" id="flow-streak-row" hidden>
+        <span class="fsr-label">连续</span>
+        <span class="fsr-net" id="fsr-net">—</span>
+        <span class="fsr-days" id="fsr-days">—</span>
+      </div>
+      <!-- R33: 主力成本估算 + 今日 vs 5日均 强度对比 -->
+      <div class="flow-cost mt-12" id="flow-cost" hidden>
+        <div class="fc-cost">
+          <div class="fc-cost-label">主力成本估算 <span class="fc-cost-src caption dim" id="fc-cost-src"></span></div>
+          <div class="fc-cost-main"><span id="fc-cost-price">—</span><span class="fc-cost-pos" id="fc-cost-pos">—</span></div>
+          <div class="fc-cost-bar"><i id="fc-cost-bar"></i></div>
+          <div class="fc-cost-note" id="fc-cost-note">—</div>
+        </div>
+        <div class="fc-strength">
+          <div class="fc-strength-label">今日 vs 5日均 <span class="caption dim">主力净额</span></div>
+          <div class="fc-strength-main"><span id="fc-strength-val">—</span><span class="fc-strength-tag" id="fc-strength-tag">—</span></div>
+          <div class="fc-strength-bar"><span class="fc-s-half fc-s-left"><span id="fc-strength-neg"></span></span><span class="fc-s-axis"></span><span class="fc-s-half fc-s-right"><span id="fc-strength-pos"></span></span></div>
+        </div>
+        <div class="fc-official" id="fc-official" hidden>
+          <span class="fc-official-label">东财官方持仓成本</span>
+          <span class="fc-official-chips" id="fc-official-chips"></span>
+        </div>
+      </div>
       <div class="table-wrap mt-16" id="flow-detail-wrap" hidden>
         <table class="data-table" id="flow-detail-table">
           <thead><tr><th>日期</th><th>主力净</th><th>超大单</th><th>大单</th><th>中单</th><th>小单</th><th>成交额</th></tr></thead>
@@ -777,8 +680,75 @@
 
     <!-- 4) 游资席位 -->
     <article class="card chart-pane" data-tab-pane="seats" hidden>
-      <div class="card-eyebrow">游资席位 · 龙虎榜 + 资金成分</div>
+      <div class="card-eyebrow flex-between">
+        <span>游资席位 · 龙虎榜 + 资金成分 + 席位画像 + 协同度</span>
+      </div>
       <div class="kpi-grid" id="seats-kpi" style="margin-top:.5rem"></div>
+      <!-- R22: 龙虎榜净买趋势 (按日期双向条形) -->
+      <section class="seats-netflow" id="seats-netflow" hidden>
+        <header class="sp-head">
+          <h3 class="sp-title">📊 龙虎榜净买趋势</h3>
+          <span class="sp-sub caption dim">近 N 日买入/卖出净额 · 点击日期筛选下方席位</span>
+        </header>
+        <div id="seats-netflow-body" class="snf-body"></div>
+      </section>
+      <!-- R3 Round 3: 席位画像汇总 - 联动席位表 -->
+      <section class="seats-portrait" id="seats-portrait" hidden>
+        <header class="sp-head">
+          <h3 class="sp-title">🎯 活跃席位画像</h3>
+          <span class="sp-sub caption dim">数据源：龙虎榜 + 同源识别 · 近 90 日</span>
+        </header>
+        <div class="table-wrap mt-8">
+          <table class="data-table" id="seats-portrait-table">
+            <thead>
+              <tr>
+                <th>席位</th>
+                <th>类型</th>
+                <th class="num">操作数</th>
+                <th class="num">买入占比</th>
+                <th class="num">净买额</th>
+                <th>操作模式</th>
+                <th class="num">总成交</th>
+              </tr>
+            </thead>
+            <tbody id="seats-portrait-body">
+              <tr><td colspan="7" class="empty">查询后显示</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <!-- R3 Round 3: 协同度 + 关联股 来自分类为顶级游资/知名机构席位 -->
+      <section class="seats-correl" id="seats-correl" hidden>
+        <header class="sp-head">
+          <h3 class="sp-title">🤝 协同度 / 关联股</h3>
+          <span class="sp-sub caption dim">近 30 日 · 该游资/机构 其它持仓与同买同卖</span>
+        </header>
+        <div class="table-wrap mt-8">
+          <table class="data-table" id="seats-correl-table">
+            <thead>
+              <tr>
+                <th>关联类型</th>
+                <th>席位/股票</th>
+                <th class="num">同买/同卖次数</th>
+                <th class="num">总成交</th>
+                <th>最近操作</th>
+              </tr>
+            </thead>
+            <tbody id="seats-correl-body">
+              <tr><td colspan="5" class="empty">查询后显示</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- R32: 游资足迹 · 席位关联个股 — 该席位近 N 日活跃营业部还操作了哪些股 -->
+      <section class="seats-related" id="seats-related" hidden>
+        <header class="sp-head">
+          <h3 class="sp-title">👣 游资足迹 · 席位关联个股</h3>
+          <span class="sp-sub caption dim">该股龙虎榜席位 → 近 8 个交易日活跃营业部排行其它操作 · 点股跳转</span>
+        </header>
+        <div id="seats-related-body" class="srl-body"></div>
+      </section>
 
       <section class="seat-breakdown" id="seat-breakdown" hidden>
         <header class="bd-head">
@@ -841,9 +811,75 @@
 
     <!-- 5) 散户/主力 -->
     <article class="card chart-pane" data-tab-pane="holders" hidden>
-      <div class="card-eyebrow">散户 / 主力 · 持仓结构 (季报)</div>
+      <div class="card-eyebrow flex-between">
+        <span>散户 / 主力 · 持仓结构 + 5 年分位 + 健康度</span>
+      </div>
       <p class="caption dim" style="margin:.5rem 0 .75rem">数据源：东财季报披露（每年 4/8/10 月更新）· 户均持股按自由流通股算</p>
       <div class="kpi-grid" id="holders-kpi"></div>
+      <!-- R23: 筹码异动信号带 — 派发/吸筹评级 + 季报披露倒计时 + 户均市值估算 -->
+      <div class="holders-alerts mt-12" id="holders-alerts" hidden>
+        <div class="ha-cell ha-signal" id="ha-signal">
+          <span class="ha-label">筹码异动</span>
+          <span class="ha-val" id="ha-signal-val">—</span>
+          <span class="ha-sub" id="ha-signal-sub">—</span>
+        </div>
+        <div class="ha-cell ha-discl" id="ha-discl">
+          <span class="ha-label">季报披露倒计时</span>
+          <span class="ha-val" id="ha-discl-val">—</span>
+          <span class="ha-sub" id="ha-discl-sub">—</span>
+        </div>
+        <div class="ha-cell ha-avgamt" id="ha-avgamt">
+          <span class="ha-label">户均市值估算</span>
+          <span class="ha-val" id="ha-avgamt-val">—</span>
+          <span class="ha-sub" id="ha-avgamt-sub">—</span>
+        </div>
+        <div class="ha-cell ha-trend" id="ha-trend">
+          <span class="ha-label">户数趋势</span>
+          <span class="ha-val" id="ha-trend-val">—</span>
+          <span class="ha-sub" id="ha-trend-sub">—</span>
+          <span class="ha-spark" id="ha-trend-spark"></span>
+        </div>
+      </div>
+      <!-- R3 Round 3: 持仓结构图 — 户数趋势双轴 + 主力vs散户 20 日对比 -->
+      <div class="holders-charts" id="holders-charts">
+        <div class="hc-block"><div class="hc-label">股东户数趋势 · 户均持股 <span class="dim">(季报)</span></div><div id="holders-chart" class="hc-chart"></div></div>
+        <div class="hc-block"><div class="hc-label">主力 vs 散户 净流入 <span class="dim">(近 20 日 · 万元)</span></div><div id="holders-flow-chart" class="hc-chart"></div></div>
+      </div>
+      <!-- R4 Round 4: 股东户数 5 年分位图 + 健康度评分 -->
+      <div class="holders-extra mt-16" id="holders-extra" hidden>
+        <div class="he-row">
+          <div class="he-block">
+            <div class="he-label">户数 5 年分位</div>
+            <div class="he-bar">
+              <span class="he-bar-current" id="he-bar-current"></span>
+              <span class="he-bar-tick" title="P50"></span>
+            </div>
+            <div class="he-stat" id="he-stat">—</div>
+          </div>
+          <div class="he-block">
+            <div class="he-label">筹码健康度</div>
+            <div class="he-score" id="he-score">—</div>
+            <div class="he-sub" id="he-sub">—</div>
+          </div>
+        </div>
+        <div class="table-wrap mt-16">
+          <table class="data-table" id="holders-top10-table">
+            <thead>
+              <tr>
+                <th>排名</th>
+                <th>股东名称</th>
+                <th class="num">持股 (万)</th>
+                <th class="num">占流通 %</th>
+                <th>变动</th>
+                <th>性质</th>
+              </tr>
+            </thead>
+            <tbody id="holders-top10-body">
+              <tr><td colspan="6" class="empty">查询后显示</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="table-wrap mt-16">
         <table class="data-table" id="holders-table">
           <thead><tr><th>报告期</th><th>股东户数</th><th>环比</th><th>户均持股</th><th>集中度</th><th>前10大占比</th></tr></thead>
@@ -855,7 +891,7 @@
     <!-- 6) 砸盘风险 -->
     <article class="card chart-pane" data-tab-pane="crash" hidden>
       <div class="card-eyebrow flex-between">
-        <span>砸盘风险 · 量化 / 对倒 / 虚假流动性 / 尾盘异动 / 5 层资金背离</span>
+        <span>砸盘风险 · 量化 / 对倒 / 虚假流动性 / 尾盘异动 / 5 层资金背离 + 模板对比 + 融资质押</span>
         <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
           <button class="btn btn-mini" id="crash-refresh-btn" title="失效缓存强制重跑,约 30-60s">🔄 重新检测</button>
           <span class="ai-btn-hint" id="crash-btn-hint"></span>
@@ -879,8 +915,68 @@
           </div>
         </div>
         <p class="ai-summary" id="crash-summary"></p>
+        <!-- R24: 铁律违反明细 — 高优先级红条警示 -->
+        <div class="crash-rules" id="crash-rules" hidden></div>
         <div class="ai-detail" id="crash-detail"></div>
         <div id="crash-pre-scan"></div>
+        <!-- R24: 5 信号卡片 — 量化席位 / 对倒 / 虚假流动性 / 尾盘异动 / 资金分布 -->
+        <div class="crash-signals mt-12" id="crash-signals" hidden>
+          <div class="cs-card" data-key="quant_seats">
+            <div class="cs-mark">🤖</div>
+            <div class="cs-label">量化席位</div>
+            <div class="cs-val" id="cs-quant-val">—</div>
+            <div class="cs-sub" id="cs-quant-sub">—</div>
+          </div>
+          <div class="cs-card" data-key="pair_trades">
+            <div class="cs-mark">↔️</div>
+            <div class="cs-label">对倒席位</div>
+            <div class="cs-val" id="cs-pair-val">—</div>
+            <div class="cs-sub" id="cs-pair-sub">—</div>
+          </div>
+          <div class="cs-card" data-key="fake_liquidity">
+            <div class="cs-mark">💧</div>
+            <div class="cs-label">虚假流动性</div>
+            <div class="cs-val" id="cs-fake-val">—</div>
+            <div class="cs-sub" id="cs-fake-sub">—</div>
+          </div>
+          <div class="cs-card" data-key="late_session">
+            <div class="cs-mark">🌆</div>
+            <div class="cs-label">尾盘异动</div>
+            <div class="cs-val" id="cs-late-val">—</div>
+            <div class="cs-sub" id="cs-late-sub">—</div>
+          </div>
+          <div class="cs-card cs-funding" data-key="funding_skew">
+            <div class="cs-mark">💰</div>
+            <div class="cs-label">资金分布</div>
+            <div class="cs-val" id="cs-fund-val">—</div>
+            <div class="cs-sub" id="cs-fund-sub">—</div>
+          </div>
+        </div>
+        <!-- R5 Round 5: 历史模板 + 融资质押 + 关联股 -->
+        <section class="crash-extra mt-16" id="crash-extra">
+          <div class="ce-row">
+            <div class="ce-block">
+              <div class="ce-label">📊 历史模板相似度</div>
+              <div class="ce-stat" id="ce-template">—</div>
+              <div class="ce-sub" id="ce-template-sub">—</div>
+            </div>
+            <div class="ce-block">
+              <div class="ce-label">💸 融资余额</div>
+              <div class="ce-stat" id="ce-margin">—</div>
+              <div class="ce-sub" id="ce-margin-sub">—</div>
+            </div>
+            <div class="ce-block">
+              <div class="ce-label">🔒 股权质押</div>
+              <div class="ce-stat" id="ce-pledge">—</div>
+              <div class="ce-sub" id="ce-pledge-sub">—</div>
+            </div>
+            <div class="ce-block">
+              <div class="ce-label">📅 砸盘日历</div>
+              <div class="ce-stat" id="ce-calendar">—</div>
+              <div class="ce-sub" id="ce-calendar-sub">—</div>
+            </div>
+          </div>
+        </section>
       </div>
     </article>
 
@@ -918,10 +1014,61 @@
         </div>
         <p class="ai-summary" id="ai-summary"></p>
         <div class="ai-detail" id="ai-detail"></div>
+        <!-- R6 Round 6: 逐条对账 + 推导链 -->
+        <section class="ai-laws mt-16" id="ai-laws">
+          <header class="sp-head">
+            <h3 class="sp-title">📜 逐条对账 + 推导链</h3>
+            <span class="sp-sub caption dim">每条铁律 命中/未命中 + 触发证据 + 权重</span>
+          </header>
+          <div class="ai-laws-stats" id="ai-laws-stats"></div>
+          <div class="table-wrap mt-8">
+            <table class="data-table" id="ai-laws-table">
+              <thead>
+                <tr>
+                  <th>铁律</th>
+                  <th>判定</th>
+                  <th class="num">权重</th>
+                  <th>触发证据</th>
+                  <th>建议</th>
+                </tr>
+              </thead>
+              <tbody id="ai-laws-body">
+                <tr><td colspan="5" class="empty">AI 评估完成前显示</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="ai-chain mt-12" id="ai-chain">
+            <div class="chain-label">📐 推导链 (3 步溯源)</div>
+            <div class="chain-steps" id="chain-steps"></div>
+          </div>
+        </section>
         <div class="ai-history-bar" id="ai-history-bar" hidden>
           <span class="ahb-label">历史判定 →</span>
           <div class="ahb-pills" id="ai-history-pills"></div>
         </div>
+        <!-- R25: 判定趋势 (mini chart) + 铁律权重热力图 + 4 层数据 popover -->
+        <section class="ai-trend-section mt-16" id="ai-trend-section" hidden>
+          <header class="sp-head">
+            <h3 class="sp-title">📈 判定趋势 · 近 14 日</h3>
+            <span class="sp-sub caption dim">每日 verdict + conviction 演变 (mini chart)</span>
+          </header>
+          <div class="ai-trend" id="ai-trend-chart"></div>
+          <div class="ai-trend-legend" id="ai-trend-legend"></div>
+        </section>
+        <section class="ai-heatmap-section mt-16" id="ai-heatmap-section" hidden>
+          <header class="sp-head">
+            <h3 class="sp-title">🔥 铁律权重热力图</h3>
+            <span class="sp-sub caption dim">9 条铁律 · 格子大小=权重,颜色=判定 (绿✓ / 红✗)</span>
+          </header>
+          <div class="ai-law-heatmap" id="ai-law-heatmap"></div>
+        </section>
+        <section class="ai-layer-section mt-16" id="ai-layer-section" hidden>
+          <header class="sp-head">
+            <h3 class="sp-title">🔬 四层数据拆解</h3>
+            <span class="sp-sub caption dim">点击展开各层依赖的底层信号 (L1 风控 / L2 主线 / L3 形态 / L4 分时)</span>
+          </header>
+          <div class="ai-layer-cards" id="ai-layer-cards"></div>
+        </section>
       </div>
     </article>
 
@@ -933,6 +1080,20 @@
           <button class="btn btn-mini" id="news-refresh-btn" title="重新抓取 + AI 评分">🔄 刷新</button>
           <span class="dim" id="news-meta" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
+      </div>
+      <!-- R27: 新闻情绪分布 + 时间分布 + 关联股票 top chips -->
+      <div class="news-stats-wrap" id="news-stats-wrap" hidden>
+        <div class="nsw-row">
+          <div class="nsw-block">
+            <div class="nsw-label">情绪分布 (前 24h)</div>
+            <div class="nsw-chart" id="news-sentiment-chart"></div>
+          </div>
+          <div class="nsw-block">
+            <div class="nsw-label">发布时间分布 (24h)</div>
+            <div class="nsw-chart" id="news-time-chart"></div>
+          </div>
+        </div>
+        <div class="nsw-top-stocks" id="news-top-stocks"></div>
       </div>
       <div id="news-list" class="news-list" style="margin-top:.5rem"></div>
     </article>
@@ -946,6 +1107,17 @@
           <span class="dim" id="sectors-meta" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
       </div>
+      <!-- R26: 当前股票所属板块 + 板块涨停龙头 -->
+      <div class="sectors-mycard" id="sectors-mycard" hidden></div>
+      <!-- R26: 排序切换 -->
+      <div class="sectors-sort mt-8" id="sectors-sort">
+        <span class="ssort-label">排序</span>
+        <button class="ssort-btn active" data-sort="score">情绪分</button>
+        <button class="ssort-btn" data-sort="bull">利好数</button>
+        <button class="ssort-btn" data-sort="news">新闻数</button>
+        <button class="ssort-btn" data-sort="consistency">AI 一致性</button>
+        <span class="ssort-hint dim">仅显示有新闻的板块</span>
+      </div>
       <div id="sectors-list" class="sectors-list" style="margin-top:.5rem"></div>
     </article>
 
@@ -958,16 +1130,172 @@
           <span class="dim" id="related-meta" style="font-size:.8rem; margin-left:.25rem"></span>
         </div>
       </div>
+      <!-- R28: 关联股板块概览 + 共振信号 -->
+      <div class="related-overview" id="related-overview" hidden></div>
       <div id="related-by-concept" style="margin-top:.5rem"></div>
     </article>
       </div><!-- /.chart-panes -->
+
+      <!-- R-2026-08-09: 近 10 日涨跌 (close-to-close) 融合到 super card 底部追加区 -->
+      <div class="card-eyebrow streak10d-eyebrow" style="margin-top:1rem;padding-top:1rem;border-top:1px dashed var(--line)">📅 近 10 日涨跌 · 每日格子 (close-to-close)</div>
+      <div id="q-streak-10d"><p class="caption dim" style="margin:.25rem 0 0">查询股票后显示近 10 日涨跌</p></div>
     </div><!-- /.chart-unified -->
 
-    <!-- 11) 近 10 日涨跌 (close-to-close 9 档热力) — 页面最底部 · 2026-07-17 恢复 -->
-    <article class="card" id="q-streak-10d-card">
-      <div class="card-eyebrow">近 10 日涨跌 · 每日格子 (close-to-close)</div>
-      <div id="q-streak-10d"><p class="caption dim" style="margin:.25rem 0 0">查询股票后显示近 10 日涨跌</p></div>
+    <!-- R-2026-08-09: 第 4 卡 — 策略匹配度 (3 策略综合评分) -->
+    <!-- 2026-07-19: 策略匹配度 — 3 策略综合评分 (复刻策略选股器评分系统) -->
+    <article class="card mt-16" id="q-strategy-match-card" hidden>
+      <div class="card-eyebrow">策略匹配度 · 3 策略综合评分</div>
+      <p class="caption dim" style="margin:.25rem 0 .5rem">基于周线擒牛 + 1/3 回升位 + 5日线放量的综合评分,与<a class="dim" data-jump="strategy_picker" style="text-decoration:underline;cursor:pointer">策略选股器</a>同源。</p>
+      <div id="q-sm-body" class="card-body">
+        <span class="dim">加载中…</span>
+      </div>
     </article>
+
+    <!-- R-2026-08-09: 第 5 卡 — 连板 · 近期涨停 / 梯队 + 强势股 (合并原 stock-limit-up-card) -->
+    <article class="card mt-16" id="stock-streak-card">
+      <div class="card-eyebrow flex-between">
+        <span>连板 · 近期涨停 / 梯队 + 强势股</span>
+      </div>
+      <div id="q-streak-host"><p class="caption dim" style="margin: 0">无近 10 日涨停记录</p></div>
+    </article>
+
+    <!-- R-2026-08-09: 第 6 卡 — (连板 · 近期涨停 / 强势股 已包含涨停梯队 + 板块联动, 合并删除原 stock-limit-up-card) -->
+
+    <!-- R-2026-08-09: 第 7 卡 — 🏢 公司画像 (营业范围 / 产品 / 行业地位 / 多板块) -->
+    <article class="card mt-16" id="stock-profile-card">
+      <div class="card-eyebrow flex-between">
+        <span>🏢 公司画像 · 营业范围 / 产品 / 行业地位 / 多板块</span>
+        <span class="profile-meta caption dim" id="profile-meta-row"></span>
+      </div>
+      <div id="stock-profile-body">
+        <section class="prof-row" id="prof-scope">
+          <div class="prof-row-h">📋 营业范围 / 简介</div>
+          <div id="prof-scope-text" class="prof-text">—</div>
+        </section>
+
+        <section class="prof-row" id="prof-products">
+          <div class="prof-row-h flex-between">
+            <span>📦 主要产品 (按收入占比)</span>
+            <span class="prof-report-date caption dim" id="prof-report-date"></span>
+          </div>
+          <div id="prof-products-bars" class="prof-bars"></div>
+          <div id="prof-regions-text" class="caption dim mt-4"></div>
+        </section>
+
+        <section class="prof-row" id="prof-position">
+          <div class="prof-row-h">👑 行业地位 / 核心竞争力</div>
+          <div id="prof-position-text" class="prof-text">—</div>
+        </section>
+
+        <section class="prof-row" id="prof-concepts">
+          <div class="prof-row-h flex-between">
+            <span>🔗 多板块重合 · 概念归属 <span id="prof-concept-count" class="caption dim"></span></span>
+            <span id="prof-precise-note" class="caption dim"></span>
+          </div>
+          <div id="prof-concepts-chips" class="prof-chips"></div>
+        </section>
+      </div>
+    </article>
+
+    <!-- R-2026-08-09: 第 8 卡 — 综合买点 (买点 1+2+3 整合: 周线擒牛 + 1/3 回升位 + 5 日线 5 原则) -->
+    <article class="card mt-16" id="q-buypoint-card" hidden>
+      <div class="card-eyebrow flex-between">
+        <span>🎯 综合买点 1+2+3 · 周线擒牛 / 1/3 回升位 / 5 日线 5 原则</span>
+        <span class="dim" style="font-size:.75rem">3 买点同时触发 → 强买信号</span>
+      </div>
+      <p class="caption dim" style="margin:.25rem 0 .5rem">主力可以骗你一天两天,但很难骗你几周。三个买点分别覆盖:周线大资金动作 · 历史回踩关键支撑 · 短线均线趋势。</p>
+
+      <!-- 分段 1: 周线擒牛 -->
+      <section class="bp-seg" id="bp-seg-weekly">
+        <div class="bp-seg-h flex-between">
+          <span class="bp-seg-title">买点 1 · 周线擒牛 · 5 大信号</span>
+          <a class="caption dim" data-jump="weekly_bull">查看全市场 →</a>
+        </div>
+        <div id="q-weekly-bull-body" class="bp-seg-body">加载中…</div>
+      </section>
+
+      <!-- 分段 2: 1/3 回升位 -->
+      <section class="bp-seg" id="bp-seg-recovery">
+        <div class="bp-seg-h">
+          <span class="bp-seg-title">买点 2 · 1/3 回升位 · 计算策略</span>
+        </div>
+        <p class="caption dim" style="margin:.25rem 0 .5rem">上一轮上涨的谷底 A → 山顶 B, (B-A)/3 + A ＝ 1/3 回升位, 历史回踩的关键支撑区。</p>
+        <div id="q-recovery-body" class="bp-seg-body">加载中…</div>
+      </section>
+
+      <!-- 分段 3: 5 日线 5 原则 -->
+      <section class="bp-seg" id="bp-seg-ma5">
+        <div class="bp-seg-h flex-between">
+          <span class="bp-seg-title">买点 3 · 5 日均线 · 短线 5 原则</span>
+          <a class="caption dim" data-jump="laws">心法页 →</a>
+        </div>
+        <p class="caption dim" style="margin:.25rem 0 .5rem">盘面只留一根 5 日均线 · 5 句话覆盖短线全流程 · 老前辈 20 年心得</p>
+        <div id="q-ma5-rules-body" class="bp-seg-body"><span class="dim">加载中…</span></div>
+        <p class="caption dim" style="margin:.5rem 0 0">心法 · 均线向上只做多,均线拐头向下宁愿空仓 — 盘面只留一根均线,把简单方法反复做到位</p>
+      </section>
+    </article>
+
+    <!-- R-2026-08-09: 剩余卡片 — 我的交易 / AI 深度判断 (板块/新闻/相关个股 已在 super card tabs) -->
+    <article class="card mt-16" id="stock-mytrades-card" hidden>
+      <div class="card-eyebrow" style="color:var(--accent)">我的交易</div>
+      <div id="stock-mytrades-list"></div>
+    </article>
+
+    <!-- 2026-07-30: AI 深度判断 (适不适合卖/持/买) + 公司业务 + 业绩跳变 + 持仓盈亏 + 同行 PE 偏离 -->
+    <article class="card mt-16" id="stock-deep-analy-card">
+      <div class="card-eyebrow flex-between">
+        <span>🔬 AI 深度判断 · 卖 / 持 / 买 建议</span>
+        <div class="view-actions" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0">
+          <span class="deep-status" id="deep-status">—</span>
+          <button class="btn-mini" id="deep-refresh" title="强制重新拉数据 (≈8s)" hidden>🔄 强刷</button>
+          <button class="btn-mini" id="deep-history" title="历史归档 (下期)" hidden>📜 历史</button>
+        </div>
+      </div>
+
+      <div class="deep-advice" id="deep-advice">
+        <span class="deep-action" id="deep-action-chip">分析中…</span>
+        <span class="deep-score" id="deep-score">—/100</span>
+        <span class="deep-pending" id="deep-pending"></span>
+      </div>
+
+      <section id="deep-profile" class="deep-section">
+        <h4 class="deep-section-h">公司业务</h4>
+        <p id="deep-profile-text" class="deep-text">—</p>
+        <div id="deep-profile-meta" class="deep-meta"></div>
+      </section>
+
+      <section id="deep-earnings" class="deep-section">
+        <div class="deep-section-h flex-between">
+          <h4 class="deep-section-h-inner">盈亏情况 · 近 4 季</h4>
+          <span id="deep-jump-chip" class="deep-jump" hidden>⚠ 业绩跳变</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table deep-tbl">
+            <thead><tr><th>期</th><th>营收(亿)</th><th>同比</th><th>净利(亿)</th><th>同比</th><th>EPS</th><th>ROE</th></tr></thead>
+            <tbody id="deep-earnings-body"><tr><td colspan="7" class="empty">—</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="deep-holding" class="deep-section">
+        <h4 class="deep-section-h">持仓盈亏</h4>
+        <div id="deep-holding-view" class="deep-text">—</div>
+      </section>
+
+      <section id="deep-tech" class="deep-section">
+        <h4 class="deep-section-h">技术位置 · 同行估值</h4>
+        <div id="deep-tech-view" class="deep-tech-grid">—</div>
+      </section>
+
+      <section id="deep-summary" class="deep-summary-section">
+        <h4 class="deep-section-h">AI 总结</h4>
+        <p id="deep-summary-text" class="deep-summary-text">—</p>
+      </section>
+    </article>
+
+    <!-- 每个 tab 一个独立 card → title 永远跟显示在一起 (顶级 UX) -->
+
+    <!-- R-2026-08-09: chart-unified (分时/K线/资金/游资/散户/砸盘/AI + 近 10 日涨跌) 已上移到 quote-bento 之后 (第 3 卡) -->
   </section>
 
   <!-- ─── WATCHLIST · 自选股池 ─── -->
@@ -988,6 +1316,28 @@
       </div>
       <div id="wl-add-results" class="search-results"></div>
     </article>
+
+    <!-- R10: 自选 · 持仓表现 + 板块映射 + AI 置信度分布 -->
+    <div class="wl-stat-row mt-16">
+      <article class="card wl-stat-card">
+        <div class="card-eyebrow">📊 持仓表现 · 当日</div>
+        <div id="wl-perf-today" class="wl-perf-today">
+          <div class="dim center" style="padding:.6rem">加载中…</div>
+        </div>
+      </article>
+      <article class="card wl-stat-card">
+        <div class="card-eyebrow">🎯 AI 置信度分布</div>
+        <div id="wl-conv-dist" class="wl-conv-dist">
+          <div class="dim center" style="padding:.6rem">加载中…</div>
+        </div>
+      </article>
+      <article class="card wl-stat-card">
+        <div class="card-eyebrow">🗺 板块分布雷达</div>
+        <div id="wl-sector-radar" class="wl-sector-radar">
+          <div class="dim center" style="padding:.6rem">加载中…</div>
+        </div>
+      </article>
+    </div>
 
     <!-- 主表格 -->
     <article class="card mt-16">
@@ -1086,6 +1436,16 @@
       </div>
     </article>
 
+    <!-- R14: 逐月收益热力图 — 参数敏感性视觉化 (来自 optimized_summary monthly_breakdown) -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>HEATMAP · 逐月收益 × 胜率热力图</span>
+        <span class="caption dim" id="opt-heat-ts">—</span>
+      </div>
+      <div id="opt-heat-map" class="opt-heat-map"><div class="dim center" style="padding:1rem">加载中…</div></div>
+      <p class="caption dim" style="margin-top:.4rem">格色 = 当月总收益 · 深浅 = 绝对值 · 数字 = 胜率% · 点击月份加载该月逐笔明细</p>
+    </article>
+
     <!-- 最佳参数 + 可行性 + 交易策略 三件套 -->
     <article class="card mt-32" id="opt-best-card" hidden>
       <div class="card-eyebrow">⭐ 最佳参数 · 1000 轮冠军</div>
@@ -1171,6 +1531,7 @@
                 <th class="sortable" data-sort="code">代码<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="name">名称<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="sector">板块<span class="sort-arrow"></span></th>
+                <th>角色<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="streak">连板<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="concept">概念<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="change_pct">今日涨幅<span class="sort-arrow"></span></th>
@@ -1205,6 +1566,7 @@
                 <th class="sortable" data-sort="code">代码<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="name">名称<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="sector">板块<span class="sort-arrow"></span></th>
+                <th>角色<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="streak">连板<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="concept">概念<span class="sort-arrow"></span></th>
                 <th class="sortable" data-sort="change_pct">今日涨幅<span class="sort-arrow"></span></th>
@@ -1233,6 +1595,10 @@
           <span>最高连板 <b id="dragons-max-streak">—</b></span>
           <span>连板梯队 <b id="dragons-streak-dist">—</b></span>
         </div>
+      </div>
+      <!-- R9: 连板梯队可视化 (接力图) -->
+      <div id="dragons-streak-ladder" class="dragons-streak-ladder" aria-label="连板接力梯队">
+        <div class="dim center" style="padding:1rem">加载梯队数据…</div>
       </div>
     </article>
 
@@ -1284,6 +1650,16 @@
       <p class="caption dim" id="weekly-bull-status" style="margin: .75rem 0">未加载</p>
       <div id="weekly-bull-list"></div>
     </article>
+
+    <!-- R15: 信号共振矩阵 + 多信号命中分布 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>RESONANCE · 信号共振矩阵 · 多信号命中</span>
+        <span class="caption dim" id="wb-res-ts">—</span>
+      </div>
+      <div id="wb-resonance" class="wb-resonance"><div class="dim center" style="padding:1rem">加载中…</div></div>
+      <div id="wb-res-dist" class="wb-res-dist"><div class="dim center" style="padding:1rem">加载中…</div></div>
+    </article>
   </section>
 
   <!-- ─── STRATEGY PICKER · 策略选股 (2026-07-19 新增) ─── -->
@@ -1302,6 +1678,15 @@
       <div id="sp-filters" class="sp-filters"></div>
       <p class="caption dim" id="sp-status" style="margin: .75rem 0">未加载</p>
       <div id="sp-list"></div>
+    </article>
+
+    <!-- R16: 策略对比条 · 各策略命中 × 平均评分 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>COMPARE · 策略对比 · 命中 × 平均评分</span>
+        <span class="caption dim" id="sp-compare-ts">—</span>
+      </div>
+      <div id="sp-compare" class="sp-compare"><div class="dim center" style="padding:1rem">加载中…</div></div>
     </article>
 
     <!-- 综合策略选股 · 7维加权融合 -->
@@ -1330,6 +1715,15 @@
       <div id="sector-roles" class="role-row">
         <p class="empty">加载中 …</p>
       </div>
+    </article>
+
+    <!-- R17: 板块资金流向条 · 主力净流入 + 涨跌家数 + 振幅 -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>FLOW · 板块资金流向 · 主力净流入</span>
+        <span class="caption dim" id="sector-flow-ts">—</span>
+      </div>
+      <div id="sector-flow-bar" class="sector-flow-bar"><div class="dim center" style="padding:1rem">加载中…</div></div>
     </article>
 
     <!-- 今日板块内涨停 -->
@@ -1406,6 +1800,18 @@
 
     <!-- 4 大类铁律 -->
     <div id="laws-categories" class="laws-grid"></div>
+
+    <!-- R12: 铁律执行仪表盘 — 今日纪律自检 5 项 -->
+    <article class="card mt-32 laws-dashboard">
+      <div class="card-eyebrow flex-between">
+        <span>⚖ 铁律执行仪表盘 · 今日纪律自检</span>
+        <button class="btn btn-mini" id="laws-dash-refresh" title="刷新自检">⟳ 刷新</button>
+      </div>
+      <div id="laws-dash-grid" class="laws-dash-grid">
+        <div class="dim center" style="padding:1rem">加载中…</div>
+      </div>
+      <p class="caption dim" style="margin-top:.5rem">基于当日涨停/连板/主线/自选/复盘数据派生 · 逐项对照退学铁律</p>
+    </article>
 
     <!-- 极简口诀 -->
     <article class="card card-koujue mt-32">
@@ -1513,6 +1919,16 @@
     <article class="card mt-16">
       <div class="card-eyebrow">STATS · 90 天统计</div>
       <div class="review-stats" id="review-stats">—</div>
+    </article>
+
+    <!-- R13: 盈亏日历热力 + 连续盈亏 streak -->
+    <article class="card mt-16">
+      <div class="card-eyebrow flex-between">
+        <span>CALENDAR · 近 30 日盈亏日历 · 连续盈亏</span>
+        <span class="caption dim" id="rv-calendar-meta">—</span>
+      </div>
+      <div id="rv-calendar" class="rv-calendar"><div class="dim center" style="padding:1rem">加载中…</div></div>
+      <div id="rv-streak" class="rv-streak"><div class="dim center" style="padding:1rem">加载中…</div></div>
     </article>
 
     <!-- 次日选股 + 用户错模式预警 -->
@@ -1648,6 +2064,16 @@
     <div id="zt-mount"></div>
   </section>
 
+  <!-- 妖股 · 妖性评分 + 阶段抓取 (YAOGU 500 调研 → 1000 迭代) -->
+  <section class="view view-yaogu" data-view="yaogu" hidden>
+    <header class="view-head">
+      <div>
+        <div class="zt-title">妖股 <span class="sub">妖性评分 6 维 · 2/3 板抓取 · 断板即走</span></div>
+      </div>
+    </header>
+    <div id="yaogu-mount"></div>
+  </section>
+
   <!-- 得鑫量变术 · 时序链条量化选股 -->
   <section class="view view-dexin" data-view="dexin" hidden>
     <header class="view-head">
@@ -1668,6 +2094,8 @@
       <button class="dexin-tab" data-tab="de_xin" role="tab">得鑫主升</button>
       <button class="dexin-tab dexin-tab-danger" data-tab="xu_sha_dangerous" role="tab">危险剔除</button>
     </div>
+    <!-- R18: 四阶段分布统计条 · 得鑫链条漏斗 -->
+    <div id="dexin-dist" class="dexin-dist"><div class="dim center" style="padding:.8rem">加载中…</div></div>
     <div id="dexin-mount"></div>
     <div class="dexin-creed-panel" id="dexin-creed-panel">
       <div class="dexin-creed-list" id="dexin-creed-list"></div>
@@ -1694,11 +2122,43 @@
       <p class="caption">全 A 风向 · 02</p>
       <h1 class="display">全 A 风向 <span class="accent">5400+</span> <span id="as-title-pct" class="as-title-pct" hidden></span></h1>
       <p class="lede">点击集群 chip / 申万 / 产业链 / 细分 / AI 主战场 → 5 类行情列联表</p>
+      <!-- 2026-08-09: 角色图例 — 龙头/中军/杂毛 = 东财官方概念板块成分 -->
+      <div id="as-role-legend" class="as-role-legend" hidden>
+        <span class="caption dim">角色·东财板块</span>
+        <span class="role-legend-item"><span class="dot dot-main"></span>龙头 <b id="as-role-n-main">—</b></span>
+        <span class="role-legend-item"><span class="dot dot-sub"></span>中军 <b id="as-role-n-sub">—</b></span>
+        <span class="role-legend-item"><span class="dot dot-spec"></span>杂毛 <b id="as-role-n-spec">—</b></span>
+        <span class="caption dim" id="as-role-ts">—</span>
+      </div>
     </header>
 
     <!-- Hero KPI strip — 跟 screener 9 套退场同款 kpi-group 卡片 -->
     <div id="as-kpis" class="bt-kpis" aria-label="全 A 风向概览">
       <!-- 由 initAllStocks() 异步填充 5 个 kpi-group: 总数 / 涨家 / 跌家 / 涨停 / 主力净流入 -->
+    </div>
+
+    <!-- R8: 板块联动热力图 + 涨停潮汐 (10 日滚动) — 全 A 风向专业级增强 -->
+    <div class="as-sector-row mt-16">
+      <article class="card as-sector-card">
+        <div class="card-eyebrow flex-between">
+          <span>🔥 板块联动热力 · L2 申万 × 净流入</span>
+          <span class="caption dim" id="as-sector-ts">—</span>
+        </div>
+        <div id="as-sector-heat" class="as-sector-heat" aria-label="板块热力矩阵">
+          <div class="dim center" style="padding:1rem">加载中…</div>
+        </div>
+        <p class="caption dim" style="margin-top:.4rem">颜色 = 资金净流入 · 深红 = 主力抢筹 · 深绿 = 资金出逃 · 数字 = 当日涨幅</p>
+      </article>
+      <article class="card as-tide-card">
+        <div class="card-eyebrow flex-between">
+          <span>🌊 涨停潮汐 · 近 10 日</span>
+          <span class="caption dim" id="as-tide-ts">—</span>
+        </div>
+        <div id="as-tide-bars" class="as-tide-bars" aria-label="涨停潮汐柱图">
+          <div class="dim center" style="padding:1rem">加载中…</div>
+        </div>
+        <p class="caption dim" style="margin-top:.4rem">柱高 = 涨停数 · 颜色 = 涨/跌家比 · 红涨绿跌</p>
+      </article>
     </div>
 
     <!-- 筛选条 · 紧凑 3 行: caption+工具行 / L1 chips / 4 联级联 -->
@@ -1881,6 +2341,17 @@
     </header>
     <div id="airv-body">
       <article class="card mt-16"><div class="dim center" style="padding:2rem">加载中…</div></article>
+    </div>
+
+    <!-- R20: 铁律错模式聚合 · 全部交易错因分布 -->
+    <div id="airv-patterns" class="mt-16">
+      <article class="card">
+        <div class="card-eyebrow flex-between">
+          <span>PATTERNS · 全账户错模式聚合</span>
+          <span class="caption dim" id="airv-patterns-meta">—</span>
+        </div>
+        <div id="airv-patterns-body" class="airv-patterns-body"><div class="dim center" style="padding:1rem">加载中…</div></div>
+      </article>
     </div>
   </section>
 

@@ -24,15 +24,15 @@ log = logging.getLogger("tuixue_v3.web.fund_flow")
 # ═══════════════════════════════════════════════════
 def get_main_flow(code: str) -> dict | None:
     """今日实时主力/超大/大/中/小单 净流入（万元）。"""
-    # ─── 主源 1: 东财 push2his ───
+    # ─── 主源 1: 东财官方 datacenter (R31-fix: 替代原 push2his f184 错误指标) ───
     try:
         from .. import lib_common as lc
         r = lc.fetch_main_fund_flow(code)
         if r and isinstance(r, dict) and r.get("main_net") is not None:
-            r["source"] = "eastmoney_push2"
+            r.setdefault("source", "eastmoney_datacenter")
             return r
     except Exception as e:
-        log.warning(f"东财 push2his {code} 失败: {e}")
+        log.warning(f"东财 datacenter {code} 失败: {e}")
 
     # ─── 备 1: akshare (5s 硬超时,东财限频时 RemoteDisconnected 会 hang 数十秒) ───
     try:
@@ -157,7 +157,12 @@ def get_history_flow(code: str, days: int = 60) -> list[dict]:
     """
     market = "sh" if code.startswith(("6", "5", "9")) else "sz"
 
-    # ─── 主源 1: akshare 个股资金流 ───
+    # ─── 主源 1: 东财 push2his 资金流日线 (curl_cffi 浏览器指纹,120 天全量真实分单) ───
+    rows = _try_push2his_daykline(code, days)
+    if rows:
+        return rows
+
+    # ─── 备 1: akshare 个股资金流 ───
     rows = _try_ak_individual(code, market, days)
     if rows:
         return rows
@@ -173,6 +178,54 @@ def get_history_flow(code: str, days: int = 60) -> list[dict]:
         return rows
 
     return []
+
+
+def _try_push2his_daykline(code: str, days: int) -> list[dict]:
+    """
+    东财 push2his 资金流日线（真实分单,120 天全量）。
+    push2his 对 Python requests 做 TLS 指纹封锁 (RemoteDisconnected), 但 curl 通。
+    → 用 curl_cffi impersonate='chrome' 模拟浏览器指纹解锁。
+    行格式: 日期,主力,小单,中单,大单,超大单,主力%,小单%,中单%,大单%,超大单%,收盘,涨跌幅 (f51..f63)
+    """
+    secid = ("1" if code.startswith(("6", "5", "9")) else "0") + "." + code
+    url = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+    params = {
+        "lmt": "0", "klt": "101", "secid": secid,
+        "fields1": "f1,f2,f3,f7",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63",
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Referer": "https://data.eastmoney.com/",
+    }
+    try:
+        from curl_cffi import requests as creq
+        r = creq.get(url, params=params, headers=headers, timeout=8, impersonate="chrome")
+        kl = ((r.json() or {}).get("data") or {}).get("klines") or []
+    except Exception as e:
+        log.warning(f"push2his_daykline {code} 失败: {e}")
+        return []
+    out = []
+    for line in kl[-days:]:
+        try:
+            p = line.split(",")
+            if len(p) < 13:
+                continue
+            out.append({
+                "date": p[0],
+                "main_net": round(float(p[1]) / 1e4, 2),    # f52 主力净流入(元)
+                "small_net": round(float(p[2]) / 1e4, 2),   # f53 小单
+                "mid_net": round(float(p[3]) / 1e4, 2),     # f54 中单
+                "big_net": round(float(p[4]) / 1e4, 2),     # f55 大单
+                "super_net": round(float(p[5]) / 1e4, 2),   # f56 超大单
+                "close": float(p[11]),                        # f62 收盘价
+                "pct": float(p[12]) if len(p) > 12 else 0.0,  # f63 涨跌幅
+                "source": "eastmoney_fflow",
+            })
+        except Exception:
+            continue
+    return out
 
 
 def _try_ak_individual(code: str, market: str, days: int) -> list[dict]:

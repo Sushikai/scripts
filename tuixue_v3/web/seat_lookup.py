@@ -270,3 +270,127 @@ def get_stock_seats(code: str, lookback_days: int = 30) -> dict:
         "buy_total_wan":  round(buy_total, 2) if buy_total else None,
         "sell_total_wan": round(sell_total, 2) if sell_total else None,
     }
+
+
+def _build_name_to_code() -> dict[str, str]:
+    """全市场 name→code (席位关联股跳转用)。懒加载 all_stocks 快照,失败回空。"""
+    try:
+        from . import all_stocks as _as
+        rows = _as._get_market_rows()
+        return {str(r.get("name", "")).strip(): c for c, r in rows.items() if r.get("name")}
+    except Exception as e:
+        log.warning(f"seat_related name→code 快照失败: {e}")
+        return {}
+
+
+def get_seat_related(code: str, lookback_days: int = 30) -> dict:
+    """
+    R32 游资足迹 · 席位关联个股:
+    该股近 N 日龙虎榜席位 → 近 8 个交易日「活跃营业部」排行(ak.stock_lhb_hyyyb_em)
+    里同营业部的其它操作,含关联个股(可跳转)、近 N 日净额、上榜日、买卖股数。
+    返回 {"code", "seats":[{seat,label,group,tier,real_name,net_wan,last_date,
+                            buy_cnt,sell_cnt,related:[{name,code,date}]}]}
+    """
+    import akshare as ak
+    from datetime import datetime, timedelta
+
+    seats = get_stock_seats(code, lookback_days)
+    stock_rows = seats.get("rows", []) or []
+
+    # 1) 该股去重席位(raw 营业部名 → 买卖汇总)
+    seat_map: dict[str, dict] = {}
+    for r in stock_rows:
+        raw = (r.get("seat") or "").strip()
+        if not raw:
+            continue
+        g = seat_map.setdefault(raw, {
+            "seat": raw, "label": r.get("label", ""), "group": r.get("group", ""),
+            "tier": r.get("tier", ""), "real_name": r.get("real_name", ""),
+            "count": 0, "buy_wan": 0.0, "sell_wan": 0.0,
+        })
+        g["count"] += 1
+        amt = float(r.get("amount_wan") or 0)
+        if (r.get("direction") or "").startswith("买"):
+            g["buy_wan"] += amt
+        elif (r.get("direction") or "").startswith("卖"):
+            g["sell_wan"] += amt
+
+    if not seat_map:
+        return {"code": code, "seats": [], "rows": stock_rows}
+
+    # 2) 活跃营业部排行(近 12 自然日,接口按交易日过滤)
+    try:
+        now = datetime.now()
+        start = now - timedelta(days=12)
+        hy = ak.stock_lhb_hyyyb_em(
+            start_date=start.strftime("%Y%m%d"),
+            end_date=now.strftime("%Y%m%d"))
+    except Exception as e:
+        log.warning(f"seat_related hyyyb {code} 失败: {e}")
+        return {"code": code, "seats": [], "rows": stock_rows}
+
+    if hy is None or hy.empty:
+        return {"code": code, "seats": [], "rows": stock_rows}
+
+    # 3) 营业部名 → 多日上榜明细
+    hy_idx: dict[str, list[dict]] = {}
+    for _, r in hy.iterrows():
+        n = str(r.get("营业部名称", "")).strip()
+        if not n:
+            continue
+        def _f(col, default=0.0):
+            try:
+                return float(r.get(col) or default)
+            except (TypeError, ValueError):
+                return default
+        hy_idx.setdefault(n, []).append({
+            "name": n,
+            "date": str(r.get("上榜日", ""))[:10],
+            "net_wan": round(_f("总买卖净额") / 1e4, 1),
+            "buy_cnt": int(_f("买入个股数", 0)),
+            "sell_cnt": int(_f("卖出个股数", 0)),
+            "buy_stocks": [s for s in str(r.get("买入股票", "")).split() if s],
+        })
+
+    def _match(raw: str) -> list[dict] | None:
+        if raw in hy_idx:
+            return hy_idx[raw]
+        for hn, hrows in hy_idx.items():
+            if raw and (raw in hn or hn in raw):
+                return hrows
+        return None
+
+    name2code = _build_name_to_code()
+    out = []
+    for raw, g in seat_map.items():
+        m = _match(raw)
+        if not m:
+            continue
+        rel_map: dict[str, dict] = {}
+        for h in m:
+            for sname in h["buy_stocks"]:
+                sname = sname.strip()
+                scode = name2code.get(sname, "")
+                if not sname or scode == code or sname == (g.get("label") or "") or sname == (g.get("real_name") or ""):
+                    continue
+                if sname not in rel_map:
+                    rel_map[sname] = {"name": sname, "code": scode, "date": h["date"]}
+                elif h["date"] > rel_map[sname]["date"]:
+                    rel_map[sname]["date"] = h["date"]
+        if not rel_map:
+            continue
+        out.append({
+            "seat": g["seat"],
+            "label": g["label"],
+            "group": g["group"],
+            "tier": g["tier"],
+            "real_name": g["real_name"],
+            "net_wan": round(sum(h["net_wan"] for h in m), 1),
+            "last_date": max((h["date"] for h in m), default=""),
+            "buy_cnt": sum(h["buy_cnt"] for h in m),
+            "sell_cnt": sum(h["sell_cnt"] for h in m),
+            "related": sorted(rel_map.values(), key=lambda x: x["date"], reverse=True)[:10],
+        })
+
+    out.sort(key=lambda x: abs(x["net_wan"]), reverse=True)
+    return {"code": code, "seats": out[:6], "rows": stock_rows}

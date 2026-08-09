@@ -152,10 +152,33 @@ def send_telegram(text: str, parse_mode: str = "Markdown", silent: bool = False)
     发送 Telegram 消息（直接 REST 调用，避开 v20+ 异步问题）。
     带 4 次重试 + 指数退避（2s/4s/8s）。失败返回 False 但不抛异常（避免监控循环崩溃）。
     超长消息自动截断到 TG_SEND_MAX_CHARS 字符。
+
+    R-2026-08-06: 每次推送自动附带手机端固定链接（局域网 + 公网），Arthur 从 TG 推送
+    点开就能直接进入 dashboard，无需记 URL。
     """
     # 截断超长消息（保留最后换行）
     if len(text) > TG_SEND_MAX_CHARS:
         text = text[:TG_SEND_MAX_CHARS - 30] + "\n... (内容过长已截断)"
+
+    # 读取手机端固定链接 (tunnel_url.txt 第一行必须是公网, 第二行必须是局域网)
+    # 失败静默,绝不影响主推送
+    try:
+        url_file = Path(__file__).parent / "tunnel_url.txt"
+        if url_file.exists():
+            urls = [ln.strip() for ln in url_file.read_text().splitlines() if ln.strip().startswith(("http://", "https://"))]
+            if urls:
+                # 局域网优先（速度稳定），公网次之
+                lan = next((u for u in urls if u.startswith("http://192.168.")), None)
+                pub = next((u for u in urls if u.startswith("https://")), None)
+                link_lines = []
+                if lan:
+                    link_lines.append(f"📱 手机端: {lan}")
+                if pub:
+                    link_lines.append(f"🌐 公网: {pub}")
+                if link_lines:
+                    text = text.rstrip() + "\n\n" + "\n".join(link_lines)
+    except Exception as e:
+        logging.debug(f"[send_telegram] 链接附加失败: {e}")
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -894,11 +917,11 @@ def _daily_baostock(code: str, days: int):
 
 
 _DAILY_SOURCES = [
-    ("tencent_qq", _daily_tencent),  # 2026-07 起最稳定
+    ("sina_hq", _daily_sina),  # 2026-08-05: 腾讯/东财/akshare 出口IP被封，改sina优先
+    ("sina_realtime", _daily_sina_realtime),
+    ("tencent_qq", _daily_tencent),  # 2026-07 起最稳定（但 2026-08-05 被本机IP封）
     ("em_push2delay", _daily_eastmoney_push2delay),
     ("akshare_em", _daily_akshare),
-    ("sina_hq", _daily_sina),
-    ("sina_realtime", _daily_sina_realtime),
     ("netease_163", _daily_163),
     ("ths_10jqka", _daily_ths),
     ("yahoo_finance", _daily_yahoo),
@@ -1467,6 +1490,18 @@ def _realtime_efinance(code: str):
                 box["err"] = "最新价/昨收 为 0"
                 return
             change_amt = float(d.get("涨跌额", 0) or 0)
+            # 2026-08-09: 补齐 量比/总市值/流通市值/PE/PB/振幅 — 否则上游降级时
+            # hero 卡 (量比/总市值/PE/PB) 永远 "—"。efinance snapshot 市值单位是元,
+            # 与腾讯源 (亿) 对齐: /1e8; "昨开" 是 efinance 的列名,兼容两种
+            def _f(*keys):
+                for k in keys:
+                    v = d.get(k)
+                    if v is not None and str(v) not in ("", "nan", "None"):
+                        try:
+                            return float(v)
+                        except (TypeError, ValueError):
+                            return None
+                return None
             box["data"] = {
                 "最新价": price,
                 "今开":   float(d.get("今开", 0) or 0),
@@ -1478,6 +1513,12 @@ def _realtime_efinance(code: str):
                 "成交量": float(d.get("成交量", 0) or 0),
                 "成交额": float(d.get("成交额", 0) or 0),
                 "换手率": float(d.get("换手率", 0) or 0),
+                "量比":   _f("量比"),
+                "振幅":   _f("振幅"),
+                "总市值":   _f("总市值") / 1e8 if _f("总市值") is not None else None,
+                "流通市值": _f("流通市值") / 1e8 if _f("流通市值") is not None else None,
+                "市盈率": _f("市盈率-动态", "市盈率"),
+                "市净率": _f("市净率"),
                 "时间":   str(d.get("时间", "")) or time.strftime("%Y-%m-%d %H:%M:%S"),
                 "_efinance_name": str(d.get("名称", "")),  # 顺手带回名称
             }
@@ -1506,6 +1547,21 @@ def _realtime_itick_rest(code: str):
     except Exception as e:
         logging.debug(f"itick_rest realtime {code} 失败: {e}")
         return None
+
+
+def quote_is_complete(q: dict | None) -> bool:
+    """行情 dict 是否"够完整" — 有价格 + 估值字段 (总市值)。
+
+    2026-08-09: 上游降级时 fallback 源 (efinance/akshare) 只返 最新价/换手率,
+    缺 量比/总市值/PE/PB → hero 全 "—"。只有腾讯/东财 push2 等主源带 总市值。
+    各缓存写入点 (server._quote / poller) 用它把关: 不完整的 quote 不入缓存,
+    否则一次降级会粘住 15s-600s,用户看到"这几个数据一直不去"。
+    """
+    return bool(
+        q
+        and (q.get("最新价") or q.get("price"))
+        and (q.get("总市值") or q.get("total_mcap"))
+    )
 
 
 _REALTIME_SOURCES = [
@@ -1759,51 +1815,62 @@ def fetch_realtime_change(code: str) -> float:
 # 主力资金流（东财 push2his）——识别庄家出货/吸筹
 # ═══════════════════════════════════════════════════════
 def fetch_main_fund_flow(code: str) -> dict | None:
-    """
-    拉今日资金流（按单笔成交额分类）：
-    - 主力净流入占比:  (超大单 + 大单)
-    - 超大单净流入占比:  >100 万
-    - 大单净流入占比:    20~100 万
-    - 中单净流入占比:    4~20 万
-    - 小单净流入占比:    <4 万
+    """拉今日主力资金流（官方 datacenter,万元）。
 
-    返回: {
-        'main_pct': 主力净流入占比(%),
-        'super_pct': 超大单净流入占比(%),
-        'big_pct': 大单净流入占比(%),
-        'mid_pct': 中单净流入占比(%),
-        'small_pct': 小单净流入占比(%),
-    } 或 None
+    R31-fix (2026-08-09): 原实现走 stock/get 的 f184,经与东财官方 datacenter
+    (RPT_DMSK_TS_STOCKNEW.PRIME_INFLOW) 交叉验证,f184 不是主力净流入 → 个股资金流
+    tab 一直显示错误数值。现改用 datacenter 官方接口 (快,可靠,已验证权威):
+      - PRIME_INFLOW            = 主力净流入 (元)
+      - SUPERDEAL_INFLOW-OUT    = 超大单净流入 (元)
+      - BIGDEAL_INFLOW-OUT      = 大单净流入 (元)
+    返回单位统一为「万元」,与既有消费方一致。
+
+    返回: {main_net, super_net, big_net, mid_net, small_net} (万元) 或 None
     """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Referer": "https://data.eastmoney.com/",
+        "Accept": "*/*",
+        "Connection": "close",
+    }
+    params = {
+        "reportName": "RPT_DMSK_TS_STOCKNEW",
+        "columns": "ALL",
+        "filter": f'(SECURITY_CODE="{code}")',
+        "sortColumns": "TRADE_DATE",
+        "sortTypes": "-1",
+        "pageSize": "1",
+        "source": "WEB",
+        "client": "WEB",
+    }
     try:
-        secid = f"1.{code}" if code.startswith(("6", "9", "5")) else f"0.{code}"
-        url = "https://push2his.eastmoney.com/api/qt/stock/get"
-        params = {
-            "secid": secid,
-            "fields": "f184,f185,f186,f187,f188",
-            "invt": 2,
-            "fltt": 2,
-        }
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Referer": "https://quote.eastmoney.com/",
-        }
-        r = requests.get(url, params=params, headers=headers, timeout=5)
+        r = requests.get("https://datacenter-web.eastmoney.com/api/data/v1/get",
+                         params=params, headers=headers, timeout=5)
         if r.status_code != 200:
             return None
-        d = r.json().get("data") or {}
-        if not d:
+        rows = (r.json().get("result") or {}).get("data") or []
+        if not rows:
             return None
-        # f184=主力, f185=超大单, f186=大单, f187=中单, f188=小单（单位：万元）
+        row = rows[0]
+        prime = float(row.get("PRIME_INFLOW") or 0)
+        super_net = float(row.get("SUPERDEAL_INFLOW") or 0) - float(row.get("SUPERDEAL_OUTFLOW") or 0)
+        big_net = float(row.get("BIGDEAL_INFLOW") or 0) - float(row.get("BIGDEAL_OUTFLOW") or 0)
+        # R33: 官方主力持仓成本（元）— 现价 vs 成本 可判断主力被套/浮盈
         return {
-            "main_net": float(d.get("f184", 0) or 0),     # 主力净流入（万元）
-            "super_net": float(d.get("f185", 0) or 0),   # 超大单净流入
-            "big_net": float(d.get("f186", 0) or 0),     # 大单净流入
-            "mid_net": float(d.get("f187", 0) or 0),     # 中单净流入
-            "small_net": float(d.get("f188", 0) or 0),   # 小单净流入
+            "main_net":   round(prime / 1e4, 1),        # 主力净流入（万元）
+            "super_net":  round(super_net / 1e4, 1),    # 超大单净流入（万元）
+            "big_net":    round(big_net / 1e4, 1),      # 大单净流入（万元）
+            "mid_net":    0.0,
+            "small_net":  0.0,
+            "prime_cost":      round(float(row.get("PRIME_COST") or 0), 2),
+            "prime_cost_20":   round(float(row.get("PRIME_COST_20DAYS") or 0), 2),
+            "prime_cost_60":   round(float(row.get("PRIME_COST_60DAYS") or 0), 2),
+            "close_price":     round(float(row.get("CLOSE_PRICE") or 0), 2),
+            "date":       str(row.get("TRADE_DATE") or "")[:10],
+            "source":     "eastmoney_datacenter",
         }
     except Exception as e:
-        logging.debug(f"资金流 {code} 拉取失败: {e}")
+        logging.debug(f"资金流 {code} datacenter 拉取失败: {e}")
         return None
 
 
