@@ -4736,23 +4736,80 @@ function renderHoldersExtra(holders) {
   $('#he-score').textContent = score;
   $('#he-score').style.color = score >= 70 ? UP : score >= 50 ? ACCENT : DOWN;
   $('#he-sub').textContent = score >= 70 ? '筹码集中·稳定' : score >= 50 ? '一般·中性' : '松散·高波动';
-  // 十大股东 (前端代理 — 真实接口在后续接入)
+  // R34: 股东类型画像 (堆叠条 + 类型 chip + 机构占比)
+  renderHoldersType(holders);
+  // R34: 十大流通股东 — 季报披露 (前端代理 — 真实接口在后续接入)
   const top10 = holders.top10_holders || holders.top10 || [];
   const tbody = $('#holders-top10-body');
   if (!top10.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty">十大股东明细待下次季报披露接入</td></tr>';
   } else {
-    tbody.innerHTML = top10.map((h, i) => `
-      <tr>
-        <td>${i + 1}</td>
+    tbody.innerHTML = top10.map((h, i) => {
+      const chgColor = h.change === '增持' ? UP : h.change === '减持' || h.change === '退出' ? DOWN : 'var(--ink-2)';
+      const pctColor = h.change_pct > 0 ? UP : h.change_pct < 0 ? DOWN : 'var(--ink-2)';
+      const chgPct = (h.change_pct != null && Math.abs(h.change_pct) > 0.5)
+        ? `<i style="color:${pctColor}">${h.change_pct >= 0 ? '+' : ''}${h.change_pct.toFixed(1)}%</i>`
+        : `<i class="dim">—</i>`;
+      const typeColor = _TYPE_COLOR[h.type] || 'var(--ink-2)';
+      return `<tr>
+        <td>${h.rank || (i + 1)}</td>
         <td><b>${escapeHtml(h.name || '—')}</b></td>
         <td class="num">${(h.shares_wan || 0).toLocaleString()}</td>
         <td class="num">${h.pct_free != null ? h.pct_free.toFixed(2) + ' %' : '—'}</td>
-        <td>${h.change || '—'}</td>
-        <td>${h.nature || '—'}</td>
-      </tr>
-    `).join('');
+        <td><span style="color:${chgColor}">${h.change || '—'}</span> ${chgPct}</td>
+        <td><span class="htype-chip" style="--chip-c:${typeColor}">${h.type || h.nature || '—'}</span></td>
+      </tr>`;
+    }).join('');
   }
+}
+
+// R34: 股东类型画像 — 堆叠条 + chip + 机构占比 KPI
+const _TYPE_COLOR = {
+  '北向/外资': '#4a8cff',
+  '公募基金': '#f5826b',
+  '社保基金': '#9d7cff',
+  '险资':     '#36b3c2',
+  '私募基金': '#ff9f43',
+  'QFII':     '#3ad6a0',
+  '券商':     '#ad7d3f',
+  '信托':     '#c08bd0',
+  '一般法人': '#94a3b8',
+  '个人':     '#7a7e87',
+  '其它':     '#5a5e66',
+};
+function renderHoldersType(holders) {
+  const host = $('#holders-type');
+  if (!host) return;
+  const breakdown = holders.type_breakdown || {};
+  const total = Object.values(breakdown).reduce((s, x) => s + (x.pct || 0), 0);
+  if (!total || !Object.keys(breakdown).length) { host.hidden = true; return; }
+  // 按占比排序的堆叠条
+  const segs = Object.entries(breakdown)
+    .filter(([k, v]) => v.pct > 0)
+    .sort((a, b) => b[1].pct - a[1].pct);
+  const html = segs.map(([k, v]) => {
+    const w = Math.max(2, (v.pct / total) * 100);
+    const color = _TYPE_COLOR[k] || '#94a3b8';
+    return `<span class="htype-seg" style="width:${w}%;background:${color}" data-tip="${k} ${v.pct.toFixed(2)}% · ${v.count}个"></span>`;
+  }).join('');
+  const bar = $('#htype-bar'); if (bar) bar.innerHTML = html;
+  // legend
+  const legend = $('#htype-legend'); if (legend) {
+    legend.innerHTML = segs.map(([k, v]) =>
+      `<span class="htype-chip" style="--chip-c:${_TYPE_COLOR[k] || '#94a3b8'}">${k}<i>${v.pct.toFixed(1)}%</i>·${v.count}</span>`
+    ).join('');
+  }
+  // KPI
+  const instEl = $('#htype-inst');
+  if (instEl) {
+    instEl.textContent = (holders.inst_free_pct != null ? holders.inst_free_pct.toFixed(1) + '%' : '—');
+    instEl.style.color = (holders.inst_free_pct || 0) >= 25 ? UP : (holders.inst_free_pct || 0) >= 10 ? ACCENT : DOWN;
+  }
+  const fundEl = $('#htype-fund');
+  if (fundEl) fundEl.textContent = holders.fund_count != null ? holders.fund_count : '—';
+  const asofEl = $('#htype-asof');
+  if (asofEl) asofEl.textContent = holders.report_date || '—';
+  host.hidden = false;
 }
 
 // R3 Round 3: 散户/主力 — 持仓结构双图 (户数趋势双轴 + 主力vs散户 20 日)

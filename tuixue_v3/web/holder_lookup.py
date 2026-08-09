@@ -64,6 +64,95 @@ def _parse_row(row: dict) -> dict:
     }
 
 
+# R34: 股东类型画像 — 东财 HOLDER_TYPE / 股东名 → 专业分类
+_TYPE_NAME_KW = [
+    ("北向/外资",  "香港中央结算|汇丰银行|渣打银行|摩根大通|花旗银行"),
+    # 公募基金/ETF — 名称常带托管银行前缀(如"中国工商银行股份有限公司-华泰柏瑞"),须先于"银行"命中
+    ("公募基金",   "证券投资基金|交易型开放式|指数证券投资基金|混合型证券投资基金|股票型证券投资基金|联接基金"),
+    ("QFII",       "MORGAN STANLEY|UBS|GOLDMAN|JPMORGAN|MERRILL|CITIGROUP|BARCLAYS|香港上海汇丰"),
+    ("一般法人",   "投资控股|投资公司|企业管理|控股集团|集团有限|有限合伙|资产管理公司|银行股份|银行股份有限公司|通用机械|科技有限|实业|发展"),
+]
+_TYPE_ORDER = [
+    ("公募基金",   "证券投资基金"),
+    ("社保基金",   "社保"),
+    ("险资",       "保险"),
+    ("私募基金",   "私募"),
+    ("QFII",       "QFII"),
+    ("券商",       "券商"),
+    ("信托",       "信托"),
+    ("个人",       "个人"),
+    ("一般法人",   "一般企业|法人|银行|集团|资管|投资"),
+]
+
+
+def _classify_type(t: str, name: str = "") -> str:
+    """东财 HOLDER_TYPE + 股东名 → 专业分类标签。"""
+    t = (t or "").strip()
+    n = (name or "").strip()
+    # 1) 股东名强特征 (香港中央结算 = 北向)
+    for label, kw in _TYPE_NAME_KW:
+        if any(k in n for k in kw.split("|")):
+            return label
+    # 2) HOLDER_TYPE 关键词
+    for label, kw in _TYPE_ORDER:
+        if any(k in t for k in kw.split("|")):
+            return label
+    # 3) 兜底: 名含"基金"且非"私募"
+    if "基金" in n and "私募" not in n:
+        return "公募基金"
+    if "私募" in t or "私募" in n:
+        return "私募基金"
+    if t:
+        return t
+    return "其他"
+
+
+def _parse_top10(sdltgd: list[dict] | None) -> tuple[list[dict], dict, float]:
+    """
+    十大流通股东 → (top10_holders, type_breakdown, inst_free_pct)。
+    inst_free_pct = 机构类(北向/公募/社保/险资/私募/QFII/券商/信托/一般法人)合计占流通%。
+    """
+    top10: list[dict] = []
+    if sdltgd:
+        for r in sdltgd:
+            name = (r.get("HOLDER_NAME") or "").strip()
+            if not name:
+                continue
+            typ = _classify_type(r.get("HOLDER_TYPE"), name)
+            hold_num = _safe_float(r.get("HOLD_NUM")) or 0
+            chg = r.get("HOLD_NUM_CHANGE")
+            if chg in ("新进", "不变", "退出"):
+                change = chg
+            else:
+                cv = _safe_float(chg)
+                change = "新进" if cv is None else ("增持" if cv > 0 else "减持")
+            top10.append({
+                "rank": int(r.get("HOLDER_RANK") or 0),
+                "name": name,
+                "type": typ,
+                "type_raw": r.get("HOLDER_TYPE") or "",
+                "shares_wan": round(hold_num / 1e4, 2),
+                "pct_free": _safe_float(r.get("FREE_HOLDNUM_RATIO")),
+                "change": change,
+                "change_pct": _safe_float(r.get("CHANGE_RATIO")),
+            })
+    # 类型聚合
+    breakdown: dict[str, dict] = {}
+    inst_pct = 0.0
+    inst_kinds = {"北向/外资", "公募基金", "社保基金", "险资", "私募基金", "QFII", "券商", "信托", "一般法人"}
+    for h in top10:
+        t = h["type"]
+        b = breakdown.setdefault(t, {"count": 0, "pct": 0.0})
+        b["count"] += 1
+        p = h["pct_free"] or 0
+        b["pct"] += p
+        if t in inst_kinds:
+            inst_pct += p
+    # 排序: 按占比降序
+    breakdown = dict(sorted(breakdown.items(), key=lambda kv: -kv[1]["pct"]))
+    return top10, breakdown, round(inst_pct, 2)
+
+
 def fetch_holder_info(code: str) -> dict | None:
     """返回最新一期 + 近 4 季历史。失败 None。"""
     code = code.strip().zfill(6)
@@ -107,6 +196,25 @@ def fetch_holder_info(code: str) -> dict | None:
     latest["retail_proxy_pct"] = round(max(0, 100 - top10 - 25), 2)  # 25% 估算主力
     latest["main_proxy_pct"]  = round(top10 + 25, 2)
     latest["history"]         = parsed[:4]
+    # R34: 十大流通股东详情 + 股东类型画像 (sdltgd / jgcc / jjcg)
+    try:
+        top10_holders, type_breakdown, inst_free_pct = _parse_top10(data.get("sdltgd"))
+        latest["top10_holders"]  = top10_holders
+        latest["type_breakdown"] = type_breakdown
+        latest["inst_free_pct"]  = inst_free_pct
+        latest["report_date"]    = (data.get("sdltgd") or [{}])[0].get("END_DATE", "")[:10] if data.get("sdltgd") else latest.get("report_date")
+        # 机构持仓总数 (jgcc): TOTAL_ORG_NUM 单季; TOTAL_SHARES_RATIO = 机构合计占股本
+        jg = data.get("jgcc") or []
+        if jg:
+            org_nums = [_safe_float(r.get("TOTAL_ORG_NUM")) for r in jg]
+            latest["inst_org_num"] = int(max(org_nums) or 0) if org_nums else 0
+        else:
+            latest["inst_org_num"] = 0
+        # 基金持仓数 (jjcg)
+        jj = data.get("jjcg") or []
+        latest["fund_count"] = len(jj) if jj else 0
+    except Exception as e:
+        log.warning(f"东财 holder {code} top10 解析失败: {e}")
     _cache[code] = (systime.time(), latest)
     return latest
 

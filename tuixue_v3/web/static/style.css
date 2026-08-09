@@ -1782,6 +1782,70 @@ body.day-mode-on .trend-tile-chart { height: 64px !important; }
   color: var(--ink-2);
   margin-top: 2px;
 }
+/* R34: 股东类型画像 — 堆叠条 + 类型 chip + 机构占比 KPI */
+.htype {
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.htype-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 8px;
+}
+.htype-title { font-size: 12px; font-weight: 700; color: var(--ink); }
+.htype-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  background: var(--bg-3, #e4e8ee);
+}
+.htype-seg {
+  display: block;
+  height: 100%;
+  transition: width .35s var(--ease);
+}
+.htype-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-bottom: 8px;
+}
+.htype-chip {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--bg-1);
+  border: 1px solid color-mix(in srgb, var(--chip-c, var(--ink-2)) 35%, transparent);
+  color: var(--chip-c, var(--ink));
+  white-space: nowrap;
+}
+.htype-chip i {
+  font-style: normal;
+  color: var(--ink-1);
+  margin: 0 2px;
+}
+.htype-kpis {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+.htype-kpi {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 11px;
+}
+.htype-kpi b {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.htype-kpi i { font-style: normal; color: var(--ink-2); }
 
 /* R5 Round 5: 砸盘风险 4 块 (历史模板/融资/质押/日历) */
 .crash-extra {
@@ -13358,4 +13422,10 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
     var(--bg-2) !important;
   border-top: 1px solid var(--hairline) !important;
 }
+
+/* zt 交易明细 · 按月折叠 (zt-frontend.js) */
+#zt-trades-table .zt-month-head td { cursor: pointer; user-select: none; font-weight: 600; transition: background .12s var(--ease); }
+#zt-trades-table .zt-month-head td:hover { background: var(--bg-3, #e4e8ee); }
+#zt-trades-table .zt-month-row[hidden] { display: none; }
+#zt-trades-table .zt-month-row td { border-top: 0; }
 
