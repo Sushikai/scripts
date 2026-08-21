@@ -13429,3 +13429,165 @@ html, body { overflow-x: hidden; max-width: 100vw; -webkit-font-smoothing: antia
 #zt-trades-table .zt-month-row[hidden] { display: none; }
 #zt-trades-table .zt-month-row td { border-top: 0; }
 
+
+/* === R-2026-08-22: 恢复野人战法 + 野人 AI 页面样式 === */
+.r-card {
+  background: var(--bg-2, #161a23);
+  border: 1px solid var(--hairline, #2a2f3a);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.r-card-h {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-1, #e6e9ef);
+  margin-bottom: 10px;
+}
+.r-card-b { font-size: 13px; color: var(--ink-2, #b6bcc7); }
+.r-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+@media (max-width: 640px) { .r-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.r-kpi {
+  background: var(--bg-1, #1d2230);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.r-kpi-l { font-size: 11px; color: var(--ink-3, #8b94a3); text-transform: uppercase; letter-spacing: 0.04em; }
+.r-kpi-v { font-size: 18px; font-weight: 600; color: var(--ink-1, #e6e9ef); margin-top: 2px; }
+.r-warn { color: var(--warn, #ffae42); padding: 8px 0; font-size: 12px; }
+.r-empty { color: var(--ink-3, #8b94a3); text-align: center; padding: 14px; }
+.r-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.r-tbl th, .r-tbl td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--hairline, #2a2f3a);
+  text-align: left;
+}
+.r-tbl th { color: var(--ink-3, #8b94a3); font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+.r-tbl tbody tr:hover { background: var(--bg-3, #20242e); }
+.r-tbl td a { color: var(--accent, #5b8def); text-decoration: none; }
+.r-pre {
+  font-size: 11px;
+  background: var(--bg-1, #1d2230);
+  padding: 8px;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 240px;
+  color: var(--ink-2, #b6bcc7);
+}
+.r-laws {
+  margin: 0; padding-left: 22px;
+  font-size: 13px; line-height: 1.7;
+  color: var(--ink-2, #b6bcc7);
+}
+.r-laws li { margin-bottom: 4px; }
+.r-laws li b { color: var(--ink-1, #e6e9ef); }
+
+/* 野人 AI chat 样式 */
+.yeren-ai-chat {
+  background: var(--bg-2, #161a23);
+  border: 1px solid var(--hairline, #2a2f3a);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 60vh;
+}
+.yeren-ai-msgs {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+  min-height: 200px;
+}
+.yeren-ai-msg {
+  max-width: 86%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.yeren-ai-msg code {
+  background: var(--bg-1, #1d2230);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.yeren-ai-msg.yeren-ai-system, .yeren-ai-msg.yeren-ai-bot {
+  background: var(--bg-1, #1d2230);
+  color: var(--ink-2, #b6bcc7);
+  align-self: flex-start;
+  border: 1px solid var(--hairline, #2a2f3a);
+}
+.yeren-ai-msg.yeren-ai-user {
+  background: var(--accent, #5b8def);
+  color: #fff;
+  align-self: flex-end;
+}
+.yeren-ai-msg.yeren-ai-error {
+  background: rgba(255, 100, 100, 0.12);
+  color: #ff7676;
+  align-self: flex-start;
+}
+.yeren-ai-msg.yeren-ai-streaming::after {
+  content: '▍';
+  animation: yerenBlink 0.8s infinite;
+  margin-left: 2px;
+}
+@keyframes yerenBlink { 50% { opacity: 0; } }
+
+.yeren-ai-input-row {
+  display: flex;
+  gap: 8px;
+}
+.yeren-ai-input-row input {
+  flex: 1;
+  background: var(--bg-1, #1d2230);
+  color: var(--ink-1, #e6e9ef);
+  border: 1px solid var(--hairline, #2a2f3a);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+  transition: border .12s;
+}
+.yeren-ai-input-row input:focus { border-color: var(--accent, #5b8def); }
+.yeren-ai-input-row button {
+  background: var(--accent, #5b8def);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.yeren-ai-input-row button:disabled { opacity: 0.6; cursor: not-allowed; }
+.yeren-ai-hint {
+  font-size: 11px;
+  color: var(--ink-3, #8b94a3);
+}
+.yeren-ai-hint code {
+  background: var(--bg-1, #1d2230);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* 移动端 yeren-ai chat 调整 */
+@media (max-width: 480px) {
+  .yeren-ai-msg { max-width: 94%; font-size: 12px; }
+  .yeren-ai-chat { padding: 10px 12px; min-height: 70vh; }
+}

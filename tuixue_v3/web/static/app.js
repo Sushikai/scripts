@@ -232,6 +232,13 @@ refreshChartColors();
 var echartsCharts = {};
 var lastRefreshTs = 0;
 
+// R-fix: view-stock.js 引用 _safeDisposeECharts 13 次但全局无定义 → 个股页 loadStockDetail 崩.
+// 这里补 try/catch 包装 (部分 chart 已 dispose 会抛 "There is a chart has been disposed")
+function _safeDisposeECharts(chart) {
+  if (!chart) return;
+  try { chart.dispose(); } catch (_) { /* already disposed */ }
+}
+
 // ────────────────────────────────────────────
 // fetch wrapper — 自动解包 {ok,data,error,ts}
 // 每个请求都有 timeout + AbortController，避免后端慢导致前端卡死
@@ -1235,6 +1242,7 @@ function showView(name, opts) {
   if (name === 'laws')    renderLawsOnce();
   if (name === 'yaogu')   Promise.resolve().then(() => { try { renderYaoguView(); } catch (e) { console.warn('yaogu enter:', e); } });
   if (name === 'yeren')   Promise.resolve().then(() => { try { renderYerenView(); } catch (e) { console.warn('yeren enter:', e); } });
+  if (name === 'yeren-ai') Promise.resolve().then(() => { try { renderYerenAIView(); } catch (e) { console.warn('yeren-ai enter:', e); } });
   // R-mobile-stress (2026-07-29): view-enter 钩子全部异步化 — 之前同步 await fetch
   // 把 sidebar click 响应拖到 2.5s (实测 1000 轮 stress_mobile P50=2531ms)。
   // 改成微任务异步, click 立即响应 (<50ms), 数据进来后再渲染。
@@ -1393,7 +1401,7 @@ function _routeFromHash() {
     arg = _sp.get('code');
   }
   if (!name) return showView('dash', { push: false });
-  const valid = ['dash','stock','review','dragons','screener','dexin','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker','sector','sources'];
+  const valid = ['dash','stock','review','dragons','screener','dexin','watchlist','optimize','laws','all_stocks','ai-review','weekly_bull','strategy_picker','sector','sources','yaogu','yeren','yeren-ai'];
   if (!valid.includes(name)) return showView('dash', { push: false });
   if (name === 'stock' && arg) {
     const code = arg.match(/\d{6}/)?.[0];
@@ -11701,3 +11709,59 @@ async function renderYerenView() {
   }
 }
 
+
+// === 野人 AI · chat 渲染 (R-2026-08-22 恢复) ===
+let _yerenAIInit = false;
+async function renderYerenAIView() {
+  if (_yerenAIInit) return;
+  _yerenAIInit = true;
+  const sendBtn = document.getElementById('yeren-ai-send');
+  const input = document.getElementById('yeren-ai-msg');
+  const msgs = document.getElementById('yeren-ai-msgs');
+  if (!sendBtn || !input || !msgs) return;
+  sendBtn.addEventListener('click', () => _yerenAISend(input, msgs, sendBtn));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      _yerenAISend(input, msgs, sendBtn);
+    }
+  });
+}
+
+async function _yerenAISend(input, msgs, sendBtn) {
+  const text = (input.value || '').trim();
+  if (!text) return;
+  input.value = '';
+  sendBtn.disabled = true;
+  // 用户消息
+  const userEl = document.createElement('div');
+  userEl.className = 'yeren-ai-msg yeren-ai-user';
+  userEl.textContent = text;
+  msgs.appendChild(userEl);
+  // 流式占位
+  const botEl = document.createElement('div');
+  botEl.className = 'yeren-ai-msg yeren-ai-bot yeren-ai-streaming';
+  botEl.textContent = '野人 AI 思考中…';
+  msgs.appendChild(botEl);
+  msgs.scrollTop = msgs.scrollHeight;
+  try {
+    const r = await fetch('/api/yeren/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    botEl.classList.remove('yeren-ai-streaming');
+    botEl.textContent = (j.ok === false)
+      ? '⚠ ' + (j.error || '野人 AI 暂不可用,请稍后再试')
+      : (j.reply || j.answer || j.text || JSON.stringify(j));
+  } catch (e) {
+    botEl.classList.remove('yeren-ai-streaming');
+    botEl.classList.add('yeren-ai-error');
+    botEl.textContent = '⚠ 请求失败: ' + String(e);
+  } finally {
+    sendBtn.disabled = false;
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+}

@@ -2171,6 +2171,10 @@ function renderCrashExtra(d) {
 }
 
 function formatWan(wan) {
+  return fmtWan(wan);
+}
+// R-fix: view-stock.js 引用 fmtWan 19 次,原 formatWan 改名,这里补定义 (1亿=亿 / 1万=万 / 元)
+function fmtWan(wan, decimals) {
   if (wan >= 1e8) return (wan / 1e8).toFixed(2) + ' 亿';
   if (wan >= 1e4) return (wan / 1e4).toFixed(2) + ' 万';
   return wan.toFixed(0) + ' 元';

@@ -237,6 +237,7 @@ def register(app):
     # ── GET /api/yaogu/live — 今日妖股榜单 ──
     @app.get("/api/yaogu/live")
     async def api_yaogu_live(
+        date: str = "",  # YYYY-MM-DD (空 = 今天)
         w_streak: float | None = None, w_turn: float | None = None,
         w_mcap: float | None = None, w_fund: float | None = None,
         w_topic: float | None = None, w_env: float | None = None,
@@ -247,7 +248,12 @@ def register(app):
         # 原来每个请求都全量 fetch_zt_pool → 10s+, 加缓存 → 10ms
         from .. import cache_store as _cs
         from .server import _store_get, _store_set
+        # R-2026-08-22: date 缺省 = today (避免 KeyError)
+        if not date:
+            from datetime import datetime
+            date = datetime.now().strftime("%Y-%m-%d")
         cache_key = _cs.K.YAOGU_LIVE.format(
+            date=date,
             w_streak=w_streak or 0, w_turn=w_turn or 0, w_mcap=w_mcap or 0,
             w_fund=w_fund or 0, w_topic=w_topic or 0, w_env=w_env or 0,
             mode=mode)

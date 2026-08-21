@@ -966,6 +966,14 @@ class K:
     FUND = "fund:{code}:{days}"               # TTL 60s
     # 全市场快照
     SPOT_ALL = "spot:all"                     # TTL 60s
+    # 妖股 (视频战法) — R-2026-08-22 恢复
+    YAOGU_LIVE = "yaogu:live:{date}:w_s{w_streak}:w_t{w_turn}:w_m{w_mcap}:w_f{w_fund}:w_to{w_topic}:w_e{w_env}:m{mode}"  # TTL 60s
+    YAOGU_FEATURES = "yaogu:features:{date}"  # TTL 1800s
+    YAOGU_BACKTEST = "yaogu:backtest:summary" # TTL 24h
+    # 野人战法 — R-2026-08-22 恢复
+    YEREN_SCAN = "yeren:scan:{date}"          # TTL 600s
+    YEREN_BUDGET = "yeren:budget:summary"     # TTL 24h
+    YEREN_LAWS = "yeren:laws:list"            # TTL 24h
     # K线
     KLINE = "kline:{code}:{days}"             # TTL 300s
     # R-fix-2026-07-18 A1+A2: 个股页 /full 端点预聚合缓存 (key=code, value={quote, kline, sector, ...})
