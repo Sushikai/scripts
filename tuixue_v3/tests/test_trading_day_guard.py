@@ -73,7 +73,9 @@ class TestGuardBasic(unittest.TestCase):
         self.g.reset_stats()
 
     def test_safe_dict(self):
-        result = self.g.check({"date": "2026-08-02", "price": 100})
+        # 显式传 expected_date (避免和 today 2026-08-22 跨日冲突)
+        result = self.g.check({"date": "2026-08-02", "price": 100},
+                              expected_date="2026-08-02")
         self.assertTrue(result.ok)
 
     def test_cross_day_dict(self):

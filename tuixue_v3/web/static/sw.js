@@ -262,7 +262,7 @@
 //   成本 + 东财 datacenter 官方持仓成本 (PRIME_COST 1/20/60 日) 兜底 + 双向强度条
 // v363 (2026-08-09): R34 股东类型画像 — 季报披露十大流通股东详情 + 类型分类
 //   (北向/外资/公募/社保/险资/私募/QFII/券商/信托/法人/个人) + 机构占比 KPI
-const CACHE = 'tuixue-v3-shell-v363-kline-dz-20260809';
+const CACHE = 'tuixue-v3-shell-v364-yaogu-yeren-20260822';
 // 2026-08-04: 多 tab in-flight 请求去重 — 同一 URL 在 5s 内只发一次 fetch, 复用同一 Promise
 //   修 "两个 tab 同时打开, 一个 tab 刷不出来" (HTTP/1.1 6 连接池被占满)
 const _INFLIGHT = new Map();

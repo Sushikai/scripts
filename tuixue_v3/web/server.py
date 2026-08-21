@@ -5822,6 +5822,24 @@ _dexin_screener.register(app)
 from . import meta_strategy as _meta_strategy
 _meta_strategy.register(app)
 
+# 妖股 (视频战法) — yaogu_screener.register() 装 /api/yaogu/live 等
+try:
+    from . import yaogu_screener as _yaogu_screener
+    _yaogu_screener.register(app)
+except Exception as e:
+    log.warning(f"yaogu_screener register failed: {e}")
+
+# 野人战法 — yeren_ai 提供 LLM 决策 + yeren_index 股票名 lookup
+try:
+    from . import yeren_ai as _yeren_ai
+    from . import yeren_index as _yeren_index
+    _YEREN_AI = _yeren_ai
+    _YEREN_INDEX = _yeren_index
+except Exception as e:
+    log.warning(f"yeren_ai import failed: {e}")
+    _YEREN_AI = None
+    _YEREN_INDEX = None
+
 
 
 
@@ -13977,6 +13995,153 @@ async def api_paper_reset(init_cash: float = 20000.0):
         return {"ok": True, "account": reset_account(init_cash)}
     except Exception as e:
         log.warning(f"paper reset err: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 妖股 (Yaogu) + 野人 (Yeren) — 视频战法 / 野人战法 (R-2026-08-22 恢复)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/yaogu/survey")
+async def api_yaogu_survey():
+    """读取 yaogu_survey.py 写的 /tmp/yaogu_survey.json 摘要。"""
+    p = Path("/tmp/yaogu_survey.json")
+    if not p.exists():
+        return {"ok": False, "error": "yaogu_survey.json 不存在, 请先运行 python yaogu_survey.py", "candidates": [], "stats": {}}
+    try:
+        data = json.loads(p.read_text())
+        return {"ok": True, **data}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/yaogu/features")
+async def api_yaogu_features():
+    """读取 yaogu_features_v2 / 包络的 JSON 摘要。"""
+    out = {}
+    for name, p in [
+        ("gbm_train", Path("/tmp/yaogu_gbm_train.json")),
+        ("overfit", Path("/tmp/yaogu_overfit.json")),
+        ("consensus", Path("/tmp/yaogu_consensus.json")),
+    ]:
+        if p.exists():
+            try:
+                out[name] = json.loads(p.read_text())
+            except Exception as e:
+                out[name] = {"error": str(e)}
+        else:
+            out[name] = None
+    return {"ok": True, "data": out}
+
+
+@app.get("/api/yaogu/backtest")
+async def api_yaogu_backtest():
+    """读取 yaogu_backtest.py 最近一次 run 的输出。"""
+    p = Path("/tmp/yaogu_backtest_summary.json")
+    if not p.exists():
+        # 兜底: 跑一次短样本
+        try:
+            import importlib
+            mod = importlib.import_module("tuixue_v3.yaogu_backtest")
+            out = mod.run_yaogu_backtest  # noqa
+            return {"ok": False, "error": "请先运行 python yaogu_backtest.py 生成 /tmp/yaogu_backtest_summary.json"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    try:
+        return {"ok": True, "summary": json.loads(p.read_text())}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/yeren/scan")
+async def api_yeren_scan():
+    """读取 yeren_scan.py 输出 /tmp/yeren_scan.json。"""
+    p = Path("/tmp/yeren_scan.json")
+    if not p.exists():
+        return {"ok": False, "error": "yeren_scan.json 不存在, 请先 python yeren_scan.py", "picks": []}
+    try:
+        return {"ok": True, **json.loads(p.read_text())}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/yeren/budget")
+async def api_yeren_budget():
+    """读取 yeren_backtest.py 写的 /tmp/yeren_bt_summary.json。"""
+    p = Path("/tmp/yeren_bt_summary.json")
+    if not p.exists():
+        return {"ok": False, "error": "yeren_bt_summary.json 不存在, 请先 python yeren_backtest.py", "summary": {}}
+    try:
+        return {"ok": True, "summary": json.loads(p.read_text())}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/yeren/laws")
+async def api_yeren_laws():
+    """野人战法心法 (laws.py 同源)。"""
+    try:
+        import importlib
+        from pathlib import Path as _P
+        laws_path = _P(__file__).parent.parent / "yeren_laws.py"
+        # fallback: from root
+        if not laws_path.exists():
+            laws_path = _P("tuixue_v3/yeren_laws.py")
+        if not laws_path.exists():
+            return {"ok": False, "error": "yeren_laws.py not found", "laws": []}
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("yeren_laws", laws_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        laws = getattr(mod, "LAWS", getattr(mod, "laws", []))
+        return {"ok": True, "laws": laws}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "laws": []}
+
+
+@app.post("/api/yeren/chat")
+async def api_yeren_chat(req: dict):
+    """野人战法 LLM 决策 (chat_yeren)。"""
+    if _YEREN_AI is None:
+        return {"ok": False, "error": "yeren_ai 未装载"}
+    try:
+        message = (req or {}).get("message", "").strip()
+        code = (req or {}).get("code")
+        history = (req or {}).get("history")
+        nocache = bool((req or {}).get("nocache"))
+        if not message:
+            return {"ok": False, "error": "message 不能为空"}
+        result = _YEREN_AI.chat_yeren(
+            message=message, code=code, history=history, nocache=nocache
+        )
+        return {"ok": True, **result}
+    except Exception as e:
+        log.warning(f"yeren chat err: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/yeren/context/{code}")
+async def api_yeren_context(code: str):
+    """野人战法股票上下文 (K线/盘口/龙虎/资金/财报/舆情)。"""
+    if _YEREN_AI is None:
+        return {"ok": False, "error": "yeren_ai 未装载"}
+    try:
+        ctx = _YEREN_AI.build_yeren_context(code)
+        summary = _YEREN_AI._ctx_summary(ctx)
+        return {"ok": True, "summary": summary, "code": code}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/yeren/lookup")
+async def api_yeren_lookup(q: str, limit: int = 8):
+    """野人战法股票名→代码 lookup (yeren_index)。"""
+    if _YEREN_INDEX is None:
+        return {"ok": False, "error": "yeren_index 未装载"}
+    try:
+        hits = _YEREN_INDEX.lookup_stock(q, limit=limit)
+        return {"ok": True, "hits": hits, "query": q}
+    except Exception as e:
         return {"ok": False, "error": str(e)}
 
 

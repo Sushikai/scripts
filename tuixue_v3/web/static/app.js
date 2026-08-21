@@ -1233,6 +1233,8 @@ function showView(name, opts) {
   if (name === 'dash')    refreshTicker(true);
   if (name === 'optimize') loadReports();
   if (name === 'laws')    renderLawsOnce();
+  if (name === 'yaogu')   Promise.resolve().then(() => { try { renderYaoguView(); } catch (e) { console.warn('yaogu enter:', e); } });
+  if (name === 'yeren')   Promise.resolve().then(() => { try { renderYerenView(); } catch (e) { console.warn('yeren enter:', e); } });
   // R-mobile-stress (2026-07-29): view-enter 钩子全部异步化 — 之前同步 await fetch
   // 把 sidebar click 响应拖到 2.5s (实测 1000 轮 stress_mobile P50=2531ms)。
   // 改成微任务异步, click 立即响应 (<50ms), 数据进来后再渲染。
@@ -11562,4 +11564,140 @@ document.addEventListener('DOMContentLoaded', () => {
   // 暴露到 window 便于 debug / onclick 引用
   window.initAllStocks = init;
 })();
+
+// ═══════════════════════════════════════════════════════════════
+// 妖股 (yaogu) + 野人 (yeren) 视图渲染 (R-2026-08-22 恢复)
+// ═══════════════════════════════════════════════════════════════
+
+async function renderYaoguView() {
+  const mount = document.getElementById('yaogu-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div class="r-card"><div class="r-card-h">📊 妖股调研 (视频战法) · 加载中…</div></div>';
+  try {
+    const [survey, features, backtest] = await Promise.all([
+      fetch('/api/yaogu/survey').then(r => r.json()).catch(e => ({ ok: false, error: String(e) })),
+      fetch('/api/yaogu/features').then(r => r.json()).catch(e => ({ ok: false, error: String(e) })),
+      fetch('/api/yaogu/backtest').then(r => r.json()).catch(e => ({ ok: false, error: String(e) })),
+    ]);
+    const stats = survey.stats || {};
+    const cands = survey.candidates || [];
+    const card = `
+      <div class="r-card">
+        <div class="r-card-h">📊 妖股调研 (视频战法) · 500 轮调研</div>
+        <div class="r-card-b">
+          <div class="r-kpi-grid">
+            <div class="r-kpi"><div class="r-kpi-l">样本股</div><div class="r-kpi-v">${stats.n_codes ?? '—'}</div></div>
+            <div class="r-kpi"><div class="r-kpi-l">妖股段数</div><div class="r-kpi-v">${stats.n_streaks ?? '—'}</div></div>
+            <div class="r-kpi"><div class="r-kpi-l">段涨幅均值</div><div class="r-kpi-v">${stats.avg_wave_pct?.toFixed(1) ?? '—'}%</div></div>
+            <div class="r-kpi"><div class="r-kpi-l">段涨幅最大</div><div class="r-kpi-v">${stats.max_wave_pct?.toFixed(1) ?? '—'}%</div></div>
+          </div>
+          ${survey.ok === false ? `<div class="r-warn">⚠ yaogu_survey.json 未生成: ${survey.error || '请在 CLI 跑 python yaogu_survey.py 待 500 轮调研产出'}</div>` : ''}
+        </div>
+      </div>
+      <div class="r-card">
+        <div class="r-card-h">🎯 妖股候选 (Top 30)</div>
+        <div class="r-card-b">
+          <table class="r-tbl">
+            <thead><tr><th>#</th><th>代码</th><th>连板</th><th>段涨幅%</th><th>开始日</th><th>结束日</th><th>5日收益%</th><th>10日收益%</th></tr></thead>
+            <tbody>
+              ${cands.slice(0, 30).map((c, i) => `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td><a href="#/stock/${c.code}" data-jump="stock" data-arg="${c.code}">${c.code}</a></td>
+                  <td>${c.streak || '—'}</td>
+                  <td class="${(c.wave_pct || 0) > 0 ? 'up' : 'down'}">${(c.wave_pct || 0).toFixed(1)}</td>
+                  <td>${c.start || '—'}</td>
+                  <td>${c.end || '—'}</td>
+                  <td>${c.follow?.[5] != null ? c.follow[5].toFixed(1) : '—'}</td>
+                  <td>${c.follow?.[10] != null ? c.follow[10].toFixed(1) : '—'}</td>
+                </tr>`).join('') || '<tr><td colspan="8" class="r-empty">暂无数据 — 请 CLI 跑 python yaogu_survey.py</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="r-card">
+        <div class="r-card-h">🧪 妖股因子训练 (GBM)</div>
+        <div class="r-card-b">
+          <div class="r-tip">调用 /api/yaogu/features 读取 yaogu_*.py 训练结果</div>
+          <pre class="r-pre">${JSON.stringify(features?.data || {}, null, 2).slice(0, 2000)}</pre>
+        </div>
+      </div>
+      <div class="r-card">
+        <div class="r-card-h">📈 妖股回测摘要</div>
+        <div class="r-card-b">
+          <pre class="r-pre">${JSON.stringify(backtest?.summary || { ok: false, error: backtest?.error || '请先跑 python yaogu_backtest.py' }, null, 2).slice(0, 2000)}</pre>
+        </div>
+      </div>
+    `;
+    mount.innerHTML = card;
+  } catch (e) {
+    mount.innerHTML = `<div class="r-card"><div class="r-card-h">📊 妖股调研</div><div class="r-card-b"><div class="r-warn">⚠ 渲染失败: ${String(e)}</div></div></div>`;
+  }
+}
+
+async function renderYerenView() {
+  const mount = document.getElementById('yeren-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div class="r-card"><div class="r-card-h">🐺 野人战法 · 加载中…</div></div>';
+  try {
+    const [scan, budget, laws] = await Promise.all([
+      fetch('/api/yeren/scan').then(r => r.json()).catch(e => ({ ok: false, error: String(e) })),
+      fetch('/api/yeren/budget').then(r => r.json()).catch(e => ({ ok: false, error: String(e) })),
+      fetch('/api/yeren/laws').then(r => r.json()).catch(e => ({ ok: false, error: String(e) })),
+    ]);
+    const picks = scan.picks || [];
+    const summary = budget.summary || {};
+    const card = `
+      <div class="r-card">
+        <div class="r-card-h">🐺 野人战法 · 实时选股</div>
+        <div class="r-card-b">
+          <div class="r-kpi-grid">
+            <div class="r-kpi"><div class="r-kpi-l">池子大小</div><div class="r-kpi-v">${picks.length || '—'}</div></div>
+            <div class="r-kpi"><div class="r-kpi-l">回测胜率</div><div class="r-kpi-v">${summary.winrate ? (summary.winrate * 100).toFixed(1) + '%' : '—'}</div></div>
+            <div class="r-kpi"><div class="r-kpi-l">平均收益</div><div class="r-kpi-v">${summary.avg_ret != null ? summary.avg_ret.toFixed(2) + '%' : '—'}</div></div>
+            <div class="r-kpi"><div class="r-kpi-l">笔数</div><div class="r-kpi-v">${summary.n_trades || '—'}</div></div>
+          </div>
+          ${scan.ok === false ? `<div class="r-warn">⚠ yeren_scan.json 未生成: ${scan.error || '请在 CLI 跑 python yeren_scan.py'}</div>` : ''}
+        </div>
+      </div>
+      <div class="r-card">
+        <div class="r-card-h">🎯 野人推票 (Top 50)</div>
+        <div class="r-card-b">
+          <table class="r-tbl">
+            <thead><tr><th>#</th><th>代码</th><th>名称</th><th>评分</th><th>连板</th><th>板块</th><th>日期</th></tr></thead>
+            <tbody>
+              ${picks.slice(0, 50).map((p, i) => `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td><a href="#/stock/${p.code}" data-jump="stock" data-arg="${p.code}">${p.code}</a></td>
+                  <td>${p.name || '—'}</td>
+                  <td>${(p.score || 0).toFixed(2)}</td>
+                  <td>${p.streak || '—'}</td>
+                  <td>${p.sector || '—'}</td>
+                  <td>${p.date || '—'}</td>
+                </tr>`).join('') || '<tr><td colspan="7" class="r-empty">暂无数据 — 请 CLI 跑 python yeren_scan.py</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="r-card">
+        <div class="r-card-h">📐 野人战法回测</div>
+        <div class="r-card-b">
+          <pre class="r-pre">${JSON.stringify(summary, null, 2).slice(0, 2000)}</pre>
+        </div>
+      </div>
+      <div class="r-card">
+        <div class="r-card-h">📜 野人心法</div>
+        <div class="r-card-b">
+          <ol class="r-laws">
+            ${(laws.laws || []).slice(0, 30).map((l, i) => `<li><b>${l.title || '—'}</b>：${l.text || l}</li>`).join('') || '<li class="r-empty">暂无 laws, 请加载 yeren_laws.py</li>'}
+          </ol>
+        </div>
+      </div>
+    `;
+    mount.innerHTML = card;
+  } catch (e) {
+    mount.innerHTML = `<div class="r-card"><div class="r-card-h">🐺 野人战法</div><div class="r-card-b"><div class="r-warn">⚠ 渲染失败: ${String(e)}</div></div></div>`;
+  }
+}
 
