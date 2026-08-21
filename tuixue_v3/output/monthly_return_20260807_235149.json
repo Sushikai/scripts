@@ -1,0 +1,687 @@
+{
+  "best": {
+    "label": "最优参数",
+    "params": {
+      "top_n": 4,
+      "hold_days": 2,
+      "breadth_min": 1500,
+      "breadth_min_soft": 3500,
+      "sector_hot_topn": 3,
+      "sector_inflow_topn": 3,
+      "late_high_discount": 0.7,
+      "require_vwap_strict": false,
+      "regime_adaptive": true
+    },
+    "summary": {
+      "cum_return_pct": 216.65,
+      "win_rate_pct": 79.55,
+      "profit_factor": 3.01,
+      "max_drawdown_pct": -5.78,
+      "trades": 670
+    },
+    "monthly_stats": {
+      "period": "202402 ~ 202608",
+      "months": 31,
+      "positive_months": 28,
+      "monthly_win_rate_pct": 90.32,
+      "avg_monthly_return_pct": 7.35,
+      "median_monthly_return_pct": 6.52,
+      "max_monthly_return_pct": 26.62,
+      "min_monthly_return_pct": -3.42,
+      "monthly_std_pct": 6.49,
+      "downside_std_pct": 1.32,
+      "sharpe_monthly": 1.133,
+      "sharpe_annual": 3.924,
+      "sortino_monthly": 5.576,
+      "max_drawdown_pct": -3.97,
+      "max_drawdown_month": "202406",
+      "total_cumulative_return_pct": 753.0,
+      "cagr_pct": 129.28,
+      "calmar_ratio": 189.6105,
+      "profit_loss_ratio": 5.25,
+      "max_consecutive_profit_months": 16,
+      "max_consecutive_loss_months": 1,
+      "p25_return_pct": 2.02,
+      "p75_return_pct": 10.78
+    },
+    "trade_stats": {
+      "total_trades": 670,
+      "avg_return_per_trade_pct": 1.293,
+      "median_return_per_trade_pct": 1.195,
+      "trade_win_rate_pct": 79.55,
+      "trade_std_pct": 3.064,
+      "max_single_trade_pct": 9.32,
+      "min_single_trade_pct": -7.98,
+      "profit_factor": 3.01
+    },
+    "monthly_detail": [
+      {
+        "month": "202402",
+        "trades": 22,
+        "total_return_pct": 6.52,
+        "avg_return_pct": 1.155,
+        "wins": 19,
+        "losses": 3,
+        "win_rate_pct": 86.36
+      },
+      {
+        "month": "202403",
+        "trades": 28,
+        "total_return_pct": 2.1,
+        "avg_return_pct": 0.306,
+        "wins": 18,
+        "losses": 8,
+        "win_rate_pct": 64.29
+      },
+      {
+        "month": "202404",
+        "trades": 17,
+        "total_return_pct": 5.13,
+        "avg_return_pct": 1.188,
+        "wins": 13,
+        "losses": 3,
+        "win_rate_pct": 76.47
+      },
+      {
+        "month": "202405",
+        "trades": 28,
+        "total_return_pct": 1.56,
+        "avg_return_pct": 0.237,
+        "wins": 16,
+        "losses": 9,
+        "win_rate_pct": 57.14
+      },
+      {
+        "month": "202406",
+        "trades": 5,
+        "total_return_pct": -3.42,
+        "avg_return_pct": -2.771,
+        "wins": 1,
+        "losses": 4,
+        "win_rate_pct": 20.0
+      },
+      {
+        "month": "202407",
+        "trades": 24,
+        "total_return_pct": 12.93,
+        "avg_return_pct": 2.038,
+        "wins": 22,
+        "losses": 2,
+        "win_rate_pct": 91.67
+      },
+      {
+        "month": "202408",
+        "trades": 14,
+        "total_return_pct": 1.94,
+        "avg_return_pct": 0.561,
+        "wins": 11,
+        "losses": 3,
+        "win_rate_pct": 78.57
+      },
+      {
+        "month": "202409",
+        "trades": 25,
+        "total_return_pct": 26.62,
+        "avg_return_pct": 3.801,
+        "wins": 24,
+        "losses": 0,
+        "win_rate_pct": 96.0
+      },
+      {
+        "month": "202410",
+        "trades": 34,
+        "total_return_pct": 8.07,
+        "avg_return_pct": 0.927,
+        "wins": 27,
+        "losses": 7,
+        "win_rate_pct": 79.41
+      },
+      {
+        "month": "202411",
+        "trades": 35,
+        "total_return_pct": 12.7,
+        "avg_return_pct": 1.377,
+        "wins": 31,
+        "losses": 4,
+        "win_rate_pct": 88.57
+      },
+      {
+        "month": "202412",
+        "trades": 33,
+        "total_return_pct": 6.67,
+        "avg_return_pct": 0.799,
+        "wins": 23,
+        "losses": 8,
+        "win_rate_pct": 69.7
+      },
+      {
+        "month": "202501",
+        "trades": 4,
+        "total_return_pct": -0.94,
+        "avg_return_pct": -0.935,
+        "wins": 3,
+        "losses": 1,
+        "win_rate_pct": 75.0
+      },
+      {
+        "month": "202502",
+        "trades": 24,
+        "total_return_pct": 8.45,
+        "avg_return_pct": 1.366,
+        "wins": 19,
+        "losses": 4,
+        "win_rate_pct": 79.17
+      },
+      {
+        "month": "202503",
+        "trades": 31,
+        "total_return_pct": 10.72,
+        "avg_return_pct": 1.33,
+        "wins": 23,
+        "losses": 7,
+        "win_rate_pct": 74.19
+      },
+      {
+        "month": "202504",
+        "trades": 25,
+        "total_return_pct": 10.83,
+        "avg_return_pct": 1.655,
+        "wins": 23,
+        "losses": 2,
+        "win_rate_pct": 92.0
+      },
+      {
+        "month": "202505",
+        "trades": 18,
+        "total_return_pct": 6.2,
+        "avg_return_pct": 1.348,
+        "wins": 15,
+        "losses": 3,
+        "win_rate_pct": 83.33
+      },
+      {
+        "month": "202506",
+        "trades": 23,
+        "total_return_pct": 5.92,
+        "avg_return_pct": 1.013,
+        "wins": 18,
+        "losses": 5,
+        "win_rate_pct": 78.26
+      },
+      {
+        "month": "202507",
+        "trades": 33,
+        "total_return_pct": 16.23,
+        "avg_return_pct": 1.838,
+        "wins": 28,
+        "losses": 5,
+        "win_rate_pct": 84.85
+      },
+      {
+        "month": "202508",
+        "trades": 18,
+        "total_return_pct": 8.84,
+        "avg_return_pct": 1.893,
+        "wins": 17,
+        "losses": 1,
+        "win_rate_pct": 94.44
+      },
+      {
+        "month": "202509",
+        "trades": 10,
+        "total_return_pct": 3.98,
+        "avg_return_pct": 1.575,
+        "wins": 8,
+        "losses": 2,
+        "win_rate_pct": 80.0
+      },
+      {
+        "month": "202510",
+        "trades": 7,
+        "total_return_pct": 0.58,
+        "avg_return_pct": 0.365,
+        "wins": 4,
+        "losses": 3,
+        "win_rate_pct": 57.14
+      },
+      {
+        "month": "202511",
+        "trades": 27,
+        "total_return_pct": 9.17,
+        "avg_return_pct": 1.313,
+        "wins": 22,
+        "losses": 5,
+        "win_rate_pct": 81.48
+      },
+      {
+        "month": "202512",
+        "trades": 24,
+        "total_return_pct": 10.11,
+        "avg_return_pct": 1.615,
+        "wins": 21,
+        "losses": 2,
+        "win_rate_pct": 87.5
+      },
+      {
+        "month": "202601",
+        "trades": 30,
+        "total_return_pct": 16.38,
+        "avg_return_pct": 2.044,
+        "wins": 23,
+        "losses": 6,
+        "win_rate_pct": 76.67
+      },
+      {
+        "month": "202602",
+        "trades": 13,
+        "total_return_pct": 1.87,
+        "avg_return_pct": 0.58,
+        "wins": 9,
+        "losses": 3,
+        "win_rate_pct": 69.23
+      },
+      {
+        "month": "202603",
+        "trades": 23,
+        "total_return_pct": 2.16,
+        "avg_return_pct": 0.385,
+        "wins": 16,
+        "losses": 7,
+        "win_rate_pct": 69.57
+      },
+      {
+        "month": "202604",
+        "trades": 30,
+        "total_return_pct": 11.44,
+        "avg_return_pct": 1.459,
+        "wins": 24,
+        "losses": 6,
+        "win_rate_pct": 80.0
+      },
+      {
+        "month": "202605",
+        "trades": 18,
+        "total_return_pct": 3.75,
+        "avg_return_pct": 0.828,
+        "wins": 14,
+        "losses": 4,
+        "win_rate_pct": 77.78
+      },
+      {
+        "month": "202606",
+        "trades": 3,
+        "total_return_pct": -0.39,
+        "avg_return_pct": -0.506,
+        "wins": 2,
+        "losses": 1,
+        "win_rate_pct": 66.67
+      },
+      {
+        "month": "202607",
+        "trades": 40,
+        "total_return_pct": 19.86,
+        "avg_return_pct": 1.827,
+        "wins": 35,
+        "losses": 5,
+        "win_rate_pct": 87.5
+      },
+      {
+        "month": "202608",
+        "trades": 4,
+        "total_return_pct": 1.86,
+        "avg_return_pct": 1.851,
+        "wins": 4,
+        "losses": 0,
+        "win_rate_pct": 100.0
+      }
+    ],
+    "elapsed_sec": 130.5
+  },
+  "baseline": {
+    "label": "Baseline (无过滤)",
+    "params": {
+      "top_n": 1,
+      "hold_days": 3,
+      "breadth_min": 0,
+      "breadth_min_soft": 0,
+      "sector_hot_topn": 0,
+      "sector_inflow_topn": 0,
+      "late_high_discount": 1.0,
+      "require_vwap_strict": false,
+      "regime_adaptive": false
+    },
+    "summary": {
+      "cum_return_pct": 611.93,
+      "win_rate_pct": 69.63,
+      "profit_factor": 1.98,
+      "max_drawdown_pct": -21.89,
+      "trades": 596
+    },
+    "monthly_stats": {
+      "period": "202401 ~ 202608",
+      "months": 32,
+      "positive_months": 26,
+      "monthly_win_rate_pct": 81.25,
+      "avg_monthly_return_pct": 20.88,
+      "median_monthly_return_pct": 22.16,
+      "max_monthly_return_pct": 51.22,
+      "min_monthly_return_pct": -15.81,
+      "monthly_std_pct": 18.12,
+      "downside_std_pct": 5.45,
+      "sharpe_monthly": 1.152,
+      "sharpe_annual": 3.992,
+      "sortino_monthly": 3.83,
+      "max_drawdown_pct": -127.05,
+      "max_drawdown_month": "202506",
+      "total_cumulative_return_pct": 29625.42,
+      "cagr_pct": 746.1,
+      "calmar_ratio": 233.1882,
+      "profit_loss_ratio": 3.31,
+      "max_consecutive_profit_months": 14,
+      "max_consecutive_loss_months": 2,
+      "p25_return_pct": 12.07,
+      "p75_return_pct": 29.87
+    },
+    "trade_stats": {
+      "total_trades": 596,
+      "avg_return_per_trade_pct": 1.027,
+      "median_return_per_trade_pct": 1.235,
+      "trade_win_rate_pct": 69.63,
+      "trade_std_pct": 3.672,
+      "max_single_trade_pct": 8.4,
+      "min_single_trade_pct": -6.95,
+      "profit_factor": 1.98
+    },
+    "monthly_detail": [
+      {
+        "month": "202401",
+        "trades": 1,
+        "total_return_pct": 4.79,
+        "avg_return_pct": 4.791,
+        "wins": 1,
+        "losses": 0,
+        "win_rate_pct": 100.0
+      },
+      {
+        "month": "202402",
+        "trades": 12,
+        "total_return_pct": -6.36,
+        "avg_return_pct": -0.479,
+        "wins": 7,
+        "losses": 5,
+        "win_rate_pct": 58.33
+      },
+      {
+        "month": "202403",
+        "trades": 21,
+        "total_return_pct": 21.79,
+        "avg_return_pct": 1.017,
+        "wins": 13,
+        "losses": 6,
+        "win_rate_pct": 61.9
+      },
+      {
+        "month": "202404",
+        "trades": 18,
+        "total_return_pct": -0.0,
+        "avg_return_pct": 0.074,
+        "wins": 12,
+        "losses": 6,
+        "win_rate_pct": 66.67
+      },
+      {
+        "month": "202405",
+        "trades": 20,
+        "total_return_pct": -15.81,
+        "avg_return_pct": -0.776,
+        "wins": 8,
+        "losses": 10,
+        "win_rate_pct": 40.0
+      },
+      {
+        "month": "202406",
+        "trades": 17,
+        "total_return_pct": -5.46,
+        "avg_return_pct": -0.269,
+        "wins": 9,
+        "losses": 8,
+        "win_rate_pct": 52.94
+      },
+      {
+        "month": "202407",
+        "trades": 23,
+        "total_return_pct": 28.51,
+        "avg_return_pct": 1.149,
+        "wins": 17,
+        "losses": 6,
+        "win_rate_pct": 73.91
+      },
+      {
+        "month": "202408",
+        "trades": 22,
+        "total_return_pct": -0.62,
+        "avg_return_pct": 0.05,
+        "wins": 10,
+        "losses": 11,
+        "win_rate_pct": 45.45
+      },
+      {
+        "month": "202409",
+        "trades": 19,
+        "total_return_pct": 13.5,
+        "avg_return_pct": 0.755,
+        "wins": 12,
+        "losses": 7,
+        "win_rate_pct": 63.16
+      },
+      {
+        "month": "202410",
+        "trades": 18,
+        "total_return_pct": 14.36,
+        "avg_return_pct": 0.837,
+        "wins": 12,
+        "losses": 6,
+        "win_rate_pct": 66.67
+      },
+      {
+        "month": "202411",
+        "trades": 20,
+        "total_return_pct": 22.96,
+        "avg_return_pct": 1.121,
+        "wins": 14,
+        "losses": 5,
+        "win_rate_pct": 70.0
+      },
+      {
+        "month": "202412",
+        "trades": 22,
+        "total_return_pct": 42.61,
+        "avg_return_pct": 1.698,
+        "wins": 17,
+        "losses": 4,
+        "win_rate_pct": 77.27
+      },
+      {
+        "month": "202501",
+        "trades": 18,
+        "total_return_pct": 11.6,
+        "avg_return_pct": 0.683,
+        "wins": 12,
+        "losses": 5,
+        "win_rate_pct": 66.67
+      },
+      {
+        "month": "202502",
+        "trades": 18,
+        "total_return_pct": 49.21,
+        "avg_return_pct": 2.306,
+        "wins": 15,
+        "losses": 3,
+        "win_rate_pct": 83.33
+      },
+      {
+        "month": "202503",
+        "trades": 21,
+        "total_return_pct": 43.32,
+        "avg_return_pct": 1.77,
+        "wins": 17,
+        "losses": 3,
+        "win_rate_pct": 80.95
+      },
+      {
+        "month": "202504",
+        "trades": 19,
+        "total_return_pct": 16.33,
+        "avg_return_pct": 0.879,
+        "wins": 13,
+        "losses": 6,
+        "win_rate_pct": 68.42
+      },
+      {
+        "month": "202505",
+        "trades": 19,
+        "total_return_pct": 28.0,
+        "avg_return_pct": 1.353,
+        "wins": 15,
+        "losses": 4,
+        "win_rate_pct": 78.95
+      },
+      {
+        "month": "202506",
+        "trades": 20,
+        "total_return_pct": -12.93,
+        "avg_return_pct": -0.635,
+        "wins": 10,
+        "losses": 10,
+        "win_rate_pct": 50.0
+      },
+      {
+        "month": "202507",
+        "trades": 23,
+        "total_return_pct": 24.09,
+        "avg_return_pct": 1.001,
+        "wins": 17,
+        "losses": 5,
+        "win_rate_pct": 73.91
+      },
+      {
+        "month": "202508",
+        "trades": 21,
+        "total_return_pct": 51.22,
+        "avg_return_pct": 2.045,
+        "wins": 17,
+        "losses": 4,
+        "win_rate_pct": 80.95
+      },
+      {
+        "month": "202509",
+        "trades": 22,
+        "total_return_pct": 21.68,
+        "avg_return_pct": 0.919,
+        "wins": 17,
+        "losses": 4,
+        "win_rate_pct": 77.27
+      },
+      {
+        "month": "202510",
+        "trades": 17,
+        "total_return_pct": 33.96,
+        "avg_return_pct": 1.771,
+        "wins": 14,
+        "losses": 3,
+        "win_rate_pct": 82.35
+      },
+      {
+        "month": "202511",
+        "trades": 20,
+        "total_return_pct": 24.89,
+        "avg_return_pct": 1.167,
+        "wins": 15,
+        "losses": 5,
+        "win_rate_pct": 75.0
+      },
+      {
+        "month": "202512",
+        "trades": 23,
+        "total_return_pct": 18.26,
+        "avg_return_pct": 0.782,
+        "wins": 16,
+        "losses": 6,
+        "win_rate_pct": 69.57
+      },
+      {
+        "month": "202601",
+        "trades": 20,
+        "total_return_pct": 40.21,
+        "avg_return_pct": 1.777,
+        "wins": 14,
+        "losses": 6,
+        "win_rate_pct": 70.0
+      },
+      {
+        "month": "202602",
+        "trades": 14,
+        "total_return_pct": 12.22,
+        "avg_return_pct": 0.886,
+        "wins": 10,
+        "losses": 4,
+        "win_rate_pct": 71.43
+      },
+      {
+        "month": "202603",
+        "trades": 22,
+        "total_return_pct": 22.52,
+        "avg_return_pct": 1.037,
+        "wins": 14,
+        "losses": 8,
+        "win_rate_pct": 63.64
+      },
+      {
+        "month": "202604",
+        "trades": 21,
+        "total_return_pct": 50.9,
+        "avg_return_pct": 2.02,
+        "wins": 19,
+        "losses": 2,
+        "win_rate_pct": 90.48
+      },
+      {
+        "month": "202605",
+        "trades": 18,
+        "total_return_pct": 26.87,
+        "avg_return_pct": 1.388,
+        "wins": 12,
+        "losses": 5,
+        "win_rate_pct": 66.67
+      },
+      {
+        "month": "202606",
+        "trades": 21,
+        "total_return_pct": 47.74,
+        "avg_return_pct": 1.959,
+        "wins": 16,
+        "losses": 5,
+        "win_rate_pct": 76.19
+      },
+      {
+        "month": "202607",
+        "trades": 22,
+        "total_return_pct": 25.64,
+        "avg_return_pct": 1.1,
+        "wins": 16,
+        "losses": 5,
+        "win_rate_pct": 72.73
+      },
+      {
+        "month": "202608",
+        "trades": 4,
+        "total_return_pct": 12.27,
+        "avg_return_pct": 2.947,
+        "wins": 4,
+        "losses": 0,
+        "win_rate_pct": 100.0
+      }
+    ],
+    "elapsed_sec": 71.4
+  }
+}

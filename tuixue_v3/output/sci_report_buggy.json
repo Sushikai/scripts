@@ -1,0 +1,136 @@
+{
+  "ts": "2026-08-04T14:12:17",
+  "config": {
+    "train_start": "2025-06-01",
+    "train_end": "2026-04-30",
+    "val_start": "2026-05-01",
+    "val_end": "2026-07-31",
+    "n_iter_requested": 10000,
+    "n_iter_done": 10000,
+    "sample": 300,
+    "population": 60,
+    "patience": 500
+  },
+  "in_sample": {
+    "best_score": 805.14,
+    "best_params": {
+      "min_streak": 2,
+      "max_streak": 5,
+      "burst_max": 2,
+      "sealed_before": "11:30",
+      "mcap_min_yi": 30.0,
+      "mcap_max_yi": 50.0,
+      "turnover_min_pct": 3.0,
+      "turnover_max_pct": 50.0,
+      "limit_order_min_yi": 0.3,
+      "top_n": 1,
+      "min_sector_zt_count": 0,
+      "min_vol_ratio": 0.0,
+      "max_pct_5d": 25.0,
+      "min_rsi": 20.0,
+      "max_rsi": 85.0,
+      "require_macd_gold": false,
+      "trail_activate_pct": 2.0,
+      "trail_pullback_pct": 2.0,
+      "stop_loss_pct": -3.0,
+      "entry_rule": "close_t0",
+      "gap_activate_pct": 0.3,
+      "board_filter": "all",
+      "regime_mode": "always",
+      "exclude_yiziban": false,
+      "yiziban_only": true,
+      "fill_rate": 1.0,
+      "leverage_factor": 2.0
+    },
+    "trades": 220,
+    "win_rate_pct": 89.55,
+    "monthly_compound_pct": 480.43,
+    "total_compound_pct": 8805556081.42,
+    "max_drawdown_pct": -27.28,
+    "monthly_compounds_pct": [
+      562.34,
+      674.46,
+      349.17,
+      460.11,
+      310.68,
+      288.17,
+      921.66,
+      784.28,
+      127.88,
+      620.91,
+      185.06
+    ],
+    "sharpe_ratio_train": 1.982
+  },
+  "out_of_sample_val": {
+    "best_score": 419.88,
+    "trades": 53,
+    "win_rate_pct": 83.02,
+    "monthly_compound_pct": 275.6,
+    "max_drawdown_pct": -20.02,
+    "monthly_compounds_pct": [
+      205.2,
+      404.65,
+      216.96
+    ],
+    "bootstrap_ci": {
+      "mean": 275.6,
+      "ci_low": 205.2,
+      "ci_high": 404.65,
+      "p_positive": 1.0,
+      "std": 91.38,
+      "n": 3
+    }
+  },
+  "oos_is_ratio": 0.521,
+  "deflated_sharpe": {
+    "observed_sharpe_train": 1.982,
+    "n_trials": 1521,
+    "dsr_p_positive": 0.068,
+    "interpretation": "≥0.95 = 显著; 0.5-0.95 = 边界; <0.5 = 可能过拟合"
+  },
+  "walk_forward": [
+    {
+      "window": [
+        "2025-06-01",
+        "2025-08-31",
+        "2025-09-01",
+        "2025-10-31"
+      ],
+      "oos_score": 210.66
+    },
+    {
+      "window": [
+        "2025-09-01",
+        "2025-11-30",
+        "2025-12-01",
+        "2026-01-31"
+      ],
+      "oos_score": 191.37
+    },
+    {
+      "window": [
+        "2025-12-01",
+        "2026-02-28",
+        "2026-03-01",
+        "2026-04-30"
+      ],
+      "oos_score": 364.19
+    },
+    {
+      "window": [
+        "2026-02-01",
+        "2026-04-30",
+        "2026-05-01",
+        "2026-06-30"
+      ],
+      "oos_score": 325.19
+    }
+  ],
+  "pbo_estimate": null,
+  "elapsed_sec": 5457.8,
+  "decision": {
+    "apply": false,
+    "reason": "DSR=0.07 < 0.85 (多重假设校正后不显著)"
+  }
+}

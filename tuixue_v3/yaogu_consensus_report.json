@@ -1,0 +1,85 @@
+{
+  "model_version": "v121",
+  "generated_at": "2026-08-12 14:18:15",
+  "method": "consensus_vote_3_models",
+  "models": [
+    "GBR(n=300,d=4)",
+    "Ridge(α=10)",
+    "RF(n=200,d=8)"
+  ],
+  "best_config": {
+    "consensus_min": 0.95,
+    "top_k": 3,
+    "hold": 1,
+    "sl": -8,
+    "trades": 23,
+    "wins": 18,
+    "win_rate": 78.3,
+    "avg_ret": 7.47,
+    "total_ret": 171.83,
+    "skipped": 37
+  },
+  "top_5_configs": [
+    {
+      "consensus_min": 0.95,
+      "top_k": 3,
+      "hold": 1,
+      "sl": -8,
+      "trades": 23,
+      "wins": 18,
+      "win_rate": 78.3,
+      "avg_ret": 7.47,
+      "total_ret": 171.83,
+      "skipped": 37
+    },
+    {
+      "consensus_min": 0.95,
+      "top_k": 3,
+      "hold": 1,
+      "sl": -10,
+      "trades": 23,
+      "wins": 18,
+      "win_rate": 78.3,
+      "avg_ret": 7.34,
+      "total_ret": 168.91,
+      "skipped": 37
+    },
+    {
+      "consensus_min": 0.95,
+      "top_k": 5,
+      "hold": 1,
+      "sl": -8,
+      "trades": 24,
+      "wins": 18,
+      "win_rate": 75.0,
+      "avg_ret": 6.8,
+      "total_ret": 163.17,
+      "skipped": 39
+    },
+    {
+      "consensus_min": 0.95,
+      "top_k": 7,
+      "hold": 1,
+      "sl": -8,
+      "trades": 24,
+      "wins": 18,
+      "win_rate": 75.0,
+      "avg_ret": 6.8,
+      "total_ret": 163.17,
+      "skipped": 39
+    },
+    {
+      "consensus_min": 0.95,
+      "top_k": 10,
+      "hold": 1,
+      "sl": -8,
+      "trades": 24,
+      "wins": 18,
+      "win_rate": 75.0,
+      "avg_ret": 6.8,
+      "total_ret": 163.17,
+      "skipped": 39
+    }
+  ],
+  "n_good_configs_60": 30
+}

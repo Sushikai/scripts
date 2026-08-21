@@ -1,0 +1,201 @@
+{
+  "model_version": "v116",
+  "generated_at": "2026-08-11 23:33:32",
+  "ic_5fold_gbr": 0.4225,
+  "ic_5fold_ridge": 0.2566,
+  "ic_5fold_gbr_std": 0.0121,
+  "n_features": 159,
+  "n_events_total": 13479,
+  "train_date_range": [
+    "2025-12-01",
+    "2026-04-24"
+  ],
+  "test_date_range": [
+    "2026-04-24",
+    "2026-07-08"
+  ],
+  "n_train": 7244,
+  "n_test": 4830,
+  "top_k_oos_5fold": {
+    "fwd_1d": {
+      "top_10": {
+        "wr": 100.0,
+        "avg_ret": 26.58
+      },
+      "top_20": {
+        "wr": 90.0,
+        "avg_ret": 21.88
+      },
+      "top_50": {
+        "wr": 86.0,
+        "avg_ret": 15.77
+      }
+    },
+    "fwd_2d": {
+      "top_10": {
+        "wr": 100.0,
+        "avg_ret": 40.84
+      },
+      "top_20": {
+        "wr": 85.0,
+        "avg_ret": 29.99
+      },
+      "top_50": {
+        "wr": 78.0,
+        "avg_ret": 19.75
+      }
+    },
+    "fwd_5d": {
+      "top_10": {
+        "wr": 90.0,
+        "avg_ret": 60.84
+      },
+      "top_20": {
+        "wr": 80.0,
+        "avg_ret": 39.49
+      },
+      "top_50": {
+        "wr": 64.0,
+        "avg_ret": 20.65
+      }
+    }
+  },
+  "top_k_oos_ts": {
+    "fwd_1d": {
+      "top_10": {
+        "wr": 80.0,
+        "avg_ret": 10.93
+      },
+      "top_20": {
+        "wr": 60.0,
+        "avg_ret": 6.49
+      },
+      "top_50": {
+        "wr": 66.0,
+        "avg_ret": 4.98
+      },
+      "top_100": {
+        "wr": 57.0,
+        "avg_ret": 3.08
+      }
+    },
+    "fwd_2d": {
+      "top_10": {
+        "wr": 50.0,
+        "avg_ret": 10.16
+      },
+      "top_20": {
+        "wr": 40.0,
+        "avg_ret": 4.87
+      },
+      "top_50": {
+        "wr": 50.0,
+        "avg_ret": 4.8
+      },
+      "top_100": {
+        "wr": 47.0,
+        "avg_ret": 3.37
+      }
+    },
+    "fwd_5d": {
+      "top_10": {
+        "wr": 60.0,
+        "avg_ret": 15.82
+      },
+      "top_20": {
+        "wr": 45.0,
+        "avg_ret": 5.34
+      },
+      "top_50": {
+        "wr": 52.0,
+        "avg_ret": 8.68
+      },
+      "top_100": {
+        "wr": 43.0,
+        "avg_ret": 5.43
+      }
+    }
+  },
+  "top_features": [
+    {
+      "name": "lhb_pct_chg",
+      "imp": 0.1778
+    },
+    {
+      "name": "lhb_net_ratio",
+      "imp": 0.1189
+    },
+    {
+      "name": "lhb_turnover",
+      "imp": 0.0751
+    },
+    {
+      "name": "lhb_cs_net_total",
+      "imp": 0.0542
+    },
+    {
+      "name": "lhb_cs_n_stocks",
+      "imp": 0.0524
+    },
+    {
+      "name": "lhb_amt_ratio",
+      "imp": 0.0452
+    },
+    {
+      "name": "lhb_cs_ratio_median",
+      "imp": 0.0441
+    },
+    {
+      "name": "lhb_float_mcap",
+      "imp": 0.0387
+    },
+    {
+      "name": "lhb_cs_net_max",
+      "imp": 0.0361
+    },
+    {
+      "name": "lhb_cs_ratio_max",
+      "imp": 0.0314
+    },
+    {
+      "name": "lhb_net_to_mcap",
+      "imp": 0.0307
+    },
+    {
+      "name": "lhb_buy_amt",
+      "imp": 0.0297
+    },
+    {
+      "name": "interp_success_rate",
+      "imp": 0.0282
+    },
+    {
+      "name": "lhb_cs_mcap_median",
+      "imp": 0.0233
+    },
+    {
+      "name": "lhb_cs_net_median",
+      "imp": 0.023
+    },
+    {
+      "name": "seat_top_amt",
+      "imp": 0.0203
+    },
+    {
+      "name": "lhb_total_amt",
+      "imp": 0.0171
+    },
+    {
+      "name": "lhb_sell_amt",
+      "imp": 0.017
+    },
+    {
+      "name": "lhb_net_buy",
+      "imp": 0.0141
+    },
+    {
+      "name": "lhb_cs_self_pct_net",
+      "imp": 0.0139
+    }
+  ]
+}

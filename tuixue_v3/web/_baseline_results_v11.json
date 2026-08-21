@@ -1,0 +1,87 @@
+{
+  "rounds": 15,
+  "wall_clock_s": 157.2,
+  "results": {
+    "/api/stock/600519/full": {
+      "p50_ms": 20.4,
+      "p95_ms": 2408.2,
+      "p99_ms": 2408.2,
+      "max_ms": 2408.2,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/stock/000001/full": {
+      "p50_ms": 123.9,
+      "p95_ms": 2160.4,
+      "p99_ms": 2160.4,
+      "max_ms": 2160.4,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/stock/600519/intraday_5d": {
+      "p50_ms": 3899.7,
+      "p95_ms": 12007.4,
+      "p99_ms": 12007.4,
+      "max_ms": 12007.4,
+      "n": 15,
+      "non_2xx": 1
+    },
+    "/api/stock/000001/intraday_5d": {
+      "p50_ms": 2141.0,
+      "p95_ms": 8956.3,
+      "p99_ms": 8956.3,
+      "max_ms": 8956.3,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/dashboard/signal": {
+      "p50_ms": 3.0,
+      "p95_ms": 146.0,
+      "p99_ms": 146.0,
+      "max_ms": 146.0,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/dashboard/index_trend?period=day": {
+      "p50_ms": 86.4,
+      "p95_ms": 350.7,
+      "p99_ms": 350.7,
+      "max_ms": 350.7,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/market/overview": {
+      "p50_ms": 4.1,
+      "p95_ms": 247.4,
+      "p99_ms": 247.4,
+      "max_ms": 247.4,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/dexin/screen": {
+      "p50_ms": 12.5,
+      "p95_ms": 5000.5,
+      "p99_ms": 5000.5,
+      "max_ms": 5000.5,
+      "n": 15,
+      "non_2xx": 1
+    },
+    "/api/zt/live_pick?top_n=20": {
+      "p50_ms": 5.1,
+      "p95_ms": 46.2,
+      "p99_ms": 46.2,
+      "max_ms": 46.2,
+      "n": 15,
+      "non_2xx": 0
+    },
+    "/api/yeren/scan": {
+      "p50_ms": 4.1,
+      "p95_ms": 17.9,
+      "p99_ms": 17.9,
+      "max_ms": 17.9,
+      "n": 15,
+      "non_2xx": 0
+    }
+  },
+  "ts": 1787331295.036751
+}

@@ -1,0 +1,68 @@
+{
+  "ts": 1785031937.516991,
+  "results": [
+    {
+      "vp": "desktop",
+      "dash": {
+        "spark_count": 26,
+        "dash_kpi": true
+      },
+      "kline": {
+        "container_w": 944,
+        "container_h": 380,
+        "canvas_w": 0,
+        "canvas_h": 0,
+        "visible": true
+      },
+      "intraday": {
+        "container_w": 944,
+        "container_h": 320,
+        "canvas_w": 0,
+        "canvas_h": 0
+      },
+      "intraday5d": {
+        "container_w": 0,
+        "canvas_w": 0
+      },
+      "flow": {
+        "container_w": 944,
+        "canvas_w": 944
+      },
+      "errors": []
+    },
+    {
+      "vp": "mobile",
+      "dash": {
+        "spark_count": 26,
+        "dash_kpi": true
+      },
+      "kline": {
+        "container_w": 334,
+        "container_h": 250,
+        "canvas_w": 334,
+        "canvas_h": 250,
+        "visible": true
+      },
+      "intraday": {
+        "container_w": 334,
+        "container_h": 180,
+        "canvas_w": 334,
+        "canvas_h": 180
+      },
+      "intraday5d": {
+        "container_w": 0,
+        "canvas_w": 0
+      },
+      "flow": {
+        "container_w": 334,
+        "canvas_w": 334
+      },
+      "errors": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        }
+      ]
+    }
+  ]
+}

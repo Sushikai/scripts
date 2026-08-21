@@ -1,0 +1,21 @@
+{
+  "ts": 1785070161.406815,
+  "snap": {
+    "index": {
+      "id": "index-trend-grid",
+      "tileCount": 0,
+      "tiles": []
+    },
+    "sector": {
+      "id": "sector-trend-grid",
+      "tileCount": 0,
+      "tiles": []
+    }
+  },
+  "snap_mobile": {
+    "index": 0,
+    "sector": 0
+  },
+  "trend_api": [],
+  "errors": []
+}

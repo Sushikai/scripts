@@ -1,0 +1,307 @@
+{
+  "dom": {
+    "a": {
+      "id": "sig-a-verdict",
+      "text": "不适合买入",
+      "html": "不适合买入"
+    },
+    "a_pct": {
+      "id": "sig-a-pct",
+      "text": "-1.86%",
+      "html": "-1.86%"
+    },
+    "a_head": {
+      "id": "sig-a-head",
+      "text": "6 指数均值 -1.86%",
+      "html": "6 指数均值 -1.86%"
+    },
+    "kr": {
+      "id": "sig-kr-verdict",
+      "text": "不适合买入",
+      "html": "不适合买入"
+    },
+    "kr_pct": {
+      "id": "sig-kr-pct",
+      "text": "-5.72%",
+      "html": "-5.72%"
+    },
+    "kr_head": {
+      "id": "sig-kr-head",
+      "text": "KOSPI -5.72% · NAVER",
+      "html": "KOSPI -5.72% · naver"
+    },
+    "us": {
+      "id": "sig-us-verdict",
+      "text": "不适合买入",
+      "html": "不适合买入"
+    },
+    "us_pct": {
+      "id": "sig-us-pct",
+      "text": "-1.87%",
+      "html": "-1.87%"
+    },
+    "us_head": {
+      "id": "sig-us-head",
+      "text": "风险偏好 RISK_OFF · 综合 -1.87%",
+      "html": "风险偏好 risk_off · 综合 -1.87%"
+    },
+    "hot_tiles": 2183,
+    "hot_sub": "情绪 活跃 · 涨停 40 · 最高 4 连板",
+    "ticker_count": 7
+  },
+  "err_log": [],
+  "api_log": [
+    {
+      "url": "http://127.0.0.1:7799/",
+      "status": 200,
+      "ms": 1785008721687,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/static/tokens.css",
+      "status": 200,
+      "ms": 1785008721712,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/static/core.js?v=5ce52b2d",
+      "status": 200,
+      "ms": 1785008721719,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/static/style.css?v=28e30b22",
+      "status": 200,
+      "ms": 1785008721723,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/static/zt-frontend.js?v=5ce52b2d",
+      "status": 200,
+      "ms": 1785008721877,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/static/view-dash.js?v=5ce52b2d",
+      "status": 200,
+      "ms": 1785008721882,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/static/app.js?v=5ce52b2d",
+      "status": 200,
+      "ms": 1785008721883,
+      "ok": true
+    },
+    {
+      "url": "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap",
+      "status": 200,
+      "ms": 1785008721939,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/zt/params",
+      "status": 200,
+      "ms": 1785008721940,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock_history?limit=50",
+      "status": 200,
+      "ms": 1785008721940,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/market/overview",
+      "status": 200,
+      "ms": 1785008722082,
+      "ok": true
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/manrope/v20/xn7gYHE41ni1AdIRggexSvfedN4.woff2",
+      "status": 200,
+      "ms": 1785008722129,
+      "ok": true
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwgknk-4.woff2",
+      "status": 200,
+      "ms": 1785008722147,
+      "ok": true
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/fraunces/v38/6NU78FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0KxC9TeP2Xz5c.woff2",
+      "status": 200,
+      "ms": 1785008722176,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/market/overview",
+      "status": 200,
+      "ms": 1785008725006,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/dashboard/signal",
+      "status": 200,
+      "ms": 1785008726830,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/dashboard/signal",
+      "status": 200,
+      "ms": 1785008726830,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/dashboard/hot_sectors",
+      "status": 200,
+      "ms": 1785008727196,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/watchlist",
+      "status": 200,
+      "ms": 1785008727235,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/600693/core",
+      "status": 200,
+      "ms": 1785008727433,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/000989/core",
+      "status": 200,
+      "ms": 1785008727532,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002907/core",
+      "status": 200,
+      "ms": 1785008727604,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/603538/core",
+      "status": 200,
+      "ms": 1785008727782,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/603881/core",
+      "status": 200,
+      "ms": 1785008727796,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002370/core",
+      "status": 200,
+      "ms": 1785008727875,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/000948/core",
+      "status": 200,
+      "ms": 1785008727912,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/600521/core",
+      "status": 200,
+      "ms": 1785008728025,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/001258/core",
+      "status": 200,
+      "ms": 1785008728168,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002452/core",
+      "status": 200,
+      "ms": 1785008728287,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002396/core",
+      "status": 200,
+      "ms": 1785008728337,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/603407/core",
+      "status": 200,
+      "ms": 1785008728420,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002213/core",
+      "status": 200,
+      "ms": 1785008728519,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/603716/core",
+      "status": 200,
+      "ms": 1785008728663,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002197/core",
+      "status": 200,
+      "ms": 1785008728771,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/000977/core",
+      "status": 200,
+      "ms": 1785008729066,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002879/core",
+      "status": 200,
+      "ms": 1785008729241,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002716/core",
+      "status": 200,
+      "ms": 1785008729551,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/603068/core",
+      "status": 200,
+      "ms": 1785008729691,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/000011/core",
+      "status": 200,
+      "ms": 1785008729715,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/002298/core",
+      "status": 200,
+      "ms": 1785008729744,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/stock/600519/core",
+      "status": 200,
+      "ms": 1785008730088,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:7799/api/dashboard/hot_sectors",
+      "status": 200,
+      "ms": 1785008732496,
+      "ok": true
+    }
+  ]
+}

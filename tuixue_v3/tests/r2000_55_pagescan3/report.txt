@@ -1,0 +1,24 @@
+
+=== dexin ===
+PAGE: 批量行情超时 15s — 请缩小筛选或稍后再试
+PAGE: 批量行情超时 15s — 请缩小筛选或稍后再试
+CON.e: [unhandled] Error: 批量行情超时 15s — 请缩小筛选或稍后再试
+    at _core (http://localhost:7799/static/app.js?v=2f0dad2d:843:64)
+CON.e: [unhandled] Error: 批量行情超时 15s — 请缩小筛选或稍后再试
+    at _core (http://localhost:7799/static/app.js?v=2f0dad2d:843:64)
+CON.w: [unhandled] 批量行情超时 15s — 请缩小筛选或稍后再试
+
+=== yaogu ===
+PAGE: 批量行情超时 15s — 请缩小筛选或稍后再试
+CON.e: [unhandled] Error: 批量行情超时 15s — 请缩小筛选或稍后再试
+    at _core (http://localhost:7799/static/app.js?v=2f0dad2d:843:64)
+CON.w: [unhandled] 批量行情超时 15s — 请缩小筛选或稍后再试
+
+=== hot_concepts ===
+PAGE: 请求超时 25s — /api/stock_history 上游数据源可能不可用
+PAGE: 请求超时 25s — /api/stock_history 上游数据源可能不可用
+CON.w: [unhandled] 请求超时 25s — /api/stock_history 上游数据源可能不可用
+CON.w: [unhandled timeout] Error: 请求超时 25s — /api/stock_history 上游数据源可能不可用
+    at _core (http://localhost:7799/static/app.js?v=2f0dad2d:843:64)
+CON.w: [unhandled timeout] Error: 请求超时 25s — /api/stock_history 上游数据源可能不可用
+    at _core (http://localhost:7799/static/app.js?v=2f0dad2d:843:64)

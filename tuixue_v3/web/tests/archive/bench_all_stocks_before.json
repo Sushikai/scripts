@@ -1,0 +1,21 @@
+{
+  "label": "before",
+  "ts": 1784645698.885578,
+  "base": "http://127.0.0.1:7799",
+  "cold_ms": 6.2,
+  "cold_items": 12,
+  "total_available": 12,
+  "total_universe": 5529,
+  "stats_total_count": 5529,
+  "cold_err": null,
+  "warm_p50_ms": 2.3,
+  "warm_p95_ms": 3.4,
+  "warm_max_ms": 4.6,
+  "filter_p50_ms": 2.5,
+  "filter_p95_ms": 23.2,
+  "filter_max_ms": 62.3,
+  "filter_avg_cov": 24.8,
+  "concurrent_total_ms": 22.3,
+  "concurrent_max_ms": 21.5,
+  "concurrent_fail": 0
+}

@@ -1,0 +1,183 @@
+{
+  "ts": 1785008849.504927,
+  "total_errors": 0,
+  "total_warnings": 0,
+  "total_failed": 0,
+  "errors_by_view": {},
+  "warnings_by_view": {},
+  "failed_by_view": {},
+  "per_view": {
+    "cur": "sources",
+    "dash": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "stock": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "watchlist": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "dragons": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "sector": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "all_stocks": {
+      "empty_kpi": [
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"300308\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"603986\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"002156\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"300502\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"000938\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"002384\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"600584\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"688008\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"601899\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"002371\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"688256\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"001309\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"688012\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"300750\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"002185\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"000725\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"300604\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"000021\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"000977\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        },
+        {
+          "sel": ".num",
+          "text": "",
+          "html": "<td class=\"num\" data-priority=\"3\" data-col=\"5D走势\" data-spark-code=\"600487\" data-spark-hydrated=\"1\"><svg viewBox=\"0 0 60 16\" width=\"60\" height=\"16\" style=\"display:block;margin:0 auto;\">\n      <path d=\""
+        }
+      ],
+      "errors": 0,
+      "warnings": 0
+    },
+    "screener": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "review": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "weekly_bull": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "ai-review": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "strategy_picker": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "optimize": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "laws": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    },
+    "sources": {
+      "empty_kpi": [],
+      "errors": 0,
+      "warnings": 0
+    }
+  }
+}

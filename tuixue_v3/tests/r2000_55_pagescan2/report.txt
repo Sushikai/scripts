@@ -1,0 +1,58 @@
+
+=== dash ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== watchlist ===
+PAGE: goto: Page.goto: Timeout 20000ms exceeded.
+Call log:
+  - navigating to "http://localhost:7799/#watchlist", waiting until "networkidle"
+
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+CON:  [warning] The resource http://localhost:7799/static/vendor/echarts.min.js?v=eaa4e7d5 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== dragons ===
+PAGE: goto: Page.goto: Timeout 20000ms exceeded.
+Call log:
+  - navigating to "http://localhost:7799/#dragons", waiting until "networkidle"
+
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+CON:  [warning] The resource http://localhost:7799/static/vendor/echarts.min.js?v=eaa4e7d5 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== dexin ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== yaogu ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== hot_concepts ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== news ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== weekly_bull ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== strategy_picker ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== yeren ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== stock/000001 ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health
+
+=== sectors ===
+CON:  [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+4xx:  404 http://localhost:7799/api/upstream/health

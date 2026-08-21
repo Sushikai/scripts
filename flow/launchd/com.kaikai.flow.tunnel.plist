@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kaikai.flow.tunnel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/kaikai/scripts/flow/run_tunnel_keeper.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/kaikai/scripts/flow</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>20</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/kaikai/scripts/flow/logs/tunnel.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/kaikai/scripts/flow/logs/tunnel.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>FLOW_PORT</key>
+        <string>8810</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

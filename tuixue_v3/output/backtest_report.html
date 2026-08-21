@@ -1,0 +1,225 @@
+<h2 class="sr-only">尾盘战法月度收益科学回测报告 2024年2月至2026年8月</h2>
+<div style="font-family: var(--font-sans, -apple-system, sans-serif); max-width: 720px; margin: 0 auto;">
+
+<div style="margin-bottom: 24px;">
+  <h1 style="font-size: 15px; font-weight: 500; margin: 0 0 4px 0;">尾盘战法 · 月度收益科学回测</h1>
+  <p style="font-size: 13px; color: var(--color-text-secondary, #666); margin: 0;">回测周期 2024-02 ~ 2026-08 · 31个月 · 730笔交易 · 最优参数组合</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">月均收益</p>
+    <p style="font-size: 22px; font-weight: 500; color: #E24B4A; margin: 0;">+7.57%</p>
+  </div>
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">月胜率</p>
+    <p style="font-size: 22px; font-weight: 500; color: #E24B4A; margin: 0;">87.1%</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary, #aaa); margin: 2px 0 0 0;">27/31月盈利</p>
+  </div>
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">累计收益</p>
+    <p style="font-size: 22px; font-weight: 500; color: #E24B4A; margin: 0;">+234.6%</p>
+  </div>
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">最大回撤</p>
+    <p style="font-size: 22px; font-weight: 500; color: #639922; margin: 0;">-3.64%</p>
+    <p style="font-size: 11px; color: var(--color-text-tertiary, #aaa); margin: 2px 0 0 0;">2024年6月</p>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">夏普比率(年化)</p>
+    <p style="font-size: 22px; font-weight: 500; margin: 0;">5.09</p>
+  </div>
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">Sortino</p>
+    <p style="font-size: 22px; font-weight: 500; margin: 0;">5.60</p>
+  </div>
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">盈亏比(PF)</p>
+    <p style="font-size: 22px; font-weight: 500; margin: 0;">2.95</p>
+  </div>
+  <div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 12px;">
+    <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 4px 0;">Calmar</p>
+    <p style="font-size: 22px; font-weight: 500; margin: 0;">64.4</p>
+  </div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 8px; font-size: 12px; color: var(--color-text-secondary, #666);">
+  <span style="display: flex; align-items: center; gap: 4px;">
+    <span style="width: 10px; height: 10px; border-radius: 2px; background: #E24B4A;"></span>月收益(盈利)
+  </span>
+  <span style="display: flex; align-items: center; gap: 4px;">
+    <span style="width: 10px; height: 10px; border-radius: 2px; background: #639922;"></span>月收益(亏损)
+  </span>
+  <span style="display: flex; align-items: center; gap: 4px;">
+    <span style="width: 10px; height: 10px; border-radius: 2px; background: #534AB7;"></span>累计收益曲线
+  </span>
+</div>
+
+<div style="position: relative; width: 100%; height: 320px; margin-bottom: 8px;">
+  <canvas id="monthlyChart" role="img" aria-label="逐月收益率柱状图，2024年2月至2026年8月">月度收益率柱状图</canvas>
+</div>
+
+<div style="position: relative; width: 100%; height: 280px; margin-bottom: 24px;">
+  <canvas id="cumChart" role="img" aria-label="累计收益曲线图">累计收益曲线图</canvas>
+</div>
+
+<div style="margin-bottom: 24px;">
+  <h2 style="font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">逐月明细</h2>
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+      <thead>
+        <tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">
+          <th style="text-align: left; padding: 8px 6px; font-weight: 500; color: var(--color-text-secondary, #666);">月份</th>
+          <th style="text-align: right; padding: 8px 6px; font-weight: 500; color: var(--color-text-secondary, #666);">笔数</th>
+          <th style="text-align: right; padding: 8px 6px; font-weight: 500; color: var(--color-text-secondary, #666);">月累计</th>
+          <th style="text-align: right; padding: 8px 6px; font-weight: 500; color: var(--color-text-secondary, #666);">笔均</th>
+          <th style="text-align: right; padding: 8px 6px; font-weight: 500; color: var(--color-text-secondary, #666);">胜率</th>
+          <th style="text-align: right; padding: 8px 6px; font-weight: 500; color: var(--color-text-secondary, #666);">盈/亏</th>
+        </tr>
+      </thead>
+      <tbody id="monthTable">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+  <h2 style="font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">逐笔统计</h2>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+    <div>
+      <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 2px 0;">总交易笔数</p>
+      <p style="font-size: 18px; font-weight: 500; margin: 0;">730</p>
+    </div>
+    <div>
+      <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 2px 0;">笔均收益</p>
+      <p style="font-size: 18px; font-weight: 500; color: #E24B4A; margin: 0;">+1.285%</p>
+    </div>
+    <div>
+      <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 2px 0;">笔胜率</p>
+      <p style="font-size: 18px; font-weight: 500; margin: 0;">78.77%</p>
+    </div>
+    <div>
+      <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 2px 0;">单笔最大盈利</p>
+      <p style="font-size: 18px; font-weight: 500; color: #E24B4A; margin: 0;">+9.32%</p>
+    </div>
+    <div>
+      <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 2px 0;">单笔最大亏损</p>
+      <p style="font-size: 18px; font-weight: 500; color: #639922; margin: 0;">-7.98%</p>
+    </div>
+    <div>
+      <p style="font-size: 12px; color: var(--color-text-secondary, #888); margin: 0 0 2px 0;">笔收益中位数</p>
+      <p style="font-size: 18px; font-weight: 500; margin: 0;">+1.187%</p>
+    </div>
+  </div>
+</div>
+
+<div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+  <h2 style="font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">风险调整指标</h2>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 24px; font-size: 13px;">
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">月收益标准差</span><span>5.15%</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">下行标准差</span><span>1.35%</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">夏普比率(月)</span><span>1.468</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">夏普比率(年)</span><span>5.085</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">Sortino</span><span>5.597</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">Calmar</span><span>64.44</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">盈亏比(月)</span><span>6.69</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">最长连盈</span><span>10个月</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">最长连亏</span><span>2个月</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">P25分位</span><span>+4.10%</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">P75分位</span><span>+10.18%</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">月收益中位数</span><span>+7.84%</span></div>
+  </div>
+</div>
+
+<div style="background: var(--color-background-secondary, #f5f5f5); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+  <h2 style="font-size: 14px; font-weight: 500; margin: 0 0 12px 0;">回测参数</h2>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 24px; font-size: 13px;">
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">选股数量(top_n)</span><span>4</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">持有天数</span><span>2天</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">成交额硬红线</span><span>1500亿</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">成交额软红线</span><span>3500亿</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">热门板块top</span><span>3</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">资金流入top</span><span>3</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">尾盘高位折扣</span><span>0.7</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-secondary, #888);">情绪自适应</span><span>开启</span></div>
+  </div>
+</div>
+
+<div style="font-size: 12px; color: var(--color-text-tertiary, #aaa); line-height: 1.6; border-top: 0.5px solid var(--color-border-tertiary, #ddd); padding-top: 12px;">
+  <p style="margin: 0 0 4px 0;">样本：主板1500只，日线覆盖率89% (1336/1500)，交易日跨度2023-12-01至2026-08-07</p>
+  <p style="margin: 0 0 4px 0;">退场策略：trail_80 (80%跟踪止盈)，6套退场对比</p>
+  <p style="margin: 0 0 4px 0;">跳过条件：无选股40天、无T1数据4天、成交额低于硬红线175天、软红线无热门板块164天</p>
+  <p style="margin: 0;">注：月收益为各笔trade回报率累加(非复利)，累计收益已按equity_curve终值校准</p>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+var monthly = [
+  {m:"2024-02",r:5.37,t:24,w:83.33},{m:"2024-03",r:7.89,t:34,w:73.53},{m:"2024-04",r:9.8,t:29,w:72.41},
+  {m:"2024-05",r:-0.04,t:31,w:51.61},{m:"2024-06",r:-3.6,t:6,w:33.33},{m:"2024-07",r:10.02,t:24,w:87.5},
+  {m:"2024-08",r:3.46,t:17,w:82.35},{m:"2024-09",r:21.94,t:25,w:88.0},{m:"2024-10",r:12.05,t:32,w:87.5},
+  {m:"2024-11",r:10.35,t:33,w:87.88},{m:"2024-12",r:7.66,t:38,w:73.68},{m:"2025-01",r:-0.87,t:8,w:75.0},
+  {m:"2025-02",r:9.61,t:24,w:79.17},{m:"2025-03",r:9.55,t:27,w:77.78},{m:"2025-04",r:10.35,t:25,w:92.0},
+  {m:"2025-05",r:6.21,t:28,w:78.57},{m:"2025-06",r:7.63,t:26,w:73.08},{m:"2025-07",r:14.15,t:30,w:86.67},
+  {m:"2025-08",r:7.57,t:22,w:86.36},{m:"2025-09",r:3.71,t:9,w:77.78},{m:"2025-10",r:-0.8,t:6,w:50.0},
+  {m:"2025-11",r:12.07,t:28,w:85.71},{m:"2025-12",r:7.75,t:30,w:80.0},{m:"2026-01",r:14.7,t:25,w:80.0},
+  {m:"2026-02",r:3.67,t:17,w:64.71},{m:"2026-03",r:4.49,t:28,w:75.0},{m:"2026-04",r:12.9,t:40,w:77.5},
+  {m:"2026-05",r:8.68,t:21,w:80.95},{m:"2026-06",r:7.84,t:12,w:83.33},{m:"2026-07",r:8.41,t:24,w:83.33},
+  {m:"2026-08",r:2.04,t:7,w:85.71}
+];
+var labels = monthly.map(function(d){return d.m;});
+var returns = monthly.map(function(d){return d.r;});
+var colors = monthly.map(function(d){return d.r>0?'#E24B4A':'#639922';});
+var cum = 0;
+var cumData = monthly.map(function(d){cum+=d.r;return Math.round(cum*100)/100;});
+
+new Chart(document.getElementById('monthlyChart'),{
+  type:'bar',
+  data:{labels:labels,datasets:[{label:'月收益',data:returns,backgroundColor:colors,borderRadius:2,maxBarThickness:18}]},
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{
+      label:function(c){var d=monthly[c.dataIndex];return '月收益: '+d.r+'% | '+d.t+'笔 | 胜率'+d.w+'%';}
+    }}},
+    scales:{
+      x:{ticks:{autoSkip:false,maxRotation:45,font:{size:10}},grid:{display:false}},
+      y:{ticks:{callback:function(v){return v+'%';},font:{size:11}},grid:{color:'rgba(0,0,0,0.06)'}}
+    }
+  }
+});
+
+new Chart(document.getElementById('cumChart'),{
+  type:'line',
+  data:{labels:labels,datasets:[{label:'累计收益',data:cumData,borderColor:'#534AB7',backgroundColor:'rgba(83,74,183,0.08)',fill:true,tension:0.3,pointRadius:2,pointBackgroundColor:'#534AB7'}]},
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{
+      label:function(c){return '累计: '+c.parsed.y+'%';}
+    }}},
+    scales:{
+      x:{ticks:{autoSkip:false,maxRotation:45,font:{size:10}},grid:{display:false}},
+      y:{ticks:{callback:function(v){return v+'%';},font:{size:11}},grid:{color:'rgba(0,0,0,0.06)'}}
+    }
+  }
+});
+
+var tbl = document.getElementById('monthTable');
+monthly.forEach(function(d){
+  var tr = document.createElement('tr');
+  tr.style.borderBottom = '0.5px solid rgba(0,0,0,0.05)';
+  var pos = d.r>0;
+  var wl = d.w>=50;
+  tr.innerHTML = '<td style="padding:6px;font-weight:500;">'+d.m+'</td>'+
+    '<td style="padding:6px;text-align:right;">'+d.t+'</td>'+
+    '<td style="padding:6px;text-align:right;color:'+(pos?'#E24B4A':'#639922')+';font-weight:500;">'+(d.r>0?'+':'')+d.r+'%</td>'+
+    '<td style="padding:6px;text-align:right;">'+(d.r/d.t).toFixed(2)+'%</td>'+
+    '<td style="padding:6px;text-align:right;">'+d.w+'%</td>'+
+    '<td style="padding:6px;text-align:right;color:'+(wl?'#E24B4A':'#639922')+';">'+(wl?'盈':'亏')+'</td>';
+  tbl.appendChild(tr);
+});
+</script>

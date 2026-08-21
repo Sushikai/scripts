@@ -1,0 +1,44 @@
+[
+  {
+    "item": "row hover translateX(1px)",
+    "ok": true,
+    "snippet": "transform = matrix(1, 0, 0, 1, 1, 0)",
+    "extra": ""
+  },
+  {
+    "item": "td border-right 1px solid 0.08-alpha",
+    "ok": true,
+    "snippet": "1px solid rgba(138, 152, 168, 0.08)",
+    "extra": "w=1px s=solid c=rgba(138, 152, 168, 0.08) data-col=代码"
+  },
+  {
+    "item": "chip-l1 has linear-gradient(135deg",
+    "ok": true,
+    "snippet": "bg = linear-gradient(135deg, rgba(91, 141, 239, 0.133), rgba(71, 148, 235, 0.18))",
+    "extra": "count=30 text='大科技'"
+  },
+  {
+    "item": "chip:hover translateY(-1px)",
+    "ok": true,
+    "snippet": "transform = matrix(1, 0, 0, 1, 0, -1)",
+    "extra": "matches(:hover)=True dist=1.4142135623730951 text='电子' cls='chip chip-click chip-trunc'"
+  },
+  {
+    "item": "sticky-left transition box-shadow .15s",
+    "ok": true,
+    "snippet": "transition = box-shadow 0.15s cubic-bezier(0.22, 0.61, 0.36, 1)",
+    "extra": "box-shadow=True dur_match=True"
+  },
+  {
+    "item": "scrollbar thumb rule exists",
+    "ok": true,
+    "snippet": ".review-table-wrap::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }",
+    "extra": ""
+  },
+  {
+    "item": "kpi-group:hover translateY(-2px)",
+    "ok": true,
+    "snippet": "transform = matrix(1, 0, 0, 1, 0, -2)",
+    "extra": "matches(:hover)=True dist=2"
+  }
+]

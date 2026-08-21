@@ -1,0 +1,58 @@
+{
+  "discount_1.0": {
+    "trades": 72,
+    "win_rate_pct": 98.61,
+    "avg_daily_return_pct": 25.179,
+    "cum_return_pct": 372324922.3,
+    "monthly_return_pct_user": 528.76,
+    "yearly_return_pct_user": 6294.75,
+    "amount_after_1_month_yuan": 125752,
+    "amount_after_1_year_yuan": 1278950,
+    "scenarios": {
+      "trail_80": {
+        "win_rate_pct": 98.61,
+        "avg_pct": 25.179,
+        "cum_return_pct": 372324922.3
+      },
+      "trail_50": {
+        "win_rate_pct": 98.61,
+        "avg_pct": 24.877,
+        "cum_return_pct": 302066579.63
+      },
+      "trail_20": {
+        "win_rate_pct": 98.61,
+        "avg_pct": 24.575,
+        "cum_return_pct": 244136251.95
+      },
+      "water_avg": {
+        "win_rate_pct": 12.5,
+        "avg_pct": -2.094,
+        "cum_return_pct": -78.49
+      },
+      "force_10": {
+        "win_rate_pct": 20.83,
+        "avg_pct": -0.751,
+        "cum_return_pct": -42.49
+      },
+      "force_close": {
+        "win_rate_pct": 38.89,
+        "avg_pct": -0.57,
+        "cum_return_pct": -38.12
+      }
+    },
+    "exit_breakdown": {
+      "late_recover": {
+        "count": 56,
+        "pct": 77.78
+      },
+      "trail_recover": {
+        "count": 15,
+        "pct": 20.83
+      },
+      "water_avg": {
+        "count": 1,
+        "pct": 1.39
+      }
+    }
+  }
+}
